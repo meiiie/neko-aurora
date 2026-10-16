@@ -1,0 +1,55 @@
+name: Báo lỗi
+description: Báo lỗi có commit, môi trường và fixture tái hiện
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Đọc SUPPORT.md và SECURITY.md trước. Không đăng token, account store, state/journal thật, chat riêng hoặc exploit có dữ liệu thật.
+  - type: dropdown
+    id: component
+    attributes:
+      label: Component
+      options:
+        - Neko Bot UI
+        - Go control plane / journal
+        - Rust host / Tauri
+        - Neko Core
+        - Wiii overlay
+        - Docs / setup
+    validations:
+      required: true
+  - type: input
+    id: revision
+    attributes:
+      label: Branch và exact commit
+      placeholder: main, full Git SHA
+    validations:
+      required: true
+  - type: textarea
+    id: environment
+    attributes:
+      label: Môi trường
+      description: OS, Go/Rust/Bun/browser và command liên quan; không đưa đường dẫn cá nhân hoặc thông tin account.
+    validations:
+      required: true
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: Các bước tái hiện bằng fixture
+      description: Dùng dữ liệu synthetic; nêu command và exit code nếu có.
+    validations:
+      required: true
+  - type: textarea
+    id: behavior
+    attributes:
+      label: Mong đợi và thực tế
+      description: Nêu rõ PASS/FAIL/BLOCKED; không suy từ fixture sang provider/phone/cloud.
+    validations:
+      required: true
+  - type: checkboxes
+    id: privacy
+    attributes:
+      label: Trước khi gửi
+      options:
+        - label: Tôi đã loại secrets, dữ liệu người dùng thật và bằng chứng nhạy cảm khỏi báo cáo này.
+          required: true

@@ -1,8 +1,28 @@
 # Neko Bot
 
+<picture>
+  <source media="(max-width: 600px)" srcset="docs/assets/neko-bot-banner-mobile.svg">
+  <img src="docs/assets/neko-bot-banner.svg" alt="Neko Bot với logo Neko Peek: đa bot, đa kênh, ưu tiên dữ liệu cục bộ; bản đang phát triển" width="1200">
+</picture>
+
+![Đang phát triển](docs/assets/badges/development.svg) ![Tauri, Rust và Go](docs/assets/badges/stack.svg) ![Runtime: Neko Core](docs/assets/badges/runtime.svg)
+
 Trợ lý đa bot, đa kênh theo hướng **local-first**. Neko Bot hướng tới việc phối hợp nhiều bot có danh tính và chỉ dẫn riêng, giữ lịch sử công việc bền vững, nhận tin mới khi tác vụ cũ đang chạy và trả kết quả vào đúng kênh được phép.
 
 **Trạng thái: bản phát triển, chưa phải sản phẩm production hoàn chỉnh.** Repository này tập hợp mã nguồn ứng dụng, Neko Core liên quan và một overlay tích hợp Wiii. Không kèm installer, tài khoản, credentials, dữ liệu chat hay runtime đã cấu hình sẵn.
+
+[Bắt đầu](#build-và-chạy-local-trên-windows) · [Tài liệu](docs/README.md) · [Ảnh giao diện](#ảnh-giao-diện) · [Roadmap](#roadmap) · [Đóng góp](CONTRIBUTING.md)
+
+## Ảnh giao diện
+
+Ảnh ứng dụng web local đã ghi nhận ở **`2a74029`**, dùng Go service và Chrome headless với **dữ liệu fixture**, không có chat hoặc tài khoản người dùng thật. Ảnh giữ nguyên byte và không phải mockup; đây là bản cũ, không phải bằng chứng kiểm thử checkout hiện tại, Tauri native hay điện thoại thật.
+
+<picture>
+  <source media="(max-width: 600px)" srcset="docs/assets/screenshots/report-mobile-2a74029.png">
+  <img src="docs/assets/screenshots/report-desktop-2a74029.png" alt="Ảnh kiểm thử local 2a74029: bot gửi báo cáo và file vào kênh chung, dữ liệu fixture" width="1440">
+</picture>
+
+[Xem ảnh desktop đầy đủ](docs/assets/screenshots/report-desktop-2a74029.png) · [Xem ảnh mobile viewport](docs/assets/screenshots/report-mobile-2a74029.png) · [Nguồn và giới hạn ảnh](docs/assets/README.md)
 
 ## Kiến trúc
 
@@ -44,100 +64,52 @@ Xem [ma trận khoảng trống sản phẩm](app/docs/product-gap-matrix-202610
 
 ## Build và chạy local trên Windows
 
-Hướng dẫn sau dùng PowerShell, từ root repository. Cần Git, Go **1.27+** theo `app/native/go.mod`, Rust/Cargo với toolchain MSVC và Windows SDK. Tauri cần Microsoft Edge WebView2 Runtime. Dependency Rust có thể cần tải ở lần build đầu; Go module hiện không có dependency bên thứ ba.
+Cần Git, Go **1.27+**, Rust/Cargo (MSVC + Windows SDK) và WebView2 cho Tauri. Hướng dẫn đầy đủ về [prerequisite, Tauri, Core và kiểm thử](docs/getting-started.md) nằm trong tài liệu setup.
 
 ```powershell
 git clone https://github.com/meiiie/nekobot-transfer-20261016.git
 Set-Location nekobot-transfer-20261016
 New-Item -ItemType Directory -Force app/.build | Out-Null
-
 Push-Location app/native
 try {
     go build -o ../.build/neko-control.exe ./cmd/neko-control
     if ($LASTEXITCODE -ne 0) { throw 'Go build failed' }
 } finally { Pop-Location }
-
 cargo build --locked --manifest-path app/host/Cargo.toml --target-dir app/.build/host-target
 if ($LASTEXITCODE -ne 0) { throw 'Host build failed' }
 Copy-Item app/.build/host-target/debug/neko-host.exe app/.build/neko-host.exe
-```
-
-Chạy Go và mở `http://127.0.0.1:8765` trong trình duyệt:
-
-```powershell
 ./app/.build/neko-control.exe --state ./app/.state/local --listen 127.0.0.1:8765
 ```
 
-Port phải còn trống; Ctrl+C dừng service. Dữ liệu được ghi dưới state đã chọn. Khi không có cấu hình Core được chấp thuận, tin nhắn được lưu và chờ runtime (`waiting_host`), không tự gọi provider. Lưu tài khoản không đồng nghĩa với cấp quyền hoặc xác minh tài khoản đó. Không đưa state, receipt chứa challenge hay credentials vào Git.
-
-### Tauri desktop
-
-Build shell:
-
-```powershell
-cargo build --locked --manifest-path app/desktop/Cargo.toml --target-dir app/.build/desktop-target
-if ($LASTEXITCODE -ne 0) { throw 'Desktop build failed' }
-Copy-Item app/.build/desktop-target/debug/neko-desktop.exe app/.build/neko-desktop.exe
-```
-
-Shell hiện tại yêu cầu startup receipt và xác minh process/port/hash/state, nên không mở chỉ bằng double-click hoặc launcher `run-local.ps1 -Desktop` cũ. Tạo manifest hash **development** cho chính các binary vừa build, rồi dùng launcher hiện tại:
-
-```powershell
-function Get-LocalBinaryEntry([string]$Name) {
-    $path = Join-Path 'app/.build' $Name
-    @{ path = ".build/$Name"; sha256 = (Get-FileHash -Algorithm SHA256 -LiteralPath $path).Hash.ToLowerInvariant() }
-}
-$localManifest = @{
-    version = 1
-    scope = 'local-journal'
-    appCommit = (git rev-parse HEAD).Trim()
-    desktopLaunchContract = 1
-    control = Get-LocalBinaryEntry 'neko-control.exe'
-    host = Get-LocalBinaryEntry 'neko-host.exe'
-    desktop = Get-LocalBinaryEntry 'neko-desktop.exe'
-}
-$localManifest | ConvertTo-Json -Depth 4 | Set-Content -Encoding utf8 app/.build/dev-launch.json
-./app/scripts/run-prebuilt-local.ps1 -Manifest app/.build/dev-launch.json -Desktop -CheckOnly
-./app/scripts/run-prebuilt-local.ps1 -Manifest app/.build/dev-launch.json -Desktop
-```
-
-Manifest này chỉ ràng buộc hash của build local do bạn chọn; nó không phải chữ ký, installer hay chứng nhận release. Launcher tạo startup receipt mới, kiểm tra Go child trước khi mở WebView và chỉ dừng process do nó sở hữu. Chạy trình duyệt và desktop lần lượt, hoặc dùng `-Port` khác để tránh xung đột. Core/helper được pin bằng các hợp đồng riêng; build shell không tự kích hoạt agent runtime.
-
-### Kiểm tra code
-
-```powershell
-Push-Location app/native
-try {
-    go test -count=1 ./...
-    go vet ./...
-} finally { Pop-Location }
-cargo test --locked --manifest-path app/host/Cargo.toml
-```
-
-Các runner native/Core/browser cần thêm binary, fixture và pin đúng hợp đồng. Không chạy một runner có đường dẫn/pin lịch sử rồi coi đó là kiểm thử bản hiện tại. Chỉ dùng `--offline` cho Cargo khi dependency đã có trong cache.
-
-### Phát triển Neko Core
-
-Core là project độc lập trong `core/`. CI được lưu kèm source pin Bun **1.4.0**; dùng lockfile thay vì tự nâng dependency:
-
-```powershell
-Push-Location core
-try {
-    bun install --frozen-lockfile
-    bun run typecheck
-    bun test
-    # Build binary và các smoke gate do package.json định nghĩa:
-    # bun run build
-} finally { Pop-Location }
-```
-
-Đọc [Core working rules](core/AGENTS.md) và [quy trình kiểm thử](core/docs/process/TESTING.md) trước khi thay runtime. Không dùng tài khoản/provider thật để thay thế fixture kiểm thử.
+Mở `http://127.0.0.1:8765`; Ctrl+C dừng service. Khi chưa cấu hình Core được chấp thuận, tin nhắn được lưu và chờ runtime, không tự gọi provider. Không đưa state hoặc credentials vào Git. Đây là đường chạy local qua trình duyệt; [Tauri dùng launcher/receipt riêng](docs/getting-started.md#tauri-desktop).
 
 ## Wiii integration
 
 `wiii/` chứa đúng 61 file overlay từ checkpoint `d2e8284b34d2431e21e4ca8df41c82b3270d4a50`, gồm bridge và bounded-history repair. Nó thiếu phần còn lại của Wiii, nên không có lệnh install/build standalone hợp lệ ngay trong thư mục này.
 
 Base là bản Wiii được khôi phục byte-bound từ hai archive source, có metadata gốc ghi commit `6b1c30b15b4c67e3c841ae870e6989577fc228f8`. Đây không phải lời đảm bảo rằng một checkout mới của commit đó hoặc nhánh Wiii hiện hành khớp toàn bộ archive working tree. Hash hai archive và phạm vi được ghi trong [Wiii integration manifest](migration/wiii-integration.json); archive không được phân phối ở đây. Cần kiểm tra base trong thư mục riêng trước khi ghép overlay. **Không ghi đè một checkout Wiii đang dùng.**
+
+## Roadmap
+
+- [x] Nền tảng bot/kênh/project và lịch sử local có hợp đồng theo scope.
+- [x] Journal, receipt/idempotency và các luồng phục hồi đã có kiểm thử local.
+- [ ] Hoàn thiện saved-account witness, Core bootstrap và nghiệm thu provider thật.
+- [ ] Pairing thiết bị và đồng bộ cloud nhiều máy với quyền rõ ràng.
+- [ ] Nghiệm thu điện thoại thật, bàn phím, safe area và AT speech.
+- [ ] Đóng gói, ký và nghiệm thu một bản phát hành dành cho người dùng.
+
+Các mục đã đánh dấu chỉ nói về nền tảng local trong phạm vi kiểm thử đã ghi; chúng không biến snapshot này thành production. Phần Wiii vẫn cần base tương ứng để ghép overlay.
+
+## Hỗ trợ và đóng góp
+
+Windows local là luồng development có bằng chứng được ghi; macOS/Linux và thiết bị di động chưa được nghiệm thu cho toàn ứng dụng. Xem [ma trận hỗ trợ và phạm vi kiểm chứng](docs/project-status.md).
+
+- [CONTRIBUTING](CONTRIBUTING.md): chọn phần code, chuẩn bị thay đổi và ghi bằng chứng kiểm thử.
+- [SUPPORT](SUPPORT.md): báo bug, lỗi setup hoặc đề xuất qua GitHub Issues.
+- [SECURITY](SECURITY.md): quy tắc xử lý lỗ hổng và dữ liệu nhạy cảm; không đăng secrets vào issue công khai.
+- [Roadmap chi tiết](docs/ROADMAP.md): thứ tự phụ thuộc và gate hoàn thành; chưa có lịch/SLA được hứa.
+
+Repo hiện không có CI tự động ở root. Badge ở đầu trang là nhãn trạng thái/kiến trúc tĩnh, không phải kết quả CI.
 
 ## Các nhánh
 

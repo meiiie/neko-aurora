@@ -1,0 +1,17 @@
+name: Yêu cầu kênh báo cáo bảo mật
+description: Chỉ yêu cầu kênh riêng; không gửi chi tiết lỗ hổng công khai
+title: "[Security contact] Yêu cầu kênh báo cáo riêng"
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Đây là issue công khai. Chỉ dùng để yêu cầu maintainer thiết lập/xác minh kênh báo cáo riêng như SECURITY.md mô tả.
+        Không đưa exploit, component bị ảnh hưởng, chat, account, token, log, journal hoặc thông tin người dùng.
+        Không có cam kết thời gian phản hồi; chờ kênh được xác minh trước khi gửi chi tiết.
+  - type: checkboxes
+    id: safe_request
+    attributes:
+      label: Yêu cầu tối thiểu
+      options:
+        - label: Tôi chỉ yêu cầu một kênh báo cáo riêng và chưa gửi chi tiết lỗ hổng hoặc dữ liệu nhạy cảm trong issue này.
+          required: true
