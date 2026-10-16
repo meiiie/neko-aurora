@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { loadSavedAccountBridge, prepareSavedAccountCapsule, type SavedAccountBinding } from "../src/adapters/saved-account-bridge.ts";
 import { getProvider } from "../src/adapters/providers.ts";
+import { isJsonNumber, type JsonObject } from "../src/shared/wire.ts";
 import { redactCredentialJSON } from "../src/shared/credential-output.ts";
 
 const FIXTURE_SECRET="fixture-saved-account-private-material", KEY="6".repeat(64);
@@ -28,7 +29,7 @@ test("missing authority denies both preparation and loader",()=>{
  expect(()=>loadSavedAccountBridge({binding:f.binding,capsuleId:r.capsuleId,capsulePath:f.capsulePath,stateHome:f.stateHome,revisionKey:KEY})).toThrow("Saved account bridge unavailable");
 });
 test("rotation and original context attempt consent generation cannot rebind a capsule",()=>{
- for(const field of ["credentialGeneration","accountRevision","contextSHA256","attemptId","epoch","leaseFence","consentRevision","model","endpoint"] as const){const f=fixture();const {r}=load(f);const changed={...f.binding,[field]:typeof f.binding[field]==="number"?Number(f.binding[field])+1:"different-original-binding"};expect(()=>loadSavedAccountBridge({binding:changed,capsuleId:r.capsuleId,capsulePath:f.capsulePath,stateHome:f.stateHome,revisionKey:KEY,currentAuthority:f.currentAuthority})).toThrow("Saved account bridge unavailable");}
+ for(const field of ["credentialGeneration","accountRevision","contextSHA256","attemptId","epoch","leaseFence","consentRevision","model","endpoint"] as const){const f=fixture();const {r}=load(f);const changed={...f.binding,[field]:isJsonNumber(f.binding[field])?Number(f.binding[field])+1:"different-original-binding"};expect(()=>loadSavedAccountBridge({binding:changed,capsuleId:r.capsuleId,capsulePath:f.capsulePath,stateHome:f.stateHome,revisionKey:KEY,currentAuthority:f.currentAuthority})).toThrow("Saved account bridge unavailable");}
 });
 test("revoke expiry marker swap and cipher tamper close current config",()=>{
  const f=fixture();const {cfg}=load(f);f.revoke();expect(()=>cfg.profileBridge!.assertCurrent(cfg)).toThrow("Saved account bridge unavailable");
@@ -37,12 +38,14 @@ test("revoke expiry marker swap and cipher tamper close current config",()=>{
  const a=fixture(),b=fixture();const aa=load(a);load(b);writeFileSync(a.capsulePath+".current",readFileSync(b.capsulePath+".current"));expect(()=>aa.cfg.profileBridge!.assertCurrent(aa.cfg)).toThrow("Saved account bridge unavailable");
 });
 test("closed schema no global account fallback and credential header controls",()=>{
- for(const extra of [{extra:true},{secret:"fixture\r\nheader-injection"},{purpose:"configured_env_only"},{revisionKey:"wrong"}]){const f=fixture();expect(()=>prepareSavedAccountCapsule({...f.input,...extra},f.currentAuthority)).toThrow("Saved account bridge unavailable");}
+ const invalidInputs:JsonObject[]=[{extra:true},{secret:"fixture\r\nheader-injection"},{purpose:"configured_env_only"},{revisionKey:"wrong"}];
+ for(const extra of invalidInputs){const f=fixture();expect(()=>prepareSavedAccountCapsule({...f.input,...extra},f.currentAuthority)).toThrow("Saved account bridge unavailable");}
  const f=fixture();const {cfg}=load(f);cfg.data.model="another-model";expect(()=>cfg.profileBridge!.assertCurrent(cfg)).toThrow("Saved account bridge unavailable");
 });
 test("Core canonical provider uses saved key and 401 403 503 do not automatically replay",async()=>{
  const original=globalThis.fetch;
- try{for(const status of [200,401,403,503]){const f=fixture();const {cfg}=load(f);let calls=0;globalThis.fetch=(async(url,init)=>{calls++;expect(String(url)).toBe("https://example.invalid/v1/chat/completions");expect(new Headers(init?.headers).get("Authorization")).toBe("Bearer "+FIXTURE_SECRET);expect(init?.redirect).toBe("manual");if(status===200)return new Response("data: "+JSON.stringify({choices:[{delta:{content:"fixture saved account result"},finish_reason:null}]})+"\n\ndata: "+JSON.stringify({choices:[{delta:{},finish_reason:"stop"}],usage:{completion_tokens:4}})+"\n\ndata: [DONE]\n\n",{headers:{"Content-Type":"text/event-stream"}});return new Response("fixture response may contain "+FIXTURE_SECRET,{status});}) as typeof fetch;
+ try{for(const status of [200,401,403,503]){const f=fixture();const {cfg}=load(f);let calls=0;// SAFETY: This fixture replaces only fetch requests; Bun-specific fetch properties are unused.
+globalThis.fetch=(async(url,init)=>{calls++;expect(String(url)).toBe("https://example.invalid/v1/chat/completions");expect(new Headers(init?.headers).get("Authorization")).toBe("Bearer "+FIXTURE_SECRET);expect(init?.redirect).toBe("manual");if(status===200)return new Response("data: "+JSON.stringify({choices:[{delta:{content:"fixture saved account result"},finish_reason:null}]})+"\n\ndata: "+JSON.stringify({choices:[{delta:{},finish_reason:"stop"}],usage:{completion_tokens:4}})+"\n\ndata: [DONE]\n\n",{headers:{"Content-Type":"text/event-stream"}});return new Response("fixture response may contain "+FIXTURE_SECRET,{status});}) as typeof fetch;
  const provider=getProvider(cfg);if(status===200)expect((await provider.complete([{role:"user",content:"authored fixture request"}])).content).toBe("fixture saved account result");else{let message="";try{await provider.complete([{role:"user",content:"authored fixture request"}]);}catch(e){message=String(e);}expect(message.includes(FIXTURE_SECRET)).toBe(false);expect(message).toContain(status===401?"unauthorized":status===403?"forbidden":"transient");}expect(calls).toBe(1);
  }}finally{globalThis.fetch=original;}
 });
@@ -58,4 +61,36 @@ test("live current-authority revocation aborts a silent saved-key provider",asyn
 
 test("saved-key config disables updates and outside-root access and guards mutation",()=>{
  const f=fixture();const {cfg}=load(f);for(const key of ["auto_update","auto_update_check","read_outside_root"]){expect(cfg.data[key]).toBe(false);cfg.data[key]=true;expect(()=>cfg.profileBridge!.assertCurrent(cfg)).toThrow("Saved account bridge unavailable");cfg.data[key]=false;}
+});
+
+test("saved-key redaction preserves provider response fields and filters split stream secrets",async()=>{
+ const f=fixture(),{cfg}=load(f),stream:string[]=[];
+ const usage={completion_tokens:3,prompt_tokens:7,prompt_tokens_details:{cached_tokens:2}};
+ const result=await cfg.profileBridge!.complete({complete:async(_messages,_tools,onDelta)=>{
+  onDelta?.(FIXTURE_SECRET.slice(0,15),"content");onDelta?.(FIXTURE_SECRET.slice(15),"reasoning");
+  return {content:FIXTURE_SECRET,reasoning:"thought "+FIXTURE_SECRET,tool_calls:[],usage,continuation:[{opaque:FIXTURE_SECRET}],truncated:true};
+ }},cfg,[[{role:"user",content:"fixture request"}],undefined,value=>stream.push(value)]);
+ expect(result).toEqual({content:"[redacted credential]",reasoning:"thought [redacted credential]",tool_calls:[],usage,continuation:[{opaque:"[redacted credential]"}],truncated:true});
+ expect(stream.join("")).toBe("[redacted credential]");
+});
+
+test("saved-key tool secrets are rejected before callbacks and in final results",async()=>{
+ for(const early of [true,false]){
+  const f=fixture(),{cfg}=load(f);let callbacks=0;
+  const call={id:"fixture-call",name:"fixture-tool",arguments:{nested:[FIXTURE_SECRET]}};
+  const pending=cfg.profileBridge!.complete({complete:async(_messages,_tools,_onDelta,_signal,opts)=>{
+   if(early)opts?.onToolCallReady?.(call);
+   return {content:null,tool_calls:[call]};
+  }},cfg,[[{role:"user",content:"fixture request"}],undefined,undefined,undefined,{onToolCallReady:()=>{callbacks++;}}]);
+  await expect(pending).rejects.toThrow("Saved account bridge unavailable");expect(callbacks).toBe(0);
+ }
+});
+
+test("saved-key tool-ready callbacks recheck authority before releasing a clean call",async()=>{
+ const f=fixture(),{cfg}=load(f);let callbacks=0;
+ await expect(cfg.profileBridge!.complete({complete:async(_messages,_tools,_onDelta,_signal,opts)=>{
+  f.revoke();opts?.onToolCallReady?.({id:"fixture-call",name:"fixture-tool",arguments:{safe:true}});
+  return {content:null,tool_calls:[]};
+ }},cfg,[[{role:"user",content:"fixture request"}],undefined,undefined,undefined,{onToolCallReady:()=>{callbacks++;}}])).rejects.toThrow("Saved account bridge unavailable");
+ expect(callbacks).toBe(0);
 });
