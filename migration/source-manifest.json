@@ -63,10 +63,12 @@
       "sourceCommit": "90bdcefcc21908144d4c390810724876a1a4319b",
       "sourceBlob": "362cae1c46195ac038eb65ac54c5858edf911345",
       "mode": "100644",
-      "sha256": "546d11f1ee574695ae5e806f20344c85e4370e4b0dbcaebbf96c58c3e4532f3a",
-      "size": 4874,
+      "sha256": "e228e3605de4e1e90513cda168e4fc47f8517e400d76632b46de05010496c1d4",
+      "size": 877,
       "included": true,
-      "exportPath": "app/README.md"
+      "exportPath": "app/README.md",
+      "originalSourceSha256": "546d11f1ee574695ae5e806f20344c85e4370e4b0dbcaebbf96c58c3e4532f3a",
+      "exportDocumentationEdit": "Public README refresh; original source repository untouched"
     },
     {
       "component": "app",
