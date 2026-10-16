@@ -1,3 +1,4 @@
+import { createUITestHome } from "./ui-test-home.ts";
 import { expect, test } from "bun:test";
 import { render } from "ink-testing-library";
 import { mkdtempSync, rmSync } from "node:fs";
@@ -18,7 +19,7 @@ class Echo implements Provider {
 
 test("/title survives the next session persist, including before the first turn", async () => {
   const saved = { up: process.env.USERPROFILE, home: process.env.HOME };
-  const home = mkdtempSync(join(tmpdir(), "neko-title-home-"));
+  const home = createUITestHome("neko-title-home-");
   process.env.USERPROFILE = home;
   process.env.HOME = home;
   try {

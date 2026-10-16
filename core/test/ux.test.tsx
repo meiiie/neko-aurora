@@ -1,3 +1,4 @@
+import { createUITestHome } from "./ui-test-home.ts";
 /** UX/UI coverage: status bar, thinking line, reasoning, hotkeys, diff preview, completion line. */
 import { expect, test } from "bun:test";
 import { render } from "ink-testing-library";
@@ -122,7 +123,7 @@ test("status bar shows mode + context %", () => {
 
 test("first-run status bar names the missing model instead of showing a dangling separator", () => {
   const saved = { userProfile: process.env.USERPROFILE, home: process.env.HOME };
-  const home = mkdtempSync(join(tmpdir(), "neko-first-run-"));
+  const home = createUITestHome("neko-first-run-");
   process.env.USERPROFILE = home;
   process.env.HOME = home;
   try {
@@ -209,7 +210,7 @@ test("CompactingLine reports elapsed work without claiming measured percent", ()
 
 test("resume-from-summary: a large session prompts to summarize, a small one resumes directly", async () => {
   const saved = { up: process.env.USERPROFILE, home: process.env.HOME };
-  const home = mkdtempSync(join(tmpdir(), "neko-resume-home-")); // isolate prefs.json (loadPrefs reads HOME)
+  const home = createUITestHome("neko-resume-home-"); // isolate prefs.json (loadPrefs reads HOME)
   process.env.USERPROFILE = home; process.env.HOME = home;
   try {
     // >60% of the default 131072-token window: estimateTokens = chars/4, so ~340k chars ~= 85k tokens.
@@ -527,12 +528,12 @@ test("sticky prompt click stays exact while an uncommitted streaming tail extend
 test("TUI --continue restores session.mode (not silent reboot to config auto)", async () => {
   const prevHome = process.env.HOME;
   const prevMode = process.env.NEKO_MODE;
-  const home = mkdtempSync(join(tmpdir(), "neko-mode-restore-"));
+  const home = createUITestHome("neko-mode-restore-");
   try {
     delete process.env.NEKO_MODE;
     process.env.HOME = home;
     mkdirSync(join(home, ".neko-core"), { recursive: true });
-    writeFileSync(join(home, ".neko-core", "config.json"), JSON.stringify({ mode: "auto" }));
+    writeFileSync(join(home, ".neko-core", "config.json"), JSON.stringify({ mode: "auto", auto_update_check: false, auto_update: false }));
     class EchoP {
       async complete() { return { content: "hi", tool_calls: [] }; }
     }
@@ -1113,7 +1114,7 @@ test("interrupted turn is PERSISTED incrementally - resume shows the work, not n
   // checkpoint (step / tool_result). Here the provider HANGS on the first call - the finally-persist
   // never runs, so only the incremental persist can save the user message. Without the fix: no file.
   const saved = { up: process.env.USERPROFILE, home: process.env.HOME };
-  const home = mkdtempSync(join(tmpdir(), "neko-persist-home-"));
+  const home = createUITestHome("neko-persist-home-");
   process.env.USERPROFILE = home; process.env.HOME = home;
   let cancelled = false;
   class Hang implements Provider {

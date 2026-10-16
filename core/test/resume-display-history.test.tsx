@@ -1,3 +1,4 @@
+import { createUITestHome } from "./ui-test-home.ts";
 import { expect, test } from "bun:test";
 import { render } from "ink-testing-library";
 import { mkdtempSync } from "node:fs";
@@ -23,7 +24,7 @@ class Summarizer implements Provider {
 }
 
 test("main resume scroll reaches pre-compaction history after restart without adding it to model context", async () => {
-  const home=mkdtempSync(join(tmpdir(),"neko-resume-history-"));
+  const home=createUITestHome("neko-resume-history-");
   const savedHome=process.env.HOME, savedProfile=process.env.USERPROFILE;
   process.env.HOME=home; process.env.USERPROFILE=home;
   setSessionsDir(join(home,"sessions"));
@@ -61,7 +62,7 @@ test("main resume scroll reaches pre-compaction history after restart without ad
 },20_000);
 
 test("main resume exposes summarized tool output directly through its scrollback", async () => {
-  const home = mkdtempSync(join(tmpdir(), "neko-resume-tool-"));
+  const home = createUITestHome("neko-resume-tool-");
   const savedHome = process.env.HOME, savedProfile = process.env.USERPROFILE;
   process.env.HOME = home; process.env.USERPROFILE = home;
   setSessionsDir(join(home, "sessions"));
@@ -91,7 +92,7 @@ test("main resume exposes summarized tool output directly through its scrollback
 
 
 test("startup resume keeps the welcome before restored conversation", async () => {
-  const home = mkdtempSync(join(tmpdir(), "neko-resume-welcome-"));
+  const home = createUITestHome("neko-resume-welcome-");
   const savedHome = process.env.HOME, savedProfile = process.env.USERPROFILE;
   process.env.HOME = home; process.env.USERPROFILE = home;
   setSessionsDir(join(home, "sessions"));
@@ -116,7 +117,7 @@ test("startup resume keeps the welcome before restored conversation", async () =
 }, 20_000);
 
 test("main find reaches deep tool rows and archived pages before Home is used", async () => {
-  const home = mkdtempSync(join(tmpdir(), "neko-resume-find-"));
+  const home = createUITestHome("neko-resume-find-");
   const savedHome = process.env.HOME, savedProfile = process.env.USERPROFILE;
   process.env.HOME = home; process.env.USERPROFILE = home;
   setSessionsDir(join(home, "sessions"));
@@ -151,7 +152,7 @@ test("main find reaches deep tool rows and archived pages before Home is used", 
 }, 20_000);
 
 test("a stopped model turn keeps its interruption marker after resume", async () => {
-  const home = mkdtempSync(join(tmpdir(), "neko-interrupt-display-"));
+  const home = createUITestHome("neko-interrupt-display-");
   const savedHome = process.env.HOME, savedProfile = process.env.USERPROFILE;
   process.env.HOME = home; process.env.USERPROFILE = home; setSessionsDir(join(home, "sessions"));
   let entered = false;
@@ -183,7 +184,7 @@ test("a stopped model turn keeps its interruption marker after resume", async ()
 }, 15_000);
 
 test("Esc cancels standalone compaction without erasing a draft or installing a late summary", async () => {
-  const home = mkdtempSync(join(tmpdir(), "neko-cancel-compact-"));
+  const home = createUITestHome("neko-cancel-compact-");
   const savedHome = process.env.HOME, savedProfile = process.env.USERPROFILE;
   process.env.HOME = home; process.env.USERPROFILE = home; setSessionsDir(join(home, "sessions"));
   let receivedSignal: AbortSignal | undefined;

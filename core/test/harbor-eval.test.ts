@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import { existsSync, linkSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -25,7 +26,7 @@ import {
   TERMINAL_BENCH_2_1_DATASET,
   type HarborBuildIdentity,
 } from "../scripts/harbor-eval.ts";
-import { isBool } from "../src/shared/wire.ts";
+import { trustedGitExecutable } from "../src/adapters/trusted-git.ts";
 
 const digest = (character: string) => character.repeat(64);
 const buildIdentity: HarborBuildIdentity = {
@@ -43,6 +44,41 @@ const kimiIdentity = { profile: "kimi", provider: "kimi", model: "kimi/kimi-for-
 
 function sha256(path: string): string {
   return createHash("sha256").update(readFileSync(path)).digest("hex");
+}
+
+function createSourceFixture(temporary: string) {
+  // Core may be imported below a monorepo root. Provenance needs a real, isolated Git root.
+  const root = join(temporary, "source");
+  const hooks = join(temporary, "empty-hooks");
+  mkdirSync(root);
+  mkdirSync(hooks);
+  for (const path of [
+    "evals/harbor/host_runner.ts",
+    "scripts/harbor-eval.ts",
+    "evals/harbor/neko_host_agent.py",
+    "evals/harbor/remote_tools.py",
+  ]) {
+    mkdirSync(dirname(join(root, path)), { recursive: true });
+    writeFileSync(join(root, path), `fixture:${path}\n`);
+  }
+  const executable = trustedGitExecutable(root);
+  if (!executable) throw new Error("Git is required for the source identity fixture.");
+  const git = (...args: string[]) => execFileSync(executable, [
+    "-c", "commit.gpgsign=false", "-c", `core.hooksPath=${hooks}`, "-C", root, ...args,
+  ], {
+    cwd: temporary,
+    encoding: "utf8",
+    stdio: "pipe",
+    env: {
+      ...gitProvenanceEnv(process.env, dirname(executable)),
+      GIT_CONFIG_NOSYSTEM: "1",
+      GIT_CONFIG_GLOBAL: join(temporary, "no-global-gitconfig"),
+    },
+  }).trim();
+  git("init", "-q", `--template=${hooks}`);
+  git("add", ".");
+  git("-c", "user.name=Fixture", "-c", "user.email=fixture@example.invalid", "commit", "-qm", "seed");
+  return { root: realpathSync.native(root), revision: git("rev-parse", "HEAD") };
 }
 
 describe("Harbor evaluation launcher", () => {
@@ -227,9 +263,9 @@ describe("Harbor evaluation launcher", () => {
   });
 
   test("hashes the canonical runner, control bridges, and actually selected Codex executable", () => {
-    const root = realpathSync.native(resolve(import.meta.dir, ".."));
     const temporary = realpathSync.native(mkdtempSync(join(tmpdir(), "neko-harbor-identity-")));
     try {
+      const { root, revision } = createSourceFixture(temporary);
       const runner = join(temporary, HARBOR_HOST_RUNNER_BASENAME);
       const codex = join(temporary, process.platform === "win32" ? "codex.exe" : "codex");
       writeFileSync(runner, "runner-bits");
@@ -249,8 +285,10 @@ describe("Harbor evaluation launcher", () => {
       expect(identity.launcherSourceSha256).toBe(sha256(join(root, "scripts", "harbor-eval.ts")));
       expect(identity.hostAgentSha256).toBe(sha256(join(root, "evals", "harbor", "neko_host_agent.py")));
       expect(identity.remoteToolsSha256).toBe(sha256(join(root, "evals", "harbor", "remote_tools.py")));
-      expect(identity.sourceRevision).toMatch(/^[a-f0-9]{40,64}$/);
-      expect(isBool(identity.sourceDirty)).toBe(true);
+      expect(identity.sourceRevision).toBe(revision);
+      expect(identity.sourceDirty).toBe(false);
+      writeFileSync(join(root, "untracked.txt"), "dirty fixture");
+      expect(collectBuildIdentity(root, runner, "kimi", { launcherCwd: temporary }).sourceDirty).toBe(true);
     } finally {
       rmSync(temporary, { recursive: true, force: true });
     }
@@ -590,9 +628,9 @@ describe("Harbor evaluation launcher", () => {
   });
 
   test("scrubs GIT_DIR provenance poison and rejects a non-root repository path", () => {
-    const root = realpathSync.native(resolve(import.meta.dir, ".."));
     const temporary = realpathSync.native(mkdtempSync(join(tmpdir(), "neko-harbor-git-")));
     try {
+      const { root, revision } = createSourceFixture(temporary);
       const runner = join(temporary, HARBOR_HOST_RUNNER_BASENAME);
       writeFileSync(runner, "runner-bits");
       const poisoned = {
@@ -604,7 +642,7 @@ describe("Harbor evaluation launcher", () => {
         launcherCwd: temporary,
         sourceEnv: poisoned,
       });
-      expect(identity.sourceRevision).toMatch(/^[a-f0-9]{40,64}$/);
+      expect(identity.sourceRevision).toBe(revision);
       const gitEnv = gitProvenanceEnv(poisoned, realpathSync.native(tmpdir()));
       expect(Object.keys(gitEnv).some((key) => key.toUpperCase().startsWith("GIT_"))).toBe(false);
       expect(() => collectBuildIdentity(join(root, "scripts"), runner, "kimi", {

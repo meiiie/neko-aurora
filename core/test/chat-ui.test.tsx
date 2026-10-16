@@ -1,3 +1,4 @@
+import { createUITestHome } from "./ui-test-home.ts";
 import { expect, test } from "bun:test";
 import { render } from "ink-testing-library";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
@@ -480,9 +481,10 @@ test("resume re-renders the prior conversation", () => {
 
 test("failed resume summary reports the error and replays the intact raw session", async () => {
   const oldHome = process.env.HOME, oldProfile = process.env.USERPROFILE;
-  const home = mkdtempSync(join(tmpdir(), "neko-resume-summary-failure-"));
-  mkdirSync(join(home, ".neko-core"));
+  const home = createUITestHome("neko-resume-summary-failure-");
+  mkdirSync(join(home, ".neko-core"), { recursive: true });
   writeFileSync(join(home, ".neko-core", "config.json"), JSON.stringify({
+    auto_update_check: false, auto_update: false,
     context_window: 2048, model_context: { "local-model": 2048 },
   }));
   process.env.HOME = home; delete process.env.USERPROFILE;
@@ -542,9 +544,10 @@ test("failed resume summary reports the error and replays the intact raw session
 
 test.each(["resume", "discard", "side-panel resume"] as const)("queued instruction waits for resume picker until explicit %s", async (action) => {
   const oldHome = process.env.HOME, oldProfile = process.env.USERPROFILE;
-  const home = mkdtempSync(join(tmpdir(), "neko-resume-picker-queue-"));
-  mkdirSync(join(home, ".neko-core"));
+  const home = createUITestHome("neko-resume-picker-queue-");
+  mkdirSync(join(home, ".neko-core"), { recursive: true });
   writeFileSync(join(home, ".neko-core", "config.json"), JSON.stringify({
+    auto_update_check: false, auto_update: false,
     context_window: 32768, model_context: { "local-model": 32768 },
   }));
   process.env.HOME = home; delete process.env.USERPROFILE;
@@ -623,9 +626,10 @@ test.each(["resume", "discard", "side-panel resume"] as const)("queued instructi
 
 test("cancelling a queued resume picker discards the pending instruction", async () => {
   const oldHome = process.env.HOME, oldProfile = process.env.USERPROFILE;
-  const home = mkdtempSync(join(tmpdir(), "neko-resume-picker-cancel-"));
-  mkdirSync(join(home, ".neko-core"));
+  const home = createUITestHome("neko-resume-picker-cancel-");
+  mkdirSync(join(home, ".neko-core"), { recursive: true });
   writeFileSync(join(home, ".neko-core", "config.json"), JSON.stringify({
+    auto_update_check: false, auto_update: false,
     context_window: 2048, model_context: { "local-model": 2048 },
   }));
   process.env.HOME = home; delete process.env.USERPROFILE;
@@ -735,7 +739,7 @@ test("slash menu: Down navigates suggestions instead of rewinding the prompt; Ta
 
 test("/browser runs guided setup inside Neko without a Bun/source command", async () => {
   const oldHome = process.env.HOME, oldProfile = process.env.USERPROFILE;
-  const home = mkdtempSync(join(tmpdir(), "neko-browser-onboarding-"));
+  const home = createUITestHome("neko-browser-onboarding-");
   process.env.HOME = home; process.env.USERPROFILE = home;
   let setups = 0;
   try {
@@ -776,7 +780,7 @@ test("natural browser tasks auto-detect extension + tab and resume the saved req
   expect(isInteractiveBrowserRequest("search the web for Chrome extension docs")).toBe(false);
 
   const oldHome = process.env.HOME, oldProfile = process.env.USERPROFILE;
-  const home = mkdtempSync(join(tmpdir(), "neko-browser-intent-"));
+  const home = createUITestHome("neko-browser-intent-");
   process.env.HOME = home; process.env.USERPROFILE = home;
   let setups = 0;
   try {
@@ -832,7 +836,7 @@ test("natural browser tasks auto-detect extension + tab and resume the saved req
 
 test("cancelling browser onboarding keeps the original request editable", async () => {
   const oldHome = process.env.HOME, oldProfile = process.env.USERPROFILE;
-  const home = mkdtempSync(join(tmpdir(), "neko-browser-cancel-"));
+  const home = createUITestHome("neko-browser-cancel-");
   process.env.HOME = home; process.env.USERPROFILE = home;
   try {
     const provider = new MockProvider([{ content: "should not run", tool_calls: [] }]);
@@ -1163,7 +1167,7 @@ test("/login groups Z.AI and distinguishes Coding Plan from paid API billing", a
 
 test("/login opens the official OpenCode Zen key page and captures the key through the hidden input", async () => {
   const oldHome = process.env.HOME, oldProfile = process.env.USERPROFILE;
-  const home = mkdtempSync(join(tmpdir(), "neko-opencode-login-"));
+  const home = createUITestHome("neko-opencode-login-");
   process.env.HOME = home; process.env.USERPROFILE = home;
   let opened = "";
   try {
@@ -1189,10 +1193,11 @@ test("/login opens the official OpenCode Zen key page and captures the key throu
 
 test("/login connects an OpenCode Console account through official device OAuth", async () => {
   const oldHome = process.env.HOME, oldProfile = process.env.USERPROFILE, oldFetch = globalThis.fetch;
-  const home = mkdtempSync(join(tmpdir(), "neko-opencode-oauth-ui-"));
+  const home = createUITestHome("neko-opencode-oauth-ui-");
   const configDir = join(home, ".neko-core");
   mkdirSync(configDir, { recursive: true });
   writeFileSync(join(configDir, "config.json"), JSON.stringify({
+    auto_update_check: false, auto_update: false,
     active_profile: "local",
     model_context: { "local-model": 32768, "opencode/space-bunny-free": 8192 },
     profiles: { "opencode-account": { model: "opencode/space-bunny-free" } },
@@ -1260,7 +1265,7 @@ test("/login connects an OpenCode Console account through official device OAuth"
 
 test("Esc and Ctrl+C cancel a pending OpenCode login without closing the terminal", async () => {
   const oldHome = process.env.HOME, oldProfile = process.env.USERPROFILE, oldFetch = globalThis.fetch;
-  const home = mkdtempSync(join(tmpdir(), "neko-opencode-oauth-cancel-ui-"));
+  const home = createUITestHome("neko-opencode-oauth-cancel-ui-");
   process.env.HOME = home; delete process.env.USERPROFILE;
   // SAFETY: test-built fetch fixture implements the fetch arguments and returns a Response for every path.
   globalThis.fetch = (async (input: string | URL | Request, _init?: RequestInit) => {
@@ -1302,7 +1307,7 @@ test("Esc and Ctrl+C cancel a pending OpenCode login without closing the termina
 
 test("/model on signed-out Gemini remains useful without starting the CLI", async () => {
   const oldHome = process.env.HOME, oldProfile = process.env.USERPROFILE, oldGeminiHome = process.env.NEKO_GEMINI_HOME;
-  const home = mkdtempSync(join(tmpdir(), "neko-gemini-model-"));
+  const home = createUITestHome("neko-gemini-model-");
   process.env.HOME = home; process.env.USERPROFILE = home; process.env.NEKO_GEMINI_HOME = home;
   try {
     const provider = new MockProvider([{ content: "", tool_calls: [] }]);
@@ -1323,11 +1328,11 @@ test("/model on signed-out Gemini remains useful without starting the CLI", asyn
 test("selecting an unconfigured provider keeps the working profile active", async () => {
   const oldHome = process.env.HOME, oldProfile = process.env.USERPROFILE;
   const oldDeepSeekKey = process.env.DEEPSEEK_API_KEY, oldNekoKey = process.env.NEKO_API_KEY;
-  const home = mkdtempSync(join(tmpdir(), "neko-provider-switch-"));
+  const home = createUITestHome("neko-provider-switch-");
   const configDir = join(home, ".neko-core");
   const configPath = join(configDir, "config.json");
   mkdirSync(configDir, { recursive: true });
-  writeFileSync(configPath, JSON.stringify({ active_profile: "local" }, null, 2) + "\n");
+  writeFileSync(configPath, JSON.stringify({ active_profile: "local", auto_update_check: false, auto_update: false }, null, 2) + "\n");
   process.env.HOME = home; process.env.USERPROFILE = home;
   delete process.env.DEEPSEEK_API_KEY; delete process.env.NEKO_API_KEY;
   try {
@@ -1349,7 +1354,7 @@ test("selecting an unconfigured provider keeps the working profile active", asyn
 
 test("/logout on Gemini removes only Gemini OAuth state immediately", async () => {
   const oldGeminiHome = process.env.NEKO_GEMINI_HOME;
-  const home = mkdtempSync(join(tmpdir(), "neko-gemini-logout-"));
+  const home = createUITestHome("neko-gemini-logout-");
   process.env.NEKO_GEMINI_HOME = home;
   const geminiDir = home;
   mkdirSync(geminiDir, { recursive: true });
@@ -1370,7 +1375,7 @@ test("/logout on Gemini removes only Gemini OAuth state immediately", async () =
 
 test("/login keeps the recommended Gemini API-key route direct and Support-Pack free", async () => {
   const oldHome = process.env.HOME, oldProfile = process.env.USERPROFILE, oldPath = process.env.PATH;
-  const home = mkdtempSync(join(tmpdir(), "neko-gemini-first-run-"));
+  const home = createUITestHome("neko-gemini-first-run-");
   process.env.HOME = home; process.env.USERPROFILE = home; process.env.PATH = "";
   try {
     const { clearGeminiCliCache } = await import("../src/adapters/gemini-cli.ts");
@@ -1398,7 +1403,7 @@ test("/login keeps the recommended Gemini API-key route direct and Support-Pack 
 
 test("/support opens a management center and confirms managed-pack removal", async () => {
   const oldHome = process.env.HOME, oldProfile = process.env.USERPROFILE, oldPath = process.env.PATH;
-  const home = mkdtempSync(join(tmpdir(), "neko-support-center-"));
+  const home = createUITestHome("neko-support-center-");
   process.env.HOME = home; process.env.USERPROFILE = home; process.env.PATH = "";
   const codexRoot = join(home, ".neko-core", "codex-support");
   const geminiRoot = join(home, ".neko-core", "gemini-support");
@@ -1466,7 +1471,7 @@ test("/support opens a management center and confirms managed-pack removal", asy
 
 test("/meeting opens a consent-first guided surface without starting capture", async () => {
   const oldHome = process.env.HOME, oldProfile = process.env.USERPROFILE, oldPath = process.env.PATH;
-  const home = mkdtempSync(join(tmpdir(), "neko-meeting-ui-"));
+  const home = createUITestHome("neko-meeting-ui-");
   process.env.HOME = home; process.env.USERPROFILE = home; process.env.PATH = "";
   try {
     const provider = new MockProvider([{ content: "", tool_calls: [] }]);
@@ -1489,7 +1494,7 @@ test("/meeting opens a consent-first guided surface without starting capture", a
 
 test("/voice prefers native GPT-Live when available and keeps browser/official fallbacks explicit", async () => {
   const oldHome = process.env.HOME, oldProfile = process.env.USERPROFILE, oldPath = process.env.PATH;
-  const home = mkdtempSync(join(tmpdir(), "neko-voice-ui-"));
+  const home = createUITestHome("neko-voice-ui-");
   process.env.HOME = home; process.env.USERPROFILE = home; process.env.PATH = "";
   const codexRoot = join(home, ".neko-core", "codex-support");
   writeCodexPackageFixture(codexRoot, "0.145.0");
@@ -1622,7 +1627,7 @@ test("/usage keeps Gemini quota guidance inside Neko", async () => {
 test("OpenAI API login is profile-scoped and /logout takes effect immediately", async () => {
   const oldHome = process.env.HOME, oldProfile = process.env.USERPROFILE;
   const oldNekoKey = process.env.NEKO_API_KEY, oldOpenAiKey = process.env.OPENAI_API_KEY;
-  const home = mkdtempSync(join(tmpdir(), "neko-api-login-"));
+  const home = createUITestHome("neko-api-login-");
   process.env.HOME = home; process.env.USERPROFILE = home;
   delete process.env.NEKO_API_KEY; delete process.env.OPENAI_API_KEY;
   try {
@@ -1658,7 +1663,7 @@ test("OpenAI API login is profile-scoped and /logout takes effect immediately", 
 
 test("/model on ChatGPT lists only completion-usable subscription models while signed out", async () => {
   const oldHome = process.env.HOME, oldProfile = process.env.USERPROFILE;
-  const home = mkdtempSync(join(tmpdir(), "neko-model-picker-"));
+  const home = createUITestHome("neko-model-picker-");
   process.env.HOME = home; process.env.USERPROFILE = home; // guarantee no credential -> no network
   try {
     const provider = new MockProvider([{ content: "", tool_calls: [] }]);
@@ -1683,7 +1688,7 @@ test("/model on ChatGPT lists only completion-usable subscription models while s
 
 test("/usage shows ChatGPT subscription windows and credits without making a model call", async () => {
   const oldHome = process.env.HOME, oldProfile = process.env.USERPROFILE, oldFetch = globalThis.fetch;
-  const home = mkdtempSync(join(tmpdir(), "neko-usage-"));
+  const home = createUITestHome("neko-usage-");
   process.env.HOME = home; process.env.USERPROFILE = home;
   saveChatGptCredentials({ accessToken: "access", refreshToken: "refresh", expiresAt: Date.now() + 3_600_000, accountId: "acct" });
   // This fixture observes only the usage request, not an unrelated startup release check.
@@ -1718,7 +1723,7 @@ test("/usage shows ChatGPT subscription windows and credits without making a mod
 
 test("/effort uses the selected compatible model catalog", async () => {
   const oldHome = process.env.HOME, oldProfile = process.env.USERPROFILE, oldFetch = globalThis.fetch;
-  const home = mkdtempSync(join(tmpdir(), "neko-effort-"));
+  const home = createUITestHome("neko-effort-");
   process.env.HOME = home; process.env.USERPROFILE = home;
   saveChatGptCredentials({ accessToken: "access", refreshToken: "refresh", expiresAt: Date.now() + 3_600_000, accountId: "acct" });
   setModel("gpt-5.5", "chatgpt");

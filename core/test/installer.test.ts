@@ -1,9 +1,13 @@
 import { expect, test } from "bun:test";
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 
 const windows = readFileSync("install.ps1", "utf8");
 const unix = readFileSync("install.sh", "utf8");
-const release = readFileSync(".github/workflows/release.yml", "utf8");
+// Imported Neko Bot snapshots archive upstream workflows instead of activating them.
+// Both layouts must validate the same release contract; missing both remains an error.
+const release = readFileSync(existsSync(".github/workflows/release.yml")
+  ? ".github/workflows/release.yml"
+  : "../migration/disabled-workflows/core/release.yml", "utf8");
 
 test("one-line installers hand optional browser setup to the installed Neko app", () => {
   for (const installer of [windows, unix]) {

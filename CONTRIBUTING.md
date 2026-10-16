@@ -20,12 +20,14 @@ Fork repo và tạo nhánh từ `main`. Các nhánh `wip/*` và `archive/*` dùn
 ## Kiểm tra theo thay đổi
 
 - Docs/assets: chạy `python tools/check_docs.py`, kiểm tra link nội bộ, chính tả, alt text, render desktop/mobile và provenance. SVG phải thụ động, không script/remote dependency. `docs/assets/generate_presentation.py` cần fontTools/Brotli để tái tạo các SVG hiện có.
-- Go: từ `app/native`, chạy `go test -count=1 ./...`, `go vet ./...` và build command trong [setup](docs/getting-started.md).
+- Go: mặc định từ `app/native`, chạy regression/package bị ảnh hưởng, ví dụ `go test -count=1 ./internal/providerexec`, cùng `go vet` cho package liên quan; thay package theo diff thực tế. Khi sửa boundary dùng chung về authority, persistence, protocol hoặc platform, hoặc rủi ro integration cuối/release yêu cầu, chạy `go test -count=1 ./...`, `go vet ./...` và build command trong [setup](docs/getting-started.md). Diff nhỏ không tự chứng minh rủi ro thấp.
 - Rust host: `cargo test --locked --manifest-path app/host/Cargo.toml`; desktop build theo setup. Chỉ dùng `--offline` khi cache đã đủ.
 - Frontend: `node --check app/native/internal/web/assets/app.js` và `node --check app/native/internal/web/assets/connections.js` chỉ kiểm cú pháp. Cần thêm kiểm tra interaction/focus/viewport phù hợp khi đổi hành vi; cú pháp PASS không chứng minh UI hoạt động.
 - Core: dùng Bun/lockfile và gate trong [Core testing](core/docs/process/TESTING.md). Không thay các kiểm thử runtime bằng fixture ở component khác.
 
-Repo này chưa có CI tự động ở root. Ghi bằng chứng manual trong PR: exact commit, command, tool/OS, PASS/FAIL/BLOCKED và scope. Không gọi fixture là model evaluation, viewport là physical-phone acceptance hoặc local replica là cloud sync. Nếu một gate chưa chạy, nói rõ lý do. Giữ nguyên failure có ý nghĩa; không nới assertion chỉ để có PASS.
+Chọn kiểm tra theo hành vi có thể hỏng, không theo số lượng test. Ưu tiên regression rẻ trên đường chạy có sẵn; nếu harness mới quá tốn hoặc chỉ kiểm mock, dùng reproduction gần nhất và ghi giới hạn. Sau baseline sạch, không chạy lại toàn suite khi source được kiểm, dependency và môi trường vẫn không đổi. Thay đổi liên quan, conflict integration, failure hoặc rủi ro chưa giải quyết yêu cầu chạy lại scope bị ảnh hưởng; không gắn bằng chứng cũ thành lần chạy mới. Xem [workflow phát triển](docs/development-workflow.md).
+
+Repo này chưa có CI tự động ở root. Ghi bằng chứng manual trong PR: exact commit, command, tool/OS, PASS/FAIL/BLOCKED/NOT RUN và scope. Không gọi fixture là model evaluation, viewport là physical-phone acceptance hoặc local replica là cloud sync. Nếu một gate chưa chạy, nói rõ lý do, nhất là Windows/ConPTY/SRT, thiết bị thật và provider thật; local fixture không thay các gate này. Giữ nguyên failure có ý nghĩa; không nới assertion chỉ để có PASS.
 
 ## Quyền, dữ liệu và provenance
 

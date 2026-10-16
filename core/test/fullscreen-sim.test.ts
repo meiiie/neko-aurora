@@ -1,3 +1,4 @@
+import { createUITestHome } from "./ui-test-home.ts";
 /**
  * Full-pipeline fullscreen simulation: the REAL ChatApp wired exactly like production (fake TTY stdout
  * -> FrameDiffer -> BSU/ESU wrapper, raw-ish stdin), with EVERY written byte replayed into a
@@ -35,7 +36,7 @@ class FakeStdin extends EventEmitter {
 const tick = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 test("feedback review keeps consent and actions visible on an 80x24 terminal with long notes", async () => {
-  const taskHome = mkdtempSync(join(tmpdir(), "neko-feedback-screen-"));
+  const taskHome = createUITestHome("neko-feedback-screen-");
   const originalHome = process.env.HOME, originalProfile = process.env.USERPROFILE;
   const originalFetch = globalThis.fetch;
   process.env.HOME = taskHome; process.env.USERPROFILE = taskHome;

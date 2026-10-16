@@ -9,7 +9,9 @@
 - [Trạng thái nền tảng và phạm vi kiểm chứng](project-status.md).
 - [Mốc source alpha và version](releases.md).
 - [Khôi phục source và lưu checkpoint an toàn](recovery.md).
+- [Kết quả checkpoint cloud 2026-10-16](cloud-checkpoint-20261016.md).
 - [Roadmap và acceptance gates](ROADMAP.md).
+- [Workflow phát triển và kiểm tra theo rủi ro](development-workflow.md).
 - [Đóng góp](../CONTRIBUTING.md), [hỗ trợ](../SUPPORT.md), [bảo mật](../SECURITY.md).
 - [Nguồn banner/logo, badges và ảnh fixture theo phiên bản](assets/README.md).
 

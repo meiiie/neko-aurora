@@ -10,8 +10,9 @@ import sys
 import xml.etree.ElementTree as ET
 
 ROOT = Path(__file__).resolve().parents[1]
-DOCS = ["README.md", "CONTRIBUTING.md", "SECURITY.md", "SUPPORT.md", "docs/README.md", "docs/getting-started.md", "docs/architecture.md", "docs/project-status.md", "docs/releases.md", "docs/ROADMAP.md", "docs/recovery.md", "docs/assets/README.md", ".github/PULL_REQUEST_TEMPLATE.md"]
+DOCS = ["docs/development-workflow.md", "README.md", "CONTRIBUTING.md", "SECURITY.md", "SUPPORT.md", "docs/README.md", "docs/getting-started.md", "docs/architecture.md", "docs/project-status.md", "docs/releases.md", "docs/ROADMAP.md", "docs/recovery.md", "docs/assets/README.md", ".github/PULL_REQUEST_TEMPLATE.md"]
 errors = []
+DOCS.append("docs/cloud-checkpoint-20261016.md")
 links_checked = 0
 
 

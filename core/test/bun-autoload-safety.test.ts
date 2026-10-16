@@ -161,7 +161,11 @@ test("active source-launch documentation never recommends the pre-trust Bun entr
     "AGENTS.md", "CLAUDE.md", "CONTRIBUTING.md", "README.md", "BENCHMARK-REPORT.md",
     "docs/EXTENDING.md", "docs/process/ARCHITECTURE.md", "docs/process/RELEASE.md",
     "docs/process/RULES.md", "docs/process/TESTING.md", "docs/process/WEB.md",
-    ".github/workflows/ci.yml",
+    // The Neko Bot source snapshot preserves this workflow without activating it.
+    // Check its archived bytes rather than silently skipping the safety assertion.
+    existsSync(join(repo, ".github/workflows/ci.yml"))
+      ? ".github/workflows/ci.yml"
+      : "../migration/disabled-workflows/core/ci.yml",
     "skills/procurement/SKILL.md", "skills/tui-self-test/SKILL.md",
     "scripts/selftest.sh", "scripts/stresstest.sh",
   ];

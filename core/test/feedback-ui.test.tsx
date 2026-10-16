@@ -1,3 +1,4 @@
+import { createUITestHome } from "./ui-test-home.ts";
 import { expect, test } from "bun:test";
 import { render } from "ink-testing-library";
 import { mkdtempSync, readFileSync, readdirSync, rmSync } from "node:fs";
@@ -7,7 +8,7 @@ import { ChatApp } from "../src/ui/chat.tsx";
 import { FEEDBACK_ENDPOINT } from "../src/adapters/feedback-delivery.ts";
 
 test("feedback takes two screens, keeps notes editable, and previews data without calling the model", async () => {
-  const taskHome = mkdtempSync(join(tmpdir(), "neko-feedback-ui-"));
+  const taskHome = createUITestHome("neko-feedback-ui-");
   const originalHome = process.env.HOME;
   const originalProfile = process.env.USERPROFILE;
   const originalFetch = globalThis.fetch;
@@ -66,7 +67,7 @@ for (const cancel of ["escape", "ctrl-c", "unmount"] as const) {
   // Palette/nav race on ubuntu full suite; keep unmount case live.
   const feedbackCancel = cancel === "unmount" ? test : test.skip;
   feedbackCancel(`feedback confirmation sends once and ${cancel} cancels waiting without resending or calling the model`, async () => {
-    const taskHome = mkdtempSync(join(tmpdir(), "neko-feedback-cancel-"));
+    const taskHome = createUITestHome("neko-feedback-cancel-");
     const originalHome = process.env.HOME;
     const originalProfile = process.env.USERPROFILE;
     const originalFetch = globalThis.fetch;

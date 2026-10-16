@@ -1,3 +1,4 @@
+import { createUITestHome } from "./ui-test-home.ts";
 import {expect, spyOn, test} from "bun:test";
 import {render} from "ink-testing-library";
 import {mkdtempSync, mkdirSync, writeFileSync, readFileSync} from "node:fs";
@@ -18,9 +19,9 @@ async function until(test: () => boolean, limit = 6000) {
 
 test("TUI opt-in compact publishes a structured checkpoint and restart keeps the original transcript accessible", async () => {
   const oldHome = process.env.HOME, oldProfile = process.env.USERPROFILE;
-  const home = mkdtempSync(join(tmpdir(), "neko-ui-structured-"));
-  mkdirSync(join(home, ".neko-core"));
-  writeFileSync(join(home, ".neko-core", "config.json"), JSON.stringify({context_mode: "structured", auto_update: false}));
+  const home = createUITestHome("neko-ui-structured-");
+  mkdirSync(join(home, ".neko-core"), { recursive: true });
+  writeFileSync(join(home, ".neko-core", "config.json"), JSON.stringify({context_mode: "structured", auto_update: false, auto_update_check: false}));
   process.env.HOME = process.env.USERPROFILE = home;
   let app: ReturnType<typeof render> | undefined;
   let lifecycle: ChatTaskLifecycle = {activeSessionId: null, shutdown: async () => {}};
@@ -70,9 +71,9 @@ test("TUI opt-in compact publishes a structured checkpoint and restart keeps the
 
 test("TUI cancellation cannot hide an uncertain published compact or overwrite it during shutdown", async () => {
   const oldHome = process.env.HOME, oldProfile = process.env.USERPROFILE;
-  const home = mkdtempSync(join(tmpdir(), "neko-ui-compact-fault-"));
-  mkdirSync(join(home, ".neko-core"));
-  writeFileSync(join(home, ".neko-core", "config.json"), JSON.stringify({context_mode: "structured", auto_update: false}));
+  const home = createUITestHome("neko-ui-compact-fault-");
+  mkdirSync(join(home, ".neko-core"), { recursive: true });
+  writeFileSync(join(home, ".neko-core", "config.json"), JSON.stringify({context_mode: "structured", auto_update: false, auto_update_check: false}));
   process.env.HOME = process.env.USERPROFILE = home;
   let app: ReturnType<typeof render> | undefined;
   const lifecycle: ChatTaskLifecycle = {activeSessionId: null, shutdown: async () => {}};
