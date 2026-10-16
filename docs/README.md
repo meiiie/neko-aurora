@@ -7,6 +7,7 @@
 - [Setup/build Windows, Tauri, Core và xử lý lỗi thường gặp](getting-started.md).
 - [Kiến trúc và ranh giới trách nhiệm](architecture.md).
 - [Trạng thái nền tảng và phạm vi kiểm chứng](project-status.md).
+- [Mốc source alpha và version](releases.md).
 - [Roadmap và acceptance gates](ROADMAP.md).
 - [Đóng góp](../CONTRIBUTING.md), [hỗ trợ](../SUPPORT.md), [bảo mật](../SECURITY.md).
 - [Nguồn banner/logo, badges và ảnh fixture theo phiên bản](assets/README.md).

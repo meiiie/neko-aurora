@@ -11,6 +11,8 @@ Trợ lý đa bot, đa kênh theo hướng **local-first**. Neko Bot hướng t�
 
 **Trạng thái: bản phát triển, chưa phải sản phẩm production hoàn chỉnh.** Repository này tập hợp mã nguồn ứng dụng, Neko Core liên quan và một overlay tích hợp Wiii. Không kèm installer, tài khoản, credentials, dữ liệu chat hay runtime đã cấu hình sẵn.
 
+Mốc source: [`v0.1.0-alpha.1`](https://github.com/meiiie/neko-bot/tree/v0.1.0-alpha.1). Xem [ghi chú alpha](docs/releases.md) về version và các gate còn mở. Tag này không kèm binary hoặc installer.
+
 [Bắt đầu](#build-và-chạy-local-trên-windows) · [Tài liệu](docs/README.md) · [Ảnh giao diện](#ảnh-giao-diện) · [Roadmap](#roadmap) · [Đóng góp](CONTRIBUTING.md)
 
 ## Ảnh giao diện
@@ -67,8 +69,8 @@ Xem [ma trận khoảng trống sản phẩm](app/docs/product-gap-matrix-202610
 Cần Git, Go **1.27+**, Rust/Cargo (MSVC + Windows SDK) và WebView2 cho Tauri. Hướng dẫn đầy đủ về [prerequisite, Tauri, Core và kiểm thử](docs/getting-started.md) nằm trong tài liệu setup.
 
 ```powershell
-git clone https://github.com/meiiie/nekobot-transfer-20261016.git
-Set-Location nekobot-transfer-20261016
+git clone https://github.com/meiiie/neko-bot.git
+Set-Location neko-bot
 New-Item -ItemType Directory -Force app/.build | Out-Null
 Push-Location app/native
 try {

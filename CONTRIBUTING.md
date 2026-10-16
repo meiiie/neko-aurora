@@ -4,7 +4,7 @@ Cảm ơn bạn đã giúp cải thiện một bản phát triển đa bot/đa k
 
 ## Chọn phạm vi
 
-Tìm [issue hiện có](https://github.com/meiiie/nekobot-transfer-20261016/issues) trước. Với tính năng mới hoặc thay đổi authority/runtime, mở đề xuất có mục tiêu, scope và acceptance trước khi làm lớn. Sửa tài liệu/lỗi nhỏ có thể gửi PR trực tiếp. Giữ mỗi PR tập trung vào một kết quả; không trộn thay license, nâng dependency và sửa runtime không liên quan.
+Tìm [issue hiện có](https://github.com/meiiie/neko-bot/issues) trước. Với tính năng mới hoặc thay đổi authority/runtime, mở đề xuất có mục tiêu, scope và acceptance trước khi làm lớn. Sửa tài liệu/lỗi nhỏ có thể gửi PR trực tiếp. Giữ mỗi PR tập trung vào một kết quả; không trộn thay license, nâng dependency và sửa runtime không liên quan.
 
 | Phần việc | Entry point |
 |---|---|

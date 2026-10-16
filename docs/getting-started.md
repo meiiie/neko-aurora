@@ -9,8 +9,8 @@
 Hướng dẫn sau dùng PowerShell, từ root repository. Cần Git, Go **1.27+** theo `app/native/go.mod`, Rust/Cargo với toolchain MSVC và Windows SDK. Tauri cần Microsoft Edge WebView2 Runtime. Dependency Rust có thể cần tải ở lần build đầu; Go module hiện không có dependency bên thứ ba.
 
 ```powershell
-git clone https://github.com/meiiie/nekobot-transfer-20261016.git
-Set-Location nekobot-transfer-20261016
+git clone https://github.com/meiiie/neko-bot.git
+Set-Location neko-bot
 New-Item -ItemType Directory -Force app/.build | Out-Null
 
 Push-Location app/native

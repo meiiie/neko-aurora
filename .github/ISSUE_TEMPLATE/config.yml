@@ -1,8 +1,8 @@
 blank_issues_enabled: false
 contact_links:
   - name: Hướng dẫn setup và hỗ trợ
-    url: https://github.com/meiiie/nekobot-transfer-20261016/blob/main/SUPPORT.md
+    url: https://github.com/meiiie/neko-bot/blob/main/SUPPORT.md
     about: Kiểm tra setup, trạng thái hỗ trợ và cách gửi fixture không nhạy cảm.
   - name: Chính sách bảo mật
-    url: https://github.com/meiiie/nekobot-transfer-20261016/blob/main/SECURITY.md
+    url: https://github.com/meiiie/neko-bot/blob/main/SECURITY.md
     about: Không gửi chi tiết lỗ hổng hoặc secrets vào issue công khai.
