@@ -43,7 +43,7 @@ function readWitness(path:string):string {
  }finally{buffer.fill(0);closeSync(fd);}
 }
 
-/** Isolated, default-off consumer. No CLI/config/environment entrypoint activates it.
+/** Private preparation consumer; ordinary CLI/config and runtime execution stay off.
  * One live reader per task. No whole-state rollback or restart/tombstone guarantee.
  * Windows is deliberately denied until native handle/reparse identity is verified.
  */

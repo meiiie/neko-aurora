@@ -113,7 +113,7 @@ interface Args {
   dryRun: boolean;
 }
 
-function parseArgs(argv: string[]): Args {
+function parseArgs(argv: string[], validate = true): Args {
   const tokens: string[] = [];
   const args: Args = { positionals: [], force: false, yolo: false, resume: false, loop: false, once: false, version: false, help: false, doctor: false, device: false, diarize: false, dryRun: false };
   for (let i = 0; i < argv.length; i++) {
@@ -122,7 +122,7 @@ function parseArgs(argv: string[]): Args {
     else if (a === "--json") args.json = true;
     else if (a === "--broker-stdin") args.brokerStdin = true;
     else if (a === "--profile-v2") args.profileV2 = true;
-    else if (a === "--credential-home") { args.credentialHome = argv[++i]; if (!args.credentialHome || args.credentialHome.startsWith("--")) throw new Error("Credential home argument required"); }
+    else if (a === "--credential-home") { args.credentialHome = argv[++i]; if (validate && (!args.credentialHome || args.credentialHome.startsWith("--"))) throw new Error("Credential home argument required"); }
     else if (a === "--host-profile") args.hostProfile = argv[++i];
     else if (a === "--category") args.procurementCategory = argv[++i];
     else if (a === "--kind") args.procurementIdentifierKind = argv[++i];
@@ -1684,6 +1684,23 @@ async function cmdBench(args: Args): Promise<number> {
 }
 
 async function main(): Promise<number> {
+  // Private preparation precedes ordinary argv validation, terminal output, config/home discovery
+  // and updater startup. Never expose private input or argv through generic errors.
+  const privateArgs = process.argv.slice(2);
+  // Reuse the ordinary grammar to distinguish a prefixed command from a prompt or
+  // option value. This probe suppresses validation errors; the private path rejects
+  // anything except its exact argv without printing parser diagnostics.
+  if (privateArgs.includes("saved-account") && parseArgs(privateArgs, false).command === "saved-account") {
+    try {
+      const { prepareSavedAccountFromStdin } = await import("../src/adapters/saved-account-prepare.ts");
+      const receipt = await prepareSavedAccountFromStdin(privateArgs);
+      process.stdout.write(JSON.stringify(receipt) + "\n");
+      return 0;
+    } catch {
+      process.stderr.write("Saved account preparation unavailable\n");
+      return 1;
+    }
+  }
   // The public source bootstrap starts Bun in Neko's trusted package directory so an untrusted
   // project cannot execute cwd .env/bunfig/preload code before this module loads. Static imports are
   // complete now, so restore the caller's cwd before parsing config or constructing runtime tools.

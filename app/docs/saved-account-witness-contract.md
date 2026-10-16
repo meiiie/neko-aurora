@@ -52,7 +52,7 @@ Windows file-handle/reparse/hardlink checks remain intact. POSIX checks do not
 prove Windows path identity or DPAPI behavior.
 
 Still required before runtime activation: native Windows witness consumption, private
-Rust/Core bootstrap dispatch, typed Work and explicit consent/source-policy
+Rust/Core execution bootstrap, typed Work and explicit consent/source-policy
 binding, current account/lease checks, reviewed capabilities and runtime pins,
 and actual Windows end-to-end synthetic DPAPI/ACP acceptance. Changed-attempt
 recovery must not create a fresh budget or reset consumed limits.
@@ -96,8 +96,10 @@ focused change on that base, not a published release.
 `createSavedAccountWitnessAuthority`. A trusted caller supplies the exact binding,
 private witness path, expected service generation and authority digest, and the
 revision key. Focused integration tests pass the returned stateful callback
-unchanged to both capsule preparation and bridge loading. There is no CLI,
-environment or runtime activation.
+unchanged to both capsule preparation and bridge loading. The private
+[Core preparation command](../../core/docs/process/SAVED-ACCOUNT-PREPARE.md)
+now constructs this reader before preparing a capsule. Ordinary CLI/environment
+selection and saved-account runtime execution remain disabled.
 
 The consumer verifies the literal Go wire format and HMAC domain, canonical UTF-8
 bytes (including rejection of BOM/duplicate keys), full binding identity, boot,
@@ -126,5 +128,5 @@ this slice: its full-binding budget key changes, so a future host must not admit
 it by creating a fresh state directory or resetting consumed limits.
 
 Linux x64 / Bun 1.4.0 acceptance is scoped to the isolated reader and existing
-saved-account bridge tests. Windows native execution, private Rust/Core bootstrap,
+saved-account bridge tests. Windows native execution, private Rust/Core execution bootstrap,
 restart/tombstone provenance and provider/account readiness remain open gates.
