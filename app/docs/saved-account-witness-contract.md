@@ -51,7 +51,7 @@ not complete for production activation.
 Windows file-handle/reparse/hardlink checks remain intact. POSIX checks do not
 prove Windows path identity or DPAPI behavior.
 
-Still required before runtime activation: a Core witness reader, private
+Still required before runtime activation: native Windows witness consumption, private
 Rust/Core bootstrap dispatch, typed Work and explicit consent/source-policy
 binding, current account/lease checks, reviewed capabilities and runtime pins,
 and actual Windows end-to-end synthetic DPAPI/ACP acceptance. Changed-attempt
@@ -89,3 +89,42 @@ focused change on that base, not a published release.
   failures on Linux. A separate portability checkpoint owns those tests and
   the final full-suite/vet result; this focused package does not claim that
   initial full run passed.
+
+## Isolated Core consumer (default-off)
+
+`core/src/adapters/saved-account-witness.ts` now exposes
+`createSavedAccountWitnessAuthority`. A trusted caller supplies the exact binding,
+private witness path, expected service generation and authority digest, and the
+revision key. Focused integration tests pass the returned stateful callback
+unchanged to both capsule preparation and bridge loading. There is no CLI,
+environment or runtime activation.
+
+The consumer verifies the literal Go wire format and HMAC domain, canonical UTF-8
+bytes (including rejection of BOM/duplicate keys), full binding identity, boot,
+authority, safe integer revisions and the five-second maximum proof lifetime.
+Readers may skip renewals during a pause when a newer authenticated proof is
+still current; expiry of an old observed revision alone does not reject that
+new proof. Repeated reads cannot refresh a proof deadline; the original
+wall/monotonic mapping also bounds newer revisions with unchanged expiry. Any rejected read permanently
+poisons that callback. Missing initial evidence is an error, not initialization.
+
+On POSIX, nonblocking opens prevent substituted FIFOs from hanging the reader.
+Bounded descriptor reads compare named/opened/post-read identity and
+metadata, reject hardlinks and symlink ancestry, and recheck parent identities.
+Atomic rename between successful reads is permitted because the Go writer renews
+that way. This is local single-owner evidence, not an adversarial-filesystem or
+whole-state rollback guarantee. Windows consumption deliberately fails closed
+until native handle/reparse/final-path verification is integrated and executed.
+
+The new focused tests consume the literal Go signed vector and exercise renewal,
+rollback, retirement, frozen-clock expiry, expiry during a read, file replacement
+inside a read, a FIFO substituted between stat/open in a bounded subprocess,
+and actual loopback provider cancellation. A real bridge reload
+with the same binding/state directory retains consumed request reservations;
+renewal does not create another budget. Changed-attempt recovery remains outside
+this slice: its full-binding budget key changes, so a future host must not admit
+it by creating a fresh state directory or resetting consumed limits.
+
+Linux x64 / Bun 1.4.0 acceptance is scoped to the isolated reader and existing
+saved-account bridge tests. Windows native execution, private Rust/Core bootstrap,
+restart/tombstone provenance and provider/account readiness remain open gates.

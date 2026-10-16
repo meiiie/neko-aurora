@@ -27,13 +27,16 @@ func readPrivateWitness(path string) ([]byte, error) {
 	if !before.Mode().IsRegular() || !witnessSingleLink(before) || before.Size() > 4096 {
 		return nil, ErrSavedAuthority
 	}
-	f, err := os.Open(path)
+	// A regular file can be replaced after Lstat. Never block on a FIFO or
+	// follow a replacement symlink before checking the opened identity.
+	fd, err := syscall.Open(path, syscall.O_RDONLY|syscall.O_NONBLOCK|syscall.O_NOFOLLOW|syscall.O_CLOEXEC, 0)
 	if err != nil {
 		return nil, err
 	}
+	f := os.NewFile(uintptr(fd), path)
 	defer f.Close()
 	opened, err := f.Stat()
-	if err != nil || !os.SameFile(before, opened) || !witnessSingleLink(opened) {
+	if err != nil || !opened.Mode().IsRegular() || opened.Size() > 4096 || !os.SameFile(before, opened) || !witnessSingleLink(opened) {
 		return nil, ErrSavedAuthority
 	}
 	raw, err := io.ReadAll(io.LimitReader(f, 4097))
