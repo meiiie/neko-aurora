@@ -12,7 +12,7 @@ Bản sao mã nguồn riêng tư từ DESKTOP-PLLO4HG, để tiếp tục công 
 
 Clone vào thư mục MỚI, ví dụ `git clone https://github.com/meiiie/nekobot-transfer-20261016.git NekoBot-transfer-20261016`. Giữ nguyên Wiii và các workspace hiện có trên laptop. Đọc `app/AGENTS.md`, tài liệu định hướng/release của app và `core/AGENTS.md` trước khi sửa. Đọc manifest và các nhánh WIP trước khi chọn source để tiếp tục. Cài dependency trong từng component bằng lockfile của nó; không sao chép profile/credentials từ desktop.
 
-Mã nguồn dùng Tauri UI, Rust trusted host và Go control plane; Neko Core sở hữu agent loop. `wiii/` là ADE bridge riêng. Runtime state, account store, chat thật, binary, cache và dependency chưa đi kèm. Các đường dẫn tuyệt đối trong tài liệu/runners lịch sử cần cấu hình lại trên máy mới; chúng không chứng minh file có trên laptop.
+Mã nguồn dùng Tauri UI, Rust trusted host và Go control plane; Neko Core sở hữu agent loop. `wiii/` là ADE bridge riêng. Thư mục `wiii/` là đúng 61 file overlay liên quan, chưa phải toàn bộ repo Wiii; base được lưu trong hai ZIP Wiii tại desktop, metadata gốc ghi commit `6b1c30b15b4c67e3c841ae870e6989577fc228f8`. Xem `migration/wiii-integration.json` trước khi áp vào một bản Wiii riêng. Runtime state, account store, chat thật, binary, cache và dependency chưa đi kèm. Các đường dẫn tuyệt đối trong tài liệu/runners lịch sử cần cấu hình lại trên máy mới; chúng không chứng minh file có trên laptop.
 
 ## Phạm vi và phần còn dở
 

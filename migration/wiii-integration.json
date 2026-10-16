@@ -1,0 +1,20 @@
+{
+  "scope": "61 related Wiii overlay files, not a complete Wiii repository; do not overwrite laptop Wiii",
+  "overlayCommit": "d2e8284b34d2431e21e4ca8df41c82b3270d4a50",
+  "restoredBaseReportedCommit": "6b1c30b15b4c67e3c841ae870e6989577fc228f8",
+  "basePreservedLocally": true,
+  "baseFilesVerifiedHistorically": 3205,
+  "baseArchives": [
+    {
+      "name": "NekoBot-in-progress-20261009T182150Z-wiii-source-part01-of-02.zip",
+      "sha256": "46c9aa458b5162532ac90c3e16209a779e95ad432dbce119a214ecc1dfcd0f74",
+      "bytes": 17932439
+    },
+    {
+      "name": "NekoBot-in-progress-20261009T182150Z-wiii-source-part02-of-02.zip",
+      "sha256": "cd3cbc11cf88fff4ccd9b14cd13d40a69050cce59755050a51e8d7794aa0455e",
+      "bytes": 9136624
+    }
+  ],
+  "applyGuidance": "Use a separate, verified Wiii base in a new directory. Review exact overlay paths and hashes in source-manifest; do not copy profile/auth/runtime data. Native functionality is not revalidated by this backup."
+}
