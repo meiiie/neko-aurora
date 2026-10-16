@@ -1,0 +1,165 @@
+/**
+ * Token usage tracking (the "cost-tracker"). We track TOKENS accurately (the universal,
+ * model-agnostic metric). Dollar cost needs a per-model price table — left as a future
+ * config (any OpenAI-compatible endpoint can price differently), so we don't fake it.
+ */
+import { EfficiencyTracker } from "./efficiency.ts";
+
+export interface Usage {
+  prompt_tokens?: number;
+  completion_tokens?: number;
+  total_tokens?: number;
+  /** Prompt tokens served from the provider's prompt/prefix cache (read hits — the cheap ones).
+   * OpenAI-shaped endpoints report this nested (prompt_tokens_details.cached_tokens); the
+   * anthropic adapter maps cache_read_input_tokens here. */
+  cached_tokens?: number;
+  /** Prompt tokens WRITTEN to the cache this call (Anthropic cache_creation_input_tokens). */
+  cache_write_tokens?: number;
+  /** OpenAI-compat passthrough (providers.ts forwards usage verbatim). */
+  prompt_tokens_details?: { cached_tokens?: number };
+  /** DeepSeek's cache-hit shape (they pioneered context caching with their own field name). */
+  prompt_cache_hit_tokens?: number;
+  /** When one provider complete() spans SEVERAL internal model calls (the Codex app-server runs its
+   * own tool loop), prompt/completion above are the TURN SUM. This is the LAST call's prompt size -
+   * the live context - so the ctx% display doesn't read a sum as one giant prompt. */
+  context_tokens?: number;
+  /** Cache-read subset of context_tokens for the LAST internal model call. Aggregated providers
+   * must not reuse their whole-turn cached sum here (it can exceed the live context). */
+  context_cached_tokens?: number;
+  /** Internal model calls behind this one usage report (default 1). */
+  model_calls?: number;
+}
+
+
+/** Prefer the larger of provider last-prompt and a local estimate.
+ * Compat endpoints (lived: z.ai glm) often under-report prompt_tokens as a tiny
+ * delta; treating that as live context pinned footer ctx% and disabled auto-compact. */
+export function effectiveContextTokens(lastPrompt: number, estimate = 0): number {
+  return Math.max(Math.max(0, lastPrompt || 0), Math.max(0, estimate || 0));
+}
+
+/** Durable counters persisted on Session.usage (TUI + ACP). */
+export interface CostSnapshot {
+  promptTokens: number;
+  completionTokens: number;
+  totalTokens: number;
+  cachedTokens: number;
+  cacheWriteTokens: number;
+  calls: number;
+  lastPrompt: number;
+  lastCompletion: number;
+  lastCached: number;
+  lastCacheWrite: number;
+}
+
+export class CostTracker {
+  readonly efficiency = new EfficiencyTracker();
+  promptTokens = 0;
+  completionTokens = 0;
+  totalTokens = 0;
+  cachedTokens = 0; // prompt tokens served from the provider's prefix cache (cheap + fast)
+  cacheWriteTokens = 0; // prompt tokens written to a billed provider cache (not extra context tokens)
+  calls = 0;
+  lastPrompt = 0; // last call's prompt size ~= current context usage
+  lastCompletion = 0; // last call's output size (this turn's reply)
+  lastCached = 0; // last call's cache-read size (how much of the context was a cache hit)
+  lastCacheWrite = 0;
+
+  /** Plain counters for session persistence (no efficiency / ephemeral state). */
+  snapshot(): CostSnapshot {
+    return {
+      promptTokens: this.promptTokens,
+      completionTokens: this.completionTokens,
+      totalTokens: this.totalTokens,
+      cachedTokens: this.cachedTokens,
+      cacheWriteTokens: this.cacheWriteTokens,
+      calls: this.calls,
+      lastPrompt: this.lastPrompt,
+      lastCompletion: this.lastCompletion,
+      lastCached: this.lastCached,
+      lastCacheWrite: this.lastCacheWrite,
+    };
+  }
+
+  /** Restore counters after --continue / /resume (ACP + TUI). Rejects malformed snapshots. */
+  restore(snap: CostSnapshot | undefined | null): void {
+    if (snap == null) return;
+    const n = (value: number): number | null => {
+      const v = Number(value);
+      return Number.isSafeInteger(v) && v >= 0 ? v : null;
+    };
+    const promptTokens = n(snap.promptTokens);
+    const completionTokens = n(snap.completionTokens);
+    const totalTokens = n(snap.totalTokens);
+    const cachedTokens = n(snap.cachedTokens);
+    const cacheWriteTokens = n(snap.cacheWriteTokens);
+    const calls = n(snap.calls);
+    const lastPrompt = n(snap.lastPrompt);
+    const lastCompletion = n(snap.lastCompletion);
+    const lastCached = n(snap.lastCached);
+    const lastCacheWrite = n(snap.lastCacheWrite);
+    if ([promptTokens, completionTokens, totalTokens, cachedTokens, cacheWriteTokens,
+      calls, lastPrompt, lastCompletion, lastCached, lastCacheWrite].some((v) => v === null)) return;
+    this.promptTokens = promptTokens!;
+    this.completionTokens = completionTokens!;
+    this.totalTokens = totalTokens!;
+    this.cachedTokens = cachedTokens!;
+    this.cacheWriteTokens = cacheWriteTokens!;
+    this.calls = calls!;
+    this.lastPrompt = lastPrompt!;
+    this.lastCompletion = lastCompletion!;
+    this.lastCached = lastCached!;
+    this.lastCacheWrite = lastCacheWrite!;
+  }
+
+  add(usage?: Usage): void {
+    if (!usage) return;
+    const count = (value: any): number => {
+      const n = Number(value ?? 0);
+      return Number.isFinite(n) && n > 0 ? Math.floor(n) : 0;
+    };
+    const prompt = count(usage.prompt_tokens);
+    const completion = count(usage.completion_tokens);
+    // A cache read is a subset of input, not extra input. Clamp malformed compat responses so one
+    // provider cannot make the cache percentage exceed 100% or poison every later session counter.
+    const cached = Math.min(prompt, count(usage.cached_tokens ?? usage.prompt_tokens_details?.cached_tokens ?? usage.prompt_cache_hit_tokens));
+    const cacheWrite = Math.min(prompt, count(usage.cache_write_tokens));
+    const reportedTotal = count(usage.total_tokens);
+    this.promptTokens += prompt;
+    this.completionTokens += completion;
+    this.totalTokens += Math.max(reportedTotal, prompt + completion);
+    this.cachedTokens += cached;
+    this.cacheWriteTokens += cacheWrite;
+    if (usage.prompt_tokens !== undefined) this.lastPrompt = count(usage.context_tokens) || prompt;
+    if (usage.completion_tokens !== undefined) this.lastCompletion = completion;
+    this.lastCached = usage.context_cached_tokens !== undefined
+      ? Math.min(this.lastPrompt, count(usage.context_cached_tokens))
+      : Math.min(this.lastPrompt || prompt, cached);
+    this.lastCacheWrite = cacheWrite;
+    this.calls += Math.max(1, count(usage.model_calls));
+  }
+
+  summary(opts?: { contextEstimate?: number }): string {
+    const efficiency = this.efficiency.summary();
+    const cache = this.cachedTokens > 0 ? `, ${this.cachedTokens} cached (${Math.round((100 * this.cachedTokens) / Math.max(1, this.promptTokens))}% of in)` : "";
+    const writes = this.cacheWriteTokens > 0 ? `, ${this.cacheWriteTokens} cache-written` : "";
+    const additional = Math.max(0, this.totalTokens - this.promptTokens - this.completionTokens);
+    const extra = additional > 0 ? `, ${additional} additional provider-reported tokens (for example reasoning/advisors)` : "";
+    const estimate = Math.max(0, Math.floor(opts?.contextEstimate ?? 0));
+    const live = effectiveContextTokens(this.lastPrompt, estimate);
+    const liveNote = estimate > this.lastPrompt
+      ? `\nlive context estimate: ~${live} tokens (provider last-prompt under-reported; drives footer ctx% / auto-compact)`
+      : "";
+    return (
+      `session cumulative: ${this.totalTokens} tokens over ${this.calls} provider-reported model call(s) ` +
+      `(${this.promptTokens} input / ${this.completionTokens} output${cache}${writes}${extra})\n` +
+      `last request: ${this.lastPrompt} input / ${this.lastCompletion} output` +
+      (this.lastCached > 0 ? ` (${this.lastCached} input cached)` : "") +
+      (this.lastCacheWrite > 0 ? ` (${this.lastCacheWrite} input written to cache)` : "") +
+      liveNote +
+      (this.calls > 1 ? "\ninput is re-sent as context on each model call; session cumulative is not one prompt" : "") +
+      "\ntokens only — Neko does not estimate USD" +
+      (efficiency ? `\n\n${efficiency}` : "")
+    );
+  }
+}

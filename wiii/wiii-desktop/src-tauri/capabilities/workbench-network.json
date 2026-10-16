@@ -1,0 +1,17 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "workbench-network",
+  "description": "Bounded native HTTP and connectivity authority for Wiii Service",
+  "windows": ["main"],
+  "permissions": [
+    "allow-check-server-reachable",
+    "allow-neko-wiii-service-fetch",
+    "allow-neko-wiii-service-cancel",
+    {
+      "identifier": "http:default",
+      "allow": [
+        { "url": "https://wiii.holilihu.online/**" }
+      ]
+    }
+  ]
+}

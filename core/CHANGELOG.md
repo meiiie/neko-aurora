@@ -1,0 +1,2500 @@
+# Changelog
+
+All notable changes to Neko Core are documented here. The format follows
+[Keep a Changelog](https://keepachangelog.com/en/1.1.0/); this project uses
+[semantic versioning](https://semver.org/) (pre-1.0: minor versions may include breaking changes; patch covers non-breaking fixes and additive features).
+
+## [Unreleased]
+
+## [1.8.0] - 2026-10-03
+
+### Added
+
+- Opt-in structured context for scoped task sessions in TUI, CLI and ACP using
+  `--context-memory`. Compaction publishes working messages and immutable source
+  references together before activating them; exact historical source lookup is
+  restricted to the current task and selected journal branch.
+- ACP `/compact` and explicit structured/legacy task status. New schema 3 sessions
+  require matching opt-in on resume; existing schema 2 sessions are unchanged.
+
+### Fixed
+
+- Full display history remains separate from compacted model context, with older
+  prompts reachable after resume. Sticky-prompt clicks target the painted turn;
+  Home/End edit drafts and Ctrl+Home/Ctrl+End navigate history.
+- Incomplete, oversized, stale, canceled and non-shrinking summaries preserve the
+  prior context. Uncertain structured checkpoint publication stops subsequent work
+  until recovery instead of overwriting durable state with stale messages.
+
+### Compatibility and limits
+
+- Structured context is experimental and opt-in. No automatic schema migration,
+  permission change, credential change or new runtime dependency. Existing exact
+  read-file evidence remains bounded to 256 events / 8 MiB; unsafe compaction at
+  that boundary is blocked rather than silently discarding evidence.
+- Validation uses scripted-provider mechanism tests. The earlier Z.ai Coding Plan
+  trial stopped at 200/320 turns due to an environment network-policy block and
+  does not validate this later integration. No unlimited-memory or SOTA claim.
+- See [structured context](docs/STRUCTURED-CONTEXT.md) for usage, recovery and limits.
+
+## [1.7.0] - 2026-09-22
+
+### Changed
+
+- **Product-default permission mode is `auto` (freer-auto).** Ordinary workspace tools,
+  outside `write_file`/`edit`/`multi_edit`, and gated host `computer` actions proceed without
+  routine prompts. Workspace-destructive bash (`rm -rf`, force-push, `sudo`, `curl|sh`, …) still
+  asks once. Credential/system/catastrophic seatbelts and `~/.neko-core/config.json` confirmation
+  remain. Set `"mode": "default"` for asks-first. ToolRegistry / library hosts and ACP session-list
+  metadata fall back to `auto` when mode is omitted.
+- **`--always-approve` is a documented synonym of `--yolo`.** Explicit `--yolo` skips remaining
+  approval prompts (including destructive bash); hard seatbelts stay. Ctrl+O remains expand-output.
+- **Plan exit offers mode choice.** `exit_plan_mode` ApprovalBox: `[y] auto` / `[e] accept-edits` /
+  `[n] keep planning` instead of forcing accept-edits.
+- **TUI honesty polish.** Quieter Shift+Tab mode flash (ephemeral status); clearer approval diffs,
+  elide context, tool collapse line counts, jump-pill baseline, `/cost` survives resume, ASCII-safe
+  chrome (`NEKO_ASCII_CHROME=1` / non-UTF-8). Doctor, policy, capabilities, ACP, and Architecture
+  copy match the freer-auto contract.
+- **`neko run --max-steps` and `neko bench gui --max-steps` are honored** (1..512; default 40).
+  Hitting the step cap under `--loop` forces a closed-loop review instead of treating wrap-up as
+  verified idle. Skill router false-positives tightened (`research-method`, `meeting-notes`).
+
+### Fixed
+
+- Typecheck P0: edit EOL soft-match no longer treats ambiguous `old_string` as success; ChatProps
+  tests pass explicit `yolo={false}` under product-default `auto`.
+- Anti-slop Batch 1–2: SAFETY comments for unjustified `as` casts; narrowing/shape-erasure cleanups.
+- Freer-auto test honesty: outside-write and ACP computer fixtures aligned with product-default `auto`.
+- Native edit skips host preflight; independent verify clears HardMix artifact block; CI flake
+  quarantine for fullscreen-sim + feedback-ui.
+
+### Compatibility
+
+- No session-format migration, ACP wire break, or new runtime dependency. Existing `"mode": "default"`
+  configs keep asks-first. Installers and standalone binaries remain the 1.x five-target set.
+- Main tip CI green after #73; release uses cross-platform typecheck/lint/policy plus the release
+  artifact workflow. No new ProgramBench campaign.
+
+## [1.6.2] - 2026-09-09
+
+### Improved
+
+- Keep stable base/project context ahead of changing tool, workstation and todo state.
+  Anthropic-compatible requests use up to four cache breakpoints; an explicit
+  cache rejection is remembered for the current endpoint/model instead of retried
+  on every request. Authentication and rate-limit errors do not disable caching.
+- Reuse still-valid verification evidence and skip unnecessary learning writes or
+  repeated research lookups. No default model or reasoning-effort reduction.
+- `/cost` adds local request latency, retries, context-prefix changes and repeated-read
+  diagnostics. The tracker is bounded in memory; no prompt content or telemetry is sent.
+
+### Fixed
+
+- Stop after two unsupported-final verification nudges for unchanged action state,
+  retaining an explicit unverified outcome instead of looping or claiming success.
+  Valid observations or a passing independent contract review can resolve it;
+  unknown actions are not replayed. The terminal displays the warning and does not
+  play a success alert, while headless runs report failure.
+
+### Compatibility
+
+- No new runtime dependency, translate.js integration, permission change, ACP wire
+  change or session-format migration. Host Bash and explicit sandbox behavior are unchanged.
+- Owner-requested affected-subsystem tests and artifact gates are used for this patch.
+  ProgramBench remains paused; no general speedup, cost saving or quality lift is claimed.
+  See the [efficiency contract](docs/process/EFFICIENCY.md) for measurement limits.
+
+## [1.6.1] - 2026-09-09
+
+### Fixed
+
+- ChatGPT Code Mode tools: install the complete official Codex package, including
+  its host and runtime resources. Verify checksums, package layout, applicable
+  signatures and a real local tool round trip before activation; retain the old
+  package if verification fails.
+- Automatically repair incomplete or outdated Neko-managed ChatGPT support before
+  a request starts. Esc/Ctrl+C cancels preparation; the terminal keeps the prompt
+  for retry. Concurrent repairs share one installation. First-time setup remains
+  opt-in, separate Codex installations and sign-in data are kept, and completed
+  tools are never replayed by the repair mechanism.
+- `/feedback` now has two screens: optional private notes, then a sharing summary
+  and Send. Conversation/tool logs are off by default; exact JSON preview, editing
+  and local export remain available. Basic ChatGPT support diagnostics use fixed
+  codes without credentials or raw paths. Reports still go to the private owner inbox.
+
+### Compatibility
+
+- No changes to tool permissions, ACP contracts, session format or completion logic.
+  Codex remains an optional downloaded component, not bundled into the Neko binary.
+- This patch uses owner-requested focused regressions plus types, lint and artifact
+  lifecycle gates; it does not claim a new full-suite or benchmark campaign.
+
+## [1.6.0] - 2026-09-08
+
+### Added
+
+- `/feedback` collects optional notes and current-session text/tool logs for the private maintainer inbox.
+  It requires a scrubbed attachment preview and explicit confirmation before sending, saves a local copy,
+  and offers JSON/email-draft export. Images, hidden reasoning, credential stores and other sessions are
+  excluded. Unknown delivery outcomes are not automatically resent; service acceptance is not Inbox confirmation.
+  See [feedback and privacy](docs/process/FEEDBACK.md) for limits and retention.
+- ChatGPT model selection and transport routing use account-catalog metadata, including native-only models
+  such as GPT-6 Astra and future entries without a model-name allowlist. Availability still depends on account
+  access and the required Codex Support Pack version; Astra requires at least 0.153.4.
+
+### Fixed
+
+- Switching profiles no longer carries an old provider's endpoint or key settings into the new connection.
+  Existing built-in Z.AI Coding Plan profiles with an OpenAI-shaped endpoint are migrated to Anthropic Messages;
+  explicit protocol mismatches fail locally instead of requesting `/v4/v1/messages` and returning HTTP 404.
+- ChatGPT native transport starts when Neko is launched directly in the user's home directory, while retaining
+  rejection of unsafe project-contained or redirected transport directories.
+- Catalog lookup and shared credential-refresh waiting honor cancellation. Native-model support installation
+  can update an older managed pack while preserving sign-in.
+- The completed-turn resize regression now isolates personal configuration, waits for the actual idle frame,
+  and cleans up even on assertion failure, rather than assuming every turn finishes within 450 ms.
+- The fallback terminal renderer now strips disallowed Ink sync-output controls and internal caret markers,
+  just like the default renderer. This fixes a reproduced Windows startup frame that lost the welcome header.
+  CI and native release builds exercise startup/exit with both renderers.
+- Slash-command suggestions stay within narrow/short terminals: descriptions truncate to one row and the
+  visible item count follows terminal height, preserving the composer and keyboard selection after resize.
+
+### Documentation
+
+- Consolidated repository instructions and current architecture/evaluation guidance; retired obsolete Python-port
+  and remote-sandbox instructions. ProgramBench stays paused. This release does not change the completion
+  controller, ordinary host-Bash defaults, permission modes, ACP host isolation, or session format.
+
+## [1.5.1] - 2026-09-04
+
+### Fixed
+
+- Release downloads no longer use a total wall-clock deadline or keep the whole executable in memory. The updater
+  streams to a tag-stable checkpoint, resumes an interrupted transfer with a validated HTTP byte range, retries
+  transient transport failures with bounded exponential backoff, and retains useful partial bytes across process
+  restarts. A server that ignores or returns the wrong range causes a safe restart instead of a corrupt append.
+- New releases include gzip-compressed standalone binaries while retaining the raw binaries and their SHA-256
+  sidecars. The Windows x64 artifact measured 89.5 MiB raw and 39.1 MiB compressed in the release candidate; the
+  updater and one-line installers verify the expanded binary's official digest and embedded version before the
+  existing atomic activation step. The website's manual Windows download uses an equally compressed ZIP instead
+  of forcing a 94 MB raw transfer.
+- Windows and Unix one-line installers now use persistent partial files, idle-progress detection, retry-all-errors,
+  and resume. A failed attempt reports the saved byte count so running the same one-liner continues rather than
+  discarding a slow download.
+
+## [1.5.0] - 2026-09-04
+
+### Added
+
+- Explicit closed-loop work now fixes a provider-agnostic completion contract before implementation and uses
+  a fresh, independently tooled read-only validator after each pass. Existing criteria cannot be deleted or
+  weakened; the validator may append a newly discovered measurable gap, but it remains unknown until a later
+  review. Missing evidence cannot pass, contract state survives session resume, and `/contract` exposes the
+  current verdict. Ordinary chat and single-shot runs incur no additional model calls.
+- Pre-work diagnosis is stored as receipt-backed `baselineFacts`, separate from final-state criteria. Exact
+  file comparisons accept one named artifact receipt only; an unrelated baseline cannot demote a conclusive
+  runtime check. Validator results carry unforgeable measurement receipts, exact file-byte hashes, and a
+  bounded no-tool label adjudication when the recorded evidence and status disagree.
+- Independent validators can run one protected Bun stdin differential through the existing read-only,
+  network-denied sandbox. The source is delivered on protected stdin rather than shell text, and a validator
+  cannot turn it into a project mutation, background process, network request, or masked exit status.
+- `neko bench contract [hard|frontier] --trials <n> --call-budget <n>` A/B tests legacy self-review against the
+  contract controller on fixed tasks under the same per-trial provider-call cap. It reports external artifact,
+  controller-ready, and strict completion separately alongside tokens, calls, and a reproducible fingerprint.
+- Completion criteria now carry an immutable behavioral `coverageArea` and case-mass `weight`. A validator must
+  declare whether its instrument covers the material surface, may expand a weak area without changing prior
+  weights, and cannot certify completion while coverage is incomplete. Reports expose weighted coverage and
+  instrument expansions; every required criterion still has to pass regardless of weight.
+- `neko bench campaign [hard|frontier] --profiles <a,b> --trials <n>` runs the matched completion A/B across
+  multiple provider/model profiles. `--task <id>` can bound a diagnostic subset, and the campaign reports
+  per-cell Wilson 95% intervals. Anthropic-compatible routes are labelled as independent provider replicates,
+  not falsely presented as controllable sampling seeds.
+- Exact-file turns and independent completion validators may execute one direct relative Bun/Node JS or TS
+  validation script inside the existing network-denied, read-only sandbox. Eval snippets, absolute/parent paths,
+  extra arguments, globbing, redirection, background work, and mutating validator flags remain refused.
+- A credential-safe ProgramBench 1.2.4 adapter runs official `task_cleanroom_v6` tasks with provider execution
+  on the host and native tools in a networkless container. It emits immutable artifacts, exact provenance,
+  aggregate provider-call accounting, privacy-bounded full trajectories, pinned Linux scoring, and bounded
+  multi-task/profile/controller/provider-replicate campaign manifests. One manifest freezes all comparison arms;
+  atomic checkpoints support explicit resume without rerunning completed, failed, or interrupted artifacts.
+- Long ProgramBench runs now emit a privacy-safe live progress snapshot every 30 seconds: remaining work-window
+  time, completion phase, coarse tool category and settlement state, artifact-checkpoint count, mutation epoch,
+  and validation state. Prompt text, model output, commands, paths, observations, and credentials never enter
+  this telemetry.
+- Contract-mode ProgramBench runs can freeze a bounded implementation-round size. Reaching the round boundary
+  checkpoints and yields to the independent validator without spending the remaining call budget on a premature
+  final answer. Normal CLI/TUI turns retain their existing step behavior.
+- Campaign cells are blocked by task/profile/replicate and rotate controller order deterministically, so provider
+  or machine drift is not systematically assigned to one comparison arm. The immutable manifest records the
+  resulting execution order before inference.
+- ProgramBench campaigns now freeze the complete non-ignored source snapshot, component SHAs, evaluator image ID,
+  and task image IDs. Each cell writes structured runner and official-score telemetry; the aggregate report keeps
+  valid missing artifacts distinct from infrastructure failures and applies a predeclared exact paired decision
+  rule before supporting an improvement claim.
+
+### Fixed
+
+- Windows release CI now gives the real CLI policy subprocess enough cold-start headroom while preserving every
+  policy assertion. A slow hosted runner no longer turns a correct diagnostic into a five-second test timeout.
+- Independent completion supervisors now retain the parent registry's native backend. Harbor and ProgramBench
+  validators therefore inspect the authoritative remote workspace instead of an empty host staging directory;
+  their read-only allowlist, no-hook boundary, and inability to mutate remain unchanged.
+- Reaching the Harbor controller deadline now closes as `time_budget_exhausted` with the trajectory and artifact
+  preserved for grading. A host terminal failure received while the remote is idle is reported as the peer's
+  session failure rather than being masked as an invalid protocol ordering error.
+- Contract review no longer sends the implementer back to mutate an already-correct artifact when only a
+  measurement label is inconclusive. It performs at most one fresh validator recheck, then stops honestly if
+  the evidence is still insufficient.
+- A successful authoritative project validator is now monotonic within its source revision: a later optional
+  or exit-masked check cannot erase it. Closed-loop work also stops after one repair pass when both the artifact
+  revision and independent evidence are unchanged, preventing absent-toolchain searches from becoming false
+  nontermination.
+- Completion criteria now describe observable outcomes rather than a preferred validator executable. An
+  unavailable optional tool such as `tsc` is an instrument limitation, not an artifact defect, when a current
+  repository check already measures the required result.
+- SRT validator startup now has a bounded cold-start allowance separate from process runtime, and the refusal
+  path no longer performs the same sandbox health gate twice.
+- A missing candidate source in the hidden frontier oracle is now an ordinary artifact failure rather than an
+  infrastructure error. Canonical-file, hard-link, sandbox, and verifier-integrity failures remain fail-closed
+  infrastructure errors that invalidate a comparison.
+- ProgramBench scoring now awaits the Docker evaluator before staging cleanup, avoiding a Windows `try/finally`
+  teardown race. Long inference emits a secret-free 30-second progress heartbeat, and independent verifier branches use
+  up to four local workers without changing the immutable submission.
+- The remote evaluation bridge accepts only the advertised canonical `/workspace` absolute root and its
+  descendants, while preserving traversal and outside-root refusals. Intermediate metrics may lag a tool result
+  already in transit, but the terminal checkpoint and final frame must still reconcile every request and result.
+  An unfinished ProgramBench workspace now records `artifact_missing` instead of an infrastructure failure.
+- Remote process-quiescence attestation has Docker Desktop scheduling headroom separate from model and tool
+  deadlines. A slow cleanup still destroys the task and fails closed; ordinary read tools no longer become false
+  infrastructure failures merely because a five-second transport window was narrower than cold Docker latency.
+- Harbor `bash` process-group probes and cleanup now use the preflight-pinned external `kill` executable. POSIX
+  shells such as `dash` no longer shadow it with a builtin that rejects GNU negative-process-group syntax and
+  falsely reports long commands as failed to launch; utility identity guards and fail-closed cleanup remain intact.
+- Finalization cancellation races now have deterministic settlement semantics. A cancel processed before remote
+  settlement wins after quiescence; a result or error completed first remains terminal and the remote consumes
+  only the matching late cancel. Wrong, stale, and duplicate IDs remain protocol errors.
+- Windows Bash abort and timeout teardown now awaits trusted process-tree termination before using the expensive
+  CIM fallback, and scans only while the leader is still alive. This removes false teardown failures under suite
+  load while retaining fail-closed descendant cleanup.
+- ProgramBench scoring no longer depends on Docker Desktop's hanging post-compile `docker commit`. The pinned
+  workspace-snapshot transport compiles once and restores identical workspace bytes into each official cleanroom.
+  A per-run label covers the evaluator and every nested branch container so success, error, cancel, and interrupt
+  can remove exactly the owned process set; malformed or error-only evaluator output cannot become a false score.
+- A Docker-daemon cleanup guard now survives Windows Terminal process-group termination. It watches a
+  credential-free heartbeat and removes only the interrupted ProgramBench run's labeled containers, closing the
+  lifecycle gap that an in-process `finally` block cannot cover after Ctrl+C kills the whole host tree.
+
+### Changed
+
+- **Bash now targets the user's host by default.** `neko` and `neko --yolo` can run installed CLI tools, builds,
+  tests, package managers, and network-capable shell work without routing through Computer Use or requiring a
+  startup flag. On Windows, child console windows stay hidden; long-lived servers and watchers use the existing
+  `run_in_background` process path.
+- The model receives the exact host/sandbox execution target, detected host toolchain, and network behavior each
+  turn. Bash is the only terminal/CLI route; Computer remains a GUI tool and is never a shell, download, build, or
+  network fallback.
+- OS sandboxing remains an explicit `sandbox: true` policy. Once selected it still fails closed when unavailable
+  and never widens itself to host execution. Independent completion review remains read-only and sandboxed, while
+  ProgramBench continues to use its separate networkless cleanroom.
+
+### Compatibility
+
+- Provider wires, saved sessions, CLI commands, ACP clients, and host profiles require no migration. Configurations
+  that explicitly set `sandbox: true` or `sandbox: false` retain their prior boundary. Configurations with no
+  `sandbox` setting now use direct host Bash; set `sandbox: true` to retain the previous contained-shell default.
+  Permission gates, catastrophic-command seatbelts, credential protections, project trust, and the policy audit
+  remain active, but direct host Bash is intentionally not an OS containment boundary.
+
+## [1.4.0] - 2026-08-28
+
+### Added
+
+- **`no-comments` is now a bundled, globally discoverable code-hygiene skill.** It removes narration,
+  decorative sections, dead prose, and unsupported workaround alibis while preserving evidenced security,
+  protocol, operating-system, public-contract, and intentionally malformed-fixture comments. The skill is
+  available from every workspace without a project-local installation.
+
+### Changed
+
+- Production source and maintenance scripts were audited under the new policy. Redundant comment prose was
+  removed without changing the agent loop, providers, permissions, ACP, durable sessions, or terminal behavior.
+
+### Fixed
+
+- **Windows release builds no longer emit Bun's internal `directory mismatch` diagnostic.** The obsolete
+  Bun 1.3 JSX tsconfig override was removed now that CI and release artifacts use Bun 1.4.0. The production JSX
+  render, real-PTY input, ACP handshake, and startup/exit probes remain part of every build.
+- The live Windows SRT release test now allows a bounded 45-second cold launch and reports spawn errors
+  separately, avoiding false failures when a healthy sandbox starts just beyond the previous 20-second cap.
+
+### Compatibility
+
+- This release adds one embedded Markdown skill and no runtime dependency, configuration field, session
+  migration, provider wire change, or expanded tool authority. Existing 1.x CLI, SDK, ACP, NekoCut, and Wiii
+  integrations remain compatible.
+
+## [1.3.0] - 2026-08-28
+
+### Added
+
+- **Wiii Workstation Awareness v1 makes the optional ACP Computer a first-class work environment.** Before
+  each ACP model turn, Neko reads Wiii's bounded `wiii-workstation.manifest.v1` projection and injects the
+  validated OS, active Project, surfaces, and app catalog into dynamic context. A browser/app/desktop task can
+  therefore select Computer without the user naming a tool or protocol.
+- **Fast semantic app discovery uses Wiii's four stable launcher refs.** The Computer schema now directs the
+  model to observe with `maxNodes: 4` for `workstation:main`, `app:browser`, `app:terminal`, and `app:files`,
+  then use a larger observation only for dynamic controls.
+
+### Fixed
+
+- **Computer ownership cleanup no longer erases valid app-state evidence.** `status` and `observe` count as
+  read-only verification; `acquire` and `release` are control-plane lifecycle; only `focus`, `invoke`, and
+  `set_text` count as semantic state changes. The previous status/observe/acquire/release completion loop is
+  covered by a regression test.
+- **Computer lifecycle words no longer look like a software-release question.** Bare `status`, `observe`, or
+  `release` in a machine-control prompt does not trigger public web verification. Explicit requests such as
+  `latest release`, `new release`, and `current version` still do.
+
+### Security
+
+- Workstation manifests are schema-, enum-, count-, string-, and total-size-bounded. Unknown secret/native
+  fields, credentials, URLs, host paths, executables, and Docker/container details are rejected before the
+  projection reaches model context. Older Wiii hosts without a manifest continue without workstation context.
+
+### Compatibility
+
+- This is an additive optional ACP extension. Ordinary `neko`, `neko --yolo`, plan mode, NekoCut host profiles,
+  existing Wiii Computer clients, configuration, and durable sessions require no migration. Neko Core still
+  does not provision Docker, WSL, VMs, displays, browser profiles, or projects, and adds no runtime dependency.
+
+## [1.2.2] - 2026-08-28
+
+### Changed
+
+- **Provider switching is now discoverable from `/model`.** The model picker ends with a
+  `Change provider/account...` action that continues into Neko's existing provider, account, and model flow.
+  `/provider` remains the direct shortcut; `/login` is now labelled only as credential onboarding or renewal.
+
+### Fixed
+
+- **An unavailable provider can no longer replace a working active profile.** Neko resolves the candidate
+  profile and verifies its API key or account session before persisting or adopting it. Selecting a route that
+  still needs `/login` leaves both the running agent and next-launch default unchanged.
+
+### Compatibility
+
+- This patch adds no proxy, daemon, dependency, provider wire change, configuration field, or session migration.
+  Existing profiles, `/provider`, `/login`, CLI startup, ACP hosts, and the v1.0.0 rollback baseline remain compatible.
+
+## [1.2.1] - 2026-08-27
+
+### Fixed
+
+- **Wiii Computer sessions now use ACP v1-compliant extension method names.** The five negotiated host calls
+  use the required `_wiii/computer/v1/*` namespace on both Neko Core and Wiii, so status, observation, lease,
+  action, and release requests reach the host instead of being rejected as unknown methods.
+
+### Compatibility
+
+- This patch changes only the optional `dev.wiii.computer.v1` wire surface introduced in v1.2.0. Ordinary CLI,
+  provider, session, ACP, and NekoCut behavior is unchanged; no runtime dependency or fallback mutation retry
+  was added. Wiii integrations must use the corrected underscore-prefixed method list.
+
+## [1.2.0] - 2026-08-27
+
+### Added
+
+- **Cline Account is now a first-class sign-in route.** `neko login cline account` and `/login` use
+  Cline's official device OAuth flow, keep Cline Account separate from `CLINE_API_KEY` billing, refresh
+  credentials without importing another client's state, and populate `/model` from Cline's public and
+  authenticated catalogs.
+- **B.AI and TokenRouter are available as config-first API providers.** Both reuse Neko's existing
+  OpenAI-compatible adapter and authenticated live model discovery. Promotional/free availability remains
+  provider-controlled and is labelled accordingly.
+- **Wiii can lend Neko a session-scoped Computer capability over ACP.** The optional host port uses semantic
+  observations, stable operation IDs, stale-state checks, bounded acquire/act/release leases, and mandatory
+  cleanup on cancellation or disconnect. It never gives ordinary CLI sessions Wiii infrastructure authority.
+
+### Security
+
+- Cline OAuth credentials are atomic/private and hidden from every safe filesystem surface. Account bearer
+  tokens are sent only to the exact official Cline API origin; lookalike endpoints fail before a request.
+- ACP Computer results redact native lease/environment identifiers, attach URLs, protected values, and host
+  detail before they become model-visible. Unknown mutation outcomes are not blindly replayed.
+
+### Compatibility
+
+- This is an additive 1.x release. Existing CLI commands, profiles, sessions, ordinary ACP clients, NekoCut
+  host profiles, and the v1.0.0 rollback baseline require no migration. No runtime dependency was added.
+
+## [1.1.0] - 2026-08-25
+
+### Added
+
+- **Embedding hosts can launch Neko with an exclusive, session-scoped capability profile.**
+  `neko acp --host-profile nekocut` accepts NekoCut's in-band ACP MCP server and exposes exactly six
+  inspect/preview/submit tools. Native tools, global MCP, web, browser, computer control, skills, hooks,
+  memory, workflows, and subagents are absent from that runtime rather than hidden only in the UI.
+- **Host authority survives durable ACP sessions without becoming broader.** The profile ID, version, and
+  SHA-256 tool-surface fingerprint are checkpointed; list/load/resume require the same launch-authorized
+  profile and a fresh in-band implementation. Client requests and mode changes cannot add tools or modes.
+
+### Compatibility
+
+- Ordinary `neko`, `neko --yolo`, and `neko acp` composition is unchanged. Existing configuration and sessions
+  need no migration. Host-profile sessions are intentionally isolated from ordinary ACP sessions.
+
+## [1.0.2] - 2026-08-24
+
+### Added
+
+- **Hoàng Sa and Trường Sa now have selectively injected, source-backed core knowledge.** Neko carries its
+  Vietnamese sovereignty identity plus canonical geography even offline, while dated administrative snapshots
+  remain subordinate to a later verified Vietnamese legal instrument. Unrelated coding turns receive no extra
+  context, and the existing fresh-fact gate still checks current legal or administrative questions online.
+  Routing accepts diacritic-free names, international names, contextual `HS`/`TS`, and the clear descriptive
+  phrase for Vietnam's two archipelagos in the East Sea; ambiguous bare abbreviations remain inert. If an offline
+  model only promises a lookup, one bounded recovery asks it to answer from the dated snapshot instead.
+
+## [1.0.1] - 2026-08-24
+
+### Changed
+
+- **The stable 1.x promise is now explicit and public.** Compatibility, support, deprecation, external-service,
+  security, and rollback boundaries have one canonical policy; the README, contributor guide, security policy,
+  GitHub release announcement, repository metadata, and bilingual website use the same consequence-gated model.
+- **Future GitHub releases publish atomically.** The workflow creates a draft, attaches and verifies the complete
+  five-binary/five-checksum/browser-extension set, then publishes it. Repository release immutability protects
+  tags and assets created after the policy is enabled.
+
+### Fixed
+
+- **Mutable public facts can no longer silently fall back to model memory.** Questions about administrative
+  status, laws, office holders, prices, schedules, and other changeable facts get one host-enforced web
+  verification pass when a web tool is available. The prompt now requires authoritative primary sources and
+  distinguishes a legal effective date from the date a new administration begins operating. Regression coverage
+  includes the 2025 changes from huyện đảo to đặc khu for Hoàng Sa and Trường Sa without baking either answer
+  into the classifier.
+
+## [1.0.0] - 2026-08-24
+
+### Added
+
+- **A long-term stable compatibility baseline.** The CLI, config/profile overlay, durable session format,
+  package-root SDK surface, ACP v1 bridge, global skills, and exact-version rollback now form the supported
+  1.x contract. Existing pre-1.0 user configuration and sessions require no migration.
+- **A compiled-binary startup/exit lifecycle gate.** A real PTY/ConPTY test requires the complete welcome
+  header in the first composer frame and proves terminal restoration finishes before the resume hint.
+
+### Changed
+
+- **Standalone builds now pin stable Bun 1.4.0 on every platform.** It contains the native Windows
+  IOCP/TTY engine that replaces the raw-input failure path which required a canary runtime in earlier releases;
+  the real input probe remains mandatory for every runnable artifact.
+- **Documentation now has one current source per subject.** The README, harness architecture, roadmap,
+  testing, release, and self-improvement contracts were consolidated; obsolete Python scaffold, porting,
+  completed parity, and pre-implementation fullscreen plans were removed while their history remains in Git.
+
+### Fixed
+
+- **The first fullscreen frame no longer shows an input box under a blank header.** Neko primes only the
+  fixed welcome row before Ink renders, preserving lazy history while painting logo, version, provider, model,
+  effort, and working directory together with the composer.
+- **Exiting no longer leaves a displaced or partially overwritten resume command.** Ink's final erases finish
+  inside the alternate buffer before Neko restores the shell; the fallback exit hook is disarmed before a
+  CRLF-anchored handoff is printed.
+
+## [0.24.23] - 2026-08-24
+
+### Fixed
+
+- **Fullscreen wheel and hover now activate reliably on Windows Terminal.** Neko reasserts a complete
+  SGR mouse state after Ink mounts and on every base/hover transition, so an early terminal-mode write
+  cannot leave physical mouse input silent and closing a picker cannot disable later scrolling.
+- **Windows UIA tests no longer depend on encoded PowerShell being allowed.** Disposable WPF fixtures
+  use a direct, test-owned command argument, avoiding false `EPERM` failures under Defender/ASR policy.
+
+## [0.24.22] - 2026-08-24
+
+### Fixed
+
+- **Mouse-wheel gestures move picker selections again.** Picker input now handles vertical wheel
+  reports before the generic pointer path and accumulates rapid reports with a functional state update,
+  while contextual any-motion hover and low-volume drag selection keep their existing behavior.
+
+## [0.24.21] - 2026-08-23
+
+### Changed
+
+- **The development and release typecheck gate now uses stable native TypeScript 7.0.2.** The temporary
+  5.9 compatibility cross-check has been retired now that the native compiler is production-ready.
+- **Mouse hover is responsive again without slowing the composer.** Neko enables terminal any-motion
+  reports only while a picker or another hoverable control is visible; ordinary typing and long mouse
+  selections retain the lower-volume drag-only mode introduced in v0.24.19.
+
+### Fixed
+
+- **Concurrent project trust changes no longer produce a false corrupt-store error.** A reader now
+  tolerates a record that a verified revoke removes between directory enumeration and file inspection,
+  while malformed, linked, oversized, and genuinely unreadable records still fail closed.
+- **Manual and automatic updates no longer fight over a healthy slow download.** The machine-wide
+  update lock now receives progress heartbeats, and `neko update` waits for an active startup updater
+  instead of failing immediately. If that updater finishes first, the CLI reuses its installed result
+  rather than downloading the same release again.
+- **Browser sign-in can always be cancelled from the TUI.** Esc interrupts a pending login, the first
+  Ctrl+C cancels it, and a second Ctrl+C remains an emergency exit. The same abort signal now reaches
+  browser callbacks, device polling, request timeouts, and provider-owned login processes.
+- **OpenCode device sign-in opens the actual connection page again.** Relative verification URLs are
+  resolved against the Console origin, preventing the invalid `/console/console/device` route that
+  redirected signed-in users to the Overview page.
+
+## [0.24.20] - 2026-08-23
+
+### Fixed
+
+- **Selecting a soft-wrapped prompt no longer loses fully covered rows.** Dragging from the second
+  visual row to the first, or in the opposite direction, keeps every covered row highlighted and copies
+  the complete codepoint range. The frame-coalesced selection path remains unchanged.
+
+## [0.24.19] - 2026-08-23
+
+### Changed
+
+- **Pasting a clipboard image no longer freezes the composer.** On Windows, Neko warms one
+  session-owned clipboard worker and performs image conversion asynchronously. The same local test
+  image fell from 773-848 ms per paste to 21-29 ms on the warmed path, while typing remains live and
+  the image placeholder returns to the caret position captured by Alt+V.
+- **Mouse selection stays responsive across long prompts and transcript pages.** Fullscreen mode now
+  requests drag motion instead of every idle pointer movement, coalesces prompt highlights to the
+  display frame, and keeps scrolling with gentle acceleration while the pointer is held at an edge.
+  Copied ranges can include the live streaming tail as well as committed history.
+
+### Fixed
+
+- **`/memory` without an argument shows memory status again** instead of falling through to usage.
+
+## [0.24.18] - 2026-08-23
+
+### Added
+
+- **Grok subscriptions can sign in directly through Neko.** `neko login xai` and the guided `/login`
+  flow use xAI's official device OAuth, keep a Neko-owned refreshable session, load the account-visible
+  Responses model catalog, and recover once from an expired bearer. This subscription route stays
+  separate from `neko login xai api <key>` and pay-as-you-go API billing.
+
+### Fixed
+
+- **Explicit `--yolo` no longer pauses for approval.** Host computer control, exact structured writes
+  outside configured roots, valid policy-file changes, Bash, and plan exit use the launch-time authority
+  without rendering an approval box. Credential/system targets, project trust, sandbox confinement,
+  policy JSON validation, and catastrophic-command refusals remain enforced. Cycling away from `auto`
+  with Shift+Tab revokes the authority immediately.
+- **A completed request no longer revives unrelated old work or appears frozen in a long poll.** The
+  harness treats a clear later request as the current scope, and foreground sleep/poll loops with a
+  declared budget above 30 seconds are redirected to background jobs plus short bounded probes.
+
+## [0.24.17] - 2026-08-22
+
+### Fixed
+
+- **Interrupted provider streams continue from a durable checkpoint instead of ending the task.**
+  OpenAI-compatible, OpenAI Responses, and Anthropic streams now distinguish a safe pre-output replay
+  from a post-output continuation. Partial text and tool history are preserved, retry decisions are
+  checkpointed before backoff, user cancellation still wins, and malformed or unsafe protocol data
+  continues to fail closed. A native successful terminal event is accepted even when a compatible
+  gateway closes without an optional `[DONE]` sentinel.
+- **Windows SRT validators no longer appear to hang during teardown.** Read-only scratch is nested
+  below a launch-private temporary parent, avoiding the Windows Known Folder ACL slow path while
+  preserving the exact write boundary and cleanup. The affected validator path fell from roughly
+  80-120 seconds to roughly 3-6 seconds in repeated local runs.
+
+## [0.24.16] - 2026-08-21
+
+### Added
+
+- **Auto/yolo Bash can request network access without making the user edit sandbox policy.** A Bash
+  call may declare up to 16 exact destination hosts in `network_domains`. The grant exists only for
+  that call; SRT enforces the domain/port allowlist, invalid or match-all entries fail before launch,
+  and default/accept-edits still ask because egress is a separate consequence. `/sandbox network`
+  remains available only for users who intentionally want a persistent standing allowlist.
+
+## [0.24.15] - 2026-08-21
+
+### Added
+
+- **Approval alerts respect your attention.** When a supported terminal reports that its tab or
+  window is in the background, a newly pending approval plays the existing Neko Bubble sound once.
+  Approvals stay silent while the terminal is focused, and terminals without focus reporting default
+  to silence instead of producing false notifications.
+
+### Fixed
+
+- **The approval box no longer contains a stray orange cursor bar.** Neko hides the terminal's
+  hardware caret while approval owns the input surface and restores it when the composer returns,
+  including in inline mode.
+
+## [0.24.14] - 2026-08-21
+
+### Added
+
+- **Network diagnosis no longer depends on sandboxed Bash egress.** The governed `network_probe`
+  tool resolves one host and tests up to 16 TCP ports directly from the host with strict target,
+  timeout, address, and output bounds. It cannot execute a shell, send application payloads, scan a
+  CIDR, or fetch content; `default` still asks, `plan` refuses it, and `auto`/`--yolo` can use it
+  without turning Bash into an unconfined host shell.
+
+### Fixed
+
+- **Bash network allowlist changes apply immediately.** `/sandbox network on <domains...>` and
+  `/sandbox network off` now update the live runtime as well as the durable user configuration, so a
+  restart is no longer required. The runtime prompt also directs DNS/port checks to `network_probe`
+  and web content to `web_search`/`web_fetch` instead of incorrectly declaring all network work
+  impossible when Bash egress is blocked.
+
+## [0.24.13] — 2026-08-21
+
+### Fixed
+
+- **Transient OpenAI-compatible stream failures recover automatically.** A provider that ends an otherwise
+  empty SSE response with `finish_reason: network_error` is now retried within the existing `max_retries`
+  budget. Neko does not replay a stream after text, reasoning, or tool data was surfaced, preventing duplicate
+  output and tool execution.
+- **Accidentally reading a directory no longer wastes a model round-trip.** `read_file` now returns the same
+  bounded, one-level entry view as `ls` when its target is a real directory, while symlinks and other special
+  paths retain the strict regular-file checks.
+
+## [0.24.12] — 2026-08-21
+
+### Fixed
+
+- **OpenCode Console models now retain their selected workspace.** The live account catalog supplies a
+  scoped `x-opencode-*` header for inference; v0.24.11 loaded the catalog but dropped that header, so
+  Ox Alpha Free and other account models failed with HTTP 403 `Workspace selection is required` after
+  a successful OAuth login. Neko now carries only OpenCode-scoped catalog headers across each supported
+  wire while still preventing catalog data from replacing authorization, API-key, or content headers.
+
+## [0.24.11] — 2026-08-21
+
+### Added
+
+- **Successful turns now play Neko Bubble v6.** The original 230 ms clean-room sound is synthesized into
+  the binary and played directly from memory through Windows' native audio API; no media player, helper
+  process, or copied third-party asset is involved. Other platforms retain the terminal-bell fallback. The
+  notification fires only after the response and durable session checkpoint finish; errors, Esc/Ctrl+C
+  interruptions, transcript replay, slash commands, and voice conversations stay silent. Set
+  `completion_sound:false` or `NEKO_COMPLETION_SOUND=0` to opt out.
+- **OpenCode Console OAuth and Zen service accounts are now first-class, separate routes.**
+  `neko login opencode` uses OpenCode's official `opencode-cli` public-client device flow, stores a
+  Neko-owned refreshable session, and loads the account-managed provider/model catalog. `/login ->
+  OpenCode -> OpenCode Zen API key` and `neko login opencode zen <key>` retain the pay-as-you-go
+  service-account path. Neko never imports another CLI's credential file, and an account token is sent
+  only to HTTPS endpoints under `opencode.ai`; unknown protocols and untrusted catalog URLs fail closed.
+- **OpenRouter is now a first-class provider route.** `neko login openrouter <key>` activates a
+  profile backed by OpenRouter's OpenAI-compatible API. `/model` loads the live tool-capable catalog,
+  carries each model's context-window and vision metadata into the runtime, and attributes requests
+  to Neko Core without sending those headers to lookalike third-party hosts.
+- **Explicit host-file work no longer requires a config restart.** `write_file`, `edit`, and
+  `multi_edit` can request one human confirmation for an exact ordinary target outside the workspace.
+  The permission is transient and never reaches Bash; system locations, credential stores,
+  symlink/junction escapes, and hardlink aliases remain refused. Persistent prompt-free workflows still
+  use canonical `additional_write_roots`, and approved changes remain checkpoint-reversible.
+
+### Fixed
+
+- **The public site now states Neko Core's actual license.** Stale MIT copy is replaced with the
+  AGPL core, Apache SDK boundary, commercial dual-license, and proprietary-brand policy.
+
+## [0.24.10] — 2026-08-17
+
+### Fixed
+
+- **Auto-default now actually applies to fresh installs.** v0.24.9 announced it, but a legacy
+  `approval: "prompt"` baked into the config defaults made every install look like an explicit
+  prompt-first choice; the key is no longer baked, so a fresh install starts in auto (explicit
+  `mode`/`approval` settings keep being honored exactly as before).
+- **Enter no longer randomly does nothing.** When a terminal under load (or any input bridge)
+  delivers the last typed character and the Enter key in one chunk, the input parser classified
+  the burst as a paste and swallowed the submit - turns silently never started and `/exit` hung.
+  A chunk ending in a lone `
+` is now treated as text plus Enter: the text is inserted and the
+  submit fires. True multi-line pastes (containing `
+`) still insert without submitting.
+
+
+## [0.24.9] — 2026-08-17
+
+### Changed
+
+- **Auto is now the default permission mode.** Matching the 2026 industry shift (Claude Code ships
+  auto-default), a fresh install starts in bounded autonomy instead of prompting for every
+  write/command: file edits, searches, and shell commands inside the sandboxed workspace run without
+  approval. Only genuinely consequential surfaces still ask: host computer control, edits to Neko's
+  own policy file (newly consent-gated - see below), catastrophic shell commands (seatbelt),
+  credential paths, and anything outside the workspace. Set \"mode\": \"default\" in
+  ~/.neko-core/config.json to restore the classic prompt-first posture; Shift+Tab still cycles modes.
+- **The agent can now fix Neko's settings for you.** ~/.neko-core/config.json is the one
+  outside-workspace file admitted through the approval gate: when you say "xu ly giup toi", the agent
+  proposes the exact edit, you confirm it once (never auto-approved, even in auto mode), and invalid
+  JSON is refused and rolled back so a consented edit cannot brick the config. A new /sandbox command
+  shows sandbox/network status and turns sandbox egress on with an explicit domain allowlist
+  (restart applies).
+- **No more console-window spam on Windows.** Every spawned helper (bash runs, hooks, benchmark
+  tasks, meeting engines, browser opens) now sets windowsHide, so commands no longer flash terminal
+  windows while Neko works.
+
+
+## [0.24.8] — 2026-08-17
+
+### Fixed
+
+- **Compiled Neko now finds Bun installed through npm on Windows.** When Bun is installed via
+  `npm i -g bun` (shims `bun.cmd`/`bun.ps1` on PATH, real `bun.exe` nested under
+  `node_modules/bun/bin`), the compiled binary previously could not bridge Bun into the Windows SRT
+  sandbox — inside the sandbox `bun` was simply absent, so agents reported "bun is not installed"
+  and then hit the (by-design) sandbox egress block when trying to fetch it. The bridge now resolves
+  four sources in order — the running Bun, a real `bun.exe` on trusted PATH, the npm-global
+  `node_modules` layout (from PATH shims or `%APPDATA%\npm`), and the official installer's
+  `~/.bun/bin` — all through the same exact-file read grant, with workspace-local candidates still
+  rejected. Git-Bash-style POSIX `PATH` values (`/c/...:...`) are now understood too, so a compiled
+  Neko launched from either shell family resolves tools identically.
+
+### Changed
+
+- **The model is told the sandbox toolchain and network policy up front.** The `NEKO DYNAMIC-TOOL
+  RUNTIME` block now states whether `bun` is bridged into the sandbox (and from which source) or
+  explicitly absent — with an instruction not to probe for it or try installing it — and the network
+  line names the exact user config (`sandbox_network: true` plus a `sandbox_domains` allowlist) that
+  enables egress. Agents stop burning turns discovering these boundaries by trial and error.
+- `neko doctor` reports which bridge source was found (runtime / trusted PATH / npm-global /
+  official installer), and its failure text lists every location searched with the install remedy.
+
+## [0.24.7] — 2026-08-17
+
+### Changed
+
+- **The codebase now ships with an anti-slop lint gate in CI.** An Oxlint plugin
+  (dmmulroy/anti-slop, MIT, vendored under `tools/oxlint/anti-slop/`) runs 15 strict typing rules
+  between typecheck and tests on every PR; the repository passes with zero findings. The binary and
+  all user-facing behavior are unchanged (the full 1.4k-test suite and the release battery — build,
+  UI/input probes, ConPTY ghost e2e, scroll bench — pass unchanged).
+- Provider/session/RPC wire data is typed as JSON (`JsonValue`) at its boundaries instead of
+  `Record<string, unknown>`, with representation checks centralized in `src/shared/wire.ts`
+  predicates. This makes the parsing contract of session files, MCP arguments, and the Codex/Gemini
+  RPC surfaces explicit in the types.
+- Every remaining type assertion documents its invariant in a `// SAFETY:` comment; conditional
+  object spreads omit fields with an explicit `undefined` instead of an empty object.
+
+### Fixed
+
+- Caught before release: a development-time tooling pass briefly imported the TypeScript wire module
+  into the vanilla-JS Cloudflare relay worker and browser-extension service worker. Both were
+  reverted and their trees now stay outside the typed lint scope; shipped bytes were never affected.
+
+## [0.24.6] — 2026-08-15
+
+### Fixed
+
+- **Long turns no longer make the terminal appear completely frozen during session checkpoints or
+  helper commands.** Session serialization/publication, Git metadata lookup, hooks, PDF extraction,
+  the Windows computer fallback, and built-in filesystem walks now yield to Ink's event loop. The
+  timer keeps painting and Esc/Ctrl+C remains actionable while those operations are in progress.
+- Durable checkpoints are coalesced without weakening crash safety: a tool call is on disk before its
+  side effect starts, its result is checkpointed afterward, and ACP still recovers an interrupted
+  mutation as outcome-unknown instead of executing it twice.
+
+### Changed
+
+- Built-in search, glob, list, and large verified reads are asynchronous and cancellable. Search skips
+  individual files above 8 MiB to bound memory/event-loop pressure; use `read_file` with paging when a
+  specific large file must be inspected.
+- Set `NEKO_DEBUG=ui-stall` to record a silent diagnostic breadcrumb when event-loop lag reaches one
+  second. Normal sessions receive no additional UI noise.
+
+## [0.24.5] — 2026-08-15
+
+### Added
+
+- **ACP sessions now survive editor and agent-process restarts.** ACP v1 clients can list, load, and
+  resume the same durable sessions used by `neko sessions`/`neko resume`; history replay retains stable
+  message and tool-call IDs, while resume restores model context without duplicating a client's local
+  transcript. Atomic checkpoints cover prompts, tool calls/results, cancellation, errors, and close.
+- ACP clients now receive live session metadata, usage, mode, provider/profile/model/effort selectors,
+  and a small set of adapter-dispatched slash commands. A cross-process single-writer lease prevents two
+  clients from mutating one session, and crash recovery marks unfinished mutations as outcome-unknown
+  instead of silently retrying them.
+- **Automatic mode can maintain explicitly scoped data outside the project without becoming home-wide
+  access.** `~/.neko-core/research` is provisioned as a built-in durable write root; additional existing
+  directories can be granted globally with `additional_write_roots` or
+  `NEKO_ADDITIONAL_WRITE_ROOTS`. Structured edits and ordinary sandboxed Bash share the same canonical
+  boundary and still reject credential/control directories, links, filesystem roots, and the user home.
+
+### Fixed
+
+- A Windows SRT health probe that times out under temporary host pressure no longer permanently disables
+  Bash for the session. Neko may make one real launch attempt through the exact configured SRT boundary;
+  provisioning, credentials, state, and launch failures still fail closed with no unconfined fallback.
+- Global write roots now canonicalize platform-owned parent aliases such as macOS `/var` to
+  `/private/var`, while an aliased grant leaf itself remains refused. This keeps normal macOS temporary
+  homes working without weakening the exact-root boundary.
+
+## [0.24.4] — 2026-08-15
+
+### Added
+
+- **Windows cleanup inventory no longer depends on Bash.** Neko can now scan an allowlisted set of
+  system-drive caches using a bounded native read-only tool that opens no file contents, follows no
+  links, and provides no delete action. Results distinguish safe caches, re-downloadable caches,
+  Windows-managed data, manual-review data, and files that must not be deleted; partial scans report
+  access errors and lower bounds instead of pretending to be complete.
+
+### Fixed
+
+- **A temporary SRT failure no longer poisons a long-lived session.** Failed Windows sandbox health
+  snapshots expire after 30 seconds and are rechecked before a later Bash call, while healthy results
+  remain cached. Timeout, signal, error code, and elapsed time replace the former unhelpful `exit ?`.
+- When Bash is unavailable, the runtime now tells the model to use an independent safe native tool or
+  state the boundary instead of creating a script it cannot run. Resident Windows UI automation cleanup
+  can also be awaited, preventing rapid restart/teardown from leaving unsettled process handles.
+
+## [0.24.3] — 2026-08-14
+
+### Fixed
+
+- **GLM-5.3 remains visible in `/model` when Z.AI's live model list lags the Coding Plan rollout.**
+  Compatible provider catalogs are now merged with profile-confirmed models instead of silently erasing
+  a newer documented model. The live list still supplies every discovered model.
+
+## [0.24.2] — 2026-08-14
+
+### Added
+
+- **GLM-5.3 is available through the Z.AI Coding Plan profile.** `/login` now groups Z.AI under one
+  provider and clearly separates subscription quota (`zai`, Anthropic-compatible) from pay-as-you-go
+  API billing (`zai-openai`, OpenAI-compatible). Existing explicit GLM-5.2 pins remain selected, while
+  `/model` exposes GLM-5.3 for an intentional upgrade.
+
+### Fixed
+
+- **Windows ESC/Ctrl+C process-tree verification no longer false-warns on busy machines.** The bounded
+  CIM snapshot budget now covers normal startup latency before Neko force-stops and verifies descendants.
+
+## [0.24.1] — 2026-08-13
+
+### Fixed
+
+- `neko update` now exits successfully when the installed binary is already the latest release. The
+  idempotent `up-to-date` result remains distinct from network, lock, checksum, and install failures, while
+  a plain update still resumes automatic updates after a pinned install.
+
+## [0.24.0] — 2026-08-13
+
+### Added
+
+- **Neko now runs as a stable ACP v1 agent in Zed, JetBrains IDEs, and other compatible clients.**
+  Start it with `neko acp`; the editor supplies the desktop conversation UI while Neko retains its
+  configured provider, global skills, project instructions, tools, sandbox, and permission modes.
+- **ACP permissions preserve Neko's safety boundary.** `default`, `accept-edits`, `plan`, and `auto` map
+  to the protocol's session modes, while allow/reject decisions remain session-scoped and cannot override
+  plan-mode denial, workspace containment, host-computer consent, or catastrophic-command checks.
+- **ChatGPT Terminal Auth is capability-negotiated.** Supporting clients can launch Neko's existing
+  browser OAuth flow in a separate terminal and reconnect afterward; credentials never cross ACP JSON-RPC.
+
+### Changed
+
+- CLI `run` and ACP now share one production Agent composition, preventing provider, MCP, skill, context,
+  subagent, and sandbox behavior from drifting between terminal and editor hosts.
+- Native release artifacts must complete an SDK-to-binary ACP initialization/auth handshake before upload.
+
+### Fixed
+
+- Fullscreen streaming now schedules one coalesced trailing render, so a provider that stays busy after its
+  last delta cannot leave the visible live response stuck on a partial word.
+
+## [0.23.2] — 2026-08-12
+
+### Fixed
+
+- **Slow but active self-update downloads no longer fail after five minutes.** The updater now watches
+  for 60 seconds without new bytes instead of imposing one total wall-clock deadline, while retaining a
+  strict 250 MB release-size ceiling. Command-line progress continues to show received bytes.
+
+## [0.23.1] — 2026-08-12
+
+### Fixed
+
+- **A terminated background updater no longer blocks every later `neko update` for ten minutes.** The
+  machine-wide update lock now checks whether its recorded process still exists, reclaims a dead owner's
+  lock immediately, and uses an ownership token so an older updater cannot delete its successor's lock.
+
+## [0.23.0] — 2026-08-12
+
+### Added
+
+- **Long-running `/auto` work now recovers from provider stalls without imposing one total wall-clock
+  deadline.** Provider traffic, usage and bounded tool activity act as heartbeats; genuine inactivity
+  restarts the transport and resumes from the durable conversation/tool checkpoint with bounded retries.
+  Explicit Esc/Ctrl+C cancellation is never retried, and `neko --resume` remains the recovery path after
+  a terminal or machine restart.
+- **The one-line installer carries Neko's bundled skills in the standalone binary.** Built-in skills are
+  available from every working directory without a source checkout or a copy under
+  `~/.neko-core/skills`; that directory remains the user-global override layer. Neko does not silently
+  import private Codex/agent skills or download executable skill assets.
+- **Project control surfaces have an explicit trust boundary.** Project instructions, config, skills,
+  agents and recipes are loaded only from a canonical trusted snapshot; linked, changed, oversized or
+  polluted stores fail closed. `neko trust` exposes the decision instead of treating the current folder
+  as authority by default.
+- **Automation and evaluation gained auditable outcomes.** Headless runs preserve validation debt in their
+  exit status; benchmark/eval separates model failure from infrastructure failure, records bounded
+  metadata-only trajectories and source/runtime fingerprints, and includes a non-saturated frontier-pack
+  foundation. Harbor integration keeps the provider and OAuth lease on the host while all task tools run
+  through the remote environment with bounded framing, cancellation and process-tree cleanup.
+- **`neko-core` now has a side-effect-free library entry and a safe source bootstrap.** Embedders can import
+  the core Agent/ToolRegistry contract, while development commands enter through
+  `node bin/neko-source.cjs` so an untrusted cwd cannot preload dotenv or bunfig code before Neko applies
+  project trust.
+- **Local handoff foundations are available.** `neko handoff send`/`inbox` and their TUI counterparts move
+  a bounded, explicitly `local-unverified` summary without attaching transcripts, files, credentials or
+  permissions automatically.
+
+### Changed
+
+- Exact single-file coding turns can lease only `read_file`, target-bound `edit` and a foreground validator
+  to the Codex App Server. Ambiguous or domain-matched work retains the configured full tool surface. A
+  post-mutation completion now requires fresh inspection or an authoritative validator result; stale,
+  denied, background or exit-masked checks cannot clear validation debt.
+- Provider, MCP, HTTP and child-process boundaries are stricter: bounded streaming/output, public-address
+  HTTP pinning, canonical executables, minimal child environments, cancellable MCP calls, no blind replay
+  after unknown effects, and fail-closed sandbox/toolchain health. Bash cancellation verifies descendants
+  instead of treating a dead leader as proof that its process tree is gone.
+- Benchmark results are intentionally conservative: infrastructure errors remain in scheduled-trial
+  denominators and invalidate comparisons. The public frontier tier is documented as regression/calibration,
+  not a SOTA leaderboard claim; the proposed private v2 protocol requires held-out tasks, independent
+  execution/verdict trust domains and repeated trials.
+
+### Fixed
+
+- **Esc and Ctrl+C can no longer leave a GPT-5.6 App Server turn busy indefinitely.** Neko first sends the
+  cooperative interrupt, then closes the sidecar after a bounded grace period and waits for transport exit.
+  Cancellation during startup is covered too. The App Server watchdog measures silence rather than total
+  task duration and pauses while a bounded dynamic tool is active.
+- **Interrupted and resumed work is durable and honest.** Streamed assistant segments, announced tool calls
+  and completed tool results are checkpointed incrementally; dangling calls are sealed as unknown outcome,
+  internal controller prompts never leak into provider payloads, and recovery inspects actual state before
+  repeating a mutation.
+- Windows SRT source-run validators now use the frozen canonical Bun path through a transient exact-file
+  bridge; hostile cwd shims are ignored and launch-local files/ACLs are removed after the final process exits.
+
+## [0.22.5] — 2026-08-05
+
+### Added
+
+- **Review/verify/code-review/security-review ship as built-in recipes.** Neko's verify-first review workflow is now
+  available out of the box: `/recipes` lists `review`, `verify`, `code-review`, and `security-review` immediately on
+  every install, instead of only after manually dropping `*.md` files into `~/.neko-core/recipes/`. They layer at the
+  lowest priority, so a user or project recipe of the same name still overrides the default, and home-directory recipes
+  keep precedence over current-directory ones. Descriptions stay ASCII so the cp1252 Windows console renders them cleanly.
+
+### Fixed
+
+- **The `scroll-under-stream` test no longer flakes under CPU load.** The live-tail pump gate (`STREAM_PUMP_MS` 40ms /
+  `STREAM_PUMP_SCROLLED_MS` 300ms) is extracted as a module-scope pure function `shouldStreamPump(now, lastPump,
+  scrolledAway)` and verified by a deterministic unit test (`test/stream-pump-cadence.test.ts`) instead of a wall-clock
+  simulation. A flaky simulation could not catch the contract: under load the observed pump cadence varied 3-6x
+  (40-433ms measured over twelve runs). Production throttle behavior and timeouts are unchanged.
+
+## [0.22.4] — 2026-07-31
+
+### Fixed
+
+- **Skill loading now distinguishes Neko's dynamic catalog from provider-owned catalogs.** The system prompt and
+  missing-skill result direct names exposed by Neko through the `skill` tool, while skills injected with a file or
+  resource locator follow their provider's loader instructions instead of being retried against the wrong catalog.
+- **User and project skill descriptions support YAML block scalars.** Folded and literal descriptions are parsed
+  into readable catalog text rather than exposing markers such as `>-`; the bounded fallback preserves existing
+  tag and anchor handling. All bundled `web-app` cross-skill references now resolve to their real sibling files.
+- **Cross-platform UI checks are deterministic under slower runners.** Process-heavy tests receive a bounded
+  30-second harness budget, Windows computer fixtures no longer depend on the runner desktop, and streaming
+  Markdown assertions wait for the documented completion condition. Production timeouts and behavior are unchanged.
+
+### Changed
+
+- GitHub CI and release jobs now use `actions/checkout@v7`, eliminating the Node 20 runner deprecation warning and
+  adopting the current supported checkout runtime.
+
+## [0.22.3] — 2026-07-30
+
+### Fixed
+
+- **Long prompts now behave like a small editor instead of growing off-screen.** Hard line breaks and soft
+  wrapping share one five-row viewport; Up/Down moves the caret through visual rows before falling back to
+  prompt history, and the viewport follows the caret without adding a scrollbar. Vertical navigation now reuses
+  one wrap projection, avoiding quadratic pauses on long external-editor drafts. At the first/last row,
+  variation selectors and combining marks no longer consume the history key by moving inside a grapheme.
+- **The running token counter no longer starts at `↑0 ↓0`.** It shows an immediate input estimate with `~`,
+  consumes authoritative provider usage as it arrives, and replaces the estimate with exact totals without
+  double-booking cost. Output streamed after a provider-managed tool flush remains counted from the last usage
+  snapshot, and interrupted turns book their last authoritative usage before advancing the thread-cumulative
+  baseline, so billed tokens are neither lost nor charged again to the next turn. Providers without live usage
+  now receive an Agent-side estimate before every model step, adding the pending context to already-booked calls
+  instead of freezing at the first-step value. A real GPT-5.6 `neko --yolo` turn showed `↑~10.6k` at start and
+  exact non-zero usage before completion.
+- **Completed tool activity collapses to one useful outcome line.** Successful calls use compact past-tense
+  summaries; background starts say `Started background job [bgN]` instead of implying completion. Failures,
+  denials, blocked/disabled actions, missing capabilities (even after screenshot metadata), empty read windows,
+  max-step sub-agent stops, and loop-guard warnings stay expanded. Mixed parallel outcomes retain call order. Ctrl+O
+  and `/transcript` retain the full call/result; todo/plan, memory, workflow, and playbook state remain visible instead
+  of being folded away. MCP protocol-level `isError`, interrupted commands, missing-skill/MCP no-match outcomes,
+  sub-agent failures, rejected plans, synthetic unknown-outcome interruptions, and failed recovery directives remain
+  expanded; search/glob/list summaries name the requested target rather than its base directory and count native
+  empty-result sentinels as zero. Emergency meeting-stop results also retain their actual stopped/idle state instead
+  of becoming a generic completion. While reading older history, the jump pill counts folded successes and expanded
+  failures as one new activity each.
+- **Scrolled history keeps the nearest user prompt pinned at the top.** The gray one-row anchor appears only
+  while reading older content; click or Alt+Up jumps to that prompt's exact rendered row, including while a live
+  reply is still streaming. Anchor selection reserves its own row before checking which prompt is visible,
+  avoiding a stale or duplicate header at the one-row boundary. The compositor supports a scroll band below row 1
+  without overwriting the anchor. Compiled ConPTY verification measured 6 ms first scroll response / 154 ms settle
+  and an exact `band top 2 → 1` prompt jump.
+
+## [0.22.2] — 2026-07-30
+
+### Fixed
+
+- **`/transcript` no longer turns mouse movement or wheel input into a broken search query.** XTerm SGR
+  pointer reports are classified before printable text: wheel ticks scroll the transcript viewport, while
+  motion, press, and release reports are consumed instead of appearing as strings such as
+  `[<65;86;26M`. Horizontal wheel reports are consumed without being remapped to vertical scrolling;
+  keyboard scrolling and type-to-search remain intact.
+- A compiled-binary ConPTY regression gate now injects the exact field payload, verifies ordinary text
+  search afterward, and records response time. Across three release-machine rounds (one with three
+  binaries under concurrent load), 561 entries measured 179–280 ms open / 49–172 ms pointer /
+  50–74 ms search; 5,000 entries measured 235–381 ms / 50–195 ms / 62–638 ms. The advertised
+  10,000-entry ceiling passed twice at 239–255 ms / 49–93 ms / 50–61 ms.
+
+## [0.22.1] — 2026-07-30
+
+### Fixed
+
+- **`/resume` no longer freezes while repainting a large saved session.** A real 2.04 MB session now
+  builds its screen projection in 6.2 ms and mounts fullscreen in 230 ms; the old eager rich-render pass
+  took 51.55 seconds on the same incident class. Rich hydration is limited to the viewport neighborhood,
+  yields between chunks, and sends any individual block above 8,000 display characters through a bounded
+  plain-text path.
+- **Resume no longer looks like it dumped private thinking.** Provider reasoning remains stored as opaque
+  continuation state when required, but is never a transcript source. Public assistant progress attached
+  to tool calls is hidden in the default resume projection, oversized legacy prose is reduced to its useful
+  tail, and `/transcript` remains the explicit full-history surface. Canonical messages are untouched, so
+  model continuation and crash recovery keep their complete context.
+- **The session picker scans metadata once instead of twice.** Its snapshot is also reused when Ctrl+A
+  switches project scope. In the 1,501-session regression bench, picker display measured 347 ms and
+  selecting the 400-message session showed its tail in 139 ms; typing remained responsive at 20–25 ms.
+- The real compiled-binary PTY test still streams a tool result, simulates a dead network response,
+  hard-kills Neko, and proves a fresh process recovers the prompt, tool result, and partial assistant stream.
+
+## [0.22.0] — 2026-07-30
+
+### Added
+
+- **Procurement now locks the product identifier before it prices the market.** `neko procurement
+  source-plan <identifier>` classifies SKU/MPN/GTIN, then emits an independent retrieval cascade for
+  index search, exact open-web search, and retailer domains. Broad Chinese/Vietnamese descriptions can
+  therefore discover a real model once and re-query that exact identifier instead of staying trapped in
+  the original vague wording. Numeric merchant SKUs remain valid only when the source labels them.
+
+### Fixed
+
+- **`/resume` keeps work from a turn that was still running when Wi-Fi or the terminal died.** Streamed
+  assistant progress, provider-managed tool calls, and completed tool results now enter the canonical
+  session journal before the provider turn settles. Tool calls are checkpointed before execution, writes
+  remain atomic, interrupted calls are sealed conservatively on the next turn, and Neko-local in-flight
+  metadata never reaches the model. A real compiled-binary/ConPTY regression test hard-kills `neko
+  --yolo` mid-stream and verifies a fresh `resume <id>` sees the prompt, tool result, and partial progress.
+- **Resuming no longer floods an inline terminal with one enormous old message.** Replay is bounded by
+  wrapped terminal rows rather than message count, keeps the latest useful tail, and points to
+  `/transcript` for the complete saved conversation. Fullscreen retains its virtualized, scrollable
+  history and mounts only the visible viewport.
+
+
+## [0.21.2] — 2026-07-29
+
+### Added
+
+- **`/coach status`** — see the camera link again and, more useful, whether the phone is actually
+  filming (measured from real frames, not assumed) and what the phone's voice session is doing. This
+  is the pattern every good auxiliary surface follows (Claude Code's `/rc`, `tailscale serve status`):
+  a start command deserves a way to re-show its link and a truthful active state.
+
+
+## [0.21.1] — 2026-07-29
+
+### Added
+
+- **`/coach` — the photo shoot has its own command now.** Bringing up the camera coach used to mean
+  noticing a line inside `/relay`'s output, which is a different job entirely (`/relay` is "drive Neko
+  from my phone"). `/coach` brings the transport up if needed and hands you one thing: a QR code and
+  the link the filming phone opens, with the three phone buttons explained. `/coach stop` ends it and
+  the phone releases its camera and microphone at once.
+
+
+## [0.21.0] — 2026-07-29
+
+### Added
+
+- **Neko's real voice, at the scene.** The camera coach used to read cues with the phone's built-in
+  text-to-speech — a robot. Now the phone can hold an actual GPT-Live session: tap **Giọng Neko** and
+  the phone becomes the WebRTC endpoint (audio flows phone ↔ OpenAI directly; the terminal never
+  carries it). You get Neko's own warm, natively-Vietnamese voice, you can interrupt it, and you can
+  **talk back** — ask for another pose idea, tell it to wait, anything — while the camera keeps
+  feeding it what it sees. The device TTS stays as the fallback for the cue text, and switches itself
+  off the moment the real voice is live.
+- Spoken turns from the phone appear in the terminal transcript as `(voice · phone)` and join the
+  session history, so the conversation continues after you put the phone down.
+
+### Changed
+
+- The camera page now asks for the microphone too (`microphone=(self)` on that page only — the main
+  client page keeps its full lockdown). Both camera and mic start only on an explicit tap and are
+  released when the tab hides.
+
+
+## [0.20.1] — 2026-07-29
+
+### Fixed
+
+- **The camera coach actually speaks now.** Running the whole lane for real (phone → relay → Neko →
+  cue) found it silent on the best profile: the coach demanded a separate `vision_model` even when
+  your main model can already see (GPT-5.6). It now uses the model you are on.
+- **A cue arrives in ~8 seconds instead of ~22.** Phone-sized frames, a glance-level reasoning
+  effort, and reusing the already-running connection (each frame used to spin up a whole new
+  provider: process, login, thread). Set `"vision_model"` to a small vision model for a ~1–2s lane.
+- **Each conversation gets its OWN camera link.** `/relay` now prints
+  `…/camera/<session>#…` beside the session link, and the phone reads the session from the path —
+  a coach link for one conversation can never reach another. (The bare `/camera` page remains inert
+  without pairing keys.)
+- **End-to-end sealing is now strict.** A paired session used to accept UNSEALED payloads, so a
+  bearer token alone — without your E2E secret — could drive Neko. Paired means sealed, period;
+  verified on the wire, not just in tests. Pairing components moved 96 → 128 bits.
+- **Prominent capture disclosure.** While frames are being sent, the phone shows an unmissable live
+  badge, and leaving the tab or locking the phone releases the camera at once.
+
+
+## [0.20.0] — 2026-07-29
+
+### Added
+
+- **Image generation on your ChatGPT plan.** Ask GPT-5.6 for a picture mid-conversation and the saved
+  file lands in your reply; any model can call the new gated `generate` image tool (Codex image
+  surface — no API key, no extra billing, capability checked before a single credit is spent). The
+  `imagegen` skill teaches art-director prompting and verify-with-vision.
+- **A photographer in the terminal.** The `photo-editing` skill edits like a pro and never like "AI
+  slop": a seven-step critical eye pass, portrait lighting grammar, artist thinking-lenses, named
+  looks (airy pastel, restrained cinematic, Portra-like film...), and parametric-only edits through
+  ImageMagick — identity is untouchable by rule. Deeper tiers load on demand: a real RAW pipeline
+  (portable RawTherapee 5.13 + LibRaw, installed under `~/.neko-core/tools`), a consent-first
+  capture/posing coach for real shoots, and an AP / World Press Photo ethics gate for documentary work.
+- **Live camera coach.** Open `/camera` on the paired relay from your phone, tap Start, and Neko
+  watches the framing and SPEAKS short Vietnamese posing cues through the phone itself. Frames are
+  end-to-end sealed, forwarded only (never stored), and the page is inert without your pairing keys.
+- **Interface craft skills.** Seven MIT-licensed `better-*` skills (accessibility, colors, layout,
+  typography, UI, writing, holistic review) now ship to `~/.neko-core/skills`.
+
+### Fixed
+
+- **Voice sounds like a person, natively Vietnamese.** The realtime prompt asked for clipped
+  progress-report answers — that flattened the prosody. It now instructs warmth, varied cadence and
+  natural Vietnamese (xung ho nhất quán, từ đệm đúng chỗ, never translation cadence); `/voice start`
+  goes straight to the recommended WebRTC transport; the voice panel always answers who-is-talking
+  and what-is-happening, and spoken turns are marked `(voice)` in the transcript.
+- **The Windows quoting war never starts.** The `<env>` block now states which shell really executes
+  `bash` commands (Git Bash POSIX, or the cmd.exe fallback) with matching syntax guidance, and the
+  bash tool tells the model to write quote-heavy commands to a script file instead of nesting escapes.
+
+## [0.19.1] — 2026-07-28
+
+### Fixed
+
+- **`neko update` no longer looks frozen, and updates no longer race each other.** Two things were
+  wrong, and they compounded in the field: the ~88 MB download printed *nothing* for minutes (so a
+  healthy update read as a hang), and there was no machine-wide lock — every `neko` startup with
+  `auto_update` on could kick a background install, so two open sessions plus a manual `neko update`
+  fought over one staging file and the same rename. Now: the CLI shows live progress
+  (`downloading 41.2 / 87.7 MB (47%)`), one updater runs at a time (a second caller says
+  "Another neko is already installing an update" and exits), each updater stages to its own
+  per-process file, and orphaned staging debris older than 30 minutes is swept at startup.
+  Verified live: two concurrent updates — one downloaded with visible progress and installed,
+  the other was refused cleanly.
+
+## [0.19.0] — 2026-07-28
+
+### Fixed
+
+- **Your /resume list is yours again.** Every `bun test` run had been writing its fake sessions into
+  the real `~/.neko-core/sessions` — 6,611 files, ~98% test junk, burying every real conversation and
+  handing `--resume` a test transcript as "the latest session". The store now isolates itself under
+  test runs, 6,492 junk sessions were quarantined (recoverably) to `sessions-quarantine-20260728/`,
+  and your 118 real conversations are what the picker shows.
+- **GPT-5.6 long turns no longer die with "Codex App Server stopped".** The idle shutdown timer was
+  armed when a turn finished but never disarmed when the next one began — so any turn streaming past
+  `codex_keepalive` (15 min) was killed mid-flight. Deep-research turns now run as long as they need.
+- **GPT-5.6 token counts are real now.** One turn on the app-server route can be several internal
+  model calls; only the last one was counted. The session counter now reports the turn's true sum and
+  the real number of model calls, and the context % keeps reading the live context rather than a sum.
+- **No more "the workspace is read-only" dead ends on GPT-5.6.** The model's codex-native shell runs
+  in a read-only sandbox *by design* (all real execution goes through Neko's approval gate). The model
+  is now told this up front, so it goes straight to Neko's tools instead of concluding the machine is
+  locked — this was behind both "ran fine, wrote nothing" delegations and "blocked by machine policy"
+  reports for ordinary CLIs.
+- **A file named `nul` no longer kills a whole search.** ripgrep reports "an error occurred" even when
+  it also found every match; Neko treated that as fatal and threw the matches away. Partial trouble is
+  now a note under the results, and Windows reserved-name debris is skipped entirely.
+- **Scrolling while Neko works is smooth again.** Reading older output during a streaming turn no
+  longer competes with the stream for the event loop: the invisible tail syncs at ~3fps while you are
+  scrolled away (measured: 49 → 26 terminal writes per 600ms window) and snaps current the moment you
+  jump back down.
+- **Non-interactive `neko run` failures are loud.** Without a TTY, gated tools (write/edit/bash) are
+  auto-denied; the model is told before the turn, every denial says "do not retry, tell the caller",
+  and the run ends with a stderr summary naming the count and the `--yolo` fix.
+
+### Added
+
+- **`/resume` is now folder-first with global search** — claude-code/codex-class. Plain `/resume`
+  lists this folder's sessions first and every other project after, so typing filters across all
+  projects (titles *and* folder names). `Ctrl+A` cycles this-folder-only → all-projects → back.
+  `/resume all` (and `/sessions all`) jump straight to the flat newest-first view. Resuming a session
+  recorded in another folder says so. New top-level command: `neko resume [id]`.
+
+## [0.18.1] — 2026-07-27
+
+### Fixed
+
+- **The ChatGPT subscription's two highest reasoning tiers were being silently thrown away.** The
+  profile declared `effort_ceiling: "xhigh"`, so every request for anything above it was clamped down
+  without a word — while the live account catalog advertises `low/medium/high/xhigh/max/ultra` for the
+  gpt-5.6 family. If you have wondered where "Pro" went on a Plus/Pro plan, this was it: it is not a
+  separate model on the surfaces Neko reaches, it is these tiers. `/effort ultra` now reaches them.
+
+  Raising the ceiling is safe on any account, because the account-aware catalog stays authoritative and
+  the provider heals downward from a rejection: a ceiling above what your plan offers costs nothing,
+  while a ceiling below it hides what you paid for.
+
+### Added
+
+- **`oracle.effort`** — the oracle's own reasoning tier, separate from the one you code at. One
+  expensive question is the entire idea of the feature, so it is worth spending more there than on an
+  ordinary turn: `{"oracle": {"profile": "chatgpt", "effort": "ultra"}}`.
+
+
+## [0.18.0] — 2026-07-27
+
+### Fixed
+
+- **You can select and copy inside the prompt again.** Fullscreen turns on mouse reporting so the wheel
+  scrolls the transcript, and that takes the terminal's native click-drag select-to-copy away. Neko
+  replaced it with its own drag-select — but only over the transcript, because that selection is
+  anchored to content rows and the input is not one of them. A press in the prompt explicitly cancelled
+  the gesture, so the text you had just typed was the one thing on screen you could not copy.
+
+  Dragging in the prompt now selects, highlights in reverse video, copies on release, and keeps the
+  highlight so `Ctrl+C` copies the same range. It is a codepoint range in the input value rather than a
+  screen rectangle, so it survives wrapping across visual lines, and a masked value (`/login`) shows
+  bullets under the highlight rather than the secret.
+
+  The gesture measures from where the drag STARTED rather than from the caret, so a fast drag cannot be
+  thrown off by a repaint that has not landed yet.
+
+### Changed
+
+- **Reads may now leave the project directory; writes still may not.** Asking Neko to read a skill, a
+  doc, or a file in a sibling repo returned `path escapes project root` — a wall that stopped ordinary
+  work without bounding any damage, since the reason for the confinement was always the blast radius of
+  a *mutation*. `write_file`, `edit`, `multi_edit` and the bash sandbox are unchanged. What actually
+  needed defending is defended by name instead: SSH keys, `.env`, `.aws`, `.gnupg`, netrc and git
+  credentials, key material, browser and OS credential stores, and Neko's own `~/.neko-core/config.json`
+  are refused outside the root whatever the setting. `neko policy` prints the posture, and
+  `"read_outside_root": false` restores the old wall.
+
+  Found while testing it: a path escape on `write_file` **threw out of `execute`** instead of returning
+  an observation, because the `/rewind` snapshot ran before the try block — a tool that throws crashes
+  the agent loop rather than handing it something it can recover from.
+
+### Added
+
+- **The oracle** — a second opinion from a *different* model, deliberately given no tools. It receives a
+  curated bundle of your files and returns a diagnosis, a plan keyed to real paths, how to verify it, and
+  what it could not determine. `neko oracle -p "…" -f "src/**/*.ts"`, `--dry-run` to see exactly what
+  would be sent, `--followup` to push back on the answer, `neko oracle sessions|show` to read past ones.
+  In a session Neko can consult it itself; that call is approval-gated, because the files leave your
+  machine — the same bar as `bash`. Secret stores are refused whole and credential-shaped literals are
+  masked in place, while `process.env.API_KEY` and `` `Bearer ${token}` `` are left intact so the code
+  stays readable. Over budget drops whole files and names them rather than truncating a body. Which
+  model answers is a profile: `{"oracle": {"profile": "claude"}}`. See `docs/process/ORACLE.md`.
+
+- **[neko.holilihu.online](https://neko.holilihu.online) is a real site** (`cloudflare/site/`), not a
+  redirect. It also fixes a live bug: the root of the public install domain pointed at the frozen
+  `bang_c` predecessor repo, so anyone who typed the domain the README prints landed on the wrong
+  project. `/install.sh` and `/install.ps1` keep behaving exactly as before — they appear in the README,
+  inside both installers and in every release note, so they are a contract, and the Worker handles them
+  explicitly rather than leaving them to a convention of the assets layer.
+
+  Bilingual English/Vietnamese with a toggle that follows the browser: English lives in the markup and
+  Vietnamese in a dictionary, so an untranslated string falls back to English instead of rendering
+  blank, and a crawler with no JavaScript still gets a real page. There is a **direct download** for
+  people who would rather have a file than run a command — per-platform, size and SHA-256 next to each
+  build, with the two things a non-developer needs to be told first: it is a terminal program, and it is
+  not code-signed yet. A 30-second clip of a real run shows Neko cleaning a 599-row spreadsheet and
+  building a dashboard from one Vietnamese sentence.
+
+  **The site keeps itself current.** Its Worker reads the latest release from the GitHub API and
+  rewrites the version and the five download sizes on the way out, cached ten minutes and failing open
+  to the values baked in at deploy time — so shipping a release needs no site deploy, and the release
+  workflow asserts the site caught up rather than trusting it. Deploy runbook:
+  `cloudflare/site/DEPLOY.md`; art briefs: `docs/marketing/IMAGE-BRIEFS.md`.
+
+## [0.17.1] — 2026-07-25
+
+### Fixed
+
+- Newly published releases are no longer invisible for a day. The startup check cached **any** result
+  for 24 hours, including "you are on the latest" — which is only true until the next release. In
+  practice: a check recorded v0.16.0 as the latest version at 18:10, v0.16.1 shipped at 18:16, and
+  every session for the next 24 hours skipped the check entirely, so `auto_update: true` installed
+  nothing and no notice appeared either. A found update still keeps the day-long cache (it is
+  installed immediately, so re-asking changes nothing), while "up to date" — and a check that failed
+  to reach GitHub — is now re-asked after 3 hours. Restarting repeatedly still costs no network call.
+
+  The download, checksum, version-probe, and binary-swap path was never affected; only discovery
+  timing was. If you are on 0.16.x or 0.17.0 and want this now, run `neko update` once — it always
+  asks GitHub directly and ignores the cache.
+
+## [0.17.0] — 2026-07-25
+
+### Fixed
+
+- Large file writes are no longer truncated mid-tool-call. The hardcoded `max_tokens: 8192` default
+  silently capped every provider that did not declare its own budget, defeating the intended
+  "omit the field → use the model's full native output budget" path — a big `write_file` could be cut
+  off partway. The default is now `0` (auto): OpenAI-compatible and Responses endpoints omit the
+  field entirely. Anthropic, where the field is required, sends `32768` and self-heals — if the API
+  returns a 400 naming a smaller real cap, Neko clamps to it and retries once, with no per-model table
+  to maintain. Set a positive `max_tokens` in a profile or config to cap output deliberately.
+- A provider that goes quiet while composing a large tool call is no longer killed. The idle window
+  (which resets on every streamed byte, and is not a total request cap) moved from 120s to 300s, and a
+  stalled stream is now retried like a dropped connection instead of failing the whole run. Genuine
+  disconnects remain fatal.
+- `docker` and `podman` now run outside the bash sandbox, because they talk to a host daemon the
+  sandbox user cannot reach — sandboxing them only produced "cannot connect to the Docker daemon".
+  They are correspondingly excluded from sandboxed-bash auto-approval, so in default mode they still
+  ask for one confirmation.
+
+### Added
+
+- **Skills for building real software.** `hackathon-engine` (with 11 references: design-engine, seo,
+  motion, backend, data, devops, golden-stacks, mobile, security, testing-strategy, tracks) for timed
+  builds, and `web-app` for production websites and full-stack apps — including static sites, landing
+  pages, and portfolios. Also `docker`, `sql`, `research-method`, and `clean-writing`.
+- **Design direction is now decided before any token.** The design engine's Law 0 makes Neko commit to
+  one aesthetic direction out loud — stoic/cold, brutalist, editorial serif, warm humanist, technical,
+  or maximal — and derive every region from it, including the footer. If you name a house style or a
+  reference, your words win. It also names the 2026 AI-slop clusters to avoid.
+- **SEO is no longer an afterthought.** A copy-paste complete `<head>` (title, meta description,
+  canonical, Open Graph, Twitter card, JSON-LD, favicon) lives in the SEO reference, and the core
+  prompt now carries an always-on Web & HTML rule so headless `neko run` ships it even when skills are
+  not loaded.
+- **Large files ship in chunks by contract.** The `write_file` tool description now instructs writing a
+  skeleton first (roughly 300 lines) and extending it with `edit`, which avoids both output-token
+  truncation and provider idle timeouts.
+- **A budget-aware completion nudge** reminds the agent to land the deliverable before the step budget
+  runs out, without cutting the research phase short.
+
+## [0.16.1] — 2026-07-25
+
+### Fixed
+
+- Voice sessions no longer end when the browser control socket briefly drops. Backgrounding the
+  consent tab (which throttles its heartbeat to roughly once a minute) or a transient network blip
+  used to stop a live call within 20 seconds; the loopback watchdog now waits 90 seconds and any
+  page message resets it, and the page reconnects with its token while the WebRTC audio keeps
+  flowing. Pressing Stop, closing the tab, or `/voice stop` still ends the session at once.
+- Dead-end voice errors are now honest. When Codex reports that WebSocket realtime needs API-key
+  auth (ChatGPT-subscription voice runs only over WebRTC), Neko explains that instead of surfacing
+  the raw text that read like advice to enable API billing. A voice-limit error now names both
+  causes (voice minutes or subscription usage) and points to the quota-free browser voice fallback.
+- GPT-5.6 no longer fails a carried-over conversation with `items[0] is not a valid response item:
+  missing field type`. History injected into a fresh Codex App Server thread now tags message items
+  as `type: "message"`, which the strict App Server item schema requires.
+
+## [0.16.0] — 2026-07-24
+
+### Added
+
+- GPT-Live can run directly inside the Neko terminal on Windows without opening a browser tab. Native
+  microphone PCM streams through Codex App Server Realtime V3, response audio plays locally, and user speech
+  interrupts queued playback.
+- `/voice` keeps browser WebRTC as an explicit compatibility path. Final voice transcripts persist into the
+  Neko session, while delegated tools retain the normal ToolRegistry, approval, sandbox, and audit boundary.
+- The live Ink panel is now a mouse and keyboard control surface: click Mute/Unmute or Stop, or use Alt+M and
+  Alt+X. Hover feedback follows the exact painted frame, and controls yield to approval/picker focus.
+
+### Changed
+
+- The voice picker prefers terminal GPT-Live only when local audio dependencies and a microphone are detected;
+  otherwise it explains the limitation and keeps the tested browser/OS fallbacks available.
+
+## [0.15.2] — 2026-07-24
+
+### Fixed
+
+- GPT-Live now starts correctly with the managed standalone Codex App Server Support Pack. Neko passes the
+  realtime feature gate as a config override to the standalone binary while retaining the native `--enable`
+  flag for a full Codex CLI installation.
+- The `/voice` flow and consent page now name the live-tested path accurately as **GPT-Live via Codex
+  Realtime V3 (Lab)**. A real ChatGPT account completed `starting -> waiting -> connecting -> LIVE (v3) ->
+  stopped` with Codex App Server 0.145.0, no browser console errors, and no paid API-key fallback.
+
+## [0.15.1] — 2026-07-24
+
+### Security
+
+- Autonomous browser attachment now requires a capability created by an explicit first **Attach** action.
+  Extension restore, startup, alarms, side-panel presence, and retry paths cannot initiate pairing.
+- An autonomous retry with a rotated or expired capability clears the stale intent and requires another
+  explicit **Attach** action; only a manual attach may enter capability-repair pairing.
+- Auto-attach revalidates the active tab after asynchronous bridge and page setup. Switching tabs while an
+  attachment is in flight cancels the stale candidate and immediately retries the new active tab.
+- Browser privacy and Store disclosures now conservatively cover authentication-related, financial, and
+  location information that a site may render as ordinary visible content, while distinguishing this from
+  cookies/storage and blocked sensitive field values.
+
+### Fixed
+
+- Voice setup passes its feature-specific Codex App Server `0.145.0` minimum into the Support Pack installer,
+  so an older latest release is rejected before download instead of causing an install/retry loop.
+- Realtime `initialItems` use Neko's UTF-8-aware token estimator and never exceed the 8,192-token bootstrap
+  budget, including dense CJK history.
+- Support Pack cleanup no longer throws from `finally` or masks the installation result. Failed installs keep
+  their original error and cleanup context; a successfully published pack reports leftover staging cleanup as
+  a warning.
+- Browser source regression checks now prove the attach-before-intent ordering instead of passing on `-1`
+  indexes, and architecture/marketing documentation matches the shipped behavior.
+
+## [0.15.0] — 2026-07-24
+
+### Added
+
+- **Experimental ChatGPT Realtime V3 voice.** The optional Voice Support Pack now uses the official Codex App
+  Server 0.145.0 subscription bridge, explicitly requests protocol V3, rejects silent V2/unknown negotiation,
+  and keeps recent text plus inline audio tool results bounded. Delegated tools still cross Neko's normal
+  permission and audit boundary. This is a Lab feature whose availability depends on the user's ChatGPT
+  account rollout; it is not the public paid Realtime API and Neko does not silently fall back to API billing.
+- **Autonomous browser attachment.** Once the local authenticated bridge is ready, the Neko Browser extension
+  can attach the active visible `http(s)` tab without an extra toolbar click. A persistent popup switch controls
+  this behavior, attachment remains limited to one tab, and read/click/type capabilities stay separately
+  visible and governed. Detach and Emergency Stop always cancel an in-flight attachment.
+- **Browser side-panel continuity.** A newly opened side panel receives a bounded transcript snapshot, and panel
+  prompts enter one FIFO turn queue so two agent turns cannot run concurrently.
+
+### Changed
+
+- Browser auto-attach retries bounded transient failures through tab lifecycle events and a Manifest V3 alarm.
+  The extension requests explicit `http://*/*` and `https://*/*` host access, without cookie, `debugger`,
+  `tabs`, relay, file-page, or `<all_urls>` permission. Existing unpacked installations may require one
+  permission confirmation or reload after upgrading.
+- OCR and Windows computer-use observations now expire when the foreground window, display geometry, or scale
+  changes, preventing stale Set-of-Marks coordinates from being reused against another surface.
+
+### Fixed
+
+- Voice Support Pack installation waits for the App Server compatibility probe to exit and retries transient
+  Windows file-lock cleanup, avoiding the `EBUSY` staging-directory failure.
+- OCR installation no longer breaks on PowerShell quoting; WinRT OCR operations have bounded waits and release
+  native resources on timeout or completion.
+- Sensitive shell payloads are no longer persisted as plaintext command files in `%TEMP%`, and extension
+  reconnect keeps retrying after a temporary attach failure.
+
+## [0.14.0] — 2026-07-16
+
+### Added
+
+- **Consent-first local meeting capture.** `/meeting` opens a responsive loopback page, then the browser's
+  native picker lets the user choose the tab/window/screen and whether to share audio. Microphone and system
+  audio are stored as two PCM16 channels in a local WAV; no video frame crosses the page boundary or reaches
+  disk. The browser indicator, page button, TUI command, and CLI interrupt can all stop capture.
+- **Optional local Vietnamese transcription.** `/support meeting` installs either a 56.9 MiB quick or 181.3
+  MiB balanced multilingual model plus a current stable official whisper.cpp engine where upstream publishes
+  one. Exact release host/path, byte counts, SHA-256 digests, binary version, and archive paths are verified;
+  installs are atomic and removable without deleting recordings.
+- **Timestamp-grounded meeting notes.** The bundled `meeting-notes` skill reads canonical transcript pages
+  instead of putting a whole meeting in context. Decisions, actions, risks, and missing owners/dates must point
+  to timestamps. Remote participants remain `Meeting audio`; two capture channels are not presented as
+  person-level diarization.
+- **Measured upgrade seam.** `neko meeting eval` reports weighted WER, CER, real-time factor, and optional
+  channel-source accuracy for user-owned reference cases. The report explicitly does not turn a smoke fixture
+  into a Vietnamese quality, speaker-identity, summary-quality, or SOTA claim.
+
+### Changed
+
+- Meeting start/transcribe/delete remain approval-gated, while emergency stop is always safe. Every meeting
+  mutation now enters the same fresh-observation completion gate used for files and computer use.
+- Transcription has a per-meeting process lock, rejects concurrent writers, records engine/model provenance,
+  preserves audio on failure, and recovers an interrupted `transcribing` state for a later retry.
+- Built-in skill embedding now defers its Bun build-time macro behind the source-tree path. This avoids the
+  unresolved macro binding seen on a second source invocation under the Windows canary transpiler cache while
+  preserving standalone-binary embedding.
+
+## [0.13.0] — 2026-07-16
+
+### Added
+- Word, Excel, and PowerPoint tasks now use typed inspect, mutation, and render tools through the existing
+  approval boundary. The optional Office Support Pack is installed without administrator rights only after
+  explicit consent, verifies its source, digest, executable, version, and protocol, and preserves source files
+  through staged, validated, atomic replacement.
+- An existing LibreOffice installation can provide independent whole-file PDF render evidence from an isolated
+  temporary profile. Neko does not silently install LibreOffice or treat a successful render as semantic proof.
+- Resident Windows UIA and the attached browser bridge can wait for a stable visible change locally. The bundled
+  Messenger workflow uses those bounded watchers, fresh readback, and one-send-per-stable-message guards instead
+  of repeatedly spending model turns on unchanged screens.
+- Neko's compact prompt constitution now defines continuity, authority, evidence, retrieved-data distrust, and
+  preservation of unrelated user work without importing product-specific assumptions from another agent.
+
+### Changed
+- Browser and Office requests now have state-aware guided setup. Neko keeps the original request, detects when
+  setup becomes ready, and resumes it automatically; cancellation restores the request for editing.
+- Natural bilingual Office artifact requests are routed before the provider call using high-confidence skill
+  metadata, while up to three relevant skills may compose for mixed tasks. This adds no model call, embedding
+  service, network route, or runtime dependency.
+- Browser setup reports files-ready, bridge-online, extension-connected, and tab-attached as separate states
+  instead of implying that opening Chrome's extensions page installed an unpacked extension.
+
+### Fixed
+- ChatGPT gateway `520`-`524` responses are retried as transient failures, and an exhausted HTML error page
+  is reduced to a short upstream-error message instead of dumping markup and CSS into the transcript.
+- Markdown tables may shorten a long link's visible label to fit the terminal, but its OSC 8 target now keeps
+  the complete URL so Ctrl+Click opens the exact product page.
+
+## [0.12.1] — 2026-07-14
+
+### Added
+- The first agent session now creates `~/.neko-core/NEKO.md` once with a compact, editable origin story,
+  character, values, and truth boundary. Existing identity files are never
+  overwritten, including by forced config initialization.
+- Zero-setup memory bootstrap creates separate `memory/user.md` and `self.md` core profiles once. `/memory`
+  exposes status, list/read/forget, identity, and non-destructive on/off controls.
+
+### Changed
+- Product, agent, TUI, installer, Relay, MCP, and documentation naming is unified under **Neko Core**.
+  The `neko code` command remains as a compatibility alias for existing scripts.
+- Global `NEKO.md` is explicitly the cross-project identity/life-story layer, while project `NEKO.md` files
+  remain project-specific instructions and memory. Mutable cross-project observations stay in bounded core
+  profiles instead of growing the identity prompt. Narrative history cannot grant permissions or substitute
+  invented memories for evidence.
+- Compaction now emits a structured continuation capsule and fairly clips every old message, preserving goals,
+  corrections, decisions, verification evidence, open work, and references without letting one huge tool result
+  consume the summarizer input. Archival search uses token/accent matching instead of exact-substring-only recall.
+
+## [0.12.0] — 2026-07-14
+
+### Added
+- Claude and xAI now have direct first-party adapters for their official Messages and Responses APIs,
+  including streaming tools, vision, structured output, provider-native reasoning continuation, live model
+  capabilities, and bounded recovery. Kimi Code adds an official device-OAuth route alongside Kimi Platform;
+  DeepSeek V4 and Gemini API remain direct API-key routes. No local subscription proxy is involved.
+- Browser control now has an in-app `/browser` setup flow. After the user explicitly opts in and attaches a
+  tab, ordinary Neko sessions own the authenticated loopback bridge lifecycle. Extension 0.3.0 reconnects
+  after Manifest V3 worker or bridge restarts while preserving separate read, click, and typing grants.
+- `bun run eval:terminal` runs the exact working-tree binary through the public Harbor/Terminal-Bench 2
+  runner with isolated homes, bounded defaults, unmodified task verifiers, and ephemeral OAuth transfer.
+
+### Changed
+- Reasoning effort is a durable user preference negotiated against each model's advertised vocabulary or
+  endpoint ceiling. Unknown future tiers pass through unchanged; the experimental read-heavy adaptive
+  heuristic remains opt-in because it has not yet shown workload-neutral quality.
+- Token UX separates cumulative multi-call traffic, the last request's actual context, cache reads, and the
+  next estimate. Image estimates count decoded multimodal content instead of base64 transport text. Stable
+  prompt seams and a compact playbook index reduced the measured repeated fresh-session estimate by 23.3%,
+  while full lessons remain available on demand.
+- Neko keeps one continuous identity and normal reasoning path across greetings and task turns. Repeated
+  greetings retain conversation history and tone instead of entering a context-free fast path.
+
+### Fixed
+- Long file and web observations are paged below the retention guard, so formerly unreachable middle or tail
+  content can be retrieved without a blank transcript gap.
+- Kimi Code requests now use the official coding model and thinking contract, validate account access before
+  claiming sign-in success, and refresh one Neko-owned device session without importing another CLI's tokens.
+- Provider-native reasoning data is replayed only to the exact protocol, sanitized endpoint, and model that
+  produced it. Missing Anthropic/xAI credentials can no longer fall back to an unrelated provider key.
+- Completion verification now checks clean-state acceptance criteria and terminates an evaluation process
+  group before the external verifier runs, preventing stale output and timeout races from becoming false
+  completion evidence.
+
+## [0.11.5] — 2026-07-12
+
+### Changed
+- Google sign-in now reflects Google's 18 June 2026 product change: Gemini CLI consumer OAuth no longer
+  serves Free, AI Pro, or AI Ultra. Neko recommends the supported Gemini API-key route first and labels CLI
+  OAuth as Code Assist Standard/Enterprise only. Antigravity remains a separate official product; Neko does
+  not reuse its credentials or scrape its TUI.
+- The optional Gemini CLI Support Pack is now offered for both supported Neko routes. Previously the API-key
+  picker accepted a key without ensuring that its required ACP executable existed.
+
+### Fixed
+- Gemini's consumer-deprecation response is converted into an actionable migration message instead of a raw
+  ACP backend error, while unrelated authentication failures remain unchanged.
+
+## [0.11.4] — 2026-07-12
+
+### Fixed
+- The in-binary self-updater now uses the same official latest-release redirect fallback as the one-line
+  installers when GitHub's unauthenticated API is rate-limited. It also requires the published SHA-256
+  sidecar, runs the downloaded binary's version probe before replacing Neko, and restores the original if
+  activation fails after the backup rename.
+
+## [0.11.3] — 2026-07-12
+
+### Fixed
+- Windows and Unix installers now fall back from GitHub's unauthenticated API quota to the official latest-
+  release redirect and published SHA-256 sidecar. Installation remains fail-closed and still verifies the
+  checksum plus the binary's embedded version before atomic replacement.
+- Settings writers now accept the same single UTF-8 BOM as the config loader. This lets plain `neko update`
+  actually clear a pinned installer's `auto_update: false` instead of only printing that updates resumed.
+
+## [0.11.2] — 2026-07-12
+
+### Fixed
+- Running plain `neko update` now resumes automatic updates even when Neko is already on the latest release
+  (or a source checkout cannot replace itself). Previously the updater's no-download early return left
+  `auto_update: false` behind after a pinned installer/update, despite telling users that plain update returns
+  them to the latest channel.
+- Config loading now accepts the single UTF-8 BOM that Windows PowerShell 5 may write before otherwise valid
+  JSON. This prevents the TUI from failing at startup after a pinned installer updates `config.json`.
+
+## [0.11.1] — 2026-07-12
+
+### Fixed
+- The Gemini managed-runtime discovery fixture now uses the runner's native path semantics. The v0.11.0
+  product binaries were healthy, but the fixture simulated a Windows manifest using real filesystem checks
+  on Linux/macOS, leaving `main` CI red after the tag. Windows, Linux, and macOS now exercise the same
+  managed Support Pack behavior using each host's actual runtime filename and separators.
+
+## [0.11.0] — 2026-07-12
+
+### Added
+- **Google-account Gemini is a first-class subscription route.** `/login` can use Free, AI Pro, or Ultra
+  quota through the official Gemini CLI ACP protocol, while Gemini API keys remain a separate billing
+  route. The optional Support Pack verifies Google's published bundle plus a private Node LTS runtime,
+  installs atomically without admin/global npm, and does not enlarge the base Neko binary.
+- **Neko Browser Bridge and a public-ready Chrome extension.** Users can attach exactly one chosen tab,
+  keep existing website sessions, grant click/navigation and non-sensitive typing separately, see an
+  always-visible AI indicator, inspect a redacted audit trail, and emergency-detach. The bridge is
+  loopback-only and capability-scoped; cookies and typed text never travel through Relay.
+- **Subscription voice with local consent.** ChatGPT realtime voice is negotiated through the official
+  App Server route, starts the microphone only after an explicit browser click, keeps terminal tool
+  approvals authoritative, and stops on tab close, heartbeat loss, or the local Stop control. A local
+  browser speech path remains available without silently falling back to paid API billing.
+- **Application skills for Zalo and WeChat.** Both use the shared computer-use primitives and require
+  fresh inspection after state-changing actions instead of claiming completion from an input event alone.
+
+### Changed
+- **Computer use is resident, DPI-aware, and outcome-verified.** UIA, Unicode keyboard input, touch,
+  optional SendInput, scroll, wait, and virtual-desktop screenshots now share one serialized Windows host.
+  On the measured Windows machine, warm screenshots fell from 972/1,143 ms p50/p95 in the one-shot path to
+  71–119 ms and include frame id, sampled delta, and changed-region evidence. A tool returning success no
+  longer permits a completion claim until a fresh inspection confirms the postcondition.
+- **Relay and terminal UX stay in sync more closely.** Mobile layouts, approvals, focus recovery, slash
+  suggestions, transcript hierarchy, user-message contrast, tool-output spacing, and scroll behavior were
+  polished while preserving encrypted multi-session routing and remote Stop.
+- **Web reading handles long feeds more deliberately.** Feed collection and page-to-Markdown paths preserve
+  useful structure while reducing blank transcript space and oversized intermediate output.
+
+### Fixed
+- Windows actions no longer confuse the DPI-virtualized `1536x864` desktop with a physical `1920x1080`
+  display at 125% scaling; display, capture, UIA, and coordinate input now share physical virtual-desktop
+  bounds, origins, and scale metadata.
+- Computer, glob, todo, and skill calls now recover from malformed model arguments more reliably, and
+  completion verification prevents repeated false-success reports after an unverified desktop mutation.
+- Browser sessions can persist across Facebook, X, and other sites in Neko's dedicated profile, while the
+  extension path can reuse an already signed-in selected tab without uploading browser cookies.
+
+## [0.10.0] — 2026-07-11
+
+### Added
+- **ChatGPT Plus/Pro is a first-class OpenAI account route.** `/login` now guides users through
+  OpenAI -> ChatGPT subscription or API key without mixing credentials or silently falling back to
+  API billing. `/model` uses the signed-in account catalog, `/effort` follows each model's declared
+  reasoning tiers, `/usage` reports quota windows/credits, and `/logout` removes only the selected
+  authentication route and releases its provider process.
+- **GPT-5.6 Sol, Terra, and Luna work through the official Codex App Server protocol.** Neko reuses a
+  compatible Codex CLI when present; otherwise the model picker offers an optional standalone Support
+  Pack. GPT-5.5, API providers, Ollama, and local models download nothing. The bridge starts on demand,
+  uses the existing ChatGPT OAuth session, keeps Neko's approval/sandbox boundary authoritative, and
+  stops on logout/model switch/exit or after 15 idle minutes. Windows x64 measurements: 92.7 MiB
+  Support Pack download, 270.4 MiB installed, 34.7 MiB idle working set, 184-186 ms handshake.
+- **One-line installers are transactional and release-verifying.** Windows checks official GitHub
+  release metadata, exact asset size, SHA-256, and the binary version before atomic replacement.
+  macOS/Linux v0.10+ downloads a published SHA-256 sidecar, verifies it and the version in staging,
+  then atomically renames. Failed downloads or checks never destroy the previous working Neko binary;
+  historical pinned rollback releases remain supported.
+- **Relay v3 is a real multi-session remote terminal.** One persistent pairing is now a hub for every
+  running Neko process: the phone lists/switches sessions, routes Send/Stop/offline queues independently,
+  runs different sessions concurrently, and preserves a bounded transcript plus draft per session.
+  Session title, cwd, model, and busy state are E2E-encrypted metadata; the Worker routes only opaque
+  host ids. The old centered paired card is gone in favor of the terminal transcript, with the same
+  `> ` prompt/process lines/status model and accessible control labels. `/relay new` now revokes the
+  entire old hub before rotating, while v1/v2 compatibility remains.
+- **Images are inline `[Image #N]` tokens now.** Alt+V drops the token at the caret — it travels
+  inside your sentence, and deleting the token detaches the image (the Claude Code affordance).
+  The separate "image attached" banner and badge are gone.
+- **Text-only models can read images.** The caption-then-reason bridge: when the active model can't
+  see (`vision` off), a vision model (`vision_model`, defaulting to a free NVIDIA VLM on NVIDIA
+  endpoints) transcribes the image — verbatim text/code/errors, tables as markdown, compact layout —
+  and the description replaces the token in place. Vision-capable mains still get the real image;
+  with neither, the note says exactly what to configure. Image content is treated as untrusted data,
+  never as instructions.
+- `/model` now saves the model into the **active profile** instead of a top-level `model` that
+  silently shadowed every profile (the footgun `neko doctor` warns about — /model itself was
+  recreating it).
+- **Current frontier routes are explicit profiles.** `--profile nvidia` defaults to `z-ai/glm-5.2`
+  with `NVIDIA_API_KEY`; `--profile fable` runs `claude-fable-5` with native vision and a
+  profile-specific 2576px / 4.5MB clipboard-image budget.
+
+### Fixed
+- **GUI eval v2 no longer grants false passes for repaired constraint violations.** Opening a wrong
+  item before the target, changing a forbidden setting and changing it back, claiming the banking
+  offer, or taking the interrupting survey now remains a verifier-visible violation. GUI bench-log
+  records carry `harnessVersion: 2`, so stricter scores are not silently compared with v1 runs.
+- **A pasted screenshot no longer poisons the session.** `/paste` (Alt+V) used to attach the clipboard
+  image raw — a multi-MB PNG became ~1M base64 characters, overflowed any model's context window
+  (`max_tokens must be at least 1, got -102511`), and then kept re-overflowing from history on every
+  later turn. Images are now normalized at the source on all supported desktop OSes (JPEG q82;
+  longest edge and byte ceiling are profile data, with a conservative 1568px default), oversized
+  attachments are refused with the size and the fix, and the in-loop
+  context relief can now free pasted images from earlier turns (the current turn's attachment always
+  survives). The temporary clipboard capture is removed after its bytes are embedded instead of leaking
+  one `neko-paste-*` file per Alt+V.
+- **`[Image #N]` is now truly inline on the model wire.** Multiple pasted images keep their exact
+  text/image ordering through the core content parts and NVIDIA's `<img>` conversion instead of being
+  silently moved after the whole prompt.
+
+### Added
+- **Relay v2 — the phone experience, rebuilt** (host + Worker + web client, deployed and live-verified
+  end-to-end 10/10 on real Cloudflare infrastructure):
+  - **Live streaming to the phone.** The host now holds a hibernation-friendly WebSocket to the Worker
+    and streams the growing reply as throttled, still-E2E-sealed partial frames — the phone watches
+    Neko type instead of staring at dots for minutes. The web client renders markdown-lite (code,
+    bold, links, bullets).
+  - **Stop from the phone.** The send button becomes a Stop button while a turn runs; the interrupt
+    reaches the host mid-turn over the socket.
+  - **Pairing that survives restarts.** `/relay` persists the pairing in `~/.neko-core/relay.json` —
+    restart Neko and an already-paired phone reconnects by itself; `/relay new` rotates it.
+  - **No more silent death.** Session state (token binding, queued jobs, results) moved into Durable
+    Object storage: an eviction (laptop asleep) no longer kills the session, a message sent while the
+    host is offline queues durably and runs on reconnect, and the phone's status pill now asks the
+    relay whether Neko is actually online (`/alive`) instead of guessing.
+  - **Cheaper to keep on.** The old 1-second long-poll kept the Durable Object awake 24/7; with
+    WebSocket hibernation it sleeps between messages (free-plan friendly). Messages from the phone
+    now WAIT for a busy turn (like the desktop input queue) instead of being dropped.
+  - Fully backward compatible: an old binary works against the new Worker (v1 long-poll endpoints
+    kept), and a new binary degrades to long-poll against an old Worker or where WSS is blocked.
+  - **The phone shows the terminal experience.** Tool activity streams live as the same
+    `Read(src/agent.ts)`-style lines the terminal shows (a monospace process log with a braille
+    spinner), above the growing reply. The web client was redesigned around the actual Neko mascot
+    and its amber palette (real logo as favicon/app icon/header), with a cleaner message layout.
+  - **Wrong-secret pairing is now diagnosable instead of cryptic.** The host answers a message it
+    cannot decrypt in plaintext with the exact fix (v1 sealed that error with the same mismatched
+    key — guaranteed unreadable); the relay stores a public fingerprint of the secret so the phone
+    flags "key mismatch" before sending; pairing from the QR fragment now persists immediately
+    (v1 only saved it if you typed manually — a reload unpaired you); and a "paste pairing link"
+    field pairs even in in-app browsers that strip URL fragments (Messenger).
+  - **The QR is a first-pairing affordance, not daily chrome.** `/relay` prints a compact status
+    (the pairing persists anyway); the code appears only on first pairing, `/relay new`, or
+    `/relay qr`. (The half-block QR renderer is already the scannable optimum — terminal cells are
+    ~1:2, so two modules per cell is the squarest packing; you can't shrink a 100-char pairing URL
+    further without weakening the keys. So the fix is showing it once, not shrinking it.)
+  - **The web client is now the Neko terminal, on your phone.** Rebuilt to match the CLI the owner
+    likes: full monospace, the exact terminal amber (`#e6932e`), dim `─`-style rules, a `>` prompt
+    composer, and a bottom status bar — messages render as a terminal transcript (`> you` in cyan,
+    `●` tool lines, flowing replies) instead of chat bubbles. The layout is capped to a centered
+    820px column framed like a terminal window, which fixes the desktop view stretching edge-to-edge
+    on wide screens. Unpaired devices get a single calm pairing card (mascot, one paste-link box,
+    "manual setup" tucked away) instead of five raw fields dumped on screen.
+- Plain info lines in the transcript (relay pairing URLs, update notes) are now OSC 8 hyperlinks too.
+- **`neko setup tavily <key>`** — the no-Docker rung of the search ladder: verifies the key against the
+  live Tavily API, then wires it into the gitignored user config (`tavily_api_key`, redacted by
+  `neko config`; `TAVILY_API_KEY` env still wins). `web_search` failures now walk DOWN the ladder —
+  SearXNG down falls back to Tavily when a key is wired, then DuckDuckGo — instead of jumping straight
+  to the free floor.
+- **`neko doctor` names the model-shadowing footgun.** When a top-level `model` in a config file (or
+  `NEKO_MODEL`) overrides the selected profile's preset model — documented overlay order, but a real
+  trap: `--profile x` silently keeps the file's model — the `model` check turns into a WARN naming the
+  exact file, both models, and the fix.
+
+## [0.9.0] — 2026-07-10
+
+### Added
+- **Links in the transcript are real terminal hyperlinks (OSC 8).** `[label](url)` now carries its URL
+  (it used to be dropped entirely), bare URLs and existing file paths are Ctrl+Click-able with a hover
+  tooltip in Windows Terminal (and WezTerm/iTerm2/kitty), and a long product URL wrapped across 2–3
+  terminal lines still opens as one link — where plain terminal auto-detection gives up. Selection,
+  copy, and the renderer's column math are all hyperlink-aware; copying a bare URL still yields the URL.
+- **SearXNG is now a managed, on-demand sidecar (the Ollama keep_alive pattern).** After a one-time
+  `neko setup web`, the container costs zero RAM while idle: `web_search` wakes it automatically when a
+  search needs it (one `docker start` + health check, ~5–10s on the first search) and stops it again
+  after `searxng_keepalive` idle minutes (default 15; `0` = keep running), including on process exit.
+  A container Neko didn't start is never touched, Docker Desktop is never launched or killed, and a
+  stopped daemon just means the search falls through to Tavily/DuckDuckGo instantly. `neko doctor`
+  reports the lifecycle state; zero-config users with Docker installed get a one-time tip.
+- **`neko bench gui` — a long-horizon computer-use eval on a deterministic simulated desktop.** The
+  configured model drives a scripted GUI world through the real `computer` tool; verifiers measure task
+  success, constraint-holding, error recovery, precise action, and coordinate grounding. `neko bench
+  gui hard` adds cross-screen memory, paged lists with decoys, interrupt dialogs, and guarded submits,
+  with budgets calibrated from live runs (gpt-oss-120b: base tier 12/12, hard tier 11/12).
+- Added `Alt+C` to copy the complete current draft without clearing it, including the expanded contents
+  behind collapsed paste placeholders.
+- Made `computer screenshot` a first-class multimodal observation: vision-enabled models receive the
+  captured screen directly, strict OpenAI-compatible and Anthropic transports preserve the image, and
+  the TUI renders `[image]` instead of object-coercion noise. Text-only drivers keep the saved path for
+  the separate vision helper, and context relief retains the two most recent tool images under pressure.
+- Extended the gated Windows `computer` tool with Unicode `type`, shortcuts via `key`, mouse-independent
+  `scroll`, bounded `wait`, and `open` for apps/files/URLs. Exact-control focus is verified before typing,
+  with a disposable WPF/UIA probe covering the real input path.
+
+### Fixed
+- Embedded built-in skills and their helper assets into standalone executables; release binaries now expose
+  the same skill catalog as source runs and materialize executable helpers into a per-process temp directory.
+- Validate todo plans atomically and preserve the prior plan on malformed updates; an agent with open todos
+  now gets a persistence/verification pass before it can finish without reconciling the plan or naming a blocker.
+- Hardened the interactive fullscreen UX: todo plans render once and survive compaction, Ctrl+Up/Down
+  no longer recalls prompt history, approval feedback is not repeated, and first-run status names a
+  missing model clearly.
+- Removed one-frame raw-Markdown flashes when a streamed answer commits, and made resize repainting
+  compose the new frame while clearing the physical spare row instead of replaying stale content.
+- Unified CLI/TUI/subagent tool wiring: native web fallback, vision, skills, sandbox, disabled-tool and
+  adversarial boundaries now compose consistently while namespaced MCP tools remain first-class.
+- Correctly accumulate interleaved parallel OpenAI-compatible tool-call streams by index.
+- Redact nested MCP secrets, parse boolean `NEKO_*` values by type, and retain keys per built-in profile.
+- Gate mutating memory/workflow/playbook actions, persist pinned session titles, page deep into large files,
+  load `AGENTS.md`, and hide the Windows-only computer schema on other platforms.
+
+### Changed
+- Architecture tests now cover every core/adapter source file; the unused `ink-spinner` dependency is gone.
+
+## [0.8.3] — 2026-07-08
+
+### Fixed
+- **Arrow keys move the caret again.** With the hardware-cursor caret (0.8.2), moving the cursor left/
+  right leaves the visible text identical (only the zero-width marker shifts), so the renderer treated
+  the frame as unchanged and skipped repositioning the cursor. It now detects a caret-only move and
+  re-places the hardware cursor even when the text is byte-for-byte the same.
+
+## [0.8.2] — 2026-07-08
+
+### Fixed
+- **The input caret is now the terminal's real cursor — a thin bar BETWEEN cells (like Claude Code's
+  "khả|o"), never a drawn glyph.** A glyph caret always occupied a full cell, so the cursor before a
+  character read as a gap ("chà▏o") and the blink toggled a space in and out of that cell. TextInput
+  now draws no glyph and marks the caret with a zero-width sentinel; the renderer strips it and places
+  the real hardware cursor (a bar, blinked natively by the terminal) at that column — tight text, no
+  gap, no blink flicker. `NEKO_CARET` picks the shape (bar/block/underline). Removing the old blink
+  timer also surfaced and fixed a latent bug where the transcript could go blank after a window resize.
+
+## [0.8.1] — 2026-07-08
+
+### Fixed
+- **Drag-select can now run past the fold.** The mouse drag-to-copy selection was anchored to the
+  visible screen and cleared on any scroll, so you couldn't drag UP past the top edge to select text
+  above the viewport. It's now anchored to CONTENT rows: dragging at/above the top (or at/below the
+  bottom) auto-scrolls the transcript and the highlight keeps extending over the revealed text; the
+  highlight follows the text as you scroll (no longer dropped), and copy captures the whole selection
+  even the part that's off-screen.
+
+## [0.8.0] — 2026-07-08
+
+Editing, input UX, and lifecycle polish — with a professional version-rollback path.
+
+### Added
+- **Version rollback that STICKS.** `neko update 0.7.7` downloads an EXACT version (up or down — a
+  real downgrade) and pauses auto-update so the daily updater can't drag you forward again; `neko
+  update` (no version) returns to latest and resumes auto-updates. Installers take the version as an
+  argument (rustup/uv-style): `sh -s -- --version 0.7.7` (unix) / `-Version 0.7.7` via a scriptblock
+  (Windows), with `NEKO_VERSION` as a fallback. The hold is written as `auto_update: false` (NOT a new
+  config field) precisely so the version you roll back TO honors it — the pin actually holds instead
+  of being auto-upgraded on the next launch.
+- **Ctrl+G opens the prompt in `$EDITOR`.** Edit a long prompt in your real editor (suspends the TUI,
+  restores the alt-screen/mouse around it), pastes collapse to `[Pasted #N]` placeholders and expand
+  back for editing.
+- **`neko doctor` shows the file-search backend** (ripgrep vs the built-in JS walk) so you can confirm
+  the fast path (ripgrep IS used when installed — verified 14.1.1).
+
+### Fixed
+- **Long input no longer lags** (O(1) windowed input render) and **wraps by WORD**, not mid-word
+  ("đã đấ|m" → the word carries whole to the next line); the footer truncates on narrow terminals
+  instead of wrapping into an extra chrome row.
+- **The caret is a tight inserted bar** (`wo▏rld`), never a block, and stays tight through the blink
+  (the off-phase is invisible, so no `wo| rld` gap); `caret_glyph` / `NEKO_CARET` is honored.
+- **An interrupted turn survives a resume.** The session is now persisted incrementally at each clean
+  checkpoint (step / completed tool result), so closing the terminal mid-task no longer loses the
+  prompt and the work Neko did — resume shows the interrupted state instead of nothing.
+- **The exit-plan-mode box respects terminal width** (down to very narrow terminals) instead of
+  overflowing at a fixed 80 columns.
+
+### Changed
+- Internal refactors toward the Ports & Adapters boundary: `adapters/web.ts`, `agent-constants.ts`,
+  and `chat-lines.ts` extracted; approval flow gains a committed-visual micro-feedback before resolve.
+
+## [0.7.7] — 2026-07-07
+
+### Fixed
+- **Overall Windows lag (typing, streaming, scrolling): the frame differ is BACK ON, paired with a
+  self-healing resync.** 0.7.6 cured the duplicated-chrome ghost by disabling the differ on Windows,
+  but that traded away the whole render economy - every keystroke, stream delta and scroll step fell
+  back to full Ink frames (bench: scroll first-response 15ms -> 63-76ms, with a 391ms render backlog
+  after a flick). The ghost's real damage was PERSISTENCE, so instead of disabling the differ the
+  displacement's lifetime is now bounded: a full ABSOLUTE repaint of the model (CUP+EL per row -
+  immune to conhost's displacement, erases anything stale) lands ~400ms after every write burst and
+  at least every 2s during sustained activity - a curses-style ^L, automated. Measured through a
+  real ConPTY: scroll first-response 11ms (0.7.0-class), typed-echo OK, and the e2e ghost harness is
+  clean 3/3 where the unhealed differ ghosted 3/3. `NEKO_INCR=0` still disables the differ entirely;
+  that fallback path keeps instant coalesced scrolling and stays sim-locked in CI.
+  The heal is surgical about WHEN it runs: Windows-only (elsewhere the displacement does not exist -
+  an SSH link should not pay ~10KB per pause for nothing), and only structurally-risky writes arm it
+  (many rows changing at once); the caret blink and spinner ticks do not, so an idle session is
+  byte-silent (measured: 667 bytes over 5 idle seconds - pure blink, zero heals).
+
+### Added
+- **`scripts/bench-scroll-conpty.ts`**: scroll-latency bench through a real ConPTY (first-response /
+  settle / bytes), with baselines recorded in the header - scroll feel is now measurable, not
+  debatable.
+- **Reference-terminal fidelity**: the harness VT gained lazy autowrap (DECAWM) and ECH, and the
+  differ-on ConPTY stream was sequence-inventoried against it - verdicts no longer rest on a parser
+  with blind spots.
+
+## [0.7.6] — 2026-07-07
+
+### Fixed
+- **Duplicated footer/prompt rows on Windows (ghost chrome): the frame differ is now OFF by default
+  on Windows.** Mid-turn, a one-row-shifted copy of the input line and status footer stayed on
+  screen next to the live ones (latent since at least v0.7.4 - reproduced deterministically on a
+  new REAL-ConPTY e2e harness). The investigation peeled four real hazards, each fixed and each
+  insufficient alone: Ink's raw newline-flow first frame could scroll the real screen (seeds/resyncs
+  now paint ABSOLUTE rows, always); hardware scrolls could fire across a band-geometry change
+  (`paintedBand` gate) and displace content outside the DECSTBM region on ConPTY (now off by default
+  on Windows, `NEKO_HWSCROLL` overrides); DEC 2026 brackets reached terminals we had denied because
+  Ink emits its own BSU/ESU (now stripped whenever 2026 is denied). The residual displacement still
+  reproduced with a pure absolute-CUP stream - it lives in conhost's buffer/viewport handling, not
+  in our bytes (they replay clean through the reference VT) - so Windows now takes Ink's plain
+  full-frame writes: with the differ off the same e2e runs are clean 100% (typing verified live in
+  every run). Unix keeps the full differ + hardware scroll. `NEKO_INCR=1` force-enables on Windows
+  for experiments.
+- **Typing dead on Windows Terminal (dev-only regression, never released).** Dropping WT from the
+  2026 allowlist sent every WT session into the DECRQM probe, whose pre-Ink stdin pause left input
+  permanently silent under Bun on Windows - AND the probe re-enabled 2026 (WT answers "supported").
+  The support decision is now three-state (`yes`/`no`/`unknown`): known answers never probe, Windows
+  never probes, `NEKO_SYNC=0` is a hard no, and the probe no longer pauses stdin. The e2e harness
+  now emulates real WT (WT_SESSION + DECRQM reply) and asserts typed keys ECHO in every run - both
+  failure modes are locked.
+
+### Added
+- **Render forensics.** `NEKO_TRACE_FRAMES=<file>` taps every differ decision AND every byte that
+  reaches stdout (base64 NDJSON), and `scripts/e2e-conpty-ghost.ts` runs a real binary under a real
+  ConPTY and counts duplicated chrome rows over a live turn - together they separate "our bytes are
+  wrong" from "the terminal executed correct bytes wrongly" in minutes.
+- **`bun-stable-watch` workflow.** The canary pin is deliberate, temporary debt - and now the repo
+  calls it in itself: a daily cron checks Bun's releases and files a revert issue (with the full
+  payoff checklist) the day the first stable after 1.3.14 ships. No human memory involved.
+- **Runtime forensics.** Every release compile logs `bun --revision` first, so the exact
+  version+commit of the embedded (rolling-canary) runtime is on record for every shipped binary.
+
+## [0.7.5] — 2026-07-06
+
+### Added
+- **Input smoke gate: the whole "renders but can't type" class is now caught before shipping.**
+  `scripts/input-probe.ts` spawns the compiled binary's `doctor keys` under a REAL pseudo-terminal
+  (Bun.Terminal: ConPTY on Windows, forkpty elsewhere), types into the master side, and asserts the
+  byte makes the full round trip (write -> PTY -> raw stdin -> hex echo -> verdict). Wired into
+  `bun run build` (so CI runs it on all three OSes) and into the release smoke step right next to
+  `__uiprobe` - a runtime that drops stdin renders perfectly and fails ONLY here. Verified on
+  Windows (ConPTY) and Linux (WSL) against real binaries.
+
+### Fixed
+- **Typing dead on some Windows machines: the Bun 1.3.14 runtime, not Neko.** Field report (with an
+  agent-driven on-machine diagnosis): the session renders perfectly but no keypress ever arrives -
+  Ctrl+C included. A minimal `stdin.setRawMode(true)` probe under stable Bun 1.3.14 receives ZERO
+  bytes on the affected machine while Node in the same terminal receives them all, and the same
+  probe under Bun canary 1.4.0 works; a Neko rebuilt on the canary runtime takes input again
+  (`doctor keys` shows the bytes). Releases are now compiled on the canary runtime until the first
+  stable after 1.3.14 ships (pinned + documented in the workflows). Machine-dependent: many Windows
+  boxes are fine on 1.3.14 - if yours types, nothing changes.
+- **Installer: PATH is now compared per ENTRY, never by substring.** The old wildcard check saw the
+  pre-v0.3 `...\Programs\neko-core` entry, decided `...\Programs\neko` was "already on PATH", and never
+  added the real install dir - so after shadow healing removed the old exe, `neko` was not recognized
+  at all. The installer now matches exact PATH entries (case/trailing-slash tolerant), prepends the
+  install dir into the CURRENT shell as well (works immediately under `irm ... | iex`), and cleans the
+  dangling `Programs\neko-core` PATH entry + empty dir left behind by the pre-v0.3 installer.
+
+### Added
+- **`neko --doctor`** as an alias of `neko doctor` (previously the flag was silently ignored and
+  dropped you into chat). Both installers now end by suggesting `neko doctor` and `neko --yolo`.
+- **Terminal/input diagnostics.** `neko doctor` now reports the hosting terminal, stdin/stdout TTY +
+  raw-mode capability, and the effective UI fps (+ detected display Hz). New `neko doctor keys`: a raw
+  key probe OUTSIDE the UI stack - it prints every byte the terminal delivers (hex + printable) for 10s
+  and issues a verdict. This is the triage for "the session renders but typing does nothing": zero
+  bytes = the keyboard never reaches neko (terminal/ConPTY/antivirus level); `CSI ..._` bytes =
+  win32-input-mode was stuck on; plain bytes = the input layer is fine.
+
+### Fixed
+- **Stuck win32-input-mode heals at startup.** DEC private mode 9001 (Windows Terminal's
+  win32-input-mode) left ON by a previous app makes every keypress arrive as `CSI Vk;Sc;Uc;Kd;Cs;Rc _`
+  - the UI renders fine but typing looks completely dead. The terminal-hygiene reset every neko run
+  performs at entry (and teardown) now turns it off alongside the mouse modes.
+- **"display detected at 59Hz" confusion.** Windows WMI reports the floor of fractional refresh
+  timings (59.94Hz panels read "59"). Detection now snaps floor-reported rates to the marketing rate
+  (59->60, 119->120, 143->144), so a plain 60Hz monitor no longer prints a mysterious 59Hz/59fps line
+  (it prints nothing at all - 60 is already the default).
+
+### Changed
+- **Installer polish (grok-class) + shadow diagnosis.** Both installers now fetch and SHOW the version
+  being installed, draw a clean single-line progress bar, run the installed binary and report its real
+  version, always state the PATH situation (Windows now PREPENDS to the User PATH), and - the important
+  one - detect OTHER `neko` executables on PATH that would shadow the fresh install and print the exact
+  removal commands. That shadow was exactly the "installed the new version but `neko --version` still
+  says 0.2" trap. Served live from `main`; no release required.
+
+## [0.7.4] — 2026-07-06
+
+### Added
+- **Auto-update, on by default (Claude-Code style).** The daily startup check now INSTALLS a newer
+  release in the background instead of only notifying: the download stages next to the running binary
+  and swaps in atomically (Windows uses the rename-out-of-the-way trick), taking effect on the next
+  launch - the session in progress is never touched. Opt out with `auto_update: false` or
+  `NEKO_AUTO_UPDATE=0` (notify-only), or silence checks entirely with `auto_update_check: false`.
+  `neko update` remains for manual runs. Source (bun) runs are never auto-updated, and the updater only
+  moves forward - a dev build can't be clobbered by an older release.
+
+## [0.7.3] — 2026-07-06
+
+### Changed
+- The executable icon is now the mascot EXACTLY as it appears in the banner: the ハ・・マ pixels are
+  extracted 1:1 from `neko-core-banner.png` (`assets/mascot-art.txt`) and rendered in brand orange -
+  no redrawn approximation. Downscaling uses coverage sampling so thin strokes survive at 16px.
+- New `assets/social-preview.png` (1280x640, dark) for the GitHub social card: the banner recolored -
+  orange mascot + white NEKO CORE (upload via Settings -> Social preview).
+
+## [0.7.2] — 2026-07-06
+
+### Changed
+- The executable icon is now the mascot itself — the kaomoji ハ・・マ in brand orange, thin strokes and
+  negative space, exactly as it appears in the banner and the in-app logo (owner call: the kaomoji IS the
+  brand; the interim filled cat face is gone).
+
+## [0.7.1] — 2026-07-06
+
+### Added
+- **Branded Windows executable** — the compiled `neko.exe` now carries proper PE metadata: Task Manager
+  shows **Neko Core** (was "Bun"), Explorer shows the pixel-cat icon, and file properties list The Wiii
+  Lab, the version, and the MIT copyright. The icon is *generated from code*
+  (`scripts/make-icon.ts` → `assets/neko.ico`, 16-256px) — reviewable pixel art in the brand orange, no
+  opaque binary blobs.
+
+### Fixed
+- Ink is told `interactive: true` explicitly: a shell that exports `CI=true` (or any CI-ish env var) no
+  longer freezes the UI — Ink's is-in-ci detection used to stop frame writes even on a real TTY. The same
+  detection made every UI test silently blank on GitHub runners; the suite now forces interactive in its
+  render harnesses and passes identically with and without CI env vars.
+- UI tests pass the mode explicitly (a tests-only `fullscreen` prop) — bun ≥1.3.14 test scheduling made
+  cross-file env mutation and even the bunfig preload unreliable.
+
+## [0.7.0] — 2026-07-06
+
+The fullscreen release: Neko's terminal UI became an app-owned, flicker-free viewport — built through
+nine measured optimization rounds and a week of daily dogfooding on a real 144Hz Windows terminal, then
+verified natively on Linux. (0.6.0 was an internal milestone on the way and was never published.)
+
+### Added
+- **Fullscreen UI as THE interface** (alt-screen, like vim/htop). The transcript is an app-owned
+  scrollable viewport: mouse wheel + PgUp/PgDn + Ctrl+arrows scroll with an ease-out glide, Ctrl+F finds
+  in-transcript, a clickable "jump to bottom" pill (with a real hover state) appears when scrolled away,
+  and markdown formats **live as it streams** (bold/headers/tables render mid-stream, not on commit).
+  Terminals that can't host it (non-TTY / tiny) fall back to inline automatically.
+- **FrameDiffer — a compositor-lite at the stdout layer.** Ink's full-frame rerenders are intercepted and
+  shrunk to the changed lines, or to a real hardware scroll (DECSTBM + SU/SD: the terminal shifts the
+  region; only revealed rows are painted). Keystrokes cost ~178 bytes instead of whole-screen rewrites;
+  every emitted byte sequence is verified against a virtual terminal in tests. All fullscreen writes use
+  absolute addressing — immune to real-terminal cursor drift (the class of "ghost input row" bugs).
+- **ANSI row cache** — each transcript line renders to styled rows ONCE (hidden Ink instance), giving the
+  viewport `<Static>`-like economics; a windowed background warmer (newest-first, time-budgeted chunks)
+  keeps long sessions responsive.
+- **Refresh-rate-aware rendering** — the display's Hz is auto-detected (Windows/macOS/Linux, cached) and
+  drives the UI frame cap; `/fps [auto|30..240]` overrides.
+- **Drag-to-select + copy** (fullscreen captures the mouse, so native selection can't reach the alt
+  screen): a left-drag paints a solid selection rectangle, copies on release, persists for the habitual
+  Ctrl+C, and confirms with a reserved-row "copied N chars" note that never shifts the layout. `/copy`
+  (last reply) and `/copy all` write BOTH OSC 52 and the native clipboard (clip.exe UTF-16LE / pbcopy /
+  wl-copy / xclip) — works on terminals that ignore OSC 52.
+- **Session-aware tab title** — `🐱 <session>` (named once from the first message, stable across turns;
+  `/title` pins), a pulsing `●`/`○` dot while a turn runs, restored on exit. Windows quirks defeated:
+  the title stack is skipped (WT restores it mid-session) and a 1s keeper heals SetConsoleTitle clobbers
+  from console children.
+- **Editor-style input caret** — a thin green `▏` flush against the text, blinking when idle, solid while
+  typing (mouse traffic doesn't hold it solid).
+
+### Changed
+- **Fullscreen is the sole interactive mode** — the `/fullscreen` toggle is gone (an entire class of
+  alt-screen↔inline transition bugs went with it); `NEKO_FULLSCREEN=0` remains as an internal escape
+  hatch, not a user-facing option.
+- **Claude-clean exit** — leaving Neko restores the shell exactly as it was and prints only the
+  `Resume this session with: neko --resume <id>` hint; the raw transcript echo is gone, and the
+  "press ctrl+c again to exit" hint is an ephemeral status, not a transcript line.
+- **Input chrome is layout-stable** — a reserved status row (paste hint / copy note), and the prompt box,
+  find bar, pickers and approval boxes can never be flex-squashed on short windows.
+- **TypeScript 7.0.1-rc (native Go compiler)** is the typecheck gate (~4x faster); CI cross-checks
+  against 5.9 on all three OSes until 7.0 GA.
+- **NODE_ENV=production baked into the compiled binary** (React dev-mode overhead was shipping — ~5x per
+  frame) with a `__uiprobe` smoke test in CI so it can't regress.
+
+### Fixed
+- Session-index freshness key is now mtime+size (same-millisecond rewrites were served stale on ext4),
+  with in-place migration for legacy indexes (no full re-parse stall on first `/resume` after upgrade).
+- The `/resume` picker renders intact when scrolled (flex-squash mangled names) and the band re-composes
+  on geometry changes (stale transcript rows could freeze over the picker).
+- Mouse tracking can no longer leak into the shell: all 7 DEC mouse modes reset on exit, at process
+  entry (self-heal after a hard kill), and via an unbypassable `process.on("exit")` restore.
+- Verified natively on Linux (full suite + compiled binary); three Windows-centric tests made portable.
+
+## [0.5.1] — 2026-07-03
+
+Reliability + efficiency patch, driven by real dogfooding (every fix traces to a live failure).
+
+### Fixed
+- **Approval box no longer swallows a fast `y`** — the y/a/n handler lived in a `useInput` hook that only
+  activated *with* the approval box; Ink paints the frame at React commit but attaches a toggled hook's
+  listener in a later passive effect, so a key pressed the instant the box appeared fell into that gap and
+  the box hung forever (this was also why two "flaky" CI tests failed deterministically on slow runners —
+  root-caused via `git bisect` + instrumenting Ink). Approval keys now live in the always-mounted global
+  hotkey hook: no activation window, no dropped keys.
+- **Release builds can't lose an asset anymore** — every matrix job used to create the GitHub release
+  concurrently; two jobs racing on a fresh tag each created one, the duplicate was discarded and its upload
+  404'd (v0.5.0 shipped without `neko-linux-arm64` until a manual re-run). The release is now created ONCE
+  by a first job (`gh release create`, idempotent) and the build matrix only uploads (`--clobber`).
+- **HTTP 529 (`overloaded_error`) is retried, not fatal** — Z.ai returned Anthropic's documented overload
+  status and the run died instantly; 529 joined the retryable set in both providers (with backoff), locked
+  by a fetch-mock test.
+
+### Added / Changed
+- **Prompt-prefix cache stability + measurement** (research-grounded: Anthropic prompt-caching docs, Manus
+  context engineering, *Don't Break the Cache* arXiv 2601.06007) — the `<env>` block is now a session-start
+  SNAPSHOT (the per-turn `git status` dirty-count that invalidated the provider's prefix cache on every
+  edit is gone; the model runs `git status` itself for live state), todos moved out of the system message
+  (the `todo_write` result already recites the plan in-stream), and the anthropic provider sends explicit
+  `cache_control` breakpoints (system-end + rolling last-message; ON by default, `prompt_cache: false`
+  opts out, strip-and-retry self-heal for endpoints that reject them). Cache reads/writes are now measured:
+  `/cost`, the bench summary and `bench-log.jsonl` report `cached` tokens across provider shapes
+  (Anthropic `cache_read_input_tokens`, OpenAI `prompt_tokens_details.cached_tokens`, DeepSeek
+  `prompt_cache_hit_tokens`).
+- **Tool-error recovery directive** (Self-Harness, arXiv 2606.09498) — the FIRST failure of a mutating tool
+  (bash/write_file/edit) injects a `[recovery]` observation at the point of error: DIAGNOSE the actual
+  state → REPAIR the root cause → VALIDATE by re-running the failed check. Edge-triggered (a success
+  re-arms it; persistent failure stays the unproductive-streak guard's job), append-only so the prompt
+  prefix stays cacheable.
+- **Procurement skill: two-stage INDEX → VERIFY sourcing** — price surveys now START from a comparison
+  aggregator (websosanh.vn; one server-rendered fetch ≈ hundreds of offers), then verify the offers that
+  answer the question (top-N for "most expensive", bottom-N for "cheapest", median band for "market
+  price") on the merchant page (product-match + live price + stock), then gap-fill via the source MAP +
+  search — with a new PC-components MAP section (HACOM, Phong Vũ, GearVN, An Phát, laptopworld…). A/B on a
+  real errand: the old strategy answered a "highest price" query wrong (9.99M₫) at 75k tokens; the new one
+  found the true answer (12.99M₫, verified live) at 50k tokens — cheaper and correct, even with the search
+  backend degraded.
+
+## [0.5.0] — 2026-07-02
+
+- **Streaming stops jumping to the top; declutter + emoji alignment** — (1) **scroll jump** — a live region
+  taller than the viewport made the terminal redraw from the top every frame while a long reply streamed. The
+  reply now **progressively commits** its completed paragraphs to scrollback (via `<Static>`) once it outgrows
+  the viewport, keeping the live region to the current paragraph, and the (stale) thinking trace is hidden once
+  the answer starts streaming — so the live area stays within the terminal and no longer jumps. (2) a markdown
+  horizontal rule (`---`) now renders as **plain spacing** instead of a full-width line (it read as clutter).
+  (3) **emoji alignment** — table column widths use terminal display width (`string-width`, emoji = 2 cells)
+  so a cell with an emoji no longer knocks the borders out of line, and keycap emojis (`1️⃣`) normalize to `1.`
+  (they render as a misaligned box otherwise). Unit-tested (keycap normalize, wide-char table alignment, rule).
+
+- **Wrapping no longer breaks words mid-character; LaTeX math renders as Unicode** — two fixes to how replies
+  render: (1) **word-wrap** — markdown paragraphs were a `<Text>` with no width, so inside `<Static>` (+ the left
+  gutter) they wrapped at the FULL terminal width and then spilled past the edge, and the terminal hard-wrapped
+  them mid-character (Vietnamese "tương ứ" / "ng", the continuation dumped at column 0). Every transcript item is
+  now width-capped to the inset content width, so text wraps at word boundaries within the gutter and never
+  overflows. (2) **math** — a terminal can't render LaTeX, so `$...$` / `$$...$$` showed raw. A `mathToUnicode`
+  converter now maps the common constructs to readable Unicode: `\frac{a}{b}` → `(a)/(b)`, `x^2` → `x²`,
+  `\sqrt{...}` → `√(...)`, `\sum_{i=1}^{n}` → `∑ᵢ₌₁ⁿ`, Greek + operators (`\theta`→θ, `\times`→×, `\leq`→≤) —
+  handling nested `\frac`/`\sqrt` (the quadratic formula renders as `(-b ± √(b²-4ac))/(2a)`). Inline `$...$`
+  converts only when it actually looks like LaTeX, so a price like `$5 to $10` is left alone; the system prompt
+  also nudges the model toward plain Unicode math. Unit-tested (`mathToUnicode`, width-capped wrap, display/inline).
+
+- **Terminal-clean output: no emoji, real rules, readable elapsed** — three presentation fixes so replies
+  look right in a monospace terminal: (1) the system prompt now tells the model to format for a monospace
+  terminal and **avoid emojis** (decorative/keycap emojis like a digit-in-a-box misalign the columns — the same
+  rule Claude Code uses); (2) a markdown horizontal rule (`---`) renders as a clean full-width box-drawing line
+  instead of a partial run of ASCII dashes; (3) the live spinner's elapsed time reads `1m 00s` … `3m 14s` past a
+  minute instead of an ever-growing bare `194s`. Unit-tested (`fmtElapsed`, box-rule render).
+
+- **Horizontal gutter — the UI is inset from the terminal edges** — the whole REPL (transcript + live region)
+  now sits inside a left/right padding instead of running flush against column 0, matching Claude Code's
+  `paddingLeft={2}`. `<Static>` inherits the wrapper Box's padding, so one change indents both the committed
+  history and the live area; width-sensitive rendering (markdown tables, dividers, the stream clamp) uses the
+  padded inner width.
+
+- **Long generations no longer time out mid-stream ("The operation timed out")** — the request timeout was a
+  TOTAL cap (`AbortSignal.timeout(timeout_seconds)`) applied to the whole streamed response, so a legitimately
+  long generation (e.g. a landing page across 3 files) was aborted once it crossed `timeout_seconds` (120s) even
+  while tokens were still streaming in. It's now an **idle timeout**: the timer resets on every streamed chunk,
+  so a healthy stream never times out and only a genuine STALL (no bytes for `timeout_seconds`) aborts. Fixed in
+  both providers (`anthropic` — the Z.ai/GLM path — and `openai_compat`). Unit-tested with a slow-but-active
+  stream (total time > budget, gaps < budget → completes). Also: the live **todo tracker** only shows while a
+  turn runs (the committed "Update Todos" result is the record) — it no longer prints the plan twice.
+
+- **Streaming no longer scroll-jumps to the top; list/footer/run-indicator polish** — the live streaming
+  preview used to render the whole growing reply (up to ~60 lines), which overflows the terminal so Ink can't
+  update it in place and **redraws from the top every frame** — the classic "it keeps scrolling to the top
+  while generating" bug. The preview is now **clamped to the viewport height** (wrap-aware, tracks terminal
+  rows) and rendered in a `compact` markdown mode (predictable height); the full reply still commits to the
+  scrollback verbatim when it finishes. Also: a **`**Label**` line followed by bullets** is no longer glued to
+  them (a list is treated as one block with a blank line around it); the **footer mode indicator** gets a `⏵⏵`
+  chevron + indent; and the **in-flight tool dot** is blue and blinking. Unit-tested (`clampToRows`, list-block
+  separation, compact-vs-normal height).
+
+- **The `bash` tool runs real bash on Windows (not cmd.exe)** — an unsandboxed bash command used to spawn
+  through `cmd.exe` on Windows, so the Unix idioms a model naturally emits (heredocs like `python - <<'PY'`,
+  single-quoting, `$VAR`, pipelines) failed with `"<< was unexpected at this time"` and wasted agent steps.
+  Neko now routes the tool through **Git-Bash** if present (`NEKO_BASH` override, then a Git install, then a
+  git-derived path; WSL's `System32\bash.exe` is deliberately skipped because it can't see the Windows-drive
+  workspace), falling back to the platform shell only when no bash is found. Dogfooded on OpenAI's GeneBench-Pro
+  benchmark, where the old behavior cost answers; unit-tested (`plainTarget` / git-bash detection).
+
+- **Terminal UI polish — bordered tables, vertical rhythm, a real Ctrl+O toggle, a live run indicator** —
+  markdown **tables** now draw aligned box borders and are budgeted to the terminal width (the widest column
+  shrinks, cells truncate to a single line) instead of overflowing and wrap-shattering their columns.
+  **Paragraph spacing** is fixed: Ink collapses an empty `<Text>` to zero height, so blank markdown lines were
+  disappearing and paragraphs ran together — blank lines now render as real rows (runs collapse to one), with a
+  blank line above headings and around tables, for even vertical rhythm. **Turn separation:** each user prompt
+  and each tool call now gets a blank line above it (matching Claude Code's per-message `marginTop`), so a prompt
+  no longer glues to the previous turn's output or the tool call below it. **Ctrl+O** is now a proper expand/collapse **toggle** (it used to append a
+  duplicate full copy every press and never collapse); the peeked output shows in the live region so a second
+  press closes it. A tool call **in flight** shows live with a **blinking dot** and commits to the transcript
+  with a solid dot when it finishes — a clear running-vs-done signal (deferred + keyed by call id so parallel
+  tool calls pair correctly). Table layout is unit-tested (`fitColumns` / `truncCell` / bordered render).
+
+- **`web_fetch` reads the web as Markdown, with deterministic per-platform routing** — a fetch now returns
+  clean **Markdown** (`htmlToMarkdown`: keeps headings/links/lists, drops nav/scripts — the old flat strip
+  threw links away). A **small page comes back whole with NO model call** (the markdown is the answer); a
+  **large page paginates** (`page:N`) instead of truncating; results cache ~5 min. Known platforms route in
+  **code, not a skill the model can ignore**: a **YouTube** URL → its **transcript** via `yt-dlp`, **GitHub**
+  → `gh`, an **RSS/Atom** feed → a compact item list; each falls back to a normal fetch if the tool is missing.
+  Opt-in `scrape_backend: "jina"` renders public JS/SPAs via Jina Reader (keyless). Measured: a YouTube ask on
+  gpt-oss dropped from 7 calls / ~48k tokens (chasing fake-transcript sites) to **2 calls / ~16k**, and the
+  same on glm-5.2 answered in 2 calls / ~9k. Size policy + compact reads learned from Hermes Agent; our own
+  implementation. Unit-tested (`htmlToMarkdown` / `paginateWeb` / `vttToText` / `rssToMarkdown`).
+
+- **Skills load deterministically by a `match:` trigger, not just fuzzy keyword overlap** — a skill's
+  frontmatter may declare a `match:` regex (e.g. a platform URL for the new `web-reach` skill), checked FIRST
+  so a clearly-matching domain skill loads even for short or non-English asks that token-overlap missed (a
+  Vietnamese "lay transcript youtube ..." shared only ~3 English tokens and silently loaded nothing). Adds two
+  skills: `web-reading` (efficient reads — a11y/markdown first, grab-once, no scroll-churn) and `web-reach`
+  (route each platform to its best free backend). The doom-loop guard was generalized to nudge after N
+  unproductive tool results (empty/duplicate), not just repeated identical calls.
+
+- **Interactive provider/model switching in the REPL** — `/provider` picks a provider then chains into a
+  model picker; `/login` runs a guided provider-picker wizard before capturing the key; both swap the live
+  provider in place (`NekoConfig.adopt` + `agent.setProvider`) so a switch takes effect mid-session without
+  restart. Keys still resolve on demand and are never stored or printed.
+
+- **Provider extensibility — any provider is a profile + an env var (no config editing)** — built-in presets
+  now declare a `key_env` (the env var holding that provider's key, e.g. `ZAI_API_KEY`, `DEEPSEEK_API_KEY`),
+  resolved with the right precedence (a profile's own key beats a stray `OPENAI_/NVIDIA_API_KEY`; `NEKO_API_KEY`
+  still overrides). So a multi-provider setup just means setting per-provider env vars and `--profile <name>` —
+  no JSON surgery. New presets ride the Anthropic provider: `zai` (GLM Coding Plan, quota endpoint),
+  `zai-openai` (Z.ai pay-as-you-go), `claude` (real Anthropic), plus `moonshot` (Kimi); `key_env` added to
+  openai/groq/deepseek/mistral/together/fireworks/xai/openrouter/nvidia. Adding a new provider stays a one-line
+  data edit. Unit-tested (key_env resolution + no cross-provider hijack).
+
+- **Anthropic Messages API provider — run on Claude or a Z.ai GLM coding plan** — `provider: "anthropic"`
+  speaks `POST {base_url}/v1/messages` (the Claude format, and the format Z.ai's GLM Coding Plan / OpenCode
+  endpoint `https://api.z.ai/api/anthropic` expects). It's a config choice, not a core change — same Provider
+  port as openai_compat. So Neko can run on a Z.ai coding-plan subscription (whose quota is on the Anthropic
+  endpoint, not the pay-as-you-go OpenAI one), e.g. for continuous self-improvement runs. Converts Neko's
+  OpenAI-shaped messages/tools to Anthropic blocks (system fold-up, tool_use / tool_result, image blocks,
+  input_schema) and parses both non-streamed and SSE responses (text/thinking/tool deltas, usage). Set up a
+  profile `{"provider":"anthropic","base_url":"https://api.z.ai/api/anthropic","model":"glm-4.6","api_key":"..."}`
+  and run `neko run --profile zai ...` / `neko chat --profile zai`. Live-verified end to end (glm-4.6 drove a
+  tool-calling agent run); conversions unit-tested.
+
+- **`neko run --image <path>` — image→price in ONE automatic command** — attach image(s) to a one-shot run.
+  Neko runs a **vision pre-pass** (a vision model reads the image into text) and then hands that text to the
+  normal tool-using agent, which searches/prices it — so a text model that can't see and a vision endpoint
+  that can't tool-call combine into one command. The vision model is `vision_model` config, defaulting to the
+  verified `nvidia/llama-3.1-nemotron-nano-vl-8b-v1` on an NVIDIA endpoint (a new `NekoConfig.withModel` clones
+  the config at that model). Verified end to end: `neko run --image pack.jpg "tìm giá rẻ nhất VN"` -> the
+  vision pass read "SanDisk Cruzer Blade 16GB", the agent then web-searched the CZ50 and priced it. If no
+  vision model is available, the image run is a pure perception pass (no tools, since vision-only endpoints
+  reject tool-calling).
+- **Computer-use act→verify (deterministic) — the desktop analogue of "LLM extracts, code computes"** — a
+  state-changing UIA action no longer trusts that it worked: `setvalue` reads the value back and asserts it
+  landed (a read-only field is caught up front; rejected / reformatted / masked / truncated input becomes a
+  "WARN MISMATCH", exit 1), and `toggle` asserts the state actually flipped. The model decides the action;
+  code verifies it against the structure. `invoke` also self-verifies via a **UIA tree diff** — it snapshots
+  the window's control tree + the top-level windows before/after and reports what appeared / went away / which
+  new window opened (deterministic proof it did something, or a warning that it didn't); `click` still can't
+  self-verify, so re-perceive after it. Live-tested on WPF windows (set+VERIFIED on a field, FAIL READ-ONLY on
+  a locked one, `invoke` reporting the exact element that appeared).
+- **Deterministic price-table layer (`price-table.ts`) — LLM extracts, code computes** — the professional,
+  non-patchwork fix for a class of dogfood failures (gpt-oss read "31.990.000đ" as 31, reported a pricier
+  source as "cheapest" while holding a cheaper one, summed wrong). Per the 2026 consensus on reliable
+  extraction, the model now only transcribes prices VERBATIM and a deterministic script (`parseVnd` + sort +
+  min/max/sum/median + outlier flags) does all the numbers — making the misparse / wrong-min / wrong-sum bug
+  class *impossible*. Unit-tested (the script is deterministic, so it can be; the model can't). The
+  procurement skill is reframed around it; the principle is documented in `docs/process/WEB.md` as the shape
+  for any future numeric extraction.
+- **Computer use** — a `computer-use` skill (code-first per CoAct-1, the GUI perception-action loop, hard
+  guardrails). WEB control validated end-to-end through `@playwright/mcp` (DOM-driven, no vision needed) and
+  a real VN procurement run. A Windows desktop **control primitive** `mouse.ps1` (pos/move/click) plus the
+  Clicky-inspired `[POINT:x,y]` grounding path, so the screenshot -> vision-ground -> click loop is ready the
+  moment a vision/GUI model is configured.
+- **Desktop control with NO vision (UIA)** — `uia.ps1` drives Windows apps through the OS accessibility tree
+  (the desktop DOM): a plain text model `list`s a window's controls (name + role + verb + exact OS coords),
+  then acts BY NAME — `invoke` (InvokePattern: click without moving the cursor), `setvalue` (type without the
+  keyboard), `toggle`, and `get` to verify — no vision, no GUI-trained model, no cursor hijack. SOTA-grade
+  perf via a UIA CacheRequest (one bulk cross-process call; a naive tree walk times out on rich WinUI/WPF).
+  Verified end-to-end on a real .NET window (`list` -> `setvalue` -> `invoke` -> screenshot confirmed). Raw-
+  pixel vision is now only the LAST resort, for custom-drawn UIs with no accessibility tree.
+- **Independent agent pointer (no mouse hijack)** — `inject.ps1` (tap/dbltap/stroke) acts via Windows TOUCH
+  INJECTION, a SEPARATE pointer channel, so Neko clicks/drags/draws on the visible desktop WITHOUT moving the
+  user's mouse (verified: drew in Paint with the real cursor parked, unmoved). Pairs with the overlay (the
+  visible "instructor" triangle) for a true clicky-style cursor that actually acts. **Config-first:**
+  `computer_use_input: "inject"` -> `NEKO_INPUT=inject` -> `mouse.ps1`'s click/stroke transparently route to
+  the non-hijacking path (`"sendinput"` forces the legacy path); a new backend is a config value + a script.
+  No driver, no admin, Win11-Home compatible. (Hidden/background or game control still needs VM isolation —
+  documented honestly in the skill.)
+- **Web reading via accessibility + tab presence** — `uia.ps1 read` dumps a page/doc as TEXT (so a text
+  model summarizes a web page with no vision); Unicode `@<utf8-file>` targets (invoke-by-name survives the
+  cp1252 console and is layout-independent). Launching Chrome with `--force-renderer-accessibility` exposes
+  the logged-in page DOM to UIA — gpt-oss autonomously browsed + summarized a live feed and composed a post,
+  reusing the login with no CDP and no credentials. The overlay now shows a **tab/window indicator** —
+  frames + labels the exact window/tab Neko is driving ("NEKO dang dung tab nay: <title>"), driven by
+  `neko_active_window.txt`.
+- **Computer-use robustness — audit trail, intervention-resume, goal-loop** — every desktop action is appended
+  timestamped to `%TEMP%\neko_actions.log` (override via `NEKO_ACTION_LOG`), so "what steps did you do?" is a
+  `read` away. On a real (non-injected) user click the overlay yields and the helpers return `PAUSED`; the new
+  `idle.ps1` blocks until the user has been idle a few seconds then clears the pause, so Neko can RE-PERCEIVE
+  (re-screenshot / `uia.ps1 read`) and RE-PLAN from the new state — SOTA state-managed interruption / shared
+  autonomy, "re-perceive don't blind-resume". And `runUntilDone` (`neko run --loop`) now re-inspects the ACTUAL
+  state each pass before judging DONE (Reflexion/CRITIC/Chain-of-Verification) — the fix for tasks that quit
+  early (the Paint test). SKILL.md documents all three.
+- **First-class `computer` tool** — computer-use is now a native, gated agent tool, not just bash-ed scripts:
+  `computer({action, window, name, value, x, y, points})` with `action` = list/read/get/invoke/setvalue/
+  toggle/click/stroke/screenshot. It dispatches to the accessibility-tree scripts (Unicode names via an
+  automatic temp UTF-8 `@file`), honours the presence/input config, and is gated like bash. The agent calls
+  it structurally instead of constructing fragile shell strings. Verified live against a real Paint window.
+- **`auto_loop` config (persist by default)** — set `"auto_loop": true` and `neko run` uses the closed loop
+  (runUntilDone) by default, so you don't retype `--loop`; `--once` (alias `--no-loop`) forces a single shot.
+- **`neko setup web` — one-command SOTA web stack** — stands up SearXNG in Docker (JSON API enabled, the bit
+  that's off by default), verifies it, and wires `searxng_url` + the `@playwright/mcp` browser MCP (headed
+  real-Chrome) into config — idempotent, key-safe (never touches `api_key`), with clear `[skip]` messages if
+  Docker/bunx is missing. Sub-targets `setup searxng` / `setup browser`. Turns the manual setup that lifted
+  Neko above a hand search (DuckDuckGo 18.3M → SearXNG 7.99M) into one command.
+- **`neko bench lift` — harness-lift benchmark** — runs the same tasks twice, RAW (the model alone, no
+  tools/loop, must emit file contents) vs +NEKO (tools + agentic loop), and reports the delta. Makes the
+  thesis ("the harness turns a model into a capable agent") measurable instead of vibes. Honest finding: on
+  tiny self-contained coding tasks a capable model (gpt-oss-120b) one-shots them, so the lift is ~0 there —
+  the lift shows on tasks the raw model CANNOT do (a `run-to-know` task whose value needs executing code; and
+  agentic/computer-use, where raw can't act at all — cf. the Paint house: raw scribbled+quit, +Neko drew a
+  full house).
+- **Deep research** — a `deep-research` skill (plan -> multi-source search -> read primaries -> cross-verify
+  >=2 authoritative sources -> cited synthesis) and a strengthened always-on Accuracy section in the prompt.
+- **tui-self-test** skill — verify the TUI render (ink-testing-library + a live screenshot loop) with the
+  SendKeys focus-leak guardrail learned from dogfooding.
+
+### Fixed
+- **Path-escape guard now catches SYMLINKS, not just `../`** — `resolveInRoot` did lexical containment only, so a symlink INSIDE the root pointing OUTSIDE passed the check but actually escaped (read/write through it could touch files outside the project). It now also compares realpaths (resolving a new file's nearest existing parent), so a symlinked path that resolves outside the root is refused. Verified: reading through a junction escaping the root is refused, no leak. Low-risk on a local-first tool (you own the repo, write/bash are gated) but now closed.
+- **Computer-use coordinate actions land on a scaled display (DPI fix)** — UIA reports element coordinates in
+  PHYSICAL pixels, but the acting scripts were DPI-UNAWARE, so on a scaled display (e.g. 125%) Windows
+  virtualized their click/tap coordinates and they landed ~1.25x off-target — every coordinate action quietly
+  missed. CONFIRMED with a functional test (an unaware mouse-click at a checkbox's reported coords missed; a
+  fully DPI-aware read+click toggled it). All five coordinate scripts (`uia`/`inject`/`mouse`/`overlay`/
+  `screenshot`) now set `SetProcessDpiAwarenessContext(PER_MONITOR_AWARE_V2)`, so reads, actions, the cursor
+  overlay, and the screenshot `scale` all share one physical-pixel space. (Touch still routes control clicks
+  through `invoke`-by-name, not coordinates — injected touch doesn't promote to a control click.)
+- **Atomic writes — a crash can no longer lose the session / API key / memory** — `saveSession` (per turn),
+  the user config writer (holds the API key), and the NEKO.md memory note all did a plain `writeFileSync`,
+  which truncates-then-writes; a kill/crash/concurrent-write in that window left an unparseable file that the
+  loaders then silently dropped — i.e. the whole conversation or the saved key, gone. They now go through
+  `shared/atomic.ts` (write a temp sibling, then atomic rename), so the target is always the old or the new
+  bytes, never a truncation. Unit-tested incl. "a failed write leaves the original intact".
+- **MCP: a hung server no longer blocks startup** — `connectAll` awaited each server's connect + `listTools`
+  with no timeout, so one unresponsive stdio command / URL hung Neko's startup indefinitely (and stalled every
+  server after it). Each connect is now bounded (15s) and skipped-with-error on timeout; interactive OAuth is
+  exempt (user-paced).
+- **`computer` tool: failures are visible, inputs are validated** — `runComputer` swallowed PowerShell
+  spawn errors / timeouts into `"(no output)"`, so the agent couldn't tell a *failed* action from a silent
+  one; and `click` coerced a missing/invalid coordinate to the string `"NaN"` and passed it to the injector.
+  Now spawn errors, timeouts (the 90s hang), and non-zero exits are surfaced as real error observations, and
+  `click`/`stroke` reject non-numeric coordinates up front (deterministic input validation, unit-tested) —
+  the same "surface errors, validate in code" standard as the extraction layer.
+- **A throwing tool no longer crashes the whole turn** — a model glitch (e.g. emitting `web_fetch` with no
+  `url`) made an executor `throw`, which escaped the agent loop and killed the run (`neko: error: ...`). Tool
+  execution now goes through `safeExecute`, so any throw becomes a recoverable error OBSERVATION fed back to
+  the model (honouring the loop's "errors are fed back so the model adapts rather than crash" contract).
+  Caught a real failure mid price-research; regression-tested.
+- **Context-overflow crash** — one huge tool result (a heavy page's browser snapshot) could push the prompt
+  past the context window, so the server returned a negative `max_tokens` and 400'd the turn. Each
+  observation is now capped, and a long turn compresses its OLDEST observations in place (observation
+  masking) before it would overflow. Regression-verified on the exact page that crashed (772k tokens, 0 crash).
+- **Procurement price typing** — prices are captured per condition (new / used-trade-in / installment), each
+  a labeled row, so a used/trade-in price is never reported as the new price.
+
+### Changed
+- **UI polish** (verified live) — diffs render Claude-style (line number first, red removals / green
+  additions); the tool-result connector uses a glyph (`└`) that renders on every terminal font; the
+  diff/write header colors its `+N` green and `-M` red.
+
+## [0.4.0] — 2026-06-27
+
+### Added
+- **Mixture-of-Agents provider** (`provider: "moa"`, or `neko --profile moa`): diverse reference models
+  analyze in parallel without tools (on an advisory-safe view of the conversation — no system prompt or
+  tool payloads re-sent), then a strong aggregator synthesizes their advice and drives the tool loop.
+  Clean-room from the MoA paper (arXiv 2406.04692) + Hermes Agent. Mixture token cost is accounted; a
+  failing reference degrades gracefully. Opt-in quality mode (N+1 calls/turn). Independent benchmarks: it
+  TIES strong single models on saturated tasks (no headroom) but EXCEEDS them where the single model is
+  weak — false-premise robustness, 5/6 vs 4/6.
+
+## [0.3.0] — 2026-06-27
+
+### Added
+- **Remote control, professional + cross-device.**
+  - `/rc` HTTP control API gained SSE streaming, `GET /status`, `POST /interrupt`, `Authorization: Bearer`
+    auth, a 1 MB body cap, request serialization, and a discovery file; optional `remote_bind` for a
+    trusted private mesh (Tailscale).
+  - `/relay` drives Neko from **any phone/browser with no open port** — the agent dials out and
+    long-polls a relay you host (a Cloudflare Worker; `cloudflare/relay/`), with **end-to-end encryption**
+    (zero-knowledge relay) and **QR pairing** printed in the terminal.
+- **Self-improving memory** — learned `workflows` (AWM-style procedures) and an always-on `playbook`
+  (ACE) alongside `memory` (facts) and authored `skills`.
+- **Skills** — `procurement` (VN sourcing / purchasing officer) and `browser-visual-qa` (drive a page,
+  capture, analyze frames with vision).
+- **Tool-use parity with Claude Code** — `search` via ripgrep (with a built-in fallback) + glob/case/
+  context; `bash` per-call `timeout` + `run_in_background`; `read_file` offset/limit + image/PDF reading;
+  MCP **lazy** schema loading.
+- **Self-update** — `neko update` downloads the latest release and replaces the binary in place, plus a
+  daily-cached startup check.
+- **Config-driven `effort_ceiling`** — maps a configured `reasoning_effort` (e.g. `max`) down to the
+  endpoint's accepted ceiling proactively.
+
+### Fixed
+- Robustness: bounded live render and tool output (no UI freeze / OOM on big streams), interruptible
+  `bash`, per-cwd git-branch caching.
+- Windows installer survives the schannel certificate-revocation condition (`--ssl-no-revoke` + fallback).
+- `reasoning_effort` gracefully clamps to the highest accepted tier instead of erroring.
+
+## [0.2.0]
+
+- Initial public binaries: streaming agent loop, safe/gated tools, permission modes, Ink TUI, sessions,
+  MCP, config-first profiles, one-line install.
+
+[0.3.0]: https://github.com/meiiie/neko-core/releases/tag/v0.3.0
+[0.2.0]: https://github.com/meiiie/neko-core/releases/tag/v0.2.0

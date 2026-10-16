@@ -1,0 +1,2433 @@
+import { assertTaskScope } from "./task-scope.ts";
+import { parseHostEffectResolution, sameHostEffectBinding, validateHostEffects, type HostEffectRecord, type HostEffectResolution } from "./host-effect.ts";
+/**
+ * The agentic loop.
+ *
+ *   while not done and steps < maxSteps:
+ *     res = await provider.complete(messages, toolSchemas())
+ *     if res.tool_calls: for each -> observation = await tools.execute(call); append tool result
+ *     else: done (final answer)
+ *
+ * The maxSteps cap is load-bearing: an agent without one can loop forever and burn money.
+ * Tool observations (errors + denials) are fed back so the model adapts rather than crash.
+ */
+import { createHash } from "node:crypto";
+import { CostTracker, type Usage } from "./cost.ts";
+import {
+  appendCompactionSourceEvent,
+  assertNoConfiguredCredentialInSourceEvents,
+  createCompactionSourceEvent,
+  isReadFileCall,
+  requestedReadPath,
+  sourceProjectionDigest,
+  sourceProjectionMatches,
+  validateCompactionSourceEvents,
+  type CompactionSourceEvent,
+  type TrustedReadFileSource,
+} from "./compaction-source.ts";
+import { ProviderAttemptError, type CompleteOptions, type DeltaHook, type Provider, type ToolCall } from "./ports.ts";
+import { todosContextBlock, type ToolRegistry } from "./tool-runtime.ts";
+import { taskDelegatesReadOnly } from "./tools.ts";
+import { createToolOperation, type ToolOperationContext } from "./tool-operation.ts";
+import { hasAuthoritativeValidatorExit, isValidationBashCommand } from "./validation-command.ts";
+import {
+  DEFAULT_SYSTEM_PROMPT,
+  COMPACTION_PROMPT,
+  CONCURRENCY_SAFE,
+  EAGER_SAFE,
+  EDIT_TOOLS,
+  MUTATING_TOOLS,
+  EDIT_PER_PATH_CAP,
+  UNPRODUCTIVE_CAP,
+  TOOLCHAIN_FAILURE_CAP,
+  MAX_OBS_CHARS,
+  LEAN_TAIL_CHARS,
+  COMPACT_AT,
+  COMPACT_SAFETY_AT,
+  clampObservation,
+  estimateRequestTokens,
+  estimateTokens,
+  isFreshFactWebTool,
+  requiresFreshFactVerification,
+  SESSION_CONTEXT_MARK,
+  splitSystemContext,
+  type EventHook,
+  type AgentOptions,
+} from "./agent-constants.ts";
+import { isJsonObject, isText } from "../shared/wire.ts";
+import {
+  applyCompletionReview,
+  completionCoverage,
+  createCompletionContract,
+  isCompletionContract,
+  type CompletionContract,
+  type CompletionReview,
+  type CompletionSupervisor,
+} from "./completion-contract.ts";
+import {
+  isVietnamSovereigntyDeferral,
+  isVietnamSovereigntyTopic,
+} from "./vietnam-sovereignty.ts";
+import {
+  failedVerificationReviewNudge,
+  missingArtifactReviewNudge,
+  missingRequiredArtifacts,
+  type MissingArtifact,
+} from "./required-artifacts.ts";
+
+export {
+  DEFAULT_SYSTEM_PROMPT,
+  COMPACTION_PROMPT,
+  MAX_OBS_CHARS,
+  LEAN_TAIL_CHARS,
+  COMPACT_AT,
+  COMPACT_SAFETY_AT,
+  clampObservation,
+  estimateRequestTokens,
+  estimateTokens,
+  isFreshFactWebTool,
+  requiresFreshFactVerification,
+};
+export { isValidationBashCommand } from "./validation-command.ts";
+export type { EventHook, AgentOptions };
+
+/** Controller turns saved before `_neko_internal` existed. An explicit marker always wins, so a
+ * current user can still begin a real message with one of these strings without being hidden. */
+const LEGACY_INTERNAL_USER_PREFIXES = [
+  "[Summary of earlier conversation]",
+  "CLOSED-LOOP REVIEW (",
+  "PLAN NOT COMPLETE:",
+  "VALIDATION FAILED:",
+  "VALIDATION REQUIRED:",
+  "OUTCOME VERIFICATION REQUIRED:",
+  "NO VERIFICATION EVIDENCE YET:",
+  "VERIFY BEFORE FINISHING:",
+  "[budget]",
+  "[delivery]",
+  "Step limit (",
+  "Continue the task from where it was interrupted.",
+];
+
+function isDeliveryArtifactEdit(call: { name: string; arguments?: any }): boolean {
+  if (!EDIT_TOOLS.has(call.name.toLowerCase())) return false;
+  const rawPath = call.arguments?.path;
+  const path = isText(rawPath) ? String(rawPath).replace(/\\/g, "/") : "";
+  if (!path) return false;
+  const parts = path.toLowerCase().split("/").filter(Boolean);
+  return !parts.some((part) => /^\.?(?:probes?|scratch|temp|tmp)(?:[-_.].*)?$/.test(part));
+}
+
+function isInternalUserMessage(message: any): boolean {
+  if (message?._neko_internal === true) return true;
+  if (message?._neko_internal === false || message?.role !== "user" || !isText(message.content)) return false;
+  const content = message.content.trimStart();
+  return LEGACY_INTERNAL_USER_PREFIXES.some((prefix) => content.startsWith(prefix));
+}
+
+/** Neko-local durability metadata belongs in the session file, never an LLM wire payload. */
+function cleanProviderMessages(messages: any[]): any[] {
+  return messages.map((message) => {
+    const clean = { ...message };
+    delete clean._neko_internal;
+    delete clean._neko_inflight;
+    delete clean._neko_acp_message_id;
+    delete clean._neko_compaction_first_user;
+    delete clean._neko_context_capsule;
+    delete clean._neko_context_admission;
+    delete clean._neko_context_source;
+    delete clean._neko_context_sources;
+    delete clean._neko_compaction_source_ids;
+    delete clean._neko_compaction_source_digest;
+    delete clean._neko_source_event_id;
+    delete clean._neko_source_projection_digest;
+    delete clean._neko_source_clipped;
+    delete clean._neko_source_unavailable;
+    delete clean._neko_tool_guidance;
+    delete clean._neko_tool_operations;
+    delete clean._neko_host_effect_operation;
+    return clean;
+  });
+}
+
+/** Give every old message a fair share of the summarizer input. This prevents one giant early tool
+ * result from consuming the fixed budget and erasing later corrections/decisions. Keep both ends
+ * because errors and totals often land at the bottom of logs. */
+function compactionSource(messages: any[], budget = 40_000): string {
+  // Human instructions and prior capsules carry corrections/constraints. Never silently remove
+  // their middle before the summarizer sees it. Bound lower-priority observations instead.
+  const protectedMessage = (message: any) => message.role === "user" || message._neko_context_capsule === true;
+  const userChars = messages.filter(protectedMessage)
+    .reduce((n, m) => n + (isText(m.content) ? m.content : JSON.stringify(m.content) ?? "").length + 7, 0);
+  if (userChars > budget - 2000) throw new Error("Compaction input exceeds the safe instruction budget; original history is intact.");
+  const otherCount = messages.filter((m) => !protectedMessage(m)).length;
+  const perMessage = Math.max(80, Math.floor((budget - userChars - 2000) / Math.max(1, otherCount)) - 50);
+  const clip = (raw: string, limit: number) => {
+    if (raw.length <= limit) return raw;
+    const tail = Math.min(limit, Math.floor(limit * 0.35));
+    const omitted = raw.length - limit;
+    return `${raw.slice(0, limit - tail)}\n... [${omitted} chars omitted for compaction] ...\n${raw.slice(-tail)}`;
+  };
+  const source = messages.map((message) => {
+    // A tool result only carries its call id and observation. The file path lives on the
+    // preceding assistant tool call, so keep bounded call identity/path data alongside the
+    // observation without copying whole arguments (which may contain file contents/secrets).
+    const callCount = message.role === "assistant" && Array.isArray(message.tool_calls) ? message.tool_calls.length : 0;
+    const calls = callCount
+      ? message.tool_calls.slice(0, 8).map((call: any) => {
+        let args = call?.function?.arguments ?? call?.arguments;
+        if (isText(args)) { try { args = JSON.parse(args); } catch { args = null; } }
+        return {
+          id: String(call?.id ?? "").slice(0, 80),
+          name: String(call?.function?.name ?? call?.name ?? "").slice(0, 80),
+          ...(isText(args?.path) ? { path: clip(args.path, 256) } : undefined),
+        };
+      })
+      : [];
+    const callTrace = calls.length
+      ? `${callCount > calls.length ? `[${callCount - calls.length} tool calls omitted from compaction input]\n` : ""}tool_calls (recorded path arguments): ${JSON.stringify(calls)}\n`
+      : "";
+    const resultId = message.role === "tool" && isText(message.tool_call_id)
+      ? `tool_call_id: ${JSON.stringify(message.tool_call_id.slice(0, 80))}\n` : "";
+    // Compaction consumes durable raw observations, so explicitly carry any provider-facing
+    // runtime guidance into its bounded source without inventing another tool result.
+    const advice = message.role === "tool" && isText(message._neko_tool_guidance)
+      ? `\nNeko runtime guidance: ${message._neko_tool_guidance}` : "";
+    const raw = callTrace + resultId + (isText(message.content) ? message.content : JSON.stringify(message.content)) + advice;
+    if (protectedMessage(message)) return `${message.role}: ${raw}`;
+    const roleCap = message.role === "tool" ? 1200 : 3000;
+    return `${message.role}: ${clip(raw, Math.min(roleCap, perMessage))}`;
+  }).join("\n");
+  if (source.length <= budget) return source;
+  throw new Error("Compaction input exceeds the safe source budget; original history is intact.");
+}
+
+export interface NumberedImageAttachment { id: number; url: string }
+export type ImageAttachment = string | NumberedImageAttachment;
+
+export interface AgentCompletionStatus {
+  ok: boolean;
+  reason?: "validation_failed" | "validation_missing" | "contract_failed" | "contract_unverified" | "outcome_unverified" | "artifacts_missing" | "failed_checks_unresolved";
+  command?: string;
+  detail?: string;
+}
+
+function completionGapSignature(
+  contract: CompletionContract,
+  review: CompletionReview,
+  validation: AgentCompletionStatus,
+): string {
+  const measurements = (review.measurements ?? [])
+    .map((measurement) => [measurement.tool, measurement.outcome, measurement.digestKind ?? "", measurement.subject ?? "", measurement.digest])
+    .sort((a, b) => JSON.stringify(a).localeCompare(JSON.stringify(b)));
+  return JSON.stringify({
+    instrumentRevision: contract.instrumentRevision ?? 1,
+    coverageComplete: review.coverageComplete ?? true,
+    criteria: contract.criteria.map((criterion) => [criterion.id, criterion.required, criterion.coverageArea ?? "general", criterion.weight ?? 1]),
+    evidence: review.evidence.map((row) => [row.criterionId, row.status]),
+    measurements,
+    validation: validation.ok ? null : [validation.reason ?? "", validation.command ?? ""],
+  });
+}
+
+function completionImplementationInstruction(goal: string, contract: CompletionContract): string {
+  const criteria = contract.criteria.map((criterion) => {
+    const requirement = criterion.requirement.slice(0, 600);
+    const verification = criterion.verification.slice(0, 400);
+    return `- ${criterion.id} [${criterion.coverageArea ?? "general"}; weight ${criterion.weight ?? 1}]: ` +
+      `${requirement} | verify: ${verification}`;
+  });
+  return [
+    goal,
+    "",
+    "FIXED COMPLETION CONTRACT",
+    "The independent criteria below are the observable definition of done. Do not weaken or omit them.",
+    "Bound discovery to the next implementation decision. Establish the smallest buildable or runnable end-to-end artifact early, then address missing criteria. Reuse valid evidence and reserve enough budget for the required final state and its checks; no fixed sequence of tool calls is required.",
+    "A partial runnable artifact with explicit remaining gaps is better than exhaustive research with no artifact.",
+    ...criteria,
+  ].join("\n");
+}
+
+function degradedCompletionContract(goal: string): CompletionContract {
+  const boundedGoal = goal.replace(/\s+/g, " ").trim().slice(0, 1_200);
+  return createCompletionContract(goal, {
+    criteria: [{
+      phase: "final_state",
+      requirement: `The final observable artifact satisfies the original request: ${boundedGoal}`,
+      source: "user",
+      verification: "Inspect the actual final artifact and exercise its user-visible behavior against the original request.",
+      required: true,
+      coverageArea: "requested outcome",
+      weight: 1,
+    }],
+  });
+}
+
+export type ToolObservationClass = "productive" | "empty" | "failed";
+
+/** Classify a tool observation without retaining its payload. This is shared by the loop guards and
+ * benchmark telemetry so an eval cannot report a failed/empty call as productive. */
+export function classifyToolObservation(obs: any): ToolObservationClass {
+  if (!isText(obs)) return "productive";
+  if (/\(exit \d+ -- command FAILED\)/.test(obs)
+    || /^\(timed out/.test(obs)
+    || /^(?:Error(?: running [^:]+)?:|Blocked(?::| by)|Denied by user:|Refused:|The user did NOT approve\b|Tool '[^']+' is (?:disabled|not available|restricted)|Sub-agents? (?:are|is) not available\b|Sub-agent error:|\[denied\]|\[capability circuit\]|\[loop guard\]|\[delivery\]|\(interrupted\))/mi.test(obs)) {
+    return "failed";
+  }
+  const match = obs.match(/###\s*Result\s*\r?\n([\s\S]*?)(?:\r?\n###|$)/i);
+  const value = (match ? match[1] : obs).trim();
+  return value === "" || value === "[]" || value === "{}" || value === "null"
+    || value === "undefined" || value === '""' || value === "0"
+    || value === "(no matches)" || value === "(no files)" || value === "(empty)"
+    ? "empty"
+    : "productive";
+}
+
+/** Refusal and terminal budget outcomes did not execute the mutation, even though they are failed
+ * observations for telemetry and loop guards. Execution-repair advice would be misleading here. */
+function isNonExecutionFailure(obs: any): boolean {
+  return isText(obs) && (
+    /^(?:Blocked(?::| by)|Denied by user:|Refused:|The user did NOT approve\b|Tool '[^']+' is (?:disabled|not available|restricted)|\[denied\])/mi.test(obs)
+    || obs.startsWith("Error: Harbor finalization budget exhausted; remote tool work is closed.")
+  );
+}
+
+/** Build one multimodal user turn without losing the semantic position of numbered pasted images.
+ * Plain string attachments are CLI `--image` inputs and keep the legacy text-then-images layout. */
+export function imageContent(instruction: string, images: ImageAttachment[]): any[] {
+  const numbered = new Map<number, NumberedImageAttachment>();
+  for (const image of images) if (!isText(image)) numbered.set(image.id, image);
+  const used = new Set<number>();
+  const parts: any[] = [];
+  let cursor = 0;
+  for (const match of instruction.matchAll(/\[Image #(\d+)\]/g)) {
+    const id = Number(match[1]);
+    const image = numbered.get(id);
+    if (!image || used.has(id) || match.index === undefined) continue;
+    const end = match.index + match[0].length;
+    parts.push({ type: "text", text: instruction.slice(cursor, end) });
+    parts.push({ type: "image_url", image_url: { url: image.url } });
+    cursor = end;
+    used.add(id);
+  }
+  const tail = instruction.slice(cursor);
+  if (tail || !parts.length) parts.push({ type: "text", text: tail });
+  for (const image of images) {
+    if (isText(image)) parts.push({ type: "image_url", image_url: { url: image } });
+    else if (!used.has(image.id)) parts.push({ type: "image_url", image_url: { url: image.url } });
+  }
+  return parts;
+}
+
+export class Agent {
+  private hostEffectSessionId?: string;
+  private hostEffectJournal: HostEffectRecord[] = [];
+  private hostEffectCommitFailure?: Error;
+
+  configureHostEffects(sessionId: string, journal: HostEffectRecord[]): void {
+    if (this.hostEffectSessionId || !this.tools.taskScope || !this.tools.mcp?.takeHostEffect) {
+      throw new Error("Host effects require one trusted scoped host binding");
+    }
+    this.hostEffectSessionId = sessionId;
+    this.hostEffectJournal = validateHostEffects(journal, sessionId, this.tools.taskScope.id, this.tools.taskScope.canonicalRoot);
+    for (const entry of this.hostEffectJournal) {
+      if (entry.resolution) continue;
+      const slots = this.messages.filter(message => message?._neko_host_effect_operation === entry.pending.operationId);
+      if (slots.length !== 1 || slots[0]?.role !== "tool" || slots[0]?.content !== "[awaiting host approval; effect has not started]") {
+        throw new Error("Pending host effect has no exact canonical tool slot");
+      }
+    }
+  }
+
+  hostEffects(): HostEffectRecord[] { return structuredClone(this.hostEffectJournal); }
+  hostEffectState() {
+    return { version: 1 as const,
+      pending: this.hostEffectJournal.filter(entry => !entry.resolution).map(entry => structuredClone(entry.pending)),
+      unknown: this.hostEffectJournal.filter(entry => entry.resolution?.status === "unknown").map(entry => structuredClone(entry.pending)) };
+  }
+  private hostEffectsBlocked(): boolean {
+    return this.hostEffectJournal.some(entry => !entry.resolution || entry.resolution.status === "unknown");
+  }
+  assertHostEffectsReady(): void {
+    if (this.hostEffectCommitFailure) throw this.hostEffectCommitFailure;
+    if (this.hostEffectsBlocked()) throw new Error("Host effect is awaiting approval or has an unknown outcome; reconcile before provider work");
+  }
+
+  /** Host-only metadata reconciliation. Never invokes a tool, retries an effect, or rewrites unknown history. */
+  async resolveHostEffect(value: HostEffectResolution): Promise<HostEffectResolution> {
+    if (this.hostEffectCommitFailure) throw this.hostEffectCommitFailure;
+    if (!this.hostEffectSessionId || !this.tools.taskScope) throw new Error("Host effect protocol was not negotiated");
+    assertTaskScope(this.tools.taskScope);
+    const resolution = parseHostEffectResolution(value);
+    const entry = this.hostEffectJournal.find(item => item.pending.operationId === resolution.operationId);
+    if (!entry || !sameHostEffectBinding(entry.pending, resolution)) throw new Error("Host effect resolution binding does not match a suspended operation");
+    if (entry.resolution) {
+      if (JSON.stringify(entry.resolution) !== JSON.stringify(resolution)) throw new Error("Host effect already has a different terminal outcome");
+      return structuredClone(entry.resolution);
+    }
+    const slot = this.messages.find(message => message?._neko_host_effect_operation === resolution.operationId);
+    if (!slot || slot.role !== "tool" || slot.content !== "[awaiting host approval; effect has not started]") {
+      throw new Error("Host effect pending tool slot changed");
+    }
+    slot.content = resolution.result;
+    entry.resolution = resolution; // append a terminal event; immutable pending receipt remains in the durable journal
+    try { await this.durableCheckpoint(); }
+    catch (error) {
+      this.hostEffectCommitFailure = new Error("Host effect checkpoint outcome requires recovery", { cause: error });
+      throw this.hostEffectCommitFailure;
+    }
+    return structuredClone(resolution);
+  }
+
+  private readonly toolOperations = new WeakMap<object, ToolOperationContext>();
+  private provider: Provider; // swappable between turns so the REPL can switch providers live (see setProvider)
+  private readonly tools: ToolRegistry;
+  private readonly maxSteps: number;
+  private readonly systemPrompt: string;
+  private readonly onEvent?: EventHook;
+  private readonly onCheckpoint?: () => void | Promise<void>;
+  private checkpointFailure: unknown;
+  private hasCheckpointFailure = false;
+  private prepareCompaction: AgentOptions["prepareCompaction"];
+  private compactionCommitFailure: Error | undefined;
+
+  /** Bind once at a trusted scoped-runtime activation, before any turn is admitted. */
+  bindCompactionPreparation(prepare: NonNullable<AgentOptions["prepareCompaction"]>): void {
+    this.assertContextReady();
+    if (!this.tools.taskScope || this.prepareCompaction) throw new Error("Context preparation must bind once to a scoped Agent");
+    this.prepareCompaction = prepare;
+    this.compactionConfigRevision++;
+  }
+
+  /** Hosts must also check this before capturing messages after an uncertain context commit. */
+  get contextRecoveryRequired(): boolean { return Boolean(this.compactionCommitFailure || this.hostEffectCommitFailure); }
+
+  assertContextReady(): void {
+    if (this.compactionCommitFailure) throw this.compactionCommitFailure;
+    if (this.hostEffectCommitFailure) throw this.hostEffectCommitFailure;
+  }
+  private readonly onDelta?: DeltaHook;
+  private readonly dynamicContext?: () => string;
+  private maxContextTokens: number;
+  /** Invalidate in-flight summaries when a host changes the provider/model context. */
+  private compactionConfigRevision = 0;
+  private sourceEvents: CompactionSourceEvent[] = [];
+  private readonly readFileSources = new WeakMap<object, TrustedReadFileSource>();
+  private readonly verifyBeforeExit: boolean;
+  private readonly verifyStateChangesBeforeExit: boolean;
+  private readonly adaptiveEffort: boolean;
+  private readonly completionSupervisor?: CompletionSupervisor;
+  private readonly workDeadlineAt?: number;
+  private completionContractState?: CompletionContract;
+  private completionContractFinal = false;
+  private runUntilDoneActive = false;
+  /** Host-owned instructions for the active outer turn. They are projected onto provider requests,
+   * never written into `messages`, so automatic skill/workflow routing cannot leak into a later turn
+   * or a saved session. `runUntilDone` keeps the same projection across its internal review passes. */
+  private turnSystemContext = "";
+  readonly cost = new CostTracker();
+  messages: any[] = [];
+  /** The single system message is `<base prompt>` + SESSION_CONTEXT_MARK + `<live session context>`.
+   * One system message only: some chat templates (Llama/Mistral on vLLM) suppress tool-calling
+   * when a SECOND system message is present, so session context is merged in, never split out. */
+    // Tracks repeated edits with distinct arguments and consecutive unproductive tool calls.
+    private readonly editsPerPath = new Map<string, number>();
+  private consecutiveUnproductive = 0;
+  /** Validation debt belongs to one OUTER user goal. `runUntilDone` controller reviews use
+   * `internal=true`, so they deliberately share this state until a validator passes after the latest
+   * successful mutation. Ordinary later user turns reset it. */
+  private mutationEpoch = 0;
+  private validationExpected = false;
+  private unverifiedState = false;
+  private validationResult?: { epoch: number; command: string; ok: boolean; authoritative: boolean; detail?: string };
+  /** Goal text for the active runUntilDone closed loop (artifact gate + review nudges). */
+  private closedLoopGoal = "";
+  /** Recent non-zero bash/test command summaries; cleared on an authoritative passing validator. */
+  private recentFailedChecks: string[] = [];
+  /** Set when the active implementer round hit max_steps. Consumed by exitWhenIdle so a step-cap
+   * wrap-up cannot look "idle + verified" merely because a required artifact file already exists. */
+  private hitMaxSteps = false;
+
+  constructor(opts: AgentOptions) {
+    this.provider = opts.provider;
+    this.tools = opts.tools;
+    this.maxSteps = opts.maxSteps ?? 20;
+    this.systemPrompt = opts.systemPrompt ?? DEFAULT_SYSTEM_PROMPT;
+    this.onEvent = opts.onEvent;
+    this.onCheckpoint = opts.onCheckpoint;
+    this.prepareCompaction = opts.prepareCompaction;
+    this.onDelta = opts.onDelta;
+    this.dynamicContext = opts.dynamicContext;
+    this.maxContextTokens = opts.maxContextTokens ?? 131072;
+    this.verifyBeforeExit = Boolean(opts.verifyBeforeExit);
+    this.verifyStateChangesBeforeExit = Boolean(opts.verifyStateChangesBeforeExit);
+    this.adaptiveEffort = Boolean(opts.adaptiveEffort);
+    this.completionSupervisor = opts.completionSupervisor;
+    this.workDeadlineAt = Number.isSafeInteger(opts.workDeadlineAt) ? opts.workDeadlineAt : undefined;
+    const scope = this.tools.taskScope;
+    if (scope && opts.sourceArchiveCredential) this.tools.bindCompactionSourceLookup(scope, (id) => {
+      const event = this.compactionSourceEvent(id);
+      if (event) assertNoConfiguredCredentialInSourceEvents([event], opts.sourceArchiveCredential?.());
+      return event;
+    });
+  }
+
+  /** Deterministic controller verdict for automation. It says only whether known validation debt is
+   * resolved; it never pretends to judge the semantic quality of the model's prose. */
+  get completionStatus(): AgentCompletionStatus {
+    if (this.validationExpected && this.mutationEpoch > 0) {
+      const current = this.validationResult?.epoch === this.mutationEpoch ? this.validationResult : undefined;
+      if (!current?.ok) {
+        if (current?.authoritative) {
+          return {
+            ok: false,
+            reason: "validation_failed",
+            command: current.command,
+            ...(current.detail ? { detail: current.detail } : undefined),
+          };
+        }
+        return {
+          ok: false,
+          reason: "validation_missing",
+          ...(this.validationResult?.command ? { command: this.validationResult.command } : undefined),
+          ...(this.validationResult?.detail ? { detail: this.validationResult.detail } : undefined),
+        };
+      }
+    }
+    if (this.unverifiedState) return { ok: false, reason: "outcome_unverified" };
+    if (this.completionContractFinal && this.completionContractState?.lastReview?.verdict !== "pass") {
+      const review = this.completionContractState?.lastReview;
+      return {
+        ok: false,
+        reason: review?.verdict === "fail" ? "contract_failed" : "contract_unverified",
+        ...(review?.findings[0] ? { detail: review.findings[0] } : undefined),
+      };
+    }
+    
+    // A passing independent contract review already verified criteria; do not fail closed on a
+    // host-path artifact scan (same authority that clears outcome_unverified in runUntilDone).
+    const artifactDebt = this.completionContractState?.lastReview?.verdict === "pass"
+      ? []
+      : this.missingClosedLoopArtifacts();
+    if (artifactDebt.length) {
+      return {
+        ok: false,
+        reason: "artifacts_missing",
+        detail: artifactDebt.slice(0, 6).map((row) => `${row.path} (${row.reason})`).join("; "),
+      };
+    }
+    // Only enforce unresolved failed-check debt inside runUntilDone (closed-loop / headless).
+    // Interactive single-shot turns still see the nudge via review text, but must not inherit a
+    // sticky failure bit from exploratory bash (keeps ordinary Agent.run tests well-behaved).
+    if (this.closedLoopGoal.trim() && this.recentFailedChecks.length) {
+      return {
+        ok: false,
+        reason: "failed_checks_unresolved",
+        detail: this.recentFailedChecks.slice(-3).join(" | "),
+      };
+    }
+    return { ok: true };
+  }
+
+  get completionContract(): CompletionContract | undefined {
+    return this.completionContractState ? structuredClone(this.completionContractState) : undefined;
+  }
+
+  restoreCompletionContract(value: any): void {
+    this.completionContractState = isCompletionContract(value) ? structuredClone(value) : undefined;
+    this.completionContractFinal = Boolean(this.completionContractState?.lastReview);
+  }
+
+  /** Swap the LLM provider live (used by the REPL's /provider command to switch endpoint+key between turns,
+   * no restart). Safe because commands run between turns, never mid-complete(). */
+  /** The live provider. Exposed so a side-channel look (the live camera coach) can reuse the WARM
+   * connection instead of standing up a second one per glance. */
+  currentProvider(): Provider { return this.provider; }
+
+  setProvider(provider: Provider): void {
+    const previous = this.provider;
+    this.provider = provider;
+    this.compactionConfigRevision++;
+    try {
+      const disposed = previous.dispose?.();
+      // SAFETY: the host hook hands back a promise-like; member access is guarded before use.
+      // SAFETY: the dispose hook hands back a promise-like; the instanceof check guards the call.
+      const disposable = disposed as Promise<void>;
+      if (disposable && disposable.catch instanceof Function) void disposable.catch(() => {});
+    } catch { /* provider cleanup must not block a live account switch */ }
+  }
+
+  /** Keep overflow/compaction guards accurate after a live /model or /provider switch. */
+  setMaxContextTokens(tokens: number): void {
+    if (Number.isFinite(tokens) && tokens > 0) {
+      this.maxContextTokens = tokens;
+      this.compactionConfigRevision++;
+    }
+  }
+
+  /** Restore only evidence bound to this runtime-owned task/root; never infer it from a summary. */
+  restoreCompactionSourceEvents(events: CompactionSourceEvent[]): void {
+    const scope = this.tools.taskScope;
+    if (!scope) throw new Error("Read-file source archive requires a runtime task scope");
+    this.sourceEvents = validateCompactionSourceEvents(events, scope.id, scope.canonicalRoot);
+    this.compactionConfigRevision++; // invalidate any summary started before archive replacement
+  }
+
+  /** Defensive copy for the task-session coordinator's single revision-checked checkpoint. */
+  compactionSourceEvents(): CompactionSourceEvent[] {
+    const scope = this.tools.taskScope;
+    if (!scope) return [];
+    return validateCompactionSourceEvents(this.sourceEvents, scope.id, scope.canonicalRoot);
+  }
+
+  /** Deterministic, task-scoped raw observation fallback by source ID. */
+  compactionSourceEvent(id: string): CompactionSourceEvent | undefined {
+    return this.compactionSourceEvents().find((event) => event.id === id);
+  }
+
+  /** Only the Agent's executed tool-result boundary may mint a task source record. */
+  private appendToolObservation(call: { id?: string; name: string; arguments: any }, observation: string | any[], guidance?: string): Error | undefined {
+    const result: any = {
+      role: "tool", tool_call_id: call.id || call.name, content: clampObservation(observation),
+      ...(guidance ? { _neko_tool_guidance: guidance } : undefined),
+    };
+    const operation = this.toolOperations.get(call);
+    const contextSource = operation ? this.tools.mcp?.takeContextSource?.(operation.operationId) : undefined;
+    if (contextSource) result._neko_context_source = contextSource;
+    const pending = operation ? this.tools.mcp?.takeHostEffect?.(operation.operationId) : undefined;
+    if (pending) {
+      if (!this.hostEffectSessionId || !this.tools.taskScope) throw new Error("Unnegotiated host suspension");
+      const journal = validateHostEffects([...this.hostEffectJournal, { pending }], this.hostEffectSessionId,
+        this.tools.taskScope.id, this.tools.taskScope.canonicalRoot);
+      result.content = "[awaiting host approval; effect has not started]";
+      result._neko_host_effect_operation = operation!.operationId;
+      this.hostEffectJournal = journal;
+    }
+    this.messages.push(result);
+    const scope = this.tools.taskScope;
+    if (!scope || call.name !== "read_file") return;
+    try {
+      // requestedPath came from the model's request. It is not a resolved or current file path.
+      const path = requestedReadPath({ name: call.name, arguments: call.arguments });
+      const source = this.readFileSources.get(call);
+      this.readFileSources.delete(call);
+      const event = createCompactionSourceEvent(scope, this.sourceEvents.length + 1, result.tool_call_id, path, result, source);
+      this.sourceEvents = appendCompactionSourceEvent(this.sourceEvents, event);
+      result._neko_source_event_id = event.id;
+      result._neko_source_projection_digest = sourceProjectionDigest(result);
+    } catch (error) {
+      // The completed tool outcome must checkpoint before this provenance failure aborts the turn.
+      result._neko_source_unavailable = true;
+      return new Error("Read-file source archive unavailable; raw result retained and compaction blocked.", { cause: error });
+    }
+  }
+
+  /** Reject unmarked/restored transcript records; they are not proof of tool execution. */
+  private assertReadFileSources(): void {
+    const scope = this.tools.taskScope;
+    if (!scope) return; // legacy/unscoped history keeps its existing compaction behavior
+    for (let i = 0; i < this.messages.length; i++) {
+      const result = this.messages[i];
+      if (result?.role !== "tool" || !isText(result.tool_call_id)) continue;
+      if (result._neko_source_event_id !== undefined) {
+        const event = this.sourceEvents.find((row) => row.id === result._neko_source_event_id);
+        if (!event || !sourceProjectionMatches(event, result)) {
+          throw new Error("Read-file source marker does not match task evidence");
+        }
+        continue;
+      }
+      let readCall = false;
+      for (let j = i - 1; j >= 0 && this.messages[j]?.role !== "user"; j--) {
+        const assistant = this.messages[j];
+        if (assistant?.role !== "assistant" || !Array.isArray(assistant.tool_calls)) continue;
+        const call = assistant.tool_calls.find((candidate: any) => candidate?.id === result.tool_call_id);
+        if (call) { readCall = isReadFileCall(call); break; }
+      }
+      if (readCall) throw new Error("Read-file transcript has no trusted result marker; raw history retained");
+    }
+  }
+
+  private compactedSourceIds(head: any[]): string[] {
+    const ids = new Set<string>();
+    for (const message of head) {
+      if (message?._neko_source_event_id !== undefined) {
+        if (!isText(message._neko_source_event_id)) throw new Error("Invalid read-file source marker");
+        ids.add(message._neko_source_event_id);
+      }
+      if (message?._neko_compaction_source_ids !== undefined) {
+        if (!Array.isArray(message._neko_compaction_source_ids)) throw new Error("Invalid compaction source references");
+        const digest = createHash("sha256").update(JSON.stringify(message._neko_compaction_source_ids)).digest("hex");
+        if (message._neko_compaction_source_digest !== digest) throw new Error("Compaction source references changed");
+        for (const id of message._neko_compaction_source_ids) {
+          if (!isText(id)) throw new Error("Invalid compaction source ID");
+          ids.add(id);
+        }
+      }
+    }
+    const available = new Set(this.compactionSourceEvents().map((event) => event.id));
+    for (const id of ids) if (!available.has(id)) {
+      throw new Error("Compaction source reference is missing or outside the active task");
+    }
+    return this.sourceEvents.filter((event) => ids.has(event.id)).map((event) => event.id);
+  }
+
+  /** App-owned model sessions (for example realtime voice) use the exact same tool boundary as a
+   * normal Agent turn. Keeping this wrapper here prevents an adapter from bypassing approvals. */
+  externalToolSchemas(): any[] {
+    return this.tools.schemas();
+  }
+
+  async executeExternalTool(
+    call: { id?: string; name: string; arguments: any },
+    signal?: AbortSignal,
+  ): Promise<string | any[]> {
+    this.emit("tool_call", call);
+    const observation = await this.safeExecute(call, signal);
+    this.emit("tool_result", { call, observation });
+    return observation;
+  }
+
+  /** Summarize the conversation and replace it with the summary, freeing context. */
+  lastCompactionOutcome: "none" | "no_history" | "too_small" | "no_gain" | "applied" = "none";
+
+  async compact(options: { signal?: AbortSignal; minHeadTokens?: number; minSavingsTokens?: number } = {}): Promise<string> {
+    this.assertContextReady();
+    this.assertHostEffectsReady();
+    this.lastCompactionOutcome = "none";
+    options.signal?.throwIfAborted();
+    const sys = this.messages.filter((m) => m.role === "system"); // keep system + dynamic context
+    const convo = this.messages.filter((m) => m.role !== "system");
+
+    // Snap the retained tail to a user turn so tool results never lose their initiating call.
+    const KEEP_TAIL = 8;
+    let cut = Math.max(0, convo.length - KEEP_TAIL);
+    while (cut > 0 && convo[cut].role !== "user") cut--;
+    const head = convo.slice(0, cut);
+    const tail = convo.slice(cut);
+    if (!head.length) { this.lastCompactionOutcome = "no_history"; return ""; }
+    if (estimateTokens(head) < (options.minHeadTokens ?? 0)) {
+      this.lastCompactionOutcome = "too_small";
+      return ""; // no model call or cache invalidation for a trivially small prefix
+    }
+
+    this.assertReadFileSources();
+    const sourceIds = this.compactedSourceIds(head);
+    // Messages are public/resumable and may be appended or edited while the provider awaits.
+    // Hash the full serialized state before replacing history; identity/length misses an
+    // in-place correction. Only a digest, not a duplicate transcript, survives the await.
+    const snapshotDigest = () => createHash("sha256").update(JSON.stringify(this.messages)).digest("hex");
+    let inputDigest: string;
+    try { inputDigest = snapshotDigest(); }
+    catch { throw new Error("Compaction cannot snapshot conversation; original history is intact."); }
+    const configRevision = this.compactionConfigRevision;
+    // The summarizer sees bounded excerpts; runtime-owned IDs are reattached deterministically
+    // after summarization so a model-written summary cannot erase source lookup references.
+    const shown = sourceIds.slice(-8);
+    const sourceRefs = shown.length
+      ? `\n[historical read_file tool-result IDs for source_lookup: ${shown.join(", ")}${sourceIds.length > shown.length ? `; ${sourceIds.length - shown.length} earlier IDs omitted` : ""}. These are historical evidence only; use a fresh read_file for current contents.]`
+      : "";
+    const text = compactionSource(head, 40_000 - sourceRefs.length) + sourceRefs;
+    const request = cleanProviderMessages([
+      { role: "system", content: COMPACTION_PROMPT },
+      { role: "user", content: text, _neko_internal: true },
+    ]);
+    // The character cap alone does not fit every configured model window. Reject an
+    // already oversized estimate before spending a request; this is not an exact
+    // provider tokenizer or a guarantee that its response reserve will fit.
+    if (estimateTokens(request) >= this.maxContextTokens) {
+      throw new Error("Compaction input exceeds the configured context estimate; original history is intact.");
+    }
+    let res: Awaited<ReturnType<Provider["complete"]>>;
+    try {
+      res = await this.completeMeasured(request, undefined, undefined, options.signal, undefined, "compact");
+    } catch (error) {
+      throw new Error("Compaction failed; original history is intact.", { cause: error });
+    }
+    this.cost.add(res.usage);
+    if (!isText(res.content) || !res.content.trim() || res.truncated || res.tool_calls?.length) {
+      throw new Error("Compaction returned no complete summary; original history is intact.");
+    }
+    const summary = res.content;
+    options.signal?.throwIfAborted();
+    let currentDigest: string;
+    try {
+      currentDigest = snapshotDigest();
+    } catch { throw new Error("Compaction cannot verify conversation snapshot; original history is intact."); }
+    if (this.compactionConfigRevision !== configRevision || currentDigest !== inputDigest) {
+      throw new Error("Compaction discarded because conversation or model changed; original history is intact.");
+    }
+    // Bound retained tool output by lines and characters, including dense minified payloads.
+    const leanTail = tail.map((m) => {
+      if (m.role !== "tool" || !isText(m.content)) return m;
+      const lines = m.content.split("\n");
+      let clipped: string | undefined;
+      if (lines.length > 40) clipped = lines.slice(0, 40).join("\n") + `\n... (${lines.length - 40} more lines clipped on compaction)`;
+      if (m.content.length > LEAN_TAIL_CHARS) {
+        const head = m.content.slice(0, LEAN_TAIL_CHARS);
+        if (clipped === undefined) clipped = head + `\n... (${m.content.length - LEAN_TAIL_CHARS} more chars clipped on compaction)`;
+      }
+      if (clipped === undefined) return m;
+      const lean = { ...m, content: clipped };
+      if (lean._neko_source_event_id) {
+        lean._neko_source_clipped = true;
+        lean._neko_source_projection_digest = sourceProjectionDigest(lean);
+      }
+      return lean;
+    });
+    // Carry the first real request across repeated compactions. An earlier capsule is an
+    // internal user-shaped message, never a new user request. Keep this request explicitly
+    // historical: later turns can switch tasks or correct it.
+    const priorCapsule = head.find((m) => m._neko_context_capsule === true
+      || m.role === "user" && isInternalUserMessage(m) && isText(m.content) && m.content.startsWith("[Summary of earlier conversation]"));
+    const firstUser = priorCapsule ? undefined : head.find((m) => m.role === "user" && !isInternalUserMessage(m));
+    const firstRequest = (isText(priorCapsule?._neko_compaction_first_user)
+      ? priorCapsule._neko_compaction_first_user
+      : isText(firstUser?.content) ? firstUser.content : "").slice(0, 600);
+    const plan = todosContextBlock(this.tools.todos);
+    const candidate = [
+      ...sys,
+      { role: "user", content: `[Summary of earlier conversation]\n${firstRequest ? `FIRST USER REQUEST (historical; may be superseded): ${firstRequest}\n\n` : ""}${plan ? `${plan}\n\n` : ""}${summary}${sourceRefs}`, _neko_internal: true,
+        ...(firstRequest ? { _neko_compaction_first_user: firstRequest } : undefined),
+        ...(sourceIds.length ? { _neko_compaction_source_ids: sourceIds,
+          _neko_compaction_source_digest: createHash("sha256").update(JSON.stringify(sourceIds)).digest("hex") } : undefined) },
+      ...leanTail,
+    ];
+    // A valid summary can still be larger or save virtually nothing. Keep exact original state
+    // unless the complete replacement (capsule + retained tail) actually meets the requested gain.
+    const saved = estimateTokens(this.messages) - estimateTokens(candidate);
+    if (saved < Math.max(1, options.minSavingsTokens ?? 1)) {
+      this.lastCompactionOutcome = "no_gain";
+      return "";
+    }
+    options.signal?.throwIfAborted();
+    const prepared = this.prepareCompaction
+      ? await this.prepareCompaction({before: this.messages, candidate, summary}, options.signal)
+      : undefined;
+    options.signal?.throwIfAborted();
+    if (this.prepareCompaction && (!prepared || !(prepared.commit instanceof Function) || !Array.isArray(prepared.messages))) {
+      throw new Error("Host compaction preparation returned no valid publication transaction; original history is intact.");
+    }
+    if (this.compactionConfigRevision !== configRevision || snapshotDigest() !== inputDigest) {
+      throw new Error("Compaction preparation discarded because conversation or model changed; original history is intact.");
+    }
+    const replacement = prepared?.messages ?? candidate;
+    if (!Array.isArray(replacement) || !replacement.some(message => message?.role !== "system")
+      || replacement.some(message => !isJsonObject(message) || !["system", "user", "assistant", "tool"].includes(String(message.role)))
+      || JSON.stringify(replacement.filter(message => message?.role === "system")) !== JSON.stringify(sys)) {
+      throw new Error("Prepared compaction changed the protected system context; original history is intact.");
+    }
+    if (estimateTokens(this.messages) - estimateTokens(replacement) < Math.max(1, options.minSavingsTokens ?? 1)) {
+      this.lastCompactionOutcome = "no_gain";
+      return "";
+    }
+    if (prepared) {
+      const candidateDigest = createHash("sha256").update(JSON.stringify(replacement)).digest("hex");
+      try {
+        const receipt = prepared.commit();
+        // A Promise would introduce an unguarded gap between persistence and installation.
+        if (receipt instanceof Promise) { void receipt.catch(() => {}); throw new Error("Context commit must be synchronous"); }
+        if (receipt?.committed !== true) throw new Error("Context commit did not confirm publication");
+        if (this.compactionConfigRevision !== configRevision || snapshotDigest() !== inputDigest
+          || createHash("sha256").update(JSON.stringify(replacement)).digest("hex") !== candidateDigest) {
+          throw new Error("Context changed across publication");
+        }
+      } catch (cause) {
+        this.compactionCommitFailure = new Error("Context commit needs recovery; reopen the saved session before continuing.", {cause});
+        throw this.compactionCommitFailure;
+      }
+    }
+    // No await separates the host's synchronous publication and this active-state installation.
+    this.messages = replacement;
+    this.lastCompactionOutcome = "applied";
+    return summary;
+  }
+
+  /** In-loop context relief for a SINGLE long turn (one user message, many tool rounds) where
+   * compact()'s snap-to-user boundary can free nothing. Compress the OLDEST tool observations in
+   * place -- head + a marker -- keeping the most recent ones full and never breaking tool_call/result
+   * pairing. This is the "observation masking" approach SOTA long-horizon agents use. Returns true if
+   * it freed anything (so the caller only falls back to a summary when there's nothing left to clip). */
+  private shrinkOldObservations(keepRecent = 3, minSavingsChars = 0): boolean {
+    const CLIP = 1200, MARK = "chars elided to fit context";
+    // Keep the two newest visual states and mask older tool images in a single long turn.
+    const imageIdx = this.messages
+      .map((m, i) => (m.role === "tool" && Array.isArray(m.content) && m.content.some((p: any) => p?.type === "image_url") ? i : -1))
+      .filter((i) => i >= 0);
+    const oldImageIdx = imageIdx.slice(0, Math.max(0, imageIdx.length - 2));
+    const lastUser = this.messages.map((m, i) => (m.role === "user" ? i : -1)).filter((i) => i >= 0).pop() ?? -1;
+    const oldUserImageIdx = this.messages
+      .map((m, i) => (m.role === "user" && i !== lastUser && Array.isArray(m.content) && m.content.some((p: any) => p?.type === "image_url") ? i : -1))
+      .filter((i) => i >= 0);
+    const toolIdx = this.messages
+      .map((m, i) => (m.role === "tool" && isText(m.content) ? i : -1))
+      .filter((i) => i >= 0);
+    const oldTextIdx = toolIdx.slice(0, Math.max(0, toolIdx.length - keepRecent))
+      .filter((i) => this.messages[i].content.length > CLIP + 80 && !this.messages[i].content.includes(MARK));
+    const imageSavings = [...oldImageIdx, ...oldUserImageIdx]
+      .reduce((sum, i) => sum + JSON.stringify(this.messages[i].content).length, 0);
+    const textSavings = oldTextIdx.reduce((sum, i) => sum + Math.max(0, this.messages[i].content.length - CLIP), 0);
+    // Context editing invalidates a cached prefix. Only do the proactive pass when it removes a
+    // meaningful chunk; the emergency overflow path passes zero and always frees whatever it can.
+    if (imageSavings + textSavings < minSavingsChars) return false;
+
+    this.assertReadFileSources(); // never mask an unmarked historical read_file result
+    if (oldImageIdx.some((i) => this.messages[i]._neko_source_event_id !== undefined)) {
+      throw new Error("Read-file image evidence cannot be masked; raw history retained");
+    }
+
+    let shrank = false;
+    for (const i of oldImageIdx) {
+      const m = this.messages[i];
+      m.content = m.content.map((p: any) => p?.type === "image_url"
+        ? { type: "text", text: "[older tool image elided; capture/read it again if the current state is insufficient]" }
+        : p);
+      shrank = true;
+    }
+    // Earlier user images may be masked; preserve attachments from the current user turn.
+    for (const i of oldUserImageIdx) {
+      const m = this.messages[i];
+      m.content = m.content.map((p: any) => p?.type === "image_url"
+        ? { type: "text", text: "[pasted image from an earlier turn elided to fit the context window - attach it again if still needed]" }
+        : p);
+      shrank = true;
+    }
+    for (const i of oldTextIdx) {
+      const m = this.messages[i];
+      m.content = m.content.slice(0, CLIP) + `\n... [${m.content.length - CLIP} ${MARK}] ...`;
+      if (m._neko_source_event_id) {
+        m._neko_source_clipped = true;
+        m._neko_source_projection_digest = sourceProjectionDigest(m);
+      }
+      shrank = true;
+    }
+    return shrank;
+  }
+
+  /** The latest real human turn. Controller prompts are skipped; old sessions use prefix fallback. */
+  lastUserMessage(): any | undefined {
+    for (let i = this.messages.length - 1; i >= 0; i--) {
+      const message = this.messages[i];
+      if (message?.role === "user" && !isInternalUserMessage(message)) return message;
+    }
+    return undefined;
+  }
+
+  /** A provider-safe history projection. Local durability/control markers remain in `messages`. */
+  providerHistory(): any[] {
+    // Runtime guidance is model-facing advice, not a second tool observation. Keep the durable
+    // result and ACP live/replay status tied to the raw outcome, while the next provider request
+    // still receives the nudge inside the one matching tool result.
+    const projected = this.messages.map((message) => {
+      if (message?.role !== "tool" || !isText(message._neko_tool_guidance)) return message;
+      const content = isText(message.content)
+        ? clampObservation(`${message.content}\n${message._neko_tool_guidance}`)
+        : Array.isArray(message.content)
+          ? [...message.content, { type: "text", text: message._neko_tool_guidance }]
+          : message.content;
+      return { ...message, content };
+    });
+    const clean = cleanProviderMessages(projected);
+    if (!this.turnSystemContext) return clean;
+    const system = clean.find((message) => message?.role === "system" && isText(message.content));
+    if (system) system.content = `${system.content}\n\n${this.turnSystemContext}`;
+    return clean;
+  }
+
+  /** Replace the provider-only system tail for one outer host turn. Automatic routing uses this;
+   * manual `/skill` continues to call appendSystem() and therefore remains deliberately persistent. */
+  setTurnSystemContext(text: string): void {
+    this.turnSystemContext = String(text ?? "").trim();
+  }
+
+  /** End the outer host turn. Refresh after the host closes its tool lease so the durable system
+   * message is recomputed from the ordinary configured surface before the session is persisted. */
+  clearTurnSystemContext(): void {
+    this.turnSystemContext = "";
+    this.refreshDynamicContext();
+  }
+
+  /** Conversation undo: drop the last human user turn (and every response/controller turn after it).
+   * Returns false if there's nothing to rewind. Note: this restores CONTEXT, not files on disk. */
+  rewind(): boolean {
+    for (let i = this.messages.length - 1; i >= 0; i--) {
+      if (this.messages[i].role === "user" && !isInternalUserMessage(this.messages[i])) {
+        this.messages.splice(i);
+        return true;
+      }
+    }
+    return false;
+  }
+
+  /** Run one human goal with bounded checkpoint continuation after a committed stream interruption.
+   * The provider adapter may transparently replay only before semantic output. Once content or a tool
+   * call crossed that barrier, this method preserves the partial trajectory and opens a new internal
+   * continuation turn. User abort and exhausted/non-recoverable failures are never retried. */
+  async runResilient(
+    instruction: string,
+    opts: {
+      signal?: AbortSignal;
+      images?: ImageAttachment[];
+      internal?: boolean;
+      maxRecoveries?: number;
+    } = {},
+  ): Promise<string> {
+    const state = {
+      count: 0,
+      max: Math.max(0, Math.min(opts.maxRecoveries ?? 2, 5)),
+    };
+    return this.runWithRecovery(instruction, opts.signal, opts.images, Boolean(opts.internal), state, instruction);
+  }
+
+  private async runWithRecovery(
+    instruction: string,
+    signal: AbortSignal | undefined,
+    images: ImageAttachment[] | undefined,
+    internal: boolean,
+    state: { count: number; max: number },
+    goal: string,
+    stepLimit?: number,
+    yieldOnStepLimit = false,
+  ): Promise<string> {
+    let next = instruction;
+    let nextImages = images;
+    let nextInternal = internal;
+    while (true) {
+      try { return await this.runLoop(next, signal, nextImages, nextInternal, stepLimit, yieldOnStepLimit); }
+      catch (error) {
+        const failure = error instanceof Error ? error : null;
+        if (signal?.aborted || !failure || !isRecoverableProviderInterruption(failure) || state.count >= state.max) throw error;
+        state.count++;
+        const reason = providerRecoveryReason(failure);
+        this.emit("recovery", { attempt: state.count, max: state.max, reason });
+        // The partial assistant/tool journal and recovery decision must reach the session store before
+        // another provider request can observe or extend them.
+        await this.durableCheckpoint();
+        const delayMs = providerRecoveryDelayMs(failure, state.count);
+        if (delayMs > 0) await interruptibleDelay(delayMs, signal);
+        next = `PROVIDER RECOVERY (${state.count}/${state.max}). Goal: "${goal}". ` +
+          "The prior provider stream ended after its safe replay boundary. Its partial assistant output " +
+          "is preserved in the durable conversation. Continue from that exact checkpoint; do not repeat " +
+          "a mutation whose outcome is unknown. Inspect actual state first when needed, then finish the task.";
+        nextImages = undefined;
+        nextInternal = true;
+      }
+    }
+  }
+
+  /** Background bash or open todos mean the closed loop still has unfinished work. */
+  private hasPendingClosedLoopWork(): boolean {
+    if (this.tools.backgrounds.some((job) => !job.done)) return true;
+    if (this.tools.todos.some((todo) => todo.status !== "completed")) return true;
+    return false;
+  }
+
+  /** Headless `--loop` should match `--once` once the turn is idle, verified, and free of pending tools. */
+  private shouldExitClosedLoopWhenIdle(out: string): boolean {
+    if (!out.trim()) return false;
+    // A max_steps wrap-up is not a verified finish — keep reviewing under --loop / exitWhenIdle
+    // even when an artifact file already exists (HardMix regex-chess yolo A/B: broken re.json).
+    if (this.hitMaxSteps) {
+      this.hitMaxSteps = false;
+      return false;
+    }
+    if (!this.completionStatus.ok) return false;
+    if (this.hasPendingClosedLoopWork()) return false;
+    // Artifact gate + unresolved failed checks are folded into completionStatus.ok above
+    // (StateM-style anti-premature-stop / required-artifact before DONE).
+    return true;
+  }
+
+  private missingClosedLoopArtifacts(): MissingArtifact[] {
+    const goal = this.closedLoopGoal.trim();
+    if (!goal) return [];
+    const root = this.tools.root;
+    if (!root) return [];
+    return missingRequiredArtifacts(root, goal, { requireNonEmpty: true });
+  }
+
+  private closedLoopReviewNudge(): string {
+    const parts = [
+      missingArtifactReviewNudge(this.missingClosedLoopArtifacts()),
+      failedVerificationReviewNudge(this.recentFailedChecks),
+    ].filter(Boolean);
+    if (!parts.length) return "";
+    return "\n\n" + parts.join("\n\n");
+  }
+
+  private noteFailedOrPassedCheck(call: { name: string; arguments?: any }, observation: any): void {
+    // Failure-trace debt is a closed-loop concern (runUntilDone / --loop). Do not pollute
+    // ordinary Agent.run sessions with sticky unresolved-check state.
+    if (!this.closedLoopGoal.trim()) return;
+    const name = String(call.name ?? "").toLowerCase();
+    if (name !== "bash") return;
+    const command = String(call.arguments?.command ?? "").trim().replace(/\s+/g, " ");
+    if (!command) return;
+    const textObs = isText(observation) ? observation : "";
+    const failed = /^\(exit [1-9]\d* -- command FAILED\)/m.test(textObs)
+      || /\(exit [1-9]\d* -- command FAILED\)/.test(textObs)
+      || Agent.isFailedRunResult(observation);
+    const passed = /^\(exit 0\)(?:\r?\n|$)/m.test(textObs) || /^\(exit 0\)/.test(textObs);
+    if (failed) {
+      const detail = textObs.replace(/\s+/g, " ").trim().slice(0, 160);
+      this.recentFailedChecks.push(detail ? `${command.slice(0, 120)} :: ${detail}` : command.slice(0, 160));
+      if (this.recentFailedChecks.length > 8) this.recentFailedChecks = this.recentFailedChecks.slice(-8);
+      return;
+    }
+    if (passed) {
+      // Any successful bash clears unresolved failure debt (execution evidence adapted the run).
+      this.recentFailedChecks = [];
+    }
+  }
+
+
+  /** Closed-loop runner (agent-looping, "closed" variant): do the goal, then self-review against
+   * a high bar and fix gaps, repeating until the model replies DONE or maxIters is hit. A provider
+   * inactivity timeout resumes from the durable trajectory with bounded retries; this is not a total
+   * wall-clock deadline, and an explicit user abort is never retried.
+   *
+   * `exitWhenIdle` (CLI `neko run --loop`): when the implementer finishes with no pending tools/todos
+   * and completion is already ok, stop like `--once` instead of starting another review that can hang
+   * headless evals. Interactive `/auto` keeps the full supervisor path by omitting this flag. */
+  async runUntilDone(
+    goal: string,
+    opts: {
+      maxIters?: number;
+      signal?: AbortSignal;
+      maxStallRecoveries?: number;
+      implementationRoundSteps?: number;
+      /** When true, skip further closed-loop reviews once idle + verified + no pending tools. */
+      exitWhenIdle?: boolean;
+    } = {},
+  ): Promise<string> {
+    const maxIters = Math.max(1, Math.min(opts.maxIters ?? 6, 20));
+    const maxStallRecoveries = Math.max(0, Math.min(opts.maxStallRecoveries ?? 2, 5));
+    const recoveryState = { count: 0, max: maxStallRecoveries };
+    const implementationRoundSteps = opts.implementationRoundSteps === undefined
+      ? undefined
+      : Math.max(1, Math.min(this.maxSteps, Math.floor(opts.implementationRoundSteps)));
+    const runResumable = (instruction: string, internal = false, stepLimit?: number) => this.runWithRecovery(
+      instruction,
+      opts.signal,
+      undefined,
+      internal,
+      recoveryState,
+      goal,
+      stepLimit,
+      stepLimit !== undefined,
+    );
+    const exitWhenIdle = Boolean(opts.exitWhenIdle);
+    this.closedLoopGoal = goal;
+    this.recentFailedChecks = [];
+    this.hitMaxSteps = false;
+    const outerTurnSystemContext = this.turnSystemContext;
+    const projectContract = (contract: CompletionContract) => {
+      this.turnSystemContext = [
+        outerTurnSystemContext,
+        completionImplementationInstruction(goal, contract),
+      ].filter(Boolean).join("\n\n");
+    };
+    this.completionContractFinal = false;
+    this.runUntilDoneActive = true;
+    this.emit("completion_phase", {
+      phase: this.completionSupervisor ? "contract" : "implementation",
+    });
+    try {
+      // exitWhenIdle (CLI --loop): skip independent contract create/repair — those structured calls
+      // are a common headless hang after the model already finished. Interactive /auto keeps them.
+      if (this.completionSupervisor && !exitWhenIdle) {
+        try {
+          if (!this.completionContractState || this.completionContractState.goal !== goal) {
+            const remainingMs = this.workDeadlineAt === undefined
+              ? undefined
+              : Math.max(0, this.workDeadlineAt - Date.now());
+            const creationBudgetMs = remainingMs === undefined
+              ? undefined
+              : Math.max(100, Math.min(180_000, Math.floor(remainingMs * 0.2)));
+            const phaseSignal = creationBudgetMs === undefined
+              ? opts.signal
+              : opts.signal
+                ? AbortSignal.any([opts.signal, AbortSignal.timeout(creationBudgetMs)])
+                : AbortSignal.timeout(creationBudgetMs);
+            const built = await this.completionSupervisor.create(goal, phaseSignal);
+            this.cost.add(built.usage);
+            this.completionContractState = createCompletionContract(goal, built.value);
+            this.emit("completion_contract", {
+              revision: this.completionContractState.revision,
+              criteria: this.completionContractState.criteria.length,
+            });
+            await this.durableCheckpoint();
+          }
+          if (this.completionContractState) projectContract(this.completionContractState);
+        } catch (error) {
+          const detail = error instanceof Error ? error.message : String(error);
+          if (this.workDeadlineAt !== undefined && !opts.signal?.aborted) {
+            this.completionContractState = degradedCompletionContract(goal);
+            this.emit("completion_contract_degraded", detail);
+            await this.durableCheckpoint();
+            projectContract(this.completionContractState);
+          } else {
+            this.completionContractState = undefined;
+            this.emit("completion_contract_unavailable", detail);
+          }
+        }
+      }
+
+      this.emit("completion_phase", { phase: "implementation" });
+
+      // Headless `--loop` / exitWhenIdle: implement once, then keep reviewing ONLY while verification
+      // debt or pending tools remain. Skips the independent supervisor (create/repair/review can hang
+      // on stalled structured calls after a trivial DONE). Interactive `/auto` omits exitWhenIdle.
+      if (exitWhenIdle) {
+        let out = await runResumable(goal);
+        for (let i = 1; i < maxIters; i++) {
+          if (opts.signal?.aborted || out === "[interrupted]") return out;
+          if (this.shouldExitClosedLoopWhenIdle(out)) {
+            this.emit("completion_phase", { phase: "finalization" });
+            return out;
+          }
+          out = await runResumable(
+            `CLOSED-LOOP REVIEW (pass ${i + 1}/${maxIters}). Goal: "${goal}".\n` +
+              `First RE-INSPECT the ACTUAL current state (re-run the check / re-read the file / re-screenshot ` +
+              `or re-read the UI) — judge what IS, not your memory of what you intended. Then compare against ` +
+              `the supplied source/docs and observable runtime output or side effects; use independent evidence, ` +
+              `not only the same happy-path check you authored. Run available repository tests from a clean state, ` +
+              `then remove disposable validation artifacts while preserving intended deliverables. If the deliverable ` +
+              `is a program, an output recreated by a clean run is disposable even when the goal names its path. Compare against ` +
+              `the goal and a high quality bar. If it is FULLY met, reply with exactly "DONE" and nothing else. ` +
+              `Otherwise, keep working: do the next concrete step now (don't stop until the goal is achieved).` + this.closedLoopReviewNudge(),
+            true,
+          );
+          if (/^\s*done[.!]?\s*$/i.test(out) && this.shouldExitClosedLoopWhenIdle(out)) {
+            this.emit("completion_phase", { phase: "finalization" });
+            return out;
+          }
+        }
+        this.emit("completion_phase", { phase: "finalization" });
+        return out;
+      }
+
+      if (this.completionSupervisor && this.completionContractState) {
+        let instruction = goal;
+        let out = "";
+        let previousGap: { artifactRevision: number; signature: string } | undefined;
+        for (let i = 0; i < maxIters; i++) {
+          out = await runResumable(instruction, i > 0, implementationRoundSteps);
+          if (opts.signal?.aborted || out === "[interrupted]") return out;
+          let contract: CompletionContract = this.completionContractState;
+          let review: CompletionReview | undefined;
+          for (let validationAttempt = 0; validationAttempt < 2; validationAttempt++) {
+            this.emit("completion_phase", { phase: "validation" });
+            try {
+              const reviewed = await this.completionSupervisor.review(contract, opts.signal);
+              this.cost.add(reviewed.usage);
+              contract = applyCompletionReview(contract, reviewed.value, this.mutationEpoch);
+            } catch (error) {
+              contract = applyCompletionReview(contract, {
+                verdict: "blocked",
+                findings: [`Independent validator unavailable: ${error instanceof Error ? error.message : String(error)}`],
+              }, this.mutationEpoch);
+            }
+            this.completionContractState = contract;
+            projectContract(contract);
+            review = contract.lastReview!;
+            this.emit("completion_review", {
+              revision: contract.revision,
+              instrumentRevision: contract.instrumentRevision ?? 1,
+              verdict: review.verdict,
+              findings: review.findings.length,
+              coverage: completionCoverage(contract),
+            });
+            await this.durableCheckpoint();
+            const measurementOnlyBlock = review.verdict === "blocked"
+              && review.evidence.some((row) => row.status !== "passed")
+              && review.evidence.every((row) => row.status !== "failed")
+              && !review.findings.some((finding) => finding.startsWith("Independent validator unavailable:"));
+            if (!measurementOnlyBlock || validationAttempt > 0) break;
+            this.emit("completion_recheck", { revision: contract.revision, reason: "inconclusive_measurement" });
+          }
+          if (!review) throw new Error("completion validator produced no review");
+          // Independent supervisor pass resolves outcome_unverified without replaying mutations.
+          // Do this before completionStatus: HardMix host artifact scans must not block a
+          // criterion-level pass (fixtures / remote workspaces may lack the host path).
+          const independentlyVerified = this.unverifiedState && review.verdict === "pass";
+          if (independentlyVerified) {
+            this.unverifiedState = false;
+            this.emit("completion_phase", { phase: "finalization" });
+            return this.recordFinal("Independent verification passed for the current artifact revision; all completion criteria are satisfied.");
+          }
+          const validation = this.completionStatus;
+          if (review.verdict === "pass" && validation.ok) {
+            this.emit("completion_phase", { phase: "finalization" });
+            return out;
+          }
+          if (review.verdict === "blocked" || i === maxIters - 1
+            || review.findings.some((finding) => finding.startsWith("Independent validator unavailable:"))) {
+            this.emit("completion_phase", { phase: "finalization" });
+            return out;
+          }
+
+          const signature = completionGapSignature(contract, review, validation);
+          if (previousGap?.artifactRevision === review.artifactRevision && previousGap.signature === signature) {
+            this.emit("completion_no_progress", {
+              revision: contract.revision,
+              artifactRevision: review.artifactRevision,
+            });
+            this.emit("completion_phase", { phase: "finalization" });
+            return out;
+          }
+          previousGap = { artifactRevision: review.artifactRevision, signature };
+
+          const unresolved = review.evidence
+            .filter((row) => row.status !== "passed")
+            .map((row) => {
+              const criterion = contract.criteria.find((item) => item.id === row.criterionId)!;
+              return `- ${criterion.id} [${criterion.coverageArea ?? "general"}; weight ${criterion.weight ?? 1}]: ${criterion.requirement}`;
+            });
+          const findings = review.findings.map((finding) => `- ${finding}`);
+          if (!validation.ok) findings.push(`- Required project validation is still unresolved${validation.command ? `: ${validation.command}` : "."}`);
+          instruction = [
+            `INDEPENDENT COMPLETION REVIEW (${i + 1}/${maxIters}) found the artifact is not ready.`,
+            "Address these outcome-level gaps without weakening the original requirements. Re-inspect before changing anything, then implement and verify the next coherent fix.",
+            ...findings,
+            ...unresolved,
+          ].slice(0, 16).join("\n");
+          this.emit("completion_phase", { phase: "implementation" });
+        }
+        return out;
+      }
+
+      let out = await runResumable(goal);
+      for (let i = 1; i < maxIters; i++) {
+        if (opts.signal?.aborted || out === "[interrupted]") return out;
+        // Explicit DONE (or exitWhenIdle) with no pending tools: stop like `--once`.
+        if (/^\s*done[.!]?\s*$/i.test(out) && this.shouldExitClosedLoopWhenIdle(out)) break;
+        out = await runResumable(
+          `CLOSED-LOOP REVIEW (pass ${i + 1}/${maxIters}). Goal: "${goal}".\n` +
+            `First RE-INSPECT the ACTUAL current state (re-run the check / re-read the file / re-screenshot ` +
+            `or re-read the UI) — judge what IS, not your memory of what you intended. Then compare against ` +
+            `the supplied source/docs and observable runtime output or side effects; use independent evidence, ` +
+            `not only the same happy-path check you authored. Run available repository tests from a clean state, ` +
+            `then remove disposable validation artifacts while preserving intended deliverables. If the deliverable ` +
+            `is a program, an output recreated by a clean run is disposable even when the goal names its path. Compare against ` +
+            `the goal and a high quality bar. If it is FULLY met, reply with exactly "DONE" and nothing else. ` +
+            `Otherwise, keep working: do the next concrete step now (don't stop until the goal is achieved).` + this.closedLoopReviewNudge(),
+          true,
+        );
+        if (/^\s*done[.!]?\s*$/i.test(out) && this.shouldExitClosedLoopWhenIdle(out)) break;
+      }
+      return out;
+    } finally {
+      this.turnSystemContext = outerTurnSystemContext;
+      this.runUntilDoneActive = false;
+      // Keep closedLoopGoal / recentFailedChecks so completionStatus still reflects
+      // artifact and failed-check debt after the closed loop returns (harness gates).
+      this.completionContractFinal = Boolean(this.completionContractState);
+    }
+  }
+
+  /** Refresh the live session context (env + project + memory) held INSIDE the single base
+   * system message — so a mid-session model switch or NEKO.md edit is reflected at once, without ever
+   * emitting a second system message (which breaks tool-calling on some templates). */
+  private refreshDynamicContext(): void {
+    if (!this.dynamicContext) return;
+    this.messages = this.messages.filter((m) => !m.dynamic); // migrate legacy two-system sessions
+    const sys = this.messages.find((m) => m.role === "system");
+    if (!sys || !isText(sys.content)) return;
+    const base = sys.content.split(SESSION_CONTEXT_MARK)[0];
+    const text = this.dynamicContext();
+    sys.content = text ? `${base}${SESSION_CONTEXT_MARK}${text}` : base;
+  }
+
+  /** Replace the base system message with the current systemPrompt — so prompt improvements apply
+   * to a RESUMED session (whose saved messages bake in whatever prompt was current when it ran). */
+  refreshSystemPrompt(): void {
+    const sys = this.messages.find((m) => m.role === "system");
+    if (!sys || !isText(sys.content)) return;
+    const dyn = sys.content.split(SESSION_CONTEXT_MARK)[1]; // preserve any live session-context tail
+    sys.content = this.systemPrompt + (dyn !== undefined ? SESSION_CONTEXT_MARK + dyn : "");
+  }
+
+  /** Append text to the base system prompt (used by /skill). Inserted before the live session-context
+   * tail so the next refresh doesn't strip it. Seeds the base prompt if there's no system message. */
+  appendSystem(text: string): void {
+    const sys = this.messages.find((m) => m.role === "system");
+    if (!sys || !isText(sys.content)) {
+      this.messages.unshift({ role: "system", content: this.systemPrompt + "\n\n" + text });
+      return;
+    }
+    const [base, dyn] = sys.content.split(SESSION_CONTEXT_MARK);
+    sys.content = `${base}\n\n${text}` + (dyn !== undefined ? SESSION_CONTEXT_MARK + dyn : "");
+  }
+
+    /** Execute a tool but NEVER throw: a malformed/failed tool call (e.g. a model emitting web_fetch with no
+     * `url`, or any executor that throws) becomes an error OBSERVATION the model can recover from, instead of
+     * rejecting the whole turn. The loop is built on "feed errors back so the model adapts" — this enforces it
+     * for every tool, not just the ones already wrapped inside execute(). */
+    private async safeExecute(call: { name: string; arguments: any }, signal?: AbortSignal): Promise<string | any[]> {
+      const args = unwrapToolArgs(call.arguments); // tolerate _raw / JSON-string arg wrappers from some models
+      // Reject missing required keys before execution; unknown schemas remain executor-owned.
+      const spec = this.tools.schemas().find((s: any) => s.function?.name === call.name)?.function?.parameters;
+      const missing = (spec?.required ?? []).filter((k: string) => args?.[k] == null);
+      if (missing.length) {
+        const hint = missing
+          .map((k: string) => `'${k}' (${spec.properties?.[k]?.type ?? "value"}${spec.properties?.[k]?.description ? ` - ${String(spec.properties[k].description).slice(0, 80)}` : ""})`)
+          .join(", ");
+        return `Error: argument validation failed for ${call.name} - missing required ${hint}. Re-emit the call with the missing argument(s) filled in.`;
+      }
+      try {
+        return await this.tools.execute(call.name, args, signal,
+          call.name === "read_file" && this.tools.taskScope
+            ? (source) => this.readFileSources.set(call, source) : undefined, this.toolOperations.get(call));
+      } catch (error) {
+        return `Error running ${call.name}: ${error instanceof Error ? error.message : String(error)}`;
+      }
+    }
+
+    /** The BROAD doom-loop guard (distinct from the exact-repeat `lastSig` guard). Catches the two loops the
+     * exact guard structurally cannot: (1) editing the SAME path with DIFFERENT args N times (every sig
+     * differs, so the exact guard never trips), and (2) re-running a failing bash command N times with tiny
+     * tweaks. Returns a ONE-TIME nudge string when the per-path edit cap is first reached (the caller runs
+     * the edit anyway and APPENDS this as a warning — it never blocks a legit edit), else null. */
+    private broadLoopNudge(call: { name: string; arguments: any }): string | null {
+      if (EDIT_TOOLS.has(call.name)) {
+        const p = String(call.arguments?.path ?? "");
+        if (p) {
+          const n = (this.editsPerPath.get(p) ?? 0) + 1;
+          this.editsPerPath.set(p, n);
+          if (n === EDIT_PER_PATH_CAP) { // fire ONCE at the cap, not on every later edit
+            return `[loop guard] You've edited "${p}" ${n} times this run and it's still not right. ` +
+              "Stop micro-editing the same file: step back, re-read the actual current state, reconsider your " +
+              "approach (is the root cause elsewhere?), then act — or give your final answer.";
+          }
+        }
+      }
+      return null;
+    }
+
+    /** A bash/test result "failed" if it carries a non-zero exit tag (see tool-runtime.ts: `(exit N -- command FAILED)`),
+     * a timeout, or an explicit error. Used to count CONSECUTIVE failing runs for the broad guard. */
+    private static isFailedRunResult(obs: any): boolean {
+      return classifyToolObservation(obs) === "failed";
+    }
+
+    /** A tool result that moved NOTHING forward: a failed run, or an EMPTY value ([], {}, "", null, 0). Empty
+     * results back-to-back are the signature of a doom-loop of selector probes on an obfuscated page (e.g. a
+     * Facebook feed) - the exact-repeat guard misses it because every selector differs. Handles the MCP
+     * "### Result\n[]" wrapper as well as a bare value. */
+    private static isUnproductiveResult(obs: any): boolean {
+      return classifyToolObservation(obs) !== "productive";
+    }
+
+    private static isToolchainCommand(call: { name: string; arguments?: any }): boolean {
+      if (call.name.toLowerCase() !== "bash") return false;
+      return /\b(?:bun|node|npm|npx|pnpm|yarn|deno)(?:\.exe)?\b/i.test(String(call.arguments?.command ?? ""));
+    }
+
+    private static isToolchainCapabilityFailure(
+      call: { name: string; arguments?: any },
+      observation: any,
+    ): boolean {
+      if (!Agent.isToolchainCommand(call) || !isText(observation) || !Agent.isFailedRunResult(observation)) return false;
+      return /(command not found|not recognized as|no such file|cannot find|permission denied|access is denied|operation not permitted|network (?:is )?(?:blocked|denied)|\b403\b)/i
+        .test(observation);
+    }
+
+    private static isStateChangingCall(call: { name: string; arguments?: any }): boolean {
+      const name = call.name.toLowerCase();
+      if (name === "task") return !taskDelegatesReadOnly(call.arguments);
+      if (name === "bash") return !Agent.isClearlyReadOnlyBash(call.arguments);
+      if (MUTATING_TOOLS.has(name)) return true;
+      // Meeting capture is an adapter-owned state machine. Keep the core free of adapter
+      // dependencies, but classify its public contract explicitly so start/stop/transcribe/delete
+      // cannot be declared complete from their action response alone. A fresh bounded inspect is
+      // the independent evidence. Emergency stop remains permission-safe even though it changes
+      // state: reducing access must never be approval-blocked.
+      if (/^mcp__neko_meeting__(?:start|stop|transcribe|delete)$/.test(name)) return true;
+      if (name === "computer") {
+        return !new Set([
+          "list", "read", "get", "watch", "wait", "screenshot", "display",
+          "status", "observe", "acquire", "release",
+        ]).has(String(call.arguments?.action ?? "").toLowerCase());
+      }
+      // MCP browser adapters are outside core's static registry. Their read-only snapshot/content
+      // tools deliberately do not match these common state-changing suffixes.
+      return /(?:^|__)(?:(?:browser_)?(?:click|type|fill|press_key|select_option|drag|upload_file|navigate|go_back|close|evaluate|run_code)|apply|render)$/.test(name);
+    }
+
+    /** Fail-closed shell effect classifier used only by the completion verifier. It does not change
+     * approvals or execution. A tiny whitelist avoids charging an extra model round for commands such
+     * as `echo ok`; any shell composition, substitution, redirection, backgrounding, or unknown command
+     * remains state-changing because it may alter files/processes or user-visible state. */
+    private static isClearlyReadOnlyBash(args?: any): boolean {
+      if (args?.run_in_background === true) return false;
+      const command = String(args?.command ?? "").trim();
+      if (!command || /[\r\n;&|<>`()]/.test(command) || /\$\(|@\(/.test(command)) return false;
+      const words = command.match(/(?:[^\s"']+|"[^"]*"|'[^']*')+/g) ?? [];
+      const executable = String(words[0] ?? "").toLowerCase();
+      if (new Set([
+        ":", "echo", "printf", "pwd", "whoami", "hostname", "uname", "date", "true", "false",
+        "ls", "dir", "cat", "head", "tail", "wc", "stat", "file", "readlink", "realpath",
+        "rg", "grep",
+      ]).has(executable)) return true;
+      if (executable !== "git") return false;
+      const subcommand = String(words[1] ?? "").toLowerCase();
+      return new Set(["status", "diff", "log", "show", "rev-parse", "ls-files", "grep", "describe"]).has(subcommand);
+    }
+
+    private isMechanicalReadCall(call: { name: string; arguments?: any }): boolean {
+      const name = call.name.toLowerCase();
+      if (name === "bash") return Agent.isClearlyReadOnlyBash(call.arguments);
+      if (new Set(["read_file", "search", "glob", "ls", "disk_cleanup_scan", "web_search", "web_fetch", "mcp_load"]).has(name)) return true;
+      if (name === "computer") {
+        return new Set(["list", "read", "get", "display", "watch", "wait", "screenshot", "status", "observe"])
+          .has(String(call.arguments?.action ?? "").toLowerCase());
+      }
+      return this.tools.mcp?.permission?.(name) === "safe";
+    }
+
+    /** Waiting for the next event is intentionally repeatable: equal arguments observe a different time
+     * interval. The ordinary exact-call guard still protects every non-temporal tool. */
+    private isRepeatableWaitCall(call: { name: string; arguments?: any }): boolean {
+      const name = call.name.toLowerCase();
+      if (name === "computer") {
+        return new Set(["watch", "wait"]).has(String(call.arguments?.action ?? "").toLowerCase());
+      }
+      return this.tools.mcp?.permission?.(name) === "safe" && this.tools.mcp.temporal?.(name) === true;
+    }
+
+    private static isVerificationEvidenceCall(call: { name: string; arguments?: any }, observation: any): boolean {
+      if ((isText(observation) && Agent.isUnproductiveResult(observation)) || observation == null) return false;
+      const name = call.name.toLowerCase();
+      if (name === "computer") {
+        return new Set(["list", "read", "get", "watch", "screenshot", "display", "status", "observe"])
+          .has(String(call.arguments?.action ?? "").toLowerCase());
+      }
+      if (EDIT_TOOLS.has(name) || Agent.isStateChangingCall(call)) return name === "bash";
+      return !new Set(["todo_write", "skill", "memory", "workflow", "playbook"]).has(name);
+    }
+
+  /** Seal any tool_call left UNANSWERED by an interrupted turn (Esc/abort can stop the loop right after
+   * the model emitted tool_calls, before their results are appended). A resumed session with a dangling
+   * tool_call makes the provider reject the very next request ("tool_use with no tool_result"), which
+   * looked like a broken/lost session. Add a synthetic result for each missing call so the trajectory
+   * stays valid. Only the most-recent assistant tool-call batch can dangle. */
+  sealDanglingToolCalls(): void {
+    for (let i = this.messages.length - 1; i >= 0; i--) {
+      const m = this.messages[i];
+      if (m.role === "user") return; // a later user turn means earlier calls were all answered
+      if (m.role === "assistant" && Array.isArray(m.tool_calls) && m.tool_calls.length) {
+        const answered = new Set<string>();
+        let insertAt = i + 1;
+        for (let j = i + 1; j < this.messages.length; j++) {
+          if (this.messages[j].role === "tool") { answered.add(this.messages[j].tool_call_id); insertAt = j + 1; }
+          else break; // tool results directly follow their assistant message
+        }
+        const missing = m.tool_calls.filter((tc: any) => !answered.has(tc.id || tc.function?.name));
+        if (missing.length) {
+          const synthetic = missing.map((tc: any) => ({
+            role: "tool",
+            tool_call_id: tc.id || tc.function?.name,
+            content: "[interrupted while this tool call was in flight; outcome unknown. Inspect actual state before any retry.]",
+          }));
+          this.messages.splice(insertAt, 0, ...synthetic);
+        }
+        return;
+      }
+    }
+  }
+
+  /** Run the loop until the model is done or maxSteps is hit. Returns the final text.
+   * Pass an AbortSignal to support Esc-to-interrupt (stops cleanly between/within steps).
+   * `images` (data: URLs) attach as OpenAI vision content — used by paste-image (needs a vision model). */
+  // `internal` is local provenance for controller-generated turns; providerHistory() removes it.
+  async run(instruction: string, signal?: AbortSignal, images?: ImageAttachment[], internal = false): Promise<string> {
+    this.assertContextReady();
+    // Ordinary turns are not closed-loop; drop leftover harness gate state.
+    this.closedLoopGoal = "";
+    this.recentFailedChecks = [];
+
+    return this.runLoop(instruction, signal, images, internal);
+  }
+
+  private async runLoop(
+    instruction: string,
+    signal?: AbortSignal,
+    images?: ImageAttachment[],
+    internal = false,
+    stepLimit?: number,
+    yieldOnStepLimit = false,
+  ): Promise<string> {
+    this.assertHostEffectsReady();
+    const runStepLimit = stepLimit === undefined
+      ? this.maxSteps
+      : Math.max(1, Math.min(this.maxSteps, Math.floor(stepLimit)));
+    const runMessageStart = this.messages.length;
+    // These guards are scoped to one human turn. Carrying them across independent Agent.run calls
+    // makes a later task inherit an unrelated failure/edit streak from an earlier conversation turn.
+    this.editsPerPath.clear();
+    this.consecutiveUnproductive = 0;
+    if (!internal) {
+      this.mutationEpoch = 0;
+      this.validationExpected = false;
+      this.validationResult = undefined;
+      this.unverifiedState = false;
+      if (!this.runUntilDoneActive) {
+        this.completionContractState = undefined;
+        this.completionContractFinal = false;
+      }
+    }
+    if (!this.messages.length) {
+      this.messages.push({ role: "system", content: this.systemPrompt });
+    }
+    // A crash can leave the last streamed assistant segment marked as in-flight. The text is valid
+    // recovery context, but the marker is Neko-local metadata and must never cross a provider boundary.
+    for (const message of this.messages) if (message?._neko_inflight) delete message._neko_inflight;
+    this.sealDanglingToolCalls(); // an interrupted/resumed turn can leave tool_calls unanswered
+    this.refreshDynamicContext();
+    const content = images && images.length
+      ? imageContent(instruction, images)
+      : instruction;
+    this.messages.push({ role: "user", content, _neko_internal: internal });
+    this.cost.efficiency.resetObservations();
+
+    let lastSig = ""; // loop guard: detect the model repeating the same tool call (a stuck loop)
+    let repeats = 0;
+    let mutErrored = false; // tool-error recovery is EDGE-triggered: re-armed by a mutating-tool success
+    let verifiedExit = false; // the pre-completion verify gate fires at most once per run
+    let planExitChecked = false; // an unfinished todo plan gets one persistence nudge before exit
+    let validationExitChecked = false; // unresolved validator debt gets one targeted recovery round
+    let changedRealState = this.unverifiedState;
+    let stateVerificationRequested = false;
+    let stateVerificationReminderSent = false;
+    let stateVerificationEvidence = false;
+    let completionVerificationEvidence = false;
+    const freshFactVerificationRequired = !internal && requiresFreshFactVerification(instruction);
+    let freshFactVerificationRequested = false;
+    let freshFactVerificationEvidence = false;
+    let offlineSovereigntyAnswerRequested = false;
+    let nextReasoningEffort: string | undefined;
+    let consecutiveReadSteps = 0; // adaptive effort: only lower reasoning on a SUSTAINED all-read pattern
+    let toolchainCapabilityFailures = 0;
+    let toolchainCircuitOpen = false;
+    let deliveryPhase = false;
+    let deliveryEditRequired = false;
+    let nonEditStepsSinceDelivery = 0;
+    let successfulEditThisStep = false;
+    const hasFreshValidation = () => this.validationResult?.epoch === this.mutationEpoch
+      && this.validationResult.authoritative
+      && this.validationResult.ok;
+    const noteTool = (call: { name: string; arguments?: any }, observation: any) => {
+      const changesState = Agent.isStateChangingCall(call);
+      const verifiesState = Agent.isVerificationEvidenceCall(call, observation);
+      const failed = observation == null || Agent.isUnproductiveResult(observation);
+      this.noteFailedOrPassedCheck(call, observation);
+      this.cost.efficiency.observeTool(JSON.stringify([call.name, call.arguments]), isText(observation) ? observation : null,
+        changesState, failed, !this.isMechanicalReadCall(call) || this.isRepeatableWaitCall(call));
+      if (!failed && isFreshFactWebTool(call.name)) freshFactVerificationEvidence = true;
+      const validationCommand = call.name.toLowerCase() === "bash"
+        && (isValidationBashCommand(String(call.arguments?.command ?? ""))
+          || this.tools.isValidationBashCommand?.(String(call.arguments?.command ?? ""), call.arguments) === true);
+      if (validationCommand) {
+        const syntaxPreservesExit = hasAuthoritativeValidatorExit(String(call.arguments?.command ?? ""), call.arguments);
+        const foregroundCompleted = isText(observation) && /^\(exit 0\)(?:\r?\n|$)/.test(observation);
+        const foregroundFailed = isText(observation) && /^\(exit [1-9]\d* -- command FAILED\)(?:\r?\n|$)/.test(observation);
+        const authoritative = syntaxPreservesExit && (foregroundCompleted || foregroundFailed);
+        const candidate = {
+          epoch: this.mutationEpoch,
+          command: String(call.arguments?.command ?? "").trim(),
+          ok: authoritative && foregroundCompleted && !failed,
+          authoritative,
+          ...((failed || !authoritative) && isText(observation)
+            ? { detail: observation.replace(/\s+/g, " ").trim().slice(0, 500) }
+            : undefined),
+        };
+        const current = this.validationResult?.epoch === this.mutationEpoch ? this.validationResult : undefined;
+        this.validationExpected = true;
+        if (candidate.authoritative || !current?.authoritative) this.validationResult = candidate;
+      }
+      // Only a SUCCESSFUL state-changing call advances the epoch. A rejected edit or a sandbox
+      // dependency error changed no known state and must not manufacture verification work.
+      if (changesState && !failed) {
+        // A later bash can be the verifier for an earlier write/bash (tests, exact-byte checks), but the
+        // first state-changing call cannot verify itself. Other mutations invalidate older evidence.
+        stateVerificationEvidence = changedRealState && call.name.toLowerCase() === "bash" && verifiesState;
+        completionVerificationEvidence = stateVerificationEvidence;
+        changedRealState = true;
+        // Validators may create caches/build output, but they observe the current source epoch rather
+        // than defining a new source state that would immediately invalidate their own result.
+        if (!validationCommand) {
+          this.mutationEpoch++;
+          stateVerificationRequested = false;
+          stateVerificationReminderSent = false;
+        }
+        if (EDIT_TOOLS.has(call.name.toLowerCase())) {
+          successfulEditThisStep = true;
+          deliveryEditRequired = false;
+          nonEditStepsSinceDelivery = 0;
+        }
+      } else if (verifiesState) {
+        completionVerificationEvidence = true;
+        if (changedRealState) stateVerificationEvidence = true;
+      }
+      this.unverifiedState = this.verifyStateChangesBeforeExit && changedRealState && !stateVerificationEvidence;
+      if (this.runUntilDoneActive && ((changesState && !failed) || validationCommand)) {
+        const currentValidation = this.validationResult?.epoch === this.mutationEpoch
+          ? this.validationResult
+          : undefined;
+        this.emit("completion_progress", {
+          mutationEpoch: this.mutationEpoch,
+          artifactCheckpoint: changesState && !failed && EDIT_TOOLS.has(call.name.toLowerCase()),
+          validationState: !this.validationExpected
+            ? "not_started"
+            : !currentValidation?.authoritative
+              ? "pending"
+              : currentValidation.ok
+                ? "passed"
+                : "failed",
+        });
+      }
+    };
+    let budgetNudges = 0; // SOTA "completion predicate": remind the model to LAND the deliverable near the budget edge
+    const workStartedAt = Date.now();
+    for (let step = 0; step < runStepLimit; step++) {
+      successfulEditThisStep = false;
+      this.emit("step", step + 1);
+      await this.durableCheckpoint(); // user prompt / prior tool result is durable before provider work
+      if (signal?.aborted) return "[interrupted]";
+      // Compact before a long single turn can overflow the next provider request.
+      const availableToolSchemas = this.tools.schemas();
+      const deliverySchemas = deliveryEditRequired
+        ? availableToolSchemas.filter((schema: any) => EDIT_TOOLS.has(String(schema?.function?.name ?? "").toLowerCase()))
+        : [];
+      const deliveryGateActive = deliveryEditRequired && deliverySchemas.length > 0;
+      const toolSchemas = deliveryGateActive ? deliverySchemas : availableToolSchemas;
+      const executeAdmittedTool = (call: { id?: string; name: string; arguments: any }) => {
+        if (!deliveryGateActive) return this.safeExecute(call, signal);
+        if (!EDIT_TOOLS.has(call.name.toLowerCase())) {
+          return Promise.resolve("[delivery] This deadline-bounded step accepts only write_file, edit, or multi_edit. " +
+            "The requested tool was not executed; land one intended artifact checkpoint first.");
+        }
+        if (!isDeliveryArtifactEdit(call)) {
+          return Promise.resolve("[delivery] Disposable probe, scratch, and temp paths do not satisfy an artifact checkpoint. " +
+            "The write was not executed; edit the intended deliverable instead.");
+        }
+        return this.safeExecute(call, signal);
+      };
+      let estimatedTokens = estimateRequestTokens(this.providerHistory(), toolSchemas);
+      // Avoid invalidating prompt caches unless clipping saves a meaningful amount of context.
+      const editAt = Math.min(50_000, 0.5 * this.maxContextTokens);
+      if (step > 0 && estimatedTokens > editAt && this.shrinkOldObservations(5, 32_000)) {
+        estimatedTokens = estimateRequestTokens(this.providerHistory(), toolSchemas);
+      }
+      if (estimatedTokens > COMPACT_SAFETY_AT * this.maxContextTokens) {
+        // Clip old observations before paying for a summarizer call in a single long turn.
+        if (!this.shrinkOldObservations()) {
+          this.emit("compact", "auto");
+          try { await this.compact({signal}); }
+          finally { this.emit("compact_done", "auto"); }
+        }
+      }
+      // Eager execution is limited to the read-only prefix and shares the turn's abort signal.
+      const eager = new Map<string, Promise<string | any[]>>();
+      const eagerKey = (c: { id?: string; name: string; arguments?: any }) =>
+        c.id || `${c.name}:${JSON.stringify(c.arguments ?? {})}`;
+      let eagerOk = true;
+      const onToolCallReady = (call: { id: string; name: string; arguments: any }) => {
+        // In-band hosts require the canonical call and identity to be durable before any effect.
+        if (this.tools.mcp?.requiresOperationContext && this.tools.mcp.has(call.name)) return;
+        if (deliveryGateActive && !EDIT_TOOLS.has(call.name.toLowerCase())) { eagerOk = false; return; }
+        const adapterSafe = this.tools.mcp?.permission?.(call.name) === "safe";
+        if (!EAGER_SAFE.has(call.name) && !adapterSafe) { eagerOk = false; return; }
+        if (!eagerOk || signal?.aborted || eager.has(eagerKey(call))) return;
+        eager.set(eagerKey(call), executeAdmittedTool(call));
+      };
+      // Journal streamed deltas and tool results so mid-turn checkpoints contain the canonical trajectory.
+      let inflightAssistant: any | null = null;
+      let streamedContent = "";
+      let providerFinished = false;
+      let managedTrace = false;
+      let lastCheckpointAt = 0;
+      const checkpoint = (force = false, queueDurable = true) => {
+        const now = Date.now();
+        if (!force && lastCheckpointAt && now - lastCheckpointAt < 750) return;
+        lastCheckpointAt = now;
+        this.emit("checkpoint", { reason: "inflight" });
+        if (queueDurable) this.queueDurableCheckpoint();
+      };
+      const ensureInflight = () => {
+        if (!inflightAssistant) {
+          inflightAssistant = { role: "assistant", content: "", _neko_inflight: true };
+          this.messages.push(inflightAssistant);
+        }
+        return inflightAssistant;
+      };
+      const streamedDelta: DeltaHook | undefined = this.onDelta
+        ? (text, kind) => {
+            if (providerFinished || this.hostEffectsBlocked()) return;
+            if ((kind ?? "content") === "content" && text) {
+              const first = !inflightAssistant;
+              ensureInflight().content += text;
+              streamedContent += text;
+              checkpoint(first); // first durable byte of every post-tool segment lands immediately
+            }
+            this.onDelta?.(text, kind);
+          }
+        : undefined;
+      const finalizeInflight = (content: string | null, calls: ToolCall[] = [], continuation?: any[]) => {
+        const text = content ?? "";
+        const hadInflight = inflightAssistant !== null;
+        const message = inflightAssistant ?? ensureInflight();
+        // Append only a returned suffix that was not already journaled from deltas.
+        if (!hadInflight || !managedTrace) message.content = text;
+        else if (!streamedContent) message.content = text;
+        else if (text.startsWith(streamedContent)) message.content += text.slice(streamedContent.length);
+        if (calls.length) {
+          message.tool_calls = assistantToolMessage(null, calls).tool_calls;
+          const operations = calls.flatMap((call) => {
+            if (!this.tools.mcp?.requiresOperationContext || !this.tools.mcp.has(call.name)) return [];
+            // Always mint for a new canonical invocation, even if a provider reuses its ID/object.
+            const operation = createToolOperation();
+            this.toolOperations.set(call, operation);
+            return [{ toolCallId: call.id || call.name, ...operation }];
+          });
+          if (operations.length) message._neko_tool_operations = operations;
+        }
+        if (continuation?.length) message.provider_data = continuation;
+        delete message._neko_inflight;
+        inflightAssistant = null;
+        return message;
+      };
+      const providerStop = new AbortController();
+      const providerSignal = signal ? AbortSignal.any([signal, providerStop.signal]) : providerStop.signal;
+      let managedToolChain: Promise<void> = Promise.resolve();
+      const executeTool = (call: { id: string; name: string; arguments: any }): Promise<string | any[]> => {
+        if (providerFinished) return Promise.reject(new Error("Provider turn is already closed"));
+        managedTrace = true;
+        // Serialize callbacks to preserve assistant-call/tool-result ordering on resume.
+        const task = managedToolChain.then(async () => {
+          this.assertHostEffectsReady();
+          // Persist provider-managed calls before execution so crash recovery records unknown outcomes.
+          finalizeInflight(null, [call]);
+          checkpoint(true, false);
+          this.emit("tool_call", call);
+          await this.durableCheckpoint();
+          const observation = await executeAdmittedTool(call);
+          noteTool(call, observation);
+          const sourceError = this.appendToolObservation(call, observation);
+          this.emit("tool_result", { call, observation });
+          await this.durableCheckpoint(); // completed outcome is durable before the managed provider continues
+          if (sourceError) throw sourceError;
+          if (this.hostEffectsBlocked()) {
+            providerStop.abort();
+            throw new Error("Host effect suspended; provider continuation stopped");
+          }
+          return observation;
+        });
+        managedToolChain = task.then(() => undefined, () => undefined);
+        return task;
+      };
+      let response;
+      let latestUsage: Usage | undefined;
+      // Publish a monotonic estimate until authoritative provider usage arrives.
+      this.emit("usage_estimate", {
+        prompt_tokens: this.cost.promptTokens + estimateRequestTokens(this.providerHistory(), toolSchemas),
+      });
+      // Rebase call-local live usage onto the accumulated turn total.
+      const usageBase = {
+        prompt: this.cost.promptTokens,
+        completion: this.cost.completionTokens,
+        total: this.cost.totalTokens,
+        cached: this.cost.cachedTokens,
+        calls: this.cost.calls,
+      };
+      const publishUsage = (usage: Usage) => {
+        latestUsage = usage;
+        this.emit("usage", {
+          prompt_tokens: usageBase.prompt + (usage.prompt_tokens ?? 0),
+          completion_tokens: usageBase.completion + (usage.completion_tokens ?? 0),
+          total_tokens: usageBase.total + (usage.total_tokens ?? 0),
+          cached_tokens: usageBase.cached + (usage.cached_tokens ?? 0),
+          context_tokens: usage.context_tokens,
+          context_cached_tokens: usage.context_cached_tokens,
+          model_calls: usageBase.calls + Math.max(1, usage.model_calls ?? 1),
+        } satisfies Usage);
+      };
+      try {
+        response = await this.completeMeasured(
+          this.providerHistory(),
+          toolSchemas,
+          streamedDelta,
+          providerSignal,
+          {
+            onToolCallReady,
+            executeTool,
+            onUsage: publishUsage,
+            onAttempt: async (event) => {
+              this.emit("provider_attempt", event);
+              // The host observes the retry decision before the adapter begins backoff. This barrier
+              // also makes the current user/partial-assistant trajectory crash-safe before re-entry.
+              if (event.type === "retry_scheduled") await this.durableCheckpoint();
+            },
+            ...(nextReasoningEffort ? { reasoningEffort: nextReasoningEffort } : undefined),
+          },
+        );
+      } catch (error) {
+        // A rejected/aborted provider call can still be billed. Its last authoritative live snapshot
+        // never reaches ProviderResponse.usage, so book it once here before the turn returns/throws.
+        providerFinished = true;
+        this.cost.add(latestUsage);
+        await managedToolChain;
+        this.assertContextReady();
+        if (this.hostEffectsBlocked()) return "[awaiting host approval]";
+        if (signal?.aborted) return "[interrupted]";
+        throw error;
+      }
+      providerFinished = true;
+      await managedToolChain;
+      this.assertContextReady();
+      if (this.hostEffectsBlocked()) return "[awaiting host approval]";
+      this.cost.add(response.usage);
+      // Materialize each hosted invocation independently: a provider may repeat an ID or even
+      // reuse one object twice in a batch, but those calls must not share an operation identity.
+      const toolCalls = (response.tool_calls ?? []).map((call) =>
+        this.tools.mcp?.requiresOperationContext ? { ...call } : call);
+
+      if (!toolCalls.length) {
+        const final = response.content ?? "";
+        // A bridge may stream only pre-tool progress, then return its post-tool final from complete()
+        // without an onDelta. When the last durable message is the tool result, append that final as a
+        // new assistant segment instead of dropping it because earlier segments happened to stream.
+        if (inflightAssistant || !managedTrace || !streamedContent
+          || (final && this.messages.at(-1)?.role === "tool")) {
+          finalizeInflight(final, [], response.continuation);
+        }
+        // Output-token cap (max_tokens / finish_reason=length): never treat as terminal success.
+        // Keep working with smaller edits so a single long write cannot abort the whole run.
+        if (response.truncated && step < runStepLimit - 1) {
+          this.messages.push({
+            role: "user",
+            _neko_internal: true,
+            content: "[truncated] The previous model turn hit the output token limit before finishing. "
+              + "Do not stop. Continue from the current workspace state: prefer smaller file edits, "
+              + "finish any required deliverable paths, and re-verify named checks or numerical "
+              + "outputs against the instruction before claiming done.",
+          });
+          continue;
+        }
+        if (deliveryGateActive && step < runStepLimit - 1) {
+          this.messages.push({
+            role: "user",
+            _neko_internal: true,
+            content: "[delivery] The required artifact checkpoint has not landed. Do not finish or resume " +
+              "discovery yet; use one available edit tool on the intended deliverable now.",
+          });
+          continue;
+        }
+        // A todo label is not proof, but an OPEN plan is proof that the controller has unfinished work.
+        // Give the model one chance to reconcile it before exit: continue, mark verified items done via
+        // todo_write, or report a real blocker. One-shot avoids trapping legitimate clarification turns.
+        const openTodos = Array.isArray(this.tools.todos)
+          ? this.tools.todos.filter((t) => t.status !== "completed")
+          : [];
+        if (openTodos.length && !planExitChecked && step < runStepLimit - 1) {
+          this.cost.efficiency.verificationNudge();
+          planExitChecked = true;
+          verifiedExit = true; // this nudge already asks for real-state verification; do not stack gates
+          this.messages.push({
+            role: "user",
+            _neko_internal: true,
+            content: `PLAN NOT COMPLETE: ${openTodos.length} todo item(s) are still open. Re-check the actual state, ` +
+              "continue the work, and call todo_write with the full updated plan before finishing. Mark items " +
+              "completed only when verified. If progress is genuinely blocked, state the blocker clearly instead of claiming completion.",
+          });
+          continue;
+        }
+        const hasFreshFactWebTool = toolSchemas.some((schema: any) =>
+          isFreshFactWebTool(String(schema?.function?.name ?? schema?.name ?? "")));
+        if (isVietnamSovereigntyTopic(instruction) && !hasFreshFactWebTool
+          && isVietnamSovereigntyDeferral(final) && !offlineSovereigntyAnswerRequested
+          && step < runStepLimit - 1) {
+          offlineSovereigntyAnswerRequested = true;
+          verifiedExit = true;
+          this.messages.push({
+            role: "user",
+            _neko_internal: true,
+            content: "OFFLINE SOVEREIGNTY SNAPSHOT ANSWER REQUIRED: no web_search or web_fetch tool is " +
+              "available in this turn. Do not promise or pretend to perform a later lookup. Answer the original " +
+              "question now from the built-in Vietnam sovereignty capsule, explicitly label it as the dated " +
+              "offline snapshot, and include verified_at. If the capsule does not contain the requested fact, " +
+              "say that specific limitation instead of deferring the whole answer.",
+          });
+          continue;
+        }
+        if (freshFactVerificationRequired && hasFreshFactWebTool && !freshFactVerificationEvidence
+          && !freshFactVerificationRequested && step < runStepLimit - 1) {
+          this.cost.efficiency.verificationNudge();
+          freshFactVerificationRequested = true;
+          verifiedExit = true; // this evidence gate subsumes the generic inspection-only gate
+          this.messages.push({
+            role: "user",
+            _neko_internal: true,
+            content: "CURRENT-FACT VERIFICATION REQUIRED: this question concerns public facts that can change. " +
+              "Do not answer from training memory. Read a current authoritative primary source with web_fetch, " +
+              "using web_search if needed to locate it. Cross-check ambiguous, conflicting, or consequential facts, and distinguish the legal effective date from an operational date " +
+              "when relevant. If current evidence is unavailable or conflicts, say so plainly instead of guessing.",
+          });
+          continue;
+        }
+        const validation = this.completionStatus;
+        if (!validation.ok && validation.reason !== "outcome_unverified" && !validationExitChecked && step < runStepLimit - 1) {
+          this.cost.efficiency.verificationNudge();
+          validationExitChecked = true;
+          verifiedExit = true; // this is stronger than the generic inspection-only gate
+          const command = validation.command ? ` The validator was: ${JSON.stringify(validation.command)}.` : "";
+          this.messages.push({
+            role: "user",
+            _neko_internal: true,
+            content: `${validation.reason === "validation_failed" ? "VALIDATION FAILED" : "VALIDATION REQUIRED"}: ` +
+              "the project changed, but no recognized validator has passed after the latest successful mutation." +
+              command + " A read/search/diff is useful inspection, but it cannot replace this failed or stale " +
+              "test/typecheck/lint/build result. Re-run a recognized validator now. If the capability is " +
+              "unavailable, do not install it or search the host merely for this guard. Run one available direct " +
+              "foreground project validator with its exit status unmasked; avoid pipes, loops, separators, and echo " +
+              "wrappers. If none exists, report the blocker once; do not claim the task is verified.",
+          });
+          continue;
+        }
+        // A state-changing action requires fresh inspection evidence of its user-visible outcome.
+        if (this.verifyStateChangesBeforeExit && changedRealState && step < runStepLimit - 1) {
+          if (!stateVerificationEvidence && !stateVerificationRequested) {
+            this.cost.efficiency.verificationNudge();
+            stateVerificationRequested = true;
+            verifiedExit = true; // stronger than the generic opt-in gate; do not stack both
+            this.messages.push({
+              role: "user",
+              _neko_internal: true,
+              content: "OUTCOME VERIFICATION REQUIRED: you changed real machine/project state. Do not trust " +
+                "the action's success message or the coordinates you intended. Use a tool NOW to inspect the " +
+                "result independently, then compare the observed end state with every user-visible requirement " +
+                "in the original task. For GUI/spatial work, wait for settling and use computer read/list/get/watch/" +
+                "screenshot; use computer display for physical monitor geometry and DPI. If evidence disagrees, " +
+                "keep working. Do not claim completion from an action log alone.",
+            });
+            continue;
+          }
+          if (!stateVerificationEvidence) {
+            if (stateVerificationReminderSent) return this.stopUnverified();
+            stateVerificationReminderSent = true;
+            this.cost.efficiency.verificationNudge();
+            this.messages.push({
+              role: "user",
+              _neko_internal: true,
+              content: "NO VERIFICATION EVIDENCE YET: your last reply used no fresh successful inspection tool. " +
+                "Observe the actual end state now; otherwise report that completion is unverified, not done.",
+            });
+            continue;
+          }
+        }
+        // Intercept at most one unsupported final so the model can gather fresh verification evidence.
+        if (this.verifyBeforeExit && !verifiedExit && !completionVerificationEvidence && step < runStepLimit - 1) {
+          this.cost.efficiency.verificationNudge();
+          verifiedExit = true;
+          this.messages.push({
+            role: "user",
+            _neko_internal: true,
+            content: "VERIFY BEFORE FINISHING: re-inspect the ACTUAL current state against the original goal " +
+              "(re-run the failing check / re-read the changed file / re-test the command) - judge what IS, " +
+              "not your memory of what you intended. If the goal is fully met, restate the final answer. " +
+              "If anything is missing, keep working now.",
+          });
+          continue;
+        }
+        if (this.unverifiedState) return this.stopUnverified();
+        await this.durableCheckpoint();
+        this.emit("final", final);
+        return final;
+      }
+
+      finalizeInflight(response.content, toolCalls, response.continuation);
+      checkpoint(true, false);
+      await this.durableCheckpoint(); // the call itself is durable before a slow or state-changing tool starts
+      if (signal?.aborted) return "[interrupted]";
+      let stepHadUnproductiveResult = false;
+      const turnWasTruncated = Boolean(response.truncated);
+
+      // Fleet fan-out: static read tools and capability-restricted reviewer/explorer tasks may run
+      // in parallel. Generic/custom workers can mutate, so one such call serializes the whole batch.
+      // Executable hooks are trusted but may have side effects, so their calls remain serialized.
+      const hooksMayHaveEffects = Boolean(this.tools.hooks?.preToolUse || this.tools.hooks?.postToolUse);
+      const concurrencySafe = (call: ToolCall) => !hooksMayHaveEffects && (CONCURRENCY_SAFE.has(call.name)
+        || (call.name === "task" && taskDelegatesReadOnly(call.arguments)));
+      if (toolCalls.length > 1 && toolCalls.every(concurrencySafe)) {
+        lastSig = ""; // a parallel fan-out breaks any single-call repeat chain
+        toolCalls.forEach((call) => this.emit("tool_call", call));
+        const observations = await Promise.all(toolCalls.map((call) => eager.get(eagerKey(call)) ?? executeAdmittedTool(call)));
+        const sourceErrors: Error[] = [];
+        toolCalls.forEach((call, i) => {
+          noteTool(call, observations[i]);
+          if (Agent.isUnproductiveResult(observations[i])) stepHadUnproductiveResult = true;
+          const sourceError = this.appendToolObservation(call, observations[i]);
+          if (sourceError) sourceErrors.push(sourceError);
+          this.emit("tool_result", { call, observation: observations[i] });
+        });
+        await this.durableCheckpoint();
+        if (sourceErrors.length) throw sourceErrors[0];
+      } else {
+        for (const call of toolCalls) {
+          if (signal?.aborted) return "[interrupted]"; // stop promptly between tools on Esc
+            this.emit("tool_call", call);
+            // Refuse the third identical call and request a different approach.
+            const sig = `${call.name}:${JSON.stringify(call.arguments ?? {})}`;
+            const repeatableWait = this.isRepeatableWaitCall(call);
+            repeats = !repeatableWait && sig === lastSig ? repeats + 1 : 0;
+            lastSig = repeatableWait ? "" : sig;
+            // Distinct edits to one path are counted separately from exact repeats.
+            const circuitBlocked = toolchainCircuitOpen && Agent.isToolchainCommand(call);
+            let observation = circuitBlocked
+              ? "[capability circuit] The sandbox/runtime already failed three independent Bun/Node/package-manager attempts. " +
+                "Stop trying alternate paths, installers, shells, or host computer control. Use structured file tools for work " +
+                "that remains possible, and report test execution as blocked by the unavailable toolchain."
+              : repeats >= 2
+              ? "[loop guard] You already made this exact tool call 3 times with the same result. Stop repeating it: try a different approach/tool, or give your final answer now."
+              : await (eager.get(eagerKey(call)) ?? executeAdmittedTool(call));
+            noteTool(call, observation);
+            // Count only edits that produced a usable result. A rejected or failed edit did
+            // not change the file and must not become "you've edited it N times" advice.
+            const broad = Agent.isUnproductiveResult(observation) ? null : this.broadLoopNudge(call);
+            if (Agent.isToolchainCommand(call) && !circuitBlocked) {
+              if (Agent.isToolchainCapabilityFailure(call, observation)) {
+                toolchainCapabilityFailures++;
+                if (toolchainCapabilityFailures >= TOOLCHAIN_FAILURE_CAP) {
+                  toolchainCircuitOpen = true;
+                  observation += "\n[capability circuit opened] Further Bun/Node/package-manager commands in this turn will not run. " +
+                    "Do not escape through computer control; continue with allowed structured tools and state the verification blocker.";
+                }
+              } else if (!Agent.isFailedRunResult(observation)) {
+                toolchainCapabilityFailures = 0;
+              }
+            }
+            if (Agent.isUnproductiveResult(observation)) stepHadUnproductiveResult = true;
+            // A productive result resets the consecutive empty-or-failed streak.
+            this.consecutiveUnproductive = Agent.isUnproductiveResult(observation) ? this.consecutiveUnproductive + 1 : 0;
+            // One assistant tool call must have exactly one matching tool result. Keep runtime
+            // advice as local metadata projected into that one result for the next provider
+            // request; extra role=tool messages break strict trajectories and ACP replay.
+            const advisories: string[] = [];
+            // Give recovery guidance on the first *executed* mutating failure; a user denial
+            // remains failed for telemetry, but has no partial edit to repair.
+            const mutFailed = MUTATING_TOOLS.has(call.name) && isText(observation) &&
+              !isNonExecutionFailure(observation) &&
+              (observation.startsWith(`Error running ${call.name}`) || Agent.isFailedRunResult(observation));
+            if (mutFailed && !mutErrored && repeats < 2) {
+              advisories.push(
+                `[recovery] That ${call.name} FAILED. Don't blindly re-run it, and don't delete partial ` +
+                "work it may still need. Recover deliberately: (1) DIAGNOSE - read the error above and " +
+                "inspect the actual state (the file, the directory, the command output); (2) REPAIR - fix " +
+                "the root cause or recreate the missing artifact; (3) VALIDATE - re-run the failed check " +
+                "and confirm it passes; then continue the task.");
+            }
+            if (MUTATING_TOOLS.has(call.name)) mutErrored = mutFailed;
+            // Warn once after repeated distinct edits; exact repeats are handled above.
+            if (broad !== null && repeats < 2) advisories.push(broad);
+            // Nudge once after enough consecutive empty or failed results.
+            if (this.consecutiveUnproductive >= UNPRODUCTIVE_CAP) {
+              const nudge = "[loop guard] The last " + this.consecutiveUnproductive + " tool results in a row " +
+                "were empty or failed. That usually means the APPROACH is wrong, not the arguments - stop " +
+                "varying the same call. Step back and try a DIFFERENT tool/strategy (for a web page or feed, " +
+                "the accessibility snapshot or a markdown read is far more reliable than DOM selectors), or " +
+                "answer with what you already have.";
+              advisories.push(nudge);
+              this.consecutiveUnproductive = 0; // reset so it fires once, then re-accumulates
+            }
+            const sourceError = this.appendToolObservation(call, observation, advisories.length ? advisories.join("\n") : undefined);
+            this.emit("tool_result", { call, observation });
+            await this.durableCheckpoint();
+            if (sourceError) throw sourceError;
+            if (this.hostEffectsBlocked()) {
+              // Calls later in this same batch were never admitted, so do not call them unknown.
+              for (const skipped of toolCalls.slice(toolCalls.indexOf(call) + 1)) {
+                this.appendToolObservation(skipped, "[not executed: an earlier host operation is awaiting approval]");
+                this.emit("tool_result", { call: skipped, observation: "[not executed: awaiting approval]" });
+              }
+              await this.durableCheckpoint();
+              return "[awaiting host approval]";
+            }
+          }
+      }
+      // Lower effort only after a sustained read-only pattern; the feature remains opt-in.
+      const allReads = toolCalls.length > 0 && !stepHadUnproductiveResult
+        && toolCalls.every((call) => this.isMechanicalReadCall(call));
+      consecutiveReadSteps = allReads ? consecutiveReadSteps + 1 : 0;
+      nextReasoningEffort = this.adaptiveEffort && consecutiveReadSteps >= 2 ? "low" : undefined;
+
+      if (deliveryPhase && !hasFreshValidation()) {
+        if (successfulEditThisStep) {
+          nonEditStepsSinceDelivery = 0;
+        } else if (!deliveryEditRequired) {
+          nonEditStepsSinceDelivery++;
+          if (nonEditStepsSinceDelivery >= 2) {
+            deliveryEditRequired = true;
+            nonEditStepsSinceDelivery = 0;
+            this.messages.push({
+              role: "user",
+              _neko_internal: true,
+              content: "[delivery] The deadline-bounded completion contract now requires an artifact checkpoint. " +
+                "Use write_file, edit, or multi_edit on the intended deliverable now. Discovery tools return after " +
+                "one successful edit. Do not create another disposable probe merely to satisfy this checkpoint.",
+            });
+          }
+        }
+      }
+
+      // After a truncated tool-bearing turn, remind the model to finish in smaller chunks.
+      if (turnWasTruncated && step < runStepLimit - 1) {
+        this.messages.push({
+          role: "user",
+          _neko_internal: true,
+          content: "[truncated] The previous model turn hit the output token limit while emitting tool calls. "
+            + "Continue from the tool results above with smaller edits; land required deliverables and "
+            + "re-verify numerical/named checks from the instruction before finishing.",
+        });
+      }
+
+      // Issue one completion nudge near each configured step-budget threshold.
+      if (runStepLimit >= 10) {
+        const stepFrac = (step + 1) / runStepLimit;
+        const deadlineSpan = this.workDeadlineAt === undefined ? 0 : this.workDeadlineAt - workStartedAt;
+        const timeFrac = !internal && deadlineSpan > 0
+          ? Math.max(0, Math.min(1, (Date.now() - workStartedAt) / deadlineSpan))
+          : 0;
+        const frac = Math.max(stepFrac, timeFrac);
+        const contractThresholds = this.completionContractState ? [0.25, 0.45, 0.75] : [0.66, 0.85];
+        const threshold = contractThresholds[budgetNudges] ?? 2;
+        if (frac >= threshold) {
+          const stage = budgetNudges;
+          budgetNudges++;
+          const left = runStepLimit - (step + 1);
+          const remaining = this.workDeadlineAt === undefined
+            ? ""
+            : `, ~${Math.max(0, Math.ceil((this.workDeadlineAt - Date.now()) / 1000))}s in the work window`;
+          const contractDirection = stage === 0
+            ? " Stop broad discovery and create the smallest buildable or runnable baseline now."
+            : stage === 1
+              ? " Expand only the highest-impact missing behavior, then run a real check against the artifact."
+              : " Freeze scope now: build, verify, and preserve the required deliverable before the window closes.";
+          if (this.completionContractState && this.workDeadlineAt !== undefined && stage === 1
+            && !hasFreshValidation()) {
+            deliveryPhase = true;
+            deliveryEditRequired = true;
+            nonEditStepsSinceDelivery = 0;
+            this.emit("completion_phase", { phase: "delivery" });
+          } else if (this.completionContractState && this.workDeadlineAt !== undefined && stage >= 2) {
+            this.emit("completion_phase", { phase: "finalization" });
+          }
+          this.messages.push({ role: "user", _neko_internal: true, content:
+            `[budget] ~${left} of ${runStepLimit} steps left${remaining} (${Math.round(frac * 100)}% used). If this task ` +
+            "has a concrete deliverable - a file to write, code, a config, a plan - PRODUCE and finish it NOW; " +
+            "don't spend the remaining budget exploring. A delivered result with its open risks named honestly " +
+            `beats a perfect one you never wrote.${this.completionContractState ? contractDirection : ""} ` +
+            "If you are already done, give your final answer." });
+        }
+      }
+    }
+
+    if (yieldOnStepLimit) {
+      this.emit("completion_round_yield", { steps: runStepLimit });
+      await this.durableCheckpoint();
+      for (let index = this.messages.length - 1; index >= runMessageStart; index--) {
+        const message = this.messages[index];
+        if (message?.role === "assistant" && isText(message.content) && message.content.trim()) {
+          return message.content.trim();
+        }
+      }
+      return `[controller checkpoint after ${runStepLimit} steps]`;
+    }
+
+    if (this.unverifiedState) return this.stopUnverified();
+
+    // Request one tool-less wrap-up after the step limit.
+    if (this.runUntilDoneActive) this.emit("completion_phase", { phase: "finalization" });
+    this.hitMaxSteps = true;
+    this.emit("max_steps", runStepLimit);
+    let final: string;
+    try {
+      const wrap = await this.completeMeasured(
+        cleanProviderMessages([...this.providerHistory(), { role: "user", content: `Step limit (${runStepLimit}) reached. Stop calling tools and concisely summarize what you did and what's left.`, _neko_internal: true }]),
+        undefined,
+        this.onDelta,
+        signal,
+        undefined,
+        "wrapup",
+      );
+      this.cost.add(wrap.usage); // the wrap-up call costs tokens too — count it
+      final = wrap.content?.trim() || `[stopped: reached max_steps=${runStepLimit}]`;
+    } catch {
+      return `[stopped: reached max_steps=${runStepLimit}]`;
+    }
+    this.messages.push({ role: "assistant", content: final });
+    await this.durableCheckpoint();
+    this.emit("final", final);
+    return final;
+  }
+
+  private async stopUnverified(): Promise<string> {
+    const final = "Verification incomplete: the action ran, but its final outcome has not been independently observed. " +
+      "Stopped without claiming success. Inspect the current state before continuing; do not repeat an action whose outcome is unknown.";
+    this.cost.efficiency.unverifiedStop();
+    this.emit("verification_incomplete", { reason: "outcome_unverified" });
+    return this.recordFinal(final);
+  }
+
+  private async recordFinal(final: string): Promise<string> {
+    const last = this.messages.at(-1);
+    if (last?.role === "assistant" && !last.tool_calls?.length) last.content = final;
+    else this.messages.push({ role: "assistant", content: final });
+    await this.durableCheckpoint();
+    this.emit("final", final);
+    return final;
+  }
+
+  private async completeMeasured(
+    messages: any[], tools?: any[], onDelta?: DeltaHook, signal?: AbortSignal,
+    opts?: CompleteOptions, purpose: "work" | "compact" | "wrapup" = "work",
+  ) {
+    const system = messages.filter((message) => message.role === "system")
+      .map((message) => isText(message.content) ? message.content : JSON.stringify(message.content)).join("\n");
+    const [base = "", session = "", turn = ""] = splitSystemContext(system);
+    const measurement = this.cost.efficiency.start(this.provider, {
+      base, session, turn, tools: JSON.stringify(tools ?? []), effort: opts?.reasoningEffort ?? "configured",
+    }, purpose);
+    const firstEvent = () => measurement.firstEvent();
+    const measuredOptions: CompleteOptions = {
+      ...opts,
+      onAttempt: async (event) => {
+        if (event.type === "retry_scheduled") this.cost.efficiency.retry();
+        await opts?.onAttempt?.(event);
+      },
+    };
+    if (opts?.onToolCallReady) measuredOptions.onToolCallReady = (call) => { firstEvent(); opts.onToolCallReady!(call); };
+    try {
+      const result = await this.provider.complete(messages, tools, onDelta ? (text, kind) => {
+        if (text) firstEvent();
+        onDelta(text, kind);
+      } : undefined, signal, measuredOptions);
+      this.emit("request_metrics", measurement.finish("success"));
+      return result;
+    } catch (error) {
+      this.emit("request_metrics", measurement.finish(signal?.aborted ? "aborted" : "error"));
+      throw error;
+    }
+  }
+
+  private emit(kind: string, data: any): void {
+    this.onEvent?.(kind, data);
+  }
+
+  private queueDurableCheckpoint(): void {
+    if (!this.onCheckpoint || this.hasCheckpointFailure) return;
+    try {
+      void Promise.resolve(this.onCheckpoint()).catch((error) => {
+        if (!this.hasCheckpointFailure) this.checkpointFailure = error;
+        this.hasCheckpointFailure = true;
+      });
+    } catch (error) {
+      this.checkpointFailure = error;
+      this.hasCheckpointFailure = true;
+    }
+  }
+
+  private async durableCheckpoint(): Promise<void> {
+    this.assertContextReady();
+    try {
+      if (this.hasCheckpointFailure) {
+        const error = this.checkpointFailure;
+        this.hasCheckpointFailure = false;
+        this.checkpointFailure = undefined;
+        throw error;
+      }
+      if (!this.onCheckpoint) return;
+      await this.onCheckpoint();
+      if (this.hasCheckpointFailure) {
+        const error = this.checkpointFailure;
+        this.hasCheckpointFailure = false;
+        this.checkpointFailure = undefined;
+        throw error;
+      }
+    } catch (error) {
+      if (this.hostEffectsBlocked()) this.hostEffectCommitFailure = new Error("Host effect checkpoint requires recovery", { cause: error });
+      throw error;
+    }
+  }
+}
+
+/** Only typed post-commit interruptions and silence/stalls continue automatically. Authentication,
+ * validation, protocol, and exhausted pre-commit replay failures still surface immediately. */
+function isRecoverableProviderInterruption(error: Error): boolean {
+  if (error instanceof ProviderAttemptError) {
+    return error.retryable && error.recovery === "continue";
+  }
+  return error instanceof Error && (
+    error.name === "TimeoutError"
+    || /\b(?:idle timeout|produced no activity)\b/i.test(error.message)
+  );
+}
+
+function providerRecoveryReason(error: Error): string {
+  return error instanceof ProviderAttemptError ? error.code : "stream_timeout";
+}
+
+function providerRecoveryDelayMs(error: Error, attempt: number): number {
+  if (error instanceof ProviderAttemptError && error.retryAfterMs !== undefined) {
+    return Math.min(30_000, error.retryAfterMs);
+  }
+  const base = Math.min(2_000, 250 * 2 ** Math.max(0, attempt - 1));
+  return Math.round(base * (0.8 + Math.random() * 0.4));
+}
+
+function interruptibleDelay(ms: number, signal?: AbortSignal): Promise<void> {
+  return new Promise((resolve, reject) => {
+    if (signal?.aborted) return reject(new DOMException("Aborted by user", "AbortError"));
+    const finish = () => {
+      signal?.removeEventListener("abort", abort);
+      resolve();
+    };
+    const timer = setTimeout(finish, ms);
+    const abort = () => {
+      clearTimeout(timer);
+      signal?.removeEventListener("abort", abort);
+      reject(new DOMException("Aborted by user", "AbortError"));
+    };
+    signal?.addEventListener("abort", abort, { once: true });
+  });
+}
+
+/** Rebuild the OpenAI-format assistant turn so the next request carries the tool_calls
+ * the model made (ids must match the following tool results). */
+function assistantToolMessage(content: string | null, toolCalls: ToolCall[], continuation?: any[]): any {
+  return {
+    role: "assistant",
+    content: content ?? "",
+    tool_calls: toolCalls.map((call) => ({
+      id: call.id || call.name,
+      type: "function",
+      function: { name: call.name, arguments: JSON.stringify(call.arguments ?? {}) },
+    })),
+    ...(continuation?.length ? { provider_data: continuation } : undefined),
+  };
+}
+
+/** Tolerate malformed tool-argument shapes some providers emit (observed with GLM over an OpenAI-compat
+ * endpoint): a single `_raw`/`arguments`/`input`/`parameters`/`args` wrapper key, or the raw JSON string.
+ * Left unfixed these fail required-arg validation and wedge the turn in a re-emit loop. A legitimate call
+ * never has exactly one of those wrapper keys, so unwrapping is safe. */
+export function unwrapToolArgs(raw: any): any {
+  let a: any = raw;
+  if (isText(a)) { try { a = JSON.parse(a); } catch { return {}; } }
+  if (!isJsonObject(a)) return {};
+  const keys = Object.keys(a);
+  if (keys.length === 1 && ["_raw", "arguments", "input", "parameters", "args"].includes(keys[0])) {
+    let inner: any = a[keys[0]];
+    if (isText(inner)) { try { inner = JSON.parse(inner); } catch { /* keep original object */ } }
+    if (isJsonObject(inner)) return inner;
+  }
+  return a;
+}

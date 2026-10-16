@@ -1,0 +1,213 @@
+{
+  "version": 1,
+  "scope": "Authored contract vectors. Published fixed synthetic signing key only; no credential, grant, server or user state.",
+  "cases": [
+    {
+      "name": "empty",
+      "scope": {
+        "adapterSessionId": "adapter-vector",
+        "sourceApp": "wiii",
+        "sourceSessionId": "source-session-vector",
+        "sourceThreadId": "source-thread-vector",
+        "channelId": "channel-vector",
+        "ownerUserId": "local-owner",
+        "spaceId": "local-space",
+        "returnRoute": "/v1/adapters/sessions/adapter-vector/replies",
+        "channelRevision": 1
+      },
+      "snapshotCursor": 42,
+      "authorityEpoch": 37,
+      "livePredicates": [],
+      "rows": [],
+      "issuedAtUnixMs": 1802400000000,
+      "expiresAtUnixMs": 1802400300000,
+      "fixtureSigningKeyHex": "0101010101010101010101010101010101010101010101010101010101010101",
+      "expected": {
+        "scopeBytes": 179,
+        "scopeSHA256": "93ddd7a5daeca90e1f022117b6d82d5468112735ee5229e2a8cb9c94dc469cc0",
+        "authorityInputBytes": 221,
+        "authorityDigest": "11de94963e2a55903d12542b69ae019350b70acc4848f22b7b3c284d6661ae73",
+        "rowByteLengths": [],
+        "totalBytes": 0,
+        "historyInputBytes": 251,
+        "historyDigest": "4334226b28d29389249df2c30bff72ff94ecf16140894b657bd2a5a8a1ab7c51",
+        "snapshotId": "h1_c0e5bd6f837229996f8df74a5208ba851aef7a3e5049c8df67986acbf1d67bde",
+        "cursorRawBytes": 161,
+        "cursorEncodedChars": 215,
+        "confirmationCursor": "AZPd16Xa7KkOHwIhF7bYLVRoESc17lIp4qjLnJTcRpzAAAAAAAAAACoAAAAAAAAAAAAAAaOnaWgAAAABo6dt--AR3pSWPipVkD0SVCtprgGTULcKzEhI8it7PChNZmGuc0M0Imso0pOJJJ3ywwv_cv-U7PFhQIlLZXvSpaihq3xR51mkvaCrCcAXRj13uaGGrilq5H0X4dPGoYVAMPFdylg"
+      }
+    },
+    {
+      "name": "unicode_control_artifact_order",
+      "scope": {
+        "adapterSessionId": "adapter-vector",
+        "sourceApp": "wiii",
+        "sourceSessionId": "source-session-vector",
+        "sourceThreadId": "source-thread-vector",
+        "channelId": "channel-vector",
+        "ownerUserId": "local-owner",
+        "spaceId": "local-space",
+        "returnRoute": "/v1/adapters/sessions/adapter-vector/replies",
+        "channelRevision": 1
+      },
+      "snapshotCursor": 42,
+      "authorityEpoch": 37,
+      "livePredicates": [
+        true,
+        false
+      ],
+      "rows": [
+        {
+          "replyId": "reply-request-vector-1",
+          "requestId": "request-vector-1",
+          "sourceMessageId": "source-message-1",
+          "botId": "bot-meiiie",
+          "role": "assistant",
+          "text": " <>&\u2028\u2029\u0000\n\u732b \ud83d\ude00",
+          "status": "completed",
+          "sequence": 40,
+          "artifacts": [
+            {
+              "id": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+              "filename": "report&\u732b.txt",
+              "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+              "bytes": 32
+            },
+            {
+              "id": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+              "filename": "second.txt",
+              "sha256": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+              "bytes": 12
+            }
+          ],
+          "availability": "available"
+        },
+        {
+          "replyId": "reply-request-vector-2",
+          "requestId": "request-vector-2",
+          "sourceMessageId": "source-message-2",
+          "botId": "bot-davin",
+          "role": "assistant",
+          "text": "",
+          "status": "suspended",
+          "sequence": 41,
+          "artifacts": [],
+          "availability": "source_unavailable"
+        }
+      ],
+      "issuedAtUnixMs": 1802400000000,
+      "expiresAtUnixMs": 1802400300000,
+      "fixtureSigningKeyHex": "0101010101010101010101010101010101010101010101010101010101010101",
+      "expected": {
+        "scopeBytes": 179,
+        "scopeSHA256": "93ddd7a5daeca90e1f022117b6d82d5468112735ee5229e2a8cb9c94dc469cc0",
+        "authorityInputBytes": 263,
+        "authorityDigest": "ab9936038aa95200dd4920e6692f72db9c7063bdda345cae8316ea7bbbfe7b06",
+        "rowByteLengths": [
+          475,
+          143
+        ],
+        "totalBytes": 618,
+        "historyInputBytes": 869,
+        "historyDigest": "b9328a3eaa1e645a19b3d26bf735a9bc466fb21481369c178ef6bf1b93ec016b",
+        "snapshotId": "h1_c7961b32ca54aef9b86b7864c8a563fd00362727b883e945c672400a929f8fb9",
+        "cursorRawBytes": 161,
+        "cursorEncodedChars": 215,
+        "confirmationCursor": "AZPd16Xa7KkOHwIhF7bYLVRoESc17lIp4qjLnJTcRpzAAAAAAAAAACoAAAAAAAAAAgAAAaOnaWgAAAABo6dt--CrmTYDiqlSAN1JIOZpL3LbnHBjvdo0XK6DFup7u_57Brkyij6qHmRaGbPSa_c1qbxGb7IUgTacF472vxuT7AFr6FAb6lAO_FOtVuxiP3W77TlWw28PsG4ID3TmHdzf7mE"
+      }
+    },
+    {
+      "name": "artifact_order_reversed",
+      "scope": {
+        "adapterSessionId": "adapter-vector",
+        "sourceApp": "wiii",
+        "sourceSessionId": "source-session-vector",
+        "sourceThreadId": "source-thread-vector",
+        "channelId": "channel-vector",
+        "ownerUserId": "local-owner",
+        "spaceId": "local-space",
+        "returnRoute": "/v1/adapters/sessions/adapter-vector/replies",
+        "channelRevision": 1
+      },
+      "snapshotCursor": 42,
+      "authorityEpoch": 37,
+      "livePredicates": [
+        true,
+        false
+      ],
+      "rows": [
+        {
+          "replyId": "reply-request-vector-1",
+          "requestId": "request-vector-1",
+          "sourceMessageId": "source-message-1",
+          "botId": "bot-meiiie",
+          "role": "assistant",
+          "text": " <>&\u2028\u2029\u0000\n\u732b \ud83d\ude00",
+          "status": "completed",
+          "sequence": 40,
+          "artifacts": [
+            {
+              "id": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+              "filename": "second.txt",
+              "sha256": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+              "bytes": 12
+            },
+            {
+              "id": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+              "filename": "report&\u732b.txt",
+              "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+              "bytes": 32
+            }
+          ],
+          "availability": "available"
+        },
+        {
+          "replyId": "reply-request-vector-2",
+          "requestId": "request-vector-2",
+          "sourceMessageId": "source-message-2",
+          "botId": "bot-davin",
+          "role": "assistant",
+          "text": "",
+          "status": "suspended",
+          "sequence": 41,
+          "artifacts": [],
+          "availability": "source_unavailable"
+        }
+      ],
+      "issuedAtUnixMs": 1802400000000,
+      "expiresAtUnixMs": 1802400300000,
+      "fixtureSigningKeyHex": "0101010101010101010101010101010101010101010101010101010101010101",
+      "expected": {
+        "scopeBytes": 179,
+        "scopeSHA256": "93ddd7a5daeca90e1f022117b6d82d5468112735ee5229e2a8cb9c94dc469cc0",
+        "authorityInputBytes": 263,
+        "authorityDigest": "ab9936038aa95200dd4920e6692f72db9c7063bdda345cae8316ea7bbbfe7b06",
+        "rowByteLengths": [
+          475,
+          143
+        ],
+        "totalBytes": 618,
+        "historyInputBytes": 869,
+        "historyDigest": "f81ce67893e3171851a642223f41d282e763a89f3a26b1cfbe6e5585d12ccecc",
+        "snapshotId": "h1_c8771f4e00b5aba89a6363568a8c6ac1ab888fe14f485c1a56fceb9e38dfe65d",
+        "cursorRawBytes": 161,
+        "cursorEncodedChars": 215,
+        "confirmationCursor": "AZPd16Xa7KkOHwIhF7bYLVRoESc17lIp4qjLnJTcRpzAAAAAAAAAACoAAAAAAAAAAgAAAaOnaWgAAAABo6dt--CrmTYDiqlSAN1JIOZpL3LbnHBjvdo0XK6DFup7u_57Bvgc5niT4xcYUaZCIj9B0oLnY6ifOiaxz75uVYXRLM7M6gI86GzdrLaF8HBiCI5bH_uYgglYNAlh8Ci67BZbz30"
+      }
+    }
+  ],
+  "invalidCases": [
+    {
+      "name": "unpaired_surrogate",
+      "javascriptTextCodeUnits": [
+        55296
+      ],
+      "expected": "reject_invalid_unicode"
+    },
+    {
+      "name": "invalid_utf8",
+      "goTextHex": "ff",
+      "expected": "reject_invalid_unicode"
+    }
+  ]
+}

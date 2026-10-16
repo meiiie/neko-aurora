@@ -1,0 +1,47 @@
+{
+  "contract": "neko.task-session.explicit-v1-migration",
+  "vectors": [
+    {
+      "manifest": {
+        "version": 1,
+        "contract": "neko.task-session.explicit-v1-migration",
+        "mode": "schema-v1-label-import",
+        "operationId": "33333333333333333333333333333333",
+        "source": {
+          "home": "C:\\fixture\\猫 & bot",
+          "sessionId": "11111111111111111111111111111111",
+          "sha256": "8888888888888888888888888888888888888888888888888888888888888888",
+          "bytes": 1024,
+          "coreSha256": "4444444444444444444444444444444444444444444444444444444444444444"
+        },
+        "canonicalRoot": "c:\\fixture\\root",
+        "authorityId": "local",
+        "configId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "targetCoreSha256": "9999999999999999999999999999999999999999999999999999999999999999"
+      },
+      "canonicalUtf8": "{\"authorityId\":\"local\",\"canonicalRoot\":\"c:\\\\fixture\\\\root\",\"configId\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"contract\":\"neko.task-session.explicit-v1-migration\",\"mode\":\"schema-v1-label-import\",\"operationId\":\"33333333333333333333333333333333\",\"source\":{\"bytes\":1024,\"coreSha256\":\"4444444444444444444444444444444444444444444444444444444444444444\",\"home\":\"C:\\\\fixture\\\\猫 & bot\",\"sessionId\":\"11111111111111111111111111111111\",\"sha256\":\"8888888888888888888888888888888888888888888888888888888888888888\"},\"targetCoreSha256\":\"9999999999999999999999999999999999999999999999999999999999999999\",\"version\":1}",
+      "sha256": "e4af6aadc84a0db2e69f1e07fcf1a3c2b93786c132280ed6344d90333a210893"
+    },
+    {
+      "manifest": {
+        "version": 1,
+        "contract": "neko.task-session.explicit-v1-migration",
+        "mode": "writer-v1-metadata-rehome",
+        "operationId": "33333333333333333333333333333333",
+        "source": {
+          "home": "C:\\fixture\\猫 & bot",
+          "sessionId": "11111111111111111111111111111111",
+          "sha256": "8888888888888888888888888888888888888888888888888888888888888888",
+          "bytes": 1024,
+          "coreSha256": "4444444444444444444444444444444444444444444444444444444444444444"
+        },
+        "canonicalRoot": "c:\\fixture\\root",
+        "authorityId": "local",
+        "configId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "targetCoreSha256": "9999999999999999999999999999999999999999999999999999999999999999"
+      },
+      "canonicalUtf8": "{\"authorityId\":\"local\",\"canonicalRoot\":\"c:\\\\fixture\\\\root\",\"configId\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"contract\":\"neko.task-session.explicit-v1-migration\",\"mode\":\"writer-v1-metadata-rehome\",\"operationId\":\"33333333333333333333333333333333\",\"source\":{\"bytes\":1024,\"coreSha256\":\"4444444444444444444444444444444444444444444444444444444444444444\",\"home\":\"C:\\\\fixture\\\\猫 & bot\",\"sessionId\":\"11111111111111111111111111111111\",\"sha256\":\"8888888888888888888888888888888888888888888888888888888888888888\"},\"targetCoreSha256\":\"9999999999999999999999999999999999999999999999999999999999999999\",\"version\":1}",
+      "sha256": "cf41679a0def94badfb82e367bd141a384d09c160ed736f128297ac0295e93b7"
+    }
+  ]
+}

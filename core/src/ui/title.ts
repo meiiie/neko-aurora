@@ -1,0 +1,115 @@
+/**
+ * Terminal tab/window title (the claude-code touch: the tab tells you what the session is doing).
+ *
+ * OSC 2 sets the title; the xterm TITLE STACK (CSI 22;0t push / CSI 23;0t pop - supported by Windows
+ * Terminal, iTerm2, and friends) saves and restores whatever title the shell had, so exiting neko gives
+ * the user's tab back exactly as it was. Titles are written STRAIGHT to process.stdout, bypassing the
+ * frame differ (an OSC write would just reset its baseline) - titles never touch screen content.
+ *
+ * Convention: "* neko - <task>" while a turn is running, "neko - <task>" when idle - the tab itself
+ * shows busy/done at a glance (like claude-code's spinner-prefixed tab). ASCII-only for safety.
+ */
+import type { Writable } from "node:stream";
+
+export const PUSH_TITLE = "\x1b[22;0t";
+export const POP_TITLE = "\x1b[23;0t";
+
+/** Tab icon - a cat emoji for "Neko". Safe HERE (unlike on-screen text): a tab title is a terminal TITLE
+ * (OSC 2), drawn by the terminal's own UI/emoji font, not the cp1252 screen buffer. Windows Terminal,
+ * iTerm2, kitty et al. render it; a terminal that can't just shows a placeholder glyph in its own chrome. */
+export const TAB_ICON = "\u{1F431}";
+/** Tab title shapes (owner-specified, Claude-Code-style restraint):
+ *   idle           "🐱 <name>"  - the cat is home
+ *   busy, blink on  "● <name>"  - the cat steps away; a dot pulses so the tab reads "running" at a glance
+ *   busy, blink off "○ <name>"  - the PULSE swaps the glyph in place (solid/hollow) instead of removing it,
+ *                                 so the name never shifts sideways - a steady blink, not a jitter.
+ */
+export function brandTitle(name: string, busy = false, blinkOn = true): string {
+  return busy ? `${blinkOn ? "●" : "○"} ${name}` : `${TAB_ICON} ${name}`;
+}
+
+/** OSC 2 sequence for a title (control chars stripped; kept short - tabs truncate anyway). */
+export function titleSeq(title: string): string {
+  return `\x1b]2;${title.replace(/[\x00-\x1f\x7f]/g, " ").slice(0, 80)}\x07`;
+}
+
+// SAFETY: bridge to an untyped JS/DOM API surface; use is guarded by the surrounding checks.
+const out = (): Writable & { isTTY?: boolean } => process.stdout as any;
+
+// Windows Terminal restores the xterm title stack mid-session, so only non-Windows hosts use it.
+const useTitleStack = process.platform !== "win32";
+
+/** Save the user's current title (stack push) - call once at startup, pair with restoreTitle on exit. */
+export function saveTitle(): void {
+  if (out().isTTY && useTitleStack) out().write(PUSH_TITLE);
+}
+/** Restore the user's title (stack pop). */
+export function restoreTitle(): void {
+  if (out().isTTY && useTitleStack) out().write(POP_TITLE);
+}
+
+/** Set the tab title now. No-op off-TTY (tests, pipes). */
+export function setTerminalTitle(title: string): void {
+  if (out().isTTY) out().write(titleSeq(title));
+}
+
+/**
+ * The tab-title DRIVER: one state (name + busy) and one 1s heartbeat that renders it.
+ *  - busy: alternates "● <name>" / "○ <name>" each beat - a pulsing dot, the terminal-title equivalent of a
+ *    spinner (a tab can't animate any other way: each pulse is just an OSC 2 rewrite).
+ *  - idle: "🐱 <name>", re-asserted every beat ON WINDOWS ONLY. There the console title is SHARED,
+ *    writable-by-API state: any child attached to our console (a powershell probe, a user-configured MCP
+ *    stdio server) can clobber it via SetConsoleTitle and ConPTY syncs that to the tab, silently wiping our
+ *    OSC 2 (images #57/#58). We hide our own children (windowsHide) but can't fix arbitrary MCP servers,
+ *    so the driver self-heals the tab. ~30 bytes/s, unref'd; elsewhere idle beats write nothing.
+ * setTabTitle re-renders immediately (blink reset ON so the dot appears the instant a turn starts).
+ */
+type IntervalHandle = ReturnType<typeof setInterval>;
+
+export interface TitleDriverOptions {
+  write?: (title: string) => void;
+  keepIdle?: boolean;
+  schedule?: (tick: () => void, intervalMs: number) => IntervalHandle;
+  cancel?: (handle: IntervalHandle) => void;
+}
+
+/** Create an isolated driver. Dependency injection keeps timer tests deterministic across parallel files. */
+export function createTitleDriver(options: TitleDriverOptions = {}) {
+  const write = options.write ?? setTerminalTitle;
+  const keepIdle = options.keepIdle ?? process.platform === "win32";
+  const schedule = options.schedule ?? ((tick, intervalMs) => setInterval(tick, intervalMs));
+  const cancel = options.cancel ?? ((handle) => clearInterval(handle));
+  let tabName = "", tabBusy = false, blinkOn = true;
+  let driver: IntervalHandle | null = null;
+
+  const set = (name: string, busy: boolean): void => {
+    tabName = name;
+    tabBusy = busy;
+    blinkOn = true;
+    write(brandTitle(tabName, tabBusy, blinkOn));
+    if (driver === null) {
+      driver = schedule(() => {
+        if (!tabName) return;
+        if (tabBusy) { blinkOn = !blinkOn; write(brandTitle(tabName, true, blinkOn)); }
+        else if (keepIdle) write(brandTitle(tabName));
+      }, 1000);
+      // SAFETY: bridge to an untyped JS/DOM API surface; use is guarded by the surrounding checks.
+      (driver as any).unref?.();
+    }
+  };
+
+  const stop = (): void => {
+    if (driver !== null) { cancel(driver); driver = null; }
+  };
+
+  return { set, stop };
+}
+
+const sharedTitleDriver = createTitleDriver();
+export function setTabTitle(name: string, busy: boolean): void {
+  sharedTitleDriver.set(name, busy);
+}
+/** Stop the heartbeat (unmount/exit). Idempotent. */
+export function stopTitleDriver(): void {
+  sharedTitleDriver.stop();
+}

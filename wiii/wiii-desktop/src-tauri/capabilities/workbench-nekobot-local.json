@@ -1,0 +1,15 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "workbench-nekobot-local",
+  "description": "Explicit owner-confirmed local Neko Bot bridge, native cookie and pinned channel transport",
+  "windows": ["main"],
+  "permissions": [
+    "allow-neko-qa-store-path",
+    "allow-neko-qa-runtime-profile",
+    "allow-neko-bot-local-status",
+    "allow-neko-bot-local-connect",
+    "allow-neko-bot-local-disconnect",
+    "allow-neko-bot-local-link",
+    "allow-neko-bot-local-request"
+  ]
+}

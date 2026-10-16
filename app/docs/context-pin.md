@@ -1,0 +1,11 @@
+# Immutable local context pin
+
+Every new intake commits its context pin with the original message/request before ACK. Pin v2 carries owner/space/bot/conversation, pinned bot name/config revision, journal sequence, copied source message and reply bytes, source request/message IDs, epoch/access revision, and immutable artifact references. Historical v1 pins remain readable with their original selector. Artifact bytes remain in the host store and are validated against their receipt hashes; code checkpoints do not back up those product bytes.
+
+Only completed work already visible at intake in the same owner/space/bot/conversation is eligible. Retain at most eight recent complete sources within an 8 KB serialized source budget; count omitted sources. No partial, newer or other-bot history enters this pin. SHA-256 covers the serialized pin with its sha256 field empty. Journal replay reconstructs the expected pin from the historical prefix and rejects forged content even when the outer record digest is recomputed.
+
+Runtime renders the stored pin. It never re-reads live history at dispatch. Queue completion, nonce retry and restart do not rebuild context. Exported work/events use independent copies so a caller cannot mutate the stored pin through object aliases. Encoded launch frames exceeding the transport bound reject before intake commit. Old journal records without a pin remain readable and receive no ambient historical import.
+
+This is a bounded local conversation pin. Local source permission invalidation and explicit context refresh are described in context-permissions-local.md. AI document selection, project/channel ACL, retrieval and merged Core checkpoints remain separate gates. Core remains the only model/tool loop.
+
+Verification: queue/completion race, bot isolation, retained artifact bytes, restart/nonce equality, forged pin, legacy records and encoded bounds in Go; scripts/e2e_context.py checks the actual prompt delivered through native Core to an owned loopback provider. Fixture markers are parsed from the current request rather than historical source text. Neither suite proves model quality or UX acceptance; the current visual design still requires user review.

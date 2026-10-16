@@ -1,0 +1,197 @@
+name: release
+
+# Build standalone, Bun-free binaries for every OS on a version tag, and attach
+# them to a GitHub Release. Users then install with one line (see install.sh / install.ps1).
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  # The DRAFT release is created ONCE, before any build. When every matrix job created it
+  # instead (softprops/action-gh-release), two jobs racing on a fresh tag could each
+  # create one; the duplicate was discarded and its asset upload 404'd -- v0.5.0
+  # shipped without neko-linux-arm64 until a manual re-run. Keeping it draft also
+  # prevents users and the installer from seeing a half-populated release. The final
+  # publish job runs only after every target and checksum has uploaded successfully.
+  release:
+    if: startsWith(github.ref, 'refs/tags/v')
+    name: create draft release
+    runs-on: ubuntu-latest
+    outputs:
+      state: ${{ steps.release_state.outputs.state }}
+    steps:
+      - uses: actions/checkout@v7
+      - name: create the GitHub draft release for the tag (idempotent for re-runs)
+        id: release_state
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if state=$(gh release view "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --json isDraft --jq 'if .isDraft then "draft" else "published" end' 2>/dev/null); then
+            echo "release already exists in state: $state"
+          else
+            gh release create "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --draft --generate-notes
+            state=draft
+          fi
+          echo "state=$state" >> "$GITHUB_OUTPUT"
+      - name: package the auditable unpacked browser extension
+        shell: bash
+        run: |
+          cd browser-extension
+          zip -r "../neko-browser-extension-$GITHUB_REF_NAME.zip" manifest.json service-worker.js control-indicator.js popup.html popup.css popup.js icons
+      - name: attach browser extension bundle to the release
+        if: ${{ steps.release_state.outputs.state == 'draft' }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release upload "$GITHUB_REF_NAME" "neko-browser-extension-$GITHUB_REF_NAME.zip" --repo "$GITHUB_REPOSITORY" --clobber
+
+  build:
+    name: build ${{ matrix.asset }}
+    needs: release
+    runs-on: ${{ matrix.os }}
+    # A hung runtime (the Rosetta lesson) must fail fast, not squat on a runner for 6 hours.
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # Four targets build NATIVELY. Native also means the artifact gets BOTH smokes:
+          # __uiprobe (render) and input-probe (a real PTY hears keys - the Bun-1.3.14 class).
+          - { os: ubuntu-latest,    target: bun-linux-x64,    asset: neko-linux-x64,       smoke: true }
+          - { os: ubuntu-24.04-arm, target: bun-linux-arm64,  asset: neko-linux-arm64,     smoke: true }
+          - { os: macos-latest,     target: bun-darwin-arm64, asset: neko-macos-arm64,     smoke: true }
+          # Intel macOS: no Intel runners left, and the x64 binary cannot be smoked on the arm64 runner,
+          # so this one target cross-compiles from the same stable release runtime.
+          - { os: macos-latest,     target: bun-darwin-x64,   asset: neko-macos-x64,       smoke: false }
+          - { os: windows-latest,   target: bun-windows-x64,  asset: neko-windows-x64.exe, smoke: true }
+    steps:
+      - uses: actions/checkout@v7
+      - uses: oven-sh/setup-bun@v2
+        with:
+          # Exact stable runtime for every artifact. Bun 1.4.0 includes the native Windows IOCP/TTY
+          # engine that fixed the 1.3.14 raw-stdin path; the input and lifecycle probes still prove it.
+          bun-version: 1.4.0
+      - run: bun install --frozen-lockfile
+      - name: compile
+        # scripts/build.ts owns compile flags and host-gated Windows PE metadata.
+        shell: bash
+        # `bun --revision` first: record the exact embedded runtime version+commit for field forensics.
+        run: |
+          bun --revision
+          bun scripts/build.ts --target=${{ matrix.target }} --outfile=${{ matrix.asset }}
+      - name: smoke-test the artifact (renders a real Ink/JSX tree)
+        if: ${{ matrix.smoke }}
+        shell: bash
+        run: ./${{ matrix.asset }} __uiprobe
+      - name: input smoke - the artifact must HEAR keys through a real PTY
+        # The gate the Bun-1.3.14 field bug taught us: a runtime whose raw-stdin bridge drops keys
+        # renders perfectly (__uiprobe passes) and fails ONLY here. Spawns the artifact's
+        # `doctor keys` under Bun.Terminal (ConPTY/forkpty), types into it, asserts the byte lands.
+        if: ${{ matrix.smoke }}
+        shell: bash
+        run: bun scripts/input-probe.ts ./${{ matrix.asset }}
+      - name: ACP smoke - the artifact must handshake without a model call
+        if: ${{ matrix.smoke }}
+        shell: bash
+        run: bun scripts/acp-smoke.ts ./${{ matrix.asset }}
+      - name: startup/exit lifecycle - first frame complete, shell restored before handoff
+        if: ${{ matrix.smoke }}
+        shell: bash
+        run: bun scripts/e2e-startup-lifecycle.ts --exe ./${{ matrix.asset }}
+      - name: fallback renderer startup and exit lifecycle
+        if: ${{ matrix.smoke }}
+        shell: bash
+        env:
+          NEKO_INCR: "0"
+        run: bun scripts/e2e-startup-lifecycle.ts --exe ./${{ matrix.asset }}
+      - name: publish SHA-256 beside the binary
+        shell: bash
+        run: |
+          if command -v sha256sum >/dev/null 2>&1; then
+            sha256sum "${{ matrix.asset }}" > "${{ matrix.asset }}.sha256"
+          else
+            shasum -a 256 "${{ matrix.asset }}" > "${{ matrix.asset }}.sha256"
+          fi
+          gzip -9 -c "${{ matrix.asset }}" > "${{ matrix.asset }}.gz"
+      - name: package the manual Windows download
+        if: ${{ runner.os == 'Windows' }}
+        shell: pwsh
+        run: Compress-Archive -LiteralPath '${{ matrix.asset }}' -DestinationPath '${{ matrix.asset }}.zip' -CompressionLevel Optimal
+      - name: attach to release
+        if: ${{ needs.release.outputs.state == 'draft' }}
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          assets=("${{ matrix.asset }}" "${{ matrix.asset }}.sha256" "${{ matrix.asset }}.gz")
+          test ! -f "${{ matrix.asset }}.zip" || assets+=("${{ matrix.asset }}.zip")
+          gh release upload "$GITHUB_REF_NAME" "${assets[@]}" --repo "$GITHUB_REPOSITORY" --clobber
+
+  publish:
+    name: publish complete release
+    needs: [release, build]
+    runs-on: ubuntu-latest
+    steps:
+      - name: publish only after every artifact is present
+        if: ${{ needs.release.outputs.state == 'draft' }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release edit "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --draft=false --latest
+      - name: assert the release is public and complete
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          test "$(gh release view "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --json isDraft --jq .isDraft)" = false
+          count=$(gh release view "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --json assets --jq '.assets | length')
+          test "$count" -eq 17 || { echo "::error::release has $count assets, expected 17"; exit 1; }
+
+  # The site reads the latest release from the GitHub API and rewrites its version + download sizes on
+  # the way out, so a release needs no site deploy. That is only true while it actually works, and a
+  # silent failure there means the download page advertises the wrong build — the exact class of bug
+  # nobody notices until a user reports a size mismatch. So the release ASSERTS it, rather than assuming.
+  #
+  # It waits because the Worker caches the API response for ten minutes; a fresh tag can take that long
+  # to surface. Failure here does not invalidate the binaries (they are already attached) — it means the
+  # site needs looking at.
+  #
+  # Honest limit: this checks the ONE edge location the runner resolves to. In v0.18.0 it passed green
+  # while another region still served the previous version, because the Worker was stacking two caches
+  # with the same TTL and each expiry re-primed the stale answer from the still-cached one underneath.
+  # That is fixed at the source (one cache, freshness checked against a timestamp the Worker writes), so
+  # the worst case is now a bounded ten minutes that self-heals — but a green tick here is evidence about
+  # one colo, not a proof about all of them.
+  site:
+    name: site reports the new version
+    needs: publish
+    runs-on: ubuntu-latest
+    steps:
+      - name: wait for neko.holilihu.online to serve this version
+        shell: bash
+        run: |
+          want="${GITHUB_REF_NAME#v}"
+          for attempt in $(seq 1 20); do
+            got=$(curl -fsS --max-time 20 https://neko.holilihu.online/__release | sed -n 's/.*"version":"\([^"]*\)".*/\1/p' || true)
+            echo "attempt $attempt: site reports '${got:-<none>}', want '$want'"
+            if [ "$got" = "$want" ]; then
+              echo "site is current"
+              # The page itself must carry it too, not just the JSON probe. Read it into a variable
+              # rather than piping into grep: `grep -q` exits on the first match and closes the pipe,
+              # curl dies with exit 23, and `set -o pipefail` turns a PASSING check into a failure.
+              # That is exactly how v0.18.1 reported "the HTML rewrite is not running" about a page
+              # that was already serving the new version.
+              page=$(curl -fsS --max-time 20 https://neko.holilihu.online/ || true)
+              case "$page" in
+                *"$want"*) echo "the rendered page carries $want"; exit 0 ;;
+              esac
+              echo "::error::/__release says $want but the page does not contain it - the HTML rewrite is not running"
+              exit 1
+            fi
+            sleep 45
+          done
+          echo "::error::the site never reported $want (checked for 15 minutes) - see cloudflare/site/DEPLOY.md"
+          exit 1

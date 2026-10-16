@@ -1,0 +1,101 @@
+/**
+ * UI perf bench on a REAL session: loads a saved transcript and measures the exact per-frame costs the
+ * REPL pays - initial fullscreen render, per-keystroke re-render, scroll flush - plus the micro-pieces
+ * (estimateTokens, replay build, flatten). Run:  bun scripts/bench-ui.ts [sessionId]
+ * This is how "it lags" gets turned into numbers before any fix is attempted.
+ */
+import { render } from "ink-testing-library";
+import React from "react";
+
+import { loadSession } from "../src/adapters/session.ts";
+import { estimateTokens } from "../src/core/agent.ts";
+import { ChatApp } from "../src/ui/chat.tsx";
+import { buildReplayLines } from "../src/ui/chat-lines.ts";
+import { flattenLines } from "../src/ui/scroll.tsx";
+import { RichView } from "../src/ui/rich-transcript.tsx";
+import { NekoConfig } from "../src/adapters/config.ts";
+
+const id = process.argv[2] ?? "20260703-225229-822";
+const s = loadSession(id);
+if (!s) { console.error(`no session ${id}`); process.exit(1); }
+console.log(`session ${id}: ${s.messages.length} messages, ${JSON.stringify(s.messages).length} chars`);
+
+const ms = (t0: number) => (performance.now() - t0).toFixed(1) + "ms";
+const tick = (n = 40) => new Promise((r) => setTimeout(r, n));
+
+let t0 = performance.now();
+const tok = estimateTokens(s.messages);
+console.log(`estimateTokens: ${ms(t0)} (=${tok} tok)  <- runs EVERY render until the first API call`);
+
+let nextId = 0;
+t0 = performance.now();
+const fullLines = buildReplayLines(s.messages, () => nextId++);
+console.log(`buildReplayLines full: ${ms(t0)} (${fullLines.length} lines)`);
+nextId = 0;
+t0 = performance.now();
+const resumeLines = buildReplayLines(s.messages, () => nextId++, { mode: "resume", columns: 100 });
+console.log(`buildReplayLines resume projection: ${ms(t0)} (${resumeLines.length} lines)`);
+
+t0 = performance.now();
+const flat = flattenLines(fullLines, 100);
+console.log(`flattenLines: ${ms(t0)} (${flat.length} rows)`);
+
+const CFG = new NekoConfig({}, null, {}, "");
+const { warmAnsiCache, getCachedRows, fallbackRows, clearAnsiCache, WARM_WINDOW } = await import("../src/ui/ansi-cache.ts");
+clearAnsiCache();
+t0 = performance.now();
+await new Promise<void>((resolve) => {
+  if (!resumeLines.length) { resolve(); return; }
+  const deadline = Date.now() + 10_000;
+  warmAnsiCache(resumeLines, 100, CFG, () => {
+    const tail = resumeLines.slice(-Math.min(WARM_WINDOW, resumeLines.length));
+    if (tail.every((line) => getCachedRows(line, 100)) || Date.now() >= deadline) resolve();
+  });
+});
+const allRows = resumeLines.flatMap((line) => getCachedRows(line, 100) ?? fallbackRows(line));
+console.log(`warm resume viewport (${Math.min(WARM_WINDOW, resumeLines.length)}/${resumeLines.length} lines): ${ms(t0)} (${allRows.length} current rows)`);
+t0 = performance.now();
+// SAFETY: test-built fixture/bridge; fields are exactly what this test controls.
+const rv = render(React.createElement(RichView, { rows: allRows, dist: 0, viewH: 30, width: 100 }) as any);
+console.log(`RichView mount (viewH=30, cached rows): ${ms(t0)}`);
+t0 = performance.now();
+// SAFETY: test-built fixture/bridge; fields are exactly what this test controls.
+for (let i = 1; i <= 10; i++) {
+  // SAFETY: benchmark rerenders a real mounted component; the Ink render result object is opaque here.
+  rv.rerender(React.createElement(RichView, { rows: allRows, dist: i * 3, viewH: 30, width: 100 }) as any);
+}
+console.log(`RichView 10 scroll re-renders: ${ms(t0)} (avg ${((performance.now() - t0) / 10).toFixed(1)}ms/frame)`);
+rv.unmount();
+
+process.env.NEKO_FULLSCREEN = "1";
+const provider: any = { complete: async () => ({ content: "ok", tool_calls: [] }) };
+t0 = performance.now();
+// SAFETY: test-built fixture/bridge; fields are exactly what this test controls.
+const app = render(React.createElement(ChatApp as any, { yolo: true, provider, resumedSession: s, sessionId: id }) as any);
+await tick(80);
+console.log(`ChatApp fullscreen mount+settle: ${ms(t0)} (${app.stdout.frames.length} frames)`);
+
+// Let the background warmer finish (chunks of 3 on 0ms timers) before measuring steady-state typing.
+t0 = performance.now();
+let lastFrames = -1;
+while (app.stdout.frames.length !== lastFrames) { lastFrames = app.stdout.frames.length; await tick(120); }
+console.log(`background warm quiesced in ${ms(t0)}`);
+
+// per-keystroke: type, measure wall time + BYTES WRITTEN at steady state. Bytes are the terminal-side
+// cost proxy: every byte must be parsed + painted by the real terminal (the cost fake-stdout benches
+// hide). Incremental rendering should shrink this to ~the input line instead of the whole frame.
+const before = app.stdout.frames.length;
+t0 = performance.now();
+for (const ch of "danh gia do tre go phim") { app.stdin.write(ch); await tick(1); }
+await tick(60);
+const typed = performance.now() - t0 - 23 * 1 - 60;
+const bytes = app.stdout.frames.slice(before).reduce((n: number, f: string) => n + f.length, 0);
+console.log(`23 keystrokes (steady state): ${typed.toFixed(0)}ms (~${(typed / 23).toFixed(1)}ms/key), frames +${app.stdout.frames.length - before}, ${bytes} bytes written (~${Math.round(bytes / 23)}/key)`);
+
+// scroll: 10 coalesced wheel bursts
+t0 = performance.now();
+for (let i = 0; i < 10; i++) { app.stdin.write("\x1b[<64;5;5M\x1b[<64;5;5M\x1b[<64;5;5M"); await tick(40); }
+console.log(`10 wheel bursts (3 notches each, 40ms apart): ${ms(t0)}`);
+
+app.unmount();
+process.exit(0);

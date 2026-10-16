@@ -1,0 +1,20 @@
+import vm from 'node:vm';
+import {readFileSync,writeFileSync} from 'node:fs';
+import {execFileSync} from 'node:child_process';
+import {createHash} from 'node:crypto';
+
+const source=readFileSync('native/internal/web/assets/app.js','utf8'),start=source.indexOf('function acceptSourceFile('),end=source.indexOf('\nfunction ',start+1),context=vm.createContext({state:{files:[]}});
+if(start<0||end<0)throw Error('File metadata function missing');
+vm.runInContext(source.slice(start,end),context);
+const file={id:'file-'+'a'.repeat(32),projectId:'project-'+'b'.repeat(32),channelId:'channel-'+'c'.repeat(32),filename:'source.docx',sha256:'d'.repeat(64),bytes:1000,mime:'application/vnd.openxmlformats-officedocument.wordprocessingml.document',version:1,status:'ready_text',truncated:false,granted:true,accessRevision:0,extractionVersion:1,textFormat:'docx_ooxml',textSHA256:'e'.repeat(64),textBytes:105,excerpt:'private excerpt fixture'};
+const accept=value=>{context.input=value;return vm.runInContext('acceptSourceFile(input)',context)};
+const accepted=accept(file),copy=context.state.files[0],checks=['extractionVersion','textFormat','textSHA256','textBytes'].map(key=>({name:'preserve_'+key,status:accepted&&copy[key]===file[key]?'PASS':'FAIL'}));
+const check=(name,ok)=>checks.push({name,status:ok?'PASS':'FAIL'});
+check('excerpt_not_copied',!Object.hasOwn(copy,'excerpt'));
+for(const [name,patch]of Object.entries({unknown_version:{extractionVersion:2},unknown_format:{textFormat:'html'},bad_text_hash:{textSHA256:'not-a-hash'},too_much_text:{textBytes:524289},zero_text:{textBytes:0},raw_mime_mismatch:{mime:'text/plain'},changed_text_identity:{textSHA256:'f'.repeat(64)},changed_text_size:{textBytes:106}}))check('reject_'+name,!accept({...file,...patch}));
+check('allow_live_access_change_same_text_identity',accept({...file,accessRevision:1,granted:false})&&context.state.files[0].textSHA256===file.textSHA256);
+check('stale_access_cannot_rollback',!accept(file));
+context.state.files=[];const legacy={...file,filename:'source.txt',mime:'text/plain; charset=utf-8'};for(const key of ['extractionVersion','textFormat','textSHA256','textBytes'])delete legacy[key];check('legacy_utf8_metadata_compatible',accept(legacy)&&!Object.hasOwn(context.state.files[0],'excerpt'));
+const result={sourceCommit:execFileSync('git',['rev-parse','HEAD'],{encoding:'utf8'}).trim(),workingTree:Boolean(execFileSync('git',['status','--porcelain'],{encoding:'utf8'}).trim()),sourceSHA256:createHash('sha256').update(source).digest('hex'),harnessSHA256:createHash('sha256').update(readFileSync(new URL(import.meta.url))).digest('hex'),scope:'Actual file metadata function source in isolated Node VM with authored metadata; no browser/backend/native acceptance',checks};
+const at=process.argv.indexOf('--output');if(at>=0)writeFileSync(process.argv[at+1],JSON.stringify(result,null,2)+'\n');
+console.log(JSON.stringify(result,null,2));process.exitCode=checks.some(c=>c.status==='FAIL')?1:0;

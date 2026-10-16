@@ -1,0 +1,72 @@
+{
+  "uiCommit": "2cda67d724e116c9e5678e64f75cd0239137e5d1",
+  "gitIndex": "not touched",
+  "visualApproval": "pending",
+  "artifacts": [
+    {
+      "path": "docs/reviews/mobile-accessibility-light-20261011.md",
+      "bytes": 10050,
+      "sha256": "dc504d6a01eef0703dc5dff97154d41503d933fa30db02c5344ba2cb41084ee0"
+    },
+    {
+      "path": "tests/mobile-audit-20261011/light-audit.mjs",
+      "bytes": 40003,
+      "sha256": "d7dc2c3a6dba7ad55f96dd433a8ac6566a1d38399d42f76da79a1067c744c494"
+    },
+    {
+      "path": "tests/mobile-audit-20261011/light-cases.mjs",
+      "bytes": 12910,
+      "sha256": "f75804aa894e38a6854d6f9f100be62e7e583448f3f9ea45e5794afa321424fa"
+    },
+    {
+      "path": "tests/mobile-audit-20261011/context-cases.mjs",
+      "bytes": 24655,
+      "sha256": "f3fdffd80f6c189fce66564405a6bc044ce1102ffb08340137914355bcbb253c"
+    },
+    {
+      "path": "tests/mobile-audit-20261011/README-light.md",
+      "bytes": 2204,
+      "sha256": "dbf01123b3e5f448a3a78758bef2751180c5f796536b5b6175cfb0e7250e1114"
+    },
+    {
+      "path": "tests/mobile-audit-20261011/evidence/light-2cda-regression/results.json",
+      "bytes": 37032,
+      "sha256": "209c51a2f457a217a8d2d9393e172487f01c1fd77182e4d373c9403845a413e2"
+    },
+    {
+      "path": "tests/mobile-audit-20261011/evidence/light-2cda-regression/initial-light-cases.mjs",
+      "bytes": 12832,
+      "sha256": "b27fa887b381788ad5c6e336d04e3c7167768209d17331547588983edf277486"
+    },
+    {
+      "path": "tests/mobile-audit-20261011/evidence/light-2cda-context/results.json",
+      "bytes": 41447,
+      "sha256": "5d7a8066f1a020a39985112aab870468685aae7f30333e5e56c6568a570cfd40"
+    },
+    {
+      "path": "tests/mobile-audit-20261011/evidence/light-2cda-features-verified/results.json",
+      "bytes": 20790,
+      "sha256": "2ccf5454594aa0204fa6a04d1acc4d672220c2ab078c01039cf155d03dbfeb68"
+    },
+    {
+      "path": "tests/mobile-audit-20261011/evidence/light-2cda-features-verified/light-mention-short.png",
+      "bytes": 12105,
+      "sha256": "8def60a898d14b60d4824244bc665b3f0578540b7ae838d36f2a681db49f5626"
+    },
+    {
+      "path": "tests/mobile-audit-20261011/evidence/light-2cda-features-verified/light-empty-desktop.png",
+      "bytes": 48687,
+      "sha256": "423715c217478b03d0d0e16854f4b6dbfba1f30918235c45f29f084793faf622"
+    },
+    {
+      "path": "tests/mobile-audit-20261011/evidence/light-2cda-features-verified/light-empty-mobile.png",
+      "bytes": 26471,
+      "sha256": "cb96b760d9365540597230ac9b1b510b5848ed0112c279e751d18ecb021fd272"
+    },
+    {
+      "path": "tests/mobile-audit-20261011/light-secret-scan.json",
+      "bytes": 195,
+      "sha256": "4c72eb5aa2b00f8f6c7b597d8e4eea0f8e0b3c5419d585360af1d849c6f10561"
+    }
+  ]
+}

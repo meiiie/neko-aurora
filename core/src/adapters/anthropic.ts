@@ -1,0 +1,837 @@
+import { providerFetch, ProviderRedirectError } from "./provider-fetch.ts";
+/**
+ * Anthropic Messages API provider — speaks `POST {base_url}/v1/messages` (the format Claude uses, and the
+ * format Z.ai's GLM Coding Plan / OpenCode endpoint expects: base_url https://api.z.ai/api/anthropic).
+ * It implements the same `Provider` port as openai_compat, so it's a config choice (`provider: "anthropic"`),
+ * not a core change. Converts Neko's internal OpenAI-shaped messages/tools to Anthropic blocks and back.
+ */
+import { abortable, throwIfAborted } from "../shared/abort.ts";
+import type { Usage } from "../core/cost.ts";
+import { splitSystemContext } from "../core/agent-constants.ts";
+import { ProviderAttemptError, type CompleteOptions, type DeltaHook, type Provider, type ProviderResponse, type ToolCall } from "../core/ports.ts";
+import { NekoConfig } from "./config.ts";
+import { providerScope } from "./provider-scope.ts";
+import { clampEffort, effortLevelsFromError, requestEffort, resolveEffort } from "./effort.ts";
+
+import { isJsonObject, isObjectValue, isText } from "../shared/wire.ts";
+
+const RETRYABLE_STATUS = new Set([429, 500, 502, 503, 504, 529]); // 529 = Anthropic's documented overloaded_error
+
+// Anthropic REQUIRES max_tokens, so unlike the compat/responses providers it can't omit the field on "auto"
+// (config max_tokens 0). This is the substitute: large enough that a full-page single-file write is never
+// truncated mid-tool-call, and safe for every current Claude/GLM-class model (Sonnet 5 = 64k, Opus 4.8 /
+// Fable 5 / GLM-4.6+ = 128k). A model with a SMALLER cap self-heals — the 400 it returns names its real limit
+// and we clamp + retry once (anthropicMaxTokensLimit) — so there is no per-model output-cap table to maintain.
+export const ANTHROPIC_DEFAULT_MAX_TOKENS = 32_768;
+
+export class AnthropicProvider implements Provider {
+  private rejectedCacheScope?: string;
+  constructor(
+    private readonly cfg: NekoConfig,
+    private readonly resolveApiKey: () => string | Promise<string> = () => cfg.apiKey,
+    private readonly resolveHeaders: () => Record<string, string> | Promise<Record<string, string>> = () => ({}),
+  ) {}
+
+  async complete(messages: any[], tools?: any[], onDelta?: DeltaHook, signal?: AbortSignal, opts?: CompleteOptions): Promise<ProviderResponse> {
+    throwIfAborted(signal);
+    if (!this.cfg.baseUrl) throw new Error("anthropic provider needs a base_url (e.g. https://api.z.ai/api/anthropic).");
+    assertAnthropicEndpoint(this.cfg.baseUrl);
+    if (!this.cfg.model) throw new Error("anthropic provider needs a model (e.g. glm-5.3 or claude-sonnet-5).");
+    const key = await abortable(Promise.resolve(this.resolveApiKey()), signal);
+    if (!key && !this.cfg.isLocalEndpoint) throw new Error("No API key for the anthropic provider. Set it in the profile's api_key or NEKO_API_KEY.");
+
+    const stream = Boolean(onDelta);
+    const url = `${this.cfg.baseUrl.replace(/\/+$/, "")}/v1/messages`;
+    const continuationScope = providerScope("anthropic", url, this.cfg.model);
+    const { system, msgs } = toAnthropicMessages(messages, continuationScope);
+    const payload: any = {
+      model: this.cfg.model,
+      max_tokens: this.cfg.maxTokens > 0 ? this.cfg.maxTokens : ANTHROPIC_DEFAULT_MAX_TOKENS, // Anthropic REQUIRES max_tokens (0 = auto -> generous default, self-heals on the 400 below)
+      messages: msgs,
+      stream,
+    };
+    const thinkingPolicy = anthropicThinkingPolicy(this.cfg.model);
+    const officialAnthropic = isOfficialAnthropic(this.cfg.baseUrl);
+    if (thinkingPolicy === "manual") payload.temperature = this.cfg.temperature;
+    if (system) payload.system = system;
+    if (tools && tools.length) payload.tools = toAnthropicTools(tools);
+    // Anthropic's native structured output lives under output_config.format. Compatible Messages
+    // endpoints such as Z.ai still use the portable forced-tool fallback.
+    let schemaMode = Boolean(opts?.responseSchema);
+    const nativeSchema = schemaMode && officialAnthropic;
+    if (nativeSchema) {
+      payload.output_config = { format: { type: "json_schema", schema: opts!.responseSchema } };
+    } else if (schemaMode) {
+      payload.tools = [{ name: "emit_extraction", description: "Return the extraction result in the required schema.", input_schema: opts!.responseSchema }];
+      payload.tool_choice = { type: "tool", name: "emit_extraction" };
+    }
+
+    // Current Claude models use adaptive thinking + output_config.effort. Manual token budgets and a
+    // non-default temperature are rejected by Sonnet 5. Legacy Messages-compatible models retain the
+    // explicit budget path. Forced tool choice remains incompatible with thinking on compat endpoints.
+    const requestedEffort = requestEffort(this.cfg.effort, opts?.reasoningEffort);
+    const effort = anthropicEffort(requestedEffort, this.cfg.effortCeiling);
+    if (thinkingPolicy !== "manual") {
+      if (effort) {
+        payload.thinking = { type: "adaptive", display: "summarized" };
+        payload.output_config = { ...payload.output_config, effort };
+      } else if (!requestedEffort && this.cfg.effort === "off" && thinkingPolicy === "sonnet5") {
+        payload.thinking = { type: "disabled" };
+      } else if (this.cfg.effort !== "off" || thinkingPolicy === "always-adaptive") {
+        // Empty effort means the model's default effort, not "disable reasoning". Explicit adaptive
+        // also opts into readable summaries; newest Claude models otherwise return omitted thinking.
+        payload.thinking = { type: "adaptive", display: "summarized" };
+      }
+    } else {
+      const budget = schemaMode ? 0 : thinkingBudget(effort);
+      if (budget > 0) {
+        payload.thinking = { type: "enabled", budget_tokens: budget };
+        payload.max_tokens = Math.max(payload.max_tokens, budget + 8192);
+        delete payload.temperature;
+      }
+    }
+
+    // Prompt caching (Anthropic-style explicit breakpoints). Z.ai's compatible endpoint accepts
+    // them (Claude Code clients send them on every request); an endpoint that rejects them is
+    // healed below by stripping + one retry, so this is safe-by-default (`prompt_cache: false` opts out).
+    let cacheOn = this.cfg.promptCache && this.rejectedCacheScope !== continuationScope;
+    if (cacheOn) addCacheBreakpoints(payload);
+
+    throwIfAborted(signal);
+    const headers: any = {
+      ...(await abortable(Promise.resolve(this.resolveHeaders()), signal)),
+      "content-type": "application/json",
+      "anthropic-version": "2023-06-01",
+    };
+    if (key) {
+      headers["x-api-key"] = key;
+      if (!officialAnthropic) headers.authorization = `Bearer ${key}`; // Z.ai-compatible endpoints use Bearer
+    }
+
+    const offlineDeadline = Date.now() + this.cfg.offlineRetrySeconds * 1000;
+    let httpAttempt = 0, netAttempt = 0, effortHealTried = false, maxTokensHealTried = false;
+    let wireAttempt = 0;
+    for (;;) {
+      if (signal?.aborted) throw new DOMException("Aborted by user", "AbortError");
+      wireAttempt++;
+      await opts?.onAttempt?.({ type: "attempt_started", attempt: wireAttempt });
+      // IDLE timeout (reset on every streamed chunk), NOT a total request cap: a long-but-healthy
+      // generation (a big landing page legitimately streams for minutes) must not be killed while tokens
+      // keep arriving; only a genuine STALL aborts. AbortSignal.timeout() capped the whole request and
+      // aborted long streams mid-generation ("The operation timed out"). Same fix as providers.ts.
+      const idle = new AbortController();
+      let idleTimer: ReturnType<typeof setTimeout> | undefined;
+      const bumpIdle = () => {
+        if (idleTimer) clearTimeout(idleTimer);
+        idleTimer = setTimeout(() => idle.abort(new DOMException("Idle timeout", "TimeoutError")), this.cfg.timeoutSeconds * 1000);
+      };
+      bumpIdle();
+      let res: Response;
+      try {
+        res = await providerFetch(url, { method: "POST", headers, body: JSON.stringify(payload), signal: signal ? AbortSignal.any([idle.signal, signal]) : idle.signal });
+      } catch (error) {
+        if (idleTimer) clearTimeout(idleTimer);
+        if (signal?.aborted || error instanceof ProviderRedirectError) throw error;
+        if (Date.now() >= offlineDeadline) throw new Error(`anthropic completion failed: ${msgOf(error)}`);
+        netAttempt++;
+        const waitMs = this.retryDelayMs(Math.min(netAttempt - 1, 4));
+        await opts?.onAttempt?.({ type: "retry_scheduled", attempt: wireAttempt, reason: "transport_unavailable", delayMs: waitMs });
+        onDelta?.("(offline - waiting for the network to come back, retrying...)", "reasoning");
+        await sleep(waitMs, signal);
+        continue;
+      }
+      if (res.ok) {
+        try {
+          const out = stream
+            ? await parseStream(res, onDelta!, bumpIdle, opts?.onToolCallReady, continuationScope)
+            : parseMessage(await res.json(), continuationScope);
+          if (!schemaMode) return out;
+          if (nativeSchema) return { ...out, content: extractJsonLoose(out.content ?? ""), tool_calls: [] };
+          // Schema mode: the forced tool's validated input IS the result; in the healed (prompt-JSON)
+          // fallback the model may fence/pad the JSON, so extract it loosely before returning.
+          const call = out.tool_calls?.[0];
+          return call
+            ? { ...out, content: JSON.stringify(call.arguments ?? {}), tool_calls: [] }
+            : { ...out, content: extractJsonLoose(out.content ?? "") };
+        } catch (streamErr) {
+          // An IDLE-timeout stall AFTER a 200 (z.ai/GLM occasionally goes silent on TTFT, aborting the stream
+          // with a TimeoutError) is a transient hiccup: retry the whole request like a network drop instead of
+          // killing the run. A user abort is real; a clean "disconnected before message_stop" stays fatal.
+          if (signal?.aborted) throw streamErr;
+          if (isRetryableStreamStall(streamErr) && httpAttempt < this.cfg.maxRetries) {
+            httpAttempt++;
+            const waitMs = this.retryDelayMs(httpAttempt - 1);
+            await opts?.onAttempt?.({ type: "retry_scheduled", attempt: wireAttempt, reason: streamErr instanceof ProviderAttemptError ? streamErr.code : "stream_timeout", delayMs: waitMs, maxRetries: this.cfg.maxRetries });
+            onDelta?.(`(stream stalled - retrying in a moment, ${httpAttempt}/${this.cfg.maxRetries})`, "reasoning");
+            await sleep(waitMs, signal);
+            continue;
+          }
+          throw streamErr;
+        } finally {
+          if (idleTimer) clearTimeout(idleTimer);
+        }
+      }
+      if (idleTimer) clearTimeout(idleTimer);
+      const body = await res.text().catch(() => "");
+      // Self-heal: a compat endpoint that rejects cache_control gets one retry without it
+      // (mirrors the reasoning_effort self-heal in providers.ts).
+      if (cacheOn && (res.status === 400 || res.status === 422) && /cache_control/i.test(body)) {
+        cacheOn = false;
+        this.rejectedCacheScope = continuationScope;
+        stripCacheBreakpoints(payload);
+        continue;
+      }
+      if (payload.output_config?.effort && res.status >= 400 && res.status < 500 && /effort/i.test(body)) {
+        if (!effortHealTried) {
+          effortHealTried = true;
+          const advertised = effortLevelsFromError(body);
+          const resolved = resolveEffort(String(payload.output_config.effort), { efforts: advertised.map((item) => ({ effort: item })) });
+          if (advertised.includes(resolved) && resolved !== payload.output_config.effort) {
+            payload.output_config.effort = resolved;
+            onDelta?.(`(effort -> ${resolved}; highest compatible tier advertised by this Claude model)`, "reasoning");
+            continue;
+          }
+        }
+        delete payload.output_config.effort;
+        if (!Object.keys(payload.output_config).length) delete payload.output_config;
+        onDelta?.("(this Claude model rejected explicit effort; retrying with adaptive default)", "reasoning");
+        continue;
+      }
+      if (payload.thinking && res.status >= 400 && res.status < 500 && /thinking|adaptive/i.test(body)) {
+        delete payload.thinking;
+        if (payload.output_config?.effort) delete payload.output_config.effort;
+        if (payload.output_config && !Object.keys(payload.output_config).length) delete payload.output_config;
+        onDelta?.("(this model rejected explicit thinking controls; retrying with its default)", "reasoning");
+        continue;
+      }
+      // Self-heal: an endpoint that rejects forced tool_choice falls back to prompt-JSON (the reply is
+      // then loose-extracted above). One retry, same pattern as the other heals.
+      if (payload.tool_choice && res.status >= 400 && res.status < 500 && /tool_choice|tool choice/i.test(body)) {
+        delete payload.tool_choice;
+        delete payload.tools;
+        const extra = `\n\nReply with ONLY a single JSON object matching this JSON Schema (no prose, no code fences):\n${JSON.stringify(opts!.responseSchema)}`;
+        if (Array.isArray(payload.system)) payload.system.push({ type: "text", text: extra });
+        else payload.system = `${payload.system ?? ""}${extra}`;
+        continue;
+      }
+      // Self-heal: a model whose output cap is below our max_tokens 400s with its real limit named in the body
+      // ("max_tokens: 40192 > 8192, which is the maximum allowed number of output tokens for ..."). Clamp to it
+      // and retry once, so a new/custom Claude- or GLM-class model with a smaller cap just works, no table needed.
+      if (!maxTokensHealTried && res.status >= 400 && res.status < 500 && /max_tokens/i.test(body)) {
+        const limit = anthropicMaxTokensLimit(body);
+        if (limit && limit > 0 && limit < payload.max_tokens) {
+          maxTokensHealTried = true;
+          payload.max_tokens = limit;
+          onDelta?.(`(max_tokens -> ${limit}; this model's output cap)`, "reasoning");
+          continue;
+        }
+      }
+      if (RETRYABLE_STATUS.has(res.status) && httpAttempt < this.cfg.maxRetries) {
+        httpAttempt++;
+        const ra = res.headers.get("retry-after");
+        const waitMs = ra ? Math.min(this.cfg.retryMaxDelaySeconds * 1000, Math.max(0, (Number(ra) || 1) * 1000)) : this.retryDelayMs(httpAttempt - 1);
+        await opts?.onAttempt?.({ type: "retry_scheduled", attempt: wireAttempt, reason: res.status === 429 ? "rate_limited" : "server_error", delayMs: waitMs, maxRetries: this.cfg.maxRetries });
+        onDelta?.(`(${res.status === 429 ? "rate limited" : `HTTP ${res.status}`} - retrying in ${Math.round(waitMs / 1000)}s, ${httpAttempt}/${this.cfg.maxRetries})`, "reasoning");
+        await sleep(waitMs, signal);
+        continue;
+      }
+      throw new Error(`HTTP ${res.status}: ${body.slice(0, 400)}`);
+    }
+  }
+
+  private retryDelayMs(attempt: number): number {
+    return Math.min(this.cfg.retryMaxDelaySeconds, this.cfg.retryBaseDelaySeconds * 2 ** attempt) * 1000;
+  }
+}
+
+/** Neko's OpenAI-shaped messages -> Anthropic {system, messages}. System messages fold into the top-level
+ * `system` string; tool results become tool_result blocks grouped into a user message; assistant tool_calls
+ * become tool_use blocks; image_url parts become image blocks. */
+const ANTHROPIC_CONTINUATION = "neko_anthropic_continuation";
+
+function anthropicContinuation(providerData: any, scope: string): any[] | undefined {
+  if (!scope || !Array.isArray(providerData)) return undefined;
+  const match = providerData.find((item) => item?.type === ANTHROPIC_CONTINUATION && item?.scope === scope);
+  return Array.isArray(match?.blocks) ? match.blocks : undefined;
+}
+
+function wrappedAnthropicContinuation(scope: string, blocks: any[]): any[] | undefined {
+  return scope && blocks.length ? [{ type: ANTHROPIC_CONTINUATION, scope, blocks: structuredClone(blocks) }] : undefined;
+}
+
+export function toAnthropicMessages(messages: any[], scope = ""): any {
+  const sys: string[] = [];
+  const msgs: any[] = [];
+  for (const m of messages) {
+    if (m.role === "system") { sys.push(isText(m.content) ? m.content : textOf(m.content)); continue; }
+    if (m.role === "tool") {
+      // Anthropic tool_result blocks accept nested text/image blocks. Preserve multimodal tool
+      // observations (read_file images and computer screenshots) instead of stringifying them to
+      // "[object Object]", which silently made the model blind after a successful capture.
+      const nested = Array.isArray(m.content) ? toAnthropicContent(m.content) : null;
+      const block = { type: "tool_result", tool_use_id: m.tool_call_id, content: nested?.length ? nested : String(m.content ?? "") };
+      const last = msgs[msgs.length - 1];
+      if (last?.role === "user" && Array.isArray(last.content) && last.content.length > 0 && last.content.every((b: any) => b.type === "tool_result")) last.content.push(block);
+      else msgs.push({ role: "user", content: [block] });
+      continue;
+    }
+    if (m.role === "assistant") {
+      // Thinking/signature/redacted_thinking blocks must be replayed byte-for-byte and in their
+      // original order during a tool loop. Only trust blocks scoped to this endpoint + model.
+      const native = anthropicContinuation(m.provider_data, scope);
+      if (native?.length) {
+        msgs.push({ role: "assistant", content: structuredClone(native) });
+        continue;
+      }
+      const content: any[] = [];
+      const text = isText(m.content) ? m.content : textOf(m.content);
+      if (text) content.push({ type: "text", text });
+      for (const tc of m.tool_calls ?? []) {
+        let input: any = {};
+        try { input = isText(tc.function?.arguments) ? JSON.parse(tc.function.arguments) : (tc.function?.arguments ?? {}); } catch { input = {}; }
+        content.push({ type: "tool_use", id: tc.id, name: tc.function?.name, input });
+      }
+      msgs.push({ role: "assistant", content: content.length ? content : [{ type: "text", text: " " }] });
+      continue;
+    }
+    // user
+    if (Array.isArray(m.content)) {
+      msgs.push({ role: "user", content: toAnthropicContent(m.content) });
+    } else msgs.push({ role: "user", content: String(m.content ?? "") });
+  }
+  return { system: sys.filter(Boolean).join("\n\n"), msgs };
+}
+
+/** OpenAI text/image content parts -> Anthropic content blocks (valid for user messages and tool results). */
+function toAnthropicContent(parts: any[]): any[] {
+  return parts.map((p: any) => {
+    if (p?.type === "image_url" && p.image_url?.url) {
+      const dm = String(p.image_url.url).match(/^data:([^;]+);base64,(.+)$/);
+      if (dm) return { type: "image", source: { type: "base64", media_type: dm[1], data: dm[2] } };
+    }
+    return { type: "text", text: p?.type === "text" ? String(p.text ?? "") : "" };
+  });
+}
+
+/** OpenAI {type:function, function:{name,description,parameters}} -> Anthropic {name,description,input_schema}. */
+export function toAnthropicTools(tools: any[]): any[] {
+  return tools.map((t) => ({ name: t.function?.name, description: t.function?.description ?? "", input_schema: t.function?.parameters ?? { type: "object", properties: {} } }));
+}
+
+/** Up to three system-prefix boundaries plus one rolling conversation boundary fit Anthropic's
+ * four-breakpoint limit. Cache hits still depend on provider support, minimum length and lookback. */
+export function addCacheBreakpoints(payload: any): void {
+  if (isText(payload.system) && payload.system) {
+    const blocks = splitSystemContext(payload.system);
+    payload.system = blocks
+      .filter(Boolean)
+      .map((text) => ({ type: "text", text, cache_control: { type: "ephemeral" } }));
+  }
+  const last = payload.messages?.[payload.messages.length - 1];
+  if (!last) return;
+  if (isText(last.content)) {
+    if (last.content) last.content = [{ type: "text", text: last.content, cache_control: { type: "ephemeral" } }];
+  } else if (Array.isArray(last.content) && last.content.length) {
+    const b = last.content[last.content.length - 1];
+    // Thinking blocks and empty text blocks can't carry cache_control.
+    if (b && b.type !== "thinking" && !(b.type === "text" && !b.text)) b.cache_control = { type: "ephemeral" };
+  }
+}
+
+/** Best-effort JSON extraction from a model reply that may fence or pad it (the healed prompt-JSON
+ * fallback of schema mode). Prefers a fenced block, else the first-to-last-brace slice; returns the
+ * trimmed input when no braces exist so the caller's JSON.parse fails loudly (correct - no silent {}). */
+export function extractJsonLoose(s: string): string {
+  const fence = s.match(/```(?:json)?\s*([\s\S]*?)```/i);
+  const body = fence ? fence[1] : s;
+  const a = body.indexOf("{"), b = body.lastIndexOf("}");
+  return a >= 0 && b > a ? body.slice(a, b + 1).trim() : body.trim();
+}
+
+/** A stall AFTER a 200 that's worth retrying: the idle timeout aborts the stream with a TimeoutError (z.ai/GLM
+ *  sometimes goes silent on TTFT); non-user AbortErrors count too. A clean "disconnected before message_stop"
+ *  does NOT (it's surfaced, not masked). The caller MUST rule out a user abort (signal.aborted) first. */
+export function isRetryableStreamStall(err: any): boolean {
+  return (err instanceof DOMException && (err.name === "TimeoutError" || err.name === "AbortError"))
+    || (err instanceof ProviderAttemptError && err.retryable && err.recovery === "replay");
+}
+
+/** Parse a model's true output cap out of an Anthropic "max_tokens too large" 400 body, e.g.
+ *  "max_tokens: 40192 > 8192, which is the maximum allowed number of output tokens for claude-...". Returns the
+ *  advertised maximum, or null when the body isn't that error (so the caller leaves max_tokens untouched). */
+export function anthropicMaxTokensLimit(body: string): number | null {
+  const gt = body.match(/max_tokens["'\s:]*\d+\s*>\s*(\d+)/i); // "max_tokens: 40192 > 8192"
+  if (gt) return Number(gt[1]);
+  const max = body.match(/maximum\s+(?:allowed\s+)?(?:number\s+of\s+)?(?:output\s+)?tokens[^\d]*(\d+)/i);
+  if (max) return Number(max[1]);
+  return null;
+}
+
+/** Undo addCacheBreakpoints (the self-heal path for endpoints that reject cache_control). */
+export function stripCacheBreakpoints(payload: any): void {
+  if (Array.isArray(payload.system) && payload.system.every((block: any) => block?.type === "text")) {
+    payload.system = payload.system.map((block: any) => String(block.text ?? "")).join("");
+  }
+  for (const m of payload.messages ?? []) {
+    if (Array.isArray(m.content)) for (const b of m.content) if (isJsonObject(b)) delete b.cache_control;
+  }
+}
+
+/** Validate the selected protocol before any credential resolver or network request. */
+export function assertAnthropicEndpoint(baseUrl: string): void {
+  let endpoint: URL;
+  try { endpoint = new URL(baseUrl); }
+  catch { throw new Error("Invalid Anthropic endpoint URL; no request was sent."); }
+  if (!["http:", "https:"].includes(endpoint.protocol) || endpoint.username || endpoint.password || endpoint.search || endpoint.hash) {
+    throw new Error("Invalid Anthropic endpoint URL; no request was sent.");
+  }
+  if (endpoint.hostname === "api.z.ai" && /^\/api\/(?:paas|coding(?:\/paas)?)\/v4\/?$/.test(endpoint.pathname)) {
+    throw new Error("Z.AI endpoint/protocol mismatch: Anthropic Messages requires https://api.z.ai/api/anthropic; no request was sent.");
+  }
+}
+
+export function isOfficialAnthropic(baseUrl: string): boolean {
+  try { return new URL(baseUrl).hostname.toLowerCase() === "api.anthropic.com"; }
+  catch { return false; }
+}
+
+type AnthropicThinkingPolicy = "manual" | "adaptive" | "sonnet5" | "always-adaptive";
+
+/** Current native Claude thinking contract. Unknown/compatible models stay on the legacy budget path. */
+export function anthropicThinkingPolicy(model: string): AnthropicThinkingPolicy {
+  const id = model.toLowerCase();
+  if (/claude-(?:fable|mythos)-5/.test(id)) return "always-adaptive";
+  if (/claude-sonnet-5(?:$|-)/.test(id)) return "sonnet5";
+  if (/claude-(?:opus-4-(?:6|7|8)|sonnet-4-6)/.test(id)) return "adaptive";
+  if (/^claude-/.test(id)) return "adaptive"; // forward-compatible official Claude family default
+  return "manual";
+}
+
+function anthropicEffort(effort: string, ceiling: string): string {
+  if (!effort || effort === "off") return "";
+  return clampEffort(effort, ceiling);
+}
+
+/** Neko reasoning effort -> Anthropic extended-thinking budget (tokens). 0 = no extended thinking (fast).
+ *  Matches the effort ladder low|medium|high|xhigh|max (and "off"/unset). */
+export function thinkingBudget(effort: string): number {
+  switch ((effort || "").toLowerCase()) {
+    case "low": return 2048;
+    case "medium": return 6000;
+    case "high": return 12000;
+    case "xhigh": return 24000;
+    case "max": return 32000;
+    default: return 0; // off / unset -> no extended thinking
+  }
+}
+
+function textOf(content: any): string {
+  return isText(content) ? content : Array.isArray(content) ? content.filter((p) => p?.type === "text").map((p) => p.text).join(" ") : "";
+}
+
+/** Non-streamed Anthropic message -> ProviderResponse. */
+export function parseMessage(data: any, scope = ""): ProviderResponse {
+  if (data?.type === "error" || data?.error) throw new Error(`anthropic API error: ${String(data?.error?.message ?? JSON.stringify(data)).slice(0, 300)}`);
+  let content = "", reasoning = "";
+  const toolCalls: ToolCall[] = [];
+  const nativeBlocks = Array.isArray(data?.content) ? data.content : [];
+  for (const block of nativeBlocks) {
+    if (block.type === "text") content += block.text;
+    else if (block.type === "thinking") reasoning += block.thinking ?? "";
+    else if (block.type === "tool_use") toolCalls.push({ id: block.id ?? "", name: block.name ?? "", arguments: block.input ?? {} });
+  }
+  const stopReason = data?.stop_reason;
+  const truncated = stopReason === "max_tokens";
+  if (stopReason != null && stopReason !== ""
+    && !["end_turn", "stop_sequence", "tool_use", "max_tokens"].includes(String(stopReason))) {
+    throw new Error(`anthropic returned non-success stop reason: ${String(stopReason).slice(0, 100)}`);
+  }
+  return {
+    content: content || null,
+    tool_calls: toolCalls,
+    usage: usageOf(data?.usage),
+    reasoning: reasoning || undefined,
+    continuation: wrappedAnthropicContinuation(scope, nativeBlocks),
+    ...(truncated ? { truncated: true } : undefined),
+  };
+}
+
+/** Streamed (SSE) Anthropic response: text_delta -> content, thinking_delta -> reasoning, input_json_delta
+ * accumulates a tool_use's args. Native blocks and thinking signatures are retained for exact replay. */
+export const ANTHROPIC_STREAM_LIMITS = Object.freeze({
+  maxLineBytes: 2 * 1024 * 1024,
+  maxTotalBytes: 16 * 1024 * 1024,
+  maxContentBytes: 8 * 1024 * 1024,
+  maxReasoningBytes: 8 * 1024 * 1024,
+  maxToolArgumentBytes: 4 * 1024 * 1024,
+  maxToolCalls: 64,
+  maxToolIdBytes: 1024,
+  maxToolNameBytes: 256,
+});
+
+type AnthropicStreamBlock = {
+  type: string;
+  id?: string;
+  name?: string;
+  json: string;
+  argumentBytes: number;
+  raw: any;
+};
+
+async function parseStream(
+  res: Response,
+  onDelta: DeltaHook,
+  onActivity?: () => void,
+  onToolCallReady?: (call: ToolCall) => void,
+  scope = "",
+): Promise<ProviderResponse> {
+  if (!res.body) throw new Error("anthropic streaming response had no body");
+  let content = "", reasoning = "";
+  let contentBytes = 0, reasoningBytes = 0, toolCount = 0;
+  const blocks = new Map<number, AnthropicStreamBlock>();
+  const completedBlocks = new Map<number, any>();
+  const toolCalls: ToolCall[] = [];
+  const usage: Usage = {};
+  let sawMessageStart = false, completed = false;
+  let truncatedByMaxTokens = false;
+  const semanticActivity = () => contentBytes > 0 || reasoningBytes > 0 || blocks.size > 0;
+  const interrupted = (message: string, cause?: unknown, code: "stream_interrupted" | "stream_overloaded" = "stream_interrupted") =>
+    new ProviderAttemptError(message, code, {
+      recovery: semanticActivity() ? "continue" : "replay",
+      semanticActivity: semanticActivity(),
+      cause,
+    });
+  const addContent = (text: string): void => {
+    contentBytes += Buffer.byteLength(text, "utf8");
+    if (contentBytes > ANTHROPIC_STREAM_LIMITS.maxContentBytes) throw new Error("anthropic streaming content exceeds safety limit");
+    content += text;
+    if (text) onDelta(text);
+  };
+  const addReasoning = (text: string): void => {
+    reasoningBytes += Buffer.byteLength(text, "utf8");
+    if (reasoningBytes > ANTHROPIC_STREAM_LIMITS.maxReasoningBytes) throw new Error("anthropic streaming reasoning exceeds safety limit");
+    reasoning += text;
+    if (text) onDelta(text, "reasoning");
+  };
+
+  stream: for await (const ev of sseEvents(res, onActivity, (error) => interrupted(
+    `anthropic stream transport failed: ${error instanceof Error ? error.message : String(error)}`,
+    error,
+  ))) {
+    if (!isJsonObject(ev) || !isText(ev.type) || !ev.type) {
+      throw new Error("anthropic stream data was not a valid event");
+    }
+    switch (ev.type) {
+      case "ping":
+        break;
+      case "message_start": {
+        if (sawMessageStart || !isJsonObject(ev.message)) {
+          throw new Error("anthropic stream sent an invalid message_start");
+        }
+        sawMessageStart = true;
+        const u = streamUsage(ev.message.usage);
+        const su = usageOf(u);
+        if (u.input_tokens != null) usage.prompt_tokens = su.prompt_tokens;
+        if (u.output_tokens != null) usage.completion_tokens = su.completion_tokens;
+        if (su.cached_tokens) usage.cached_tokens = su.cached_tokens;
+        if (su.cache_write_tokens) usage.cache_write_tokens = su.cache_write_tokens;
+        break;
+      }
+      case "content_block_start": {
+        requireMessageStart(sawMessageStart);
+        const index = streamIndex(ev.index);
+        if (blocks.has(index)) throw new Error(`anthropic stream repeated content block index ${index}`);
+        if (!isJsonObject(ev.content_block) || !isText(ev.content_block.type) || !ev.content_block.type) {
+          throw new Error("anthropic stream sent an invalid content_block_start");
+        }
+        // SAFETY: wire/config payload shape; keys are produced by the boundary that owns this data.
+        const raw = structuredClone(ev.content_block) as any;
+        const block: AnthropicStreamBlock = { type: raw.type, json: "", argumentBytes: 0, raw };
+        if (block.type === "tool_use") {
+          if (++toolCount > ANTHROPIC_STREAM_LIMITS.maxToolCalls) throw new Error("anthropic streaming tool call count exceeds safety limit");
+          block.id = boundedToolField(raw.id, "id", ANTHROPIC_STREAM_LIMITS.maxToolIdBytes);
+          block.name = boundedToolField(raw.name, "name", ANTHROPIC_STREAM_LIMITS.maxToolNameBytes);
+          if (raw.input !== undefined) {
+            if (!isJsonObject(raw.input)) throw new Error("anthropic streaming tool input was not an object");
+            const inputBytes = Buffer.byteLength(JSON.stringify(raw.input), "utf8");
+            if (inputBytes > ANTHROPIC_STREAM_LIMITS.maxToolArgumentBytes) throw new Error("anthropic streaming tool arguments exceed safety limit");
+          }
+        }
+        blocks.set(index, block);
+        if (block.type === "text" && raw.text !== undefined) {
+          if (!isText(raw.text)) throw new Error("anthropic streaming text block was invalid");
+          addContent(raw.text);
+        } else if (block.type === "thinking" && raw.thinking !== undefined) {
+          if (!isText(raw.thinking)) throw new Error("anthropic streaming thinking block was invalid");
+          addReasoning(raw.thinking);
+        }
+        break;
+      }
+      case "content_block_delta": {
+        requireMessageStart(sawMessageStart);
+        const index = streamIndex(ev.index);
+        const d = ev.delta;
+        const b = blocks.get(index);
+        if (!b || completedBlocks.has(index) || !isJsonObject(d) || !isText(d.type) || !d.type) {
+          throw new Error("anthropic stream sent an invalid content_block_delta");
+        }
+        if (d?.type === "text_delta") {
+          if (b.type !== "text" || !isText(d.text)) throw new Error("anthropic streaming text delta was invalid");
+          addContent(d.text);
+          b.raw.text = `${b.raw.text ?? ""}${d.text}`;
+        }
+        else if (d?.type === "thinking_delta") {
+          if (b.type !== "thinking" || !isText(d.thinking)) throw new Error("anthropic streaming thinking delta was invalid");
+          addReasoning(d.thinking);
+          b.raw.thinking = `${b.raw.thinking ?? ""}${d.thinking}`;
+        }
+        else if (d?.type === "signature_delta") {
+          if (b.type !== "thinking" || !isText(d.signature)) throw new Error("anthropic streaming signature delta was invalid");
+          b.raw.signature = `${b.raw.signature ?? ""}${d.signature}`;
+        }
+        else if (d?.type === "input_json_delta") {
+          if (b.type !== "tool_use" || !isText(d.partial_json)) throw new Error("anthropic streaming tool arguments delta was invalid");
+          if (d.partial_json) {
+            b.argumentBytes += Buffer.byteLength(d.partial_json, "utf8");
+            if (b.argumentBytes > ANTHROPIC_STREAM_LIMITS.maxToolArgumentBytes) throw new Error("anthropic streaming tool arguments exceed safety limit");
+            b.json += d.partial_json;
+            onDelta(d.partial_json, "tool");
+          }
+        }
+        else if (d?.type === "citations_delta") {
+          if (b.type !== "text" || !isJsonObject(d.citation)) {
+            throw new Error("anthropic streaming citation delta was invalid");
+          }
+          const citations = Array.isArray(b.raw.citations) ? b.raw.citations : [];
+          citations.push(structuredClone(d.citation));
+          b.raw.citations = citations;
+        }
+        // Unknown, structurally valid delta types are ignored for forward compatibility. Their raw
+        // event is still bounded by the per-line and aggregate budgets below.
+        break;
+      }
+      case "content_block_stop": {
+        requireMessageStart(sawMessageStart);
+        const index = streamIndex(ev.index);
+        const b = blocks.get(index);
+        if (!b || completedBlocks.has(index)) throw new Error("anthropic stream sent an invalid content_block_stop");
+        if (b?.type === "tool_use") {
+          let input: any = {};
+          try {
+            input = b.json ? JSON.parse(b.json) : (b.raw.input ?? {});
+            if (!isJsonObject(input)) throw new Error("arguments must be an object");
+          } catch { input = { _raw: b.json }; }
+          b.raw.input = input;
+          if (!b.id || !b.name) throw new Error("anthropic streaming tool call was missing an id or name");
+          const call = { id: b.id, name: b.name, arguments: input };
+          toolCalls.push(call);
+          // The call is complete while the rest of the response still streams - let the agent
+          // start a read-only execution NOW (stream-eager execution). Errors must not kill the stream.
+          try { onToolCallReady?.(call); } catch { /* an eager-start failure never breaks parsing */ }
+        }
+        completedBlocks.set(index, structuredClone(b.raw));
+        break;
+      }
+      case "message_delta": {
+        requireMessageStart(sawMessageStart);
+        if (ev.delta !== undefined && (!isJsonObject(ev.delta))) {
+          throw new Error("anthropic stream sent an invalid message_delta");
+        }
+        const u = streamUsage(ev.usage);
+        if (u.output_tokens != null) usage.completion_tokens = u.output_tokens;
+        if (u.input_tokens != null) {
+          usage.prompt_tokens = u.input_tokens + (usage.cached_tokens ?? 0) + (usage.cache_write_tokens ?? 0);
+        }
+        const stopReason = ev.delta?.stop_reason;
+        if (stopReason != null) {
+          if (!isText(stopReason)) {
+            throw new Error(`anthropic stream returned non-success stop reason: ${String(stopReason).slice(0, 100)}`);
+          }
+          // max_tokens = output cap hit. Return partial content/tools and let the Agent continue
+          // (fatal abort was wiping hard TB/agent runs after one long reasoning/write turn).
+          if (stopReason === "max_tokens") {
+            truncatedByMaxTokens = true;
+          } else if (!["end_turn", "stop_sequence", "tool_use"].includes(stopReason)) {
+            throw new Error(`anthropic stream returned non-success stop reason: ${String(stopReason).slice(0, 100)}`);
+          }
+        }
+        break;
+      }
+      case "error": {
+        const detail = String(JSON.stringify(ev.error)).slice(0, 200);
+        if (/overload|rate.?limit|temporar|unavailable|server.?error|network|timeout/i.test(detail)) {
+          throw interrupted(`anthropic stream error: ${detail}`, undefined, "stream_overloaded");
+        }
+        throw new Error(`anthropic stream error: ${detail}`);
+      }
+      case "message_stop": {
+        requireMessageStart(sawMessageStart);
+        const incomplete = [...blocks.keys()].filter((index) => !completedBlocks.has(index));
+        if (incomplete.length) {
+          if (!truncatedByMaxTokens) {
+            throw new Error("anthropic stream ended with an incomplete content block");
+          }
+          // Output-cap truncation mid-block: salvage completed tool_use JSON when possible;
+          // drop half-written tool calls (do not execute garbage args). Text/thinking already
+          // accumulated via deltas is kept as-is.
+          for (const index of incomplete) {
+            const b = blocks.get(index);
+            if (!b) continue;
+            if (b.type === "tool_use" && b.id && b.name) {
+              let input: any = {};
+              try {
+                input = b.json ? JSON.parse(b.json) : (b.raw.input ?? {});
+                if (!isJsonObject(input)) throw new Error("arguments must be an object");
+                b.raw.input = input;
+                const call = { id: b.id, name: b.name, arguments: input };
+                toolCalls.push(call);
+                try { onToolCallReady?.(call); } catch { /* ignore */ }
+              } catch {
+                // Incomplete JSON — skip this tool call; Agent continues with a truncation nudge.
+              }
+            }
+            completedBlocks.set(index, structuredClone(b.raw));
+          }
+        }
+        completed = true;
+        break stream;
+      }
+      // Anthropic may add new event types. Ignore a structurally valid unknown event while still
+      // requiring the documented message_start -> message_stop completion envelope.
+      default:
+        break;
+    }
+  }
+  if (!sawMessageStart) throw new Error("anthropic stream ended before message_start");
+  if (!completed) throw interrupted("anthropic stream disconnected before message_stop");
+  usage.total_tokens = (usage.prompt_tokens ?? 0) + (usage.completion_tokens ?? 0);
+  const nativeBlocks = [...completedBlocks.keys()].sort((a, b) => a - b).map((index) => completedBlocks.get(index));
+  return {
+    content: content || null,
+    tool_calls: toolCalls,
+    usage,
+    reasoning: reasoning || undefined,
+    continuation: wrappedAnthropicContinuation(scope, nativeBlocks),
+    ...(truncatedByMaxTokens ? { truncated: true } : undefined),
+  };
+}
+
+function requireMessageStart(started: boolean): void {
+  if (!started) throw new Error("anthropic stream content arrived before message_start");
+}
+
+function streamIndex(value: any): number {
+  // SAFETY: field checked as a finite number by the surrounding code before this cast.
+  if (!Number.isInteger(value) || (value as number) < 0 || (value as number) >= ANTHROPIC_STREAM_LIMITS.maxToolCalls) {
+    throw new Error(`anthropic stream content block index out of range: ${String(value).slice(0, 40)}`);
+  }
+  // SAFETY: field checked as a finite number by the surrounding code before this cast.
+  return value as number;
+}
+
+function boundedToolField(value: any, label: "id" | "name", maxBytes: number): string {
+  if (!isText(value) || Buffer.byteLength(value, "utf8") > maxBytes) {
+    throw new Error(`anthropic streaming tool call ${label} was invalid or too large`);
+  }
+  return value;
+}
+
+function streamUsage(value: any): any {
+  if (value === undefined || value === null) return {};
+  if (!isJsonObject(value)) throw new Error("anthropic stream usage was invalid");
+  const out: Record<string, number> = {};
+  for (const key of ["input_tokens", "output_tokens", "cache_read_input_tokens", "cache_creation_input_tokens"]) {
+    // SAFETY: wire/config payload shape; keys are produced by the boundary that owns this data.
+    const count = (value as any)[key];
+    if (count === undefined || count === null) continue;
+    // SAFETY: field checked as a finite number by the surrounding code before this cast.
+    if (!Number.isSafeInteger(count) || (count as number) < 0) throw new Error("anthropic stream usage was invalid");
+    // SAFETY: field checked as a finite number by the surrounding code before this cast.
+    out[key] = count as number;
+  }
+  return out;
+}
+
+function usageOf(u: any): Usage {
+  // Anthropic's input_tokens EXCLUDES cache reads/writes; sum them back so prompt_tokens is the
+  // true context size, and surface the cache split so the cost tracker can report the hit rate.
+  const read = u?.cache_read_input_tokens ?? 0, write = u?.cache_creation_input_tokens ?? 0;
+  const input = (u?.input_tokens ?? 0) + read + write, output = u?.output_tokens ?? 0;
+  const usage: Usage = { prompt_tokens: input, completion_tokens: output, total_tokens: input + output };
+  if (read) usage.cached_tokens = read;
+  if (write) usage.cache_write_tokens = write;
+  return usage;
+}
+
+/** Yield the parsed JSON of each `data:` line in an Anthropic SSE stream (the `event:` line is redundant — the
+ *  JSON carries its own `type`). */
+async function* sseEvents(
+  res: Response,
+  onActivity?: () => void,
+  onReadError?: (error: Error) => Error,
+): AsyncGenerator<any> {
+  const reader = res.body!.getReader();
+  const decoder = new TextDecoder();
+  let buf = "";
+  let totalBytes = 0, lineBytes = 0;
+  const parseLine = (line: string): any | undefined => {
+    const trimmed = line.trim();
+    if (!trimmed.startsWith("data:")) return undefined;
+    const data = trimmed.slice(5).trim();
+    if (!data || /^(?:ping|keepalive|\[keepalive\])$/i.test(data)) return undefined;
+    if (data === "[DONE]") return SSE_DONE;
+    try { return JSON.parse(data); }
+    catch { throw new Error("anthropic streaming API sent malformed SSE data"); }
+  };
+  try {
+    for (;;) {
+      let done: boolean;
+      let value: Uint8Array | undefined;
+      try {
+        ({ done, value } = await reader.read());
+      } catch (error) {
+        const failure = error instanceof Error ? error : new Error(String(error));
+        throw onReadError?.(failure) ?? failure;
+      }
+      if (done) break;
+      if (!value) continue;
+      totalBytes += value.byteLength;
+      if (totalBytes > ANTHROPIC_STREAM_LIMITS.maxTotalBytes) throw new Error("anthropic streaming SSE aggregate exceeds safety limit");
+      for (const byte of value) {
+        if (byte === 0x0a) lineBytes = 0;
+        else if (++lineBytes > ANTHROPIC_STREAM_LIMITS.maxLineBytes) throw new Error("anthropic streaming SSE line exceeds safety limit");
+      }
+      onActivity?.(); // bytes arrived -> reset the idle timeout so a healthy long stream never times out
+      buf += decoder.decode(value, { stream: true });
+      let idx: number;
+      while ((idx = buf.indexOf("\n")) >= 0) {
+        const parsed = parseLine(buf.slice(0, idx));
+        buf = buf.slice(idx + 1);
+        if (parsed === SSE_DONE) return;
+        if (parsed !== undefined) yield parsed;
+      }
+    }
+    buf += decoder.decode();
+    if (buf) {
+      const parsed = parseLine(buf);
+      if (parsed !== undefined && parsed !== SSE_DONE) yield parsed;
+    }
+  } finally {
+    // message_stop lets parseStream return before a peer closes the socket. Cancel and unlock on
+    // every exit (success, malformed input, callback error, or byte-budget breach).
+    try { await reader.cancel(); } catch { /* already closed/errored */ }
+    try { reader.releaseLock(); } catch { /* already released */ }
+  }
+}
+
+const SSE_DONE = Symbol("anthropic-sse-done");
+
+function sleep(ms: number, signal?: AbortSignal): Promise<void> {
+  return new Promise((resolve, reject) => {
+    if (signal?.aborted) return reject(new DOMException("Aborted by user", "AbortError"));
+    const t = setTimeout(resolve, ms);
+    signal?.addEventListener("abort", () => { clearTimeout(t); reject(new DOMException("Aborted by user", "AbortError")); }, { once: true });
+  });
+}
+
+function msgOf(e: any): string { return e instanceof Error ? e.message : String(e); }

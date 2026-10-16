@@ -1,0 +1,17 @@
+# Core installation discovery and existing-profile reuse
+
+The existing Neko Bot runtime lane is a controlled local fixture. Saving an account as `stored_unverified` does not start a provider: `runtime.Load` requires an explicit fixture configuration and the Rust host forces a task-isolated home and fixture credentials. The current UI therefore cannot infer usability from an installed executable or from a saved key.
+
+The user's installed `C:/Users/Admin/AppData/Local/Programs/neko/neko.exe` is 93,967,360 bytes, SHA256 `c760a31fad34a27215353e77f39dc654d0c566b1d7ad47ea811fe76eeb2f4990`. It matches the preserved Wiii bundle lock for Core1.7.0, commit `16860b031197b0df5ecf3613b72df7e10de4981e`. An isolated hash-identical copy confirmed version1.7.0 and ordinary ACP initialize support. The Neko Bot host-profile initialize was refused: `Unknown host profile 'nekobot'. Available: nekocut`. No actual user profile/configuration, credentials, session creation, prompt, or provider call was used. The installed binary remains outside the current native execution allowlist.
+
+Preserved Wiii source discovers PATH/PATHEXT and the installed LOCALAPPDATA location, verifies bundled fingerprints, validates branded versions, launches `acp --profile <id>`, and reads a projected profile list. Credentials remain Core-owned. Its source and restoration manifest were verified by the Core specialist; this describes the preserved source, not a claim about current upstream Wiii.
+
+The new owner-only `/v1/core-discovery` route performs bounded executable metadata/hash discovery without launching Core or reading configuration. A matching executable is a Core protocol compatibility fact, not proof that a provider profile is configured, usable, or authorized. Recognized legacy Core is reported separately from arbitrary unknown binaries. The UI shows detection before the optional account form. It does not import keys, enable the unsupported installed runtime, or claim that entering a key will fix host compatibility.
+
+Manual configuration remains available as a separate choice. Endpoint/model fields are progressively disclosed, invalid required fields expand their section, and model identifiers remain user-selected. Optional endpoint presets were verified against the official [OpenAI API reference](https://developers.openai.com/api/reference/overview) (`https://api.openai.com/v1`) and [Anthropic API overview](https://platform.claude.com/docs/en/api/overview) (`https://api.anthropic.com`) on 2026-10-12. No model defaults, account validation calls, or billing assumptions are made.
+
+## Remaining production bridge
+
+Actual reuse needs a compatible Core with the Neko Bot host/context/writer protocol, public profile metadata that excludes secrets, and a Core-owned credential source separated from task session/artifact state. Neko Bot must pin the chosen profile and provider scope, obtain task-specific consent before consuming existing credentials or calling a provider, and retain current requester/device/account/audience/effect fences. Discovery grants none of those permissions. The current disabled `Dùng Neko Core trên máy` action is accompanied by the concrete compatibility/bridge reason; it is not an operational provider connection.
+
+Old live binary folders and state are preserved. The live preview PIDs13892/28228/25576 were absent at Root's 2026-10-12 recheck; Root did not terminate them or automatically relaunch the user's window. No user account/state/key data was read during this work.

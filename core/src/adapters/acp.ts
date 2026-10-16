@@ -1,0 +1,1728 @@
+import {contextManifestDigest, parseContextManifest, parseContextExpected, type ContextAdmissionState, type ContextManifest} from "../core/context/admission.ts";
+import { parseHostEffectResolution, type HostEffectRecord } from "../core/host-effect.ts";
+import {bindStructuredContext} from "./context/compactor.ts";
+import {estimateRequestTokens} from "../core/agent-constants.ts";
+/** ACP v1 adapter: exposes the production Neko Agent over newline-delimited JSON-RPC stdio. */
+import * as acp from "@agentclientprotocol/sdk";
+import { createHash, randomUUID } from "node:crypto";
+import { realpathSync, statSync } from "node:fs";
+import { isAbsolute, resolve } from "node:path";
+import { Readable, Writable } from "node:stream";
+
+import { classifyToolObservation } from "../core/agent.ts";
+import { assertNoConfiguredCredentialInSourceEvents, type CompactionSourceEvent } from "../core/compaction-source.ts";
+import type { ToolCall } from "../core/ports.ts";
+import type { PermissionMode } from "../core/permissions.ts";
+import type { TaskScope } from "../core/task-scope.ts";
+import type { JsonValue } from "../shared/wire.ts";
+import { CredentialOutputFilter, redactCredentialJSON, redactCredentialText, type CredentialOutputChunk } from "../shared/credential-output.ts";
+import { describeToolCall } from "../core/tools.ts";
+import { VERSION } from "../shared/version.ts";
+import { buildAgentRuntime, type AgentRuntime } from "./agent-runtime.ts";
+import {
+  parseWiiiComputerCapability,
+  WiiiComputerTool,
+  type WiiiComputerCapability,
+} from "./acp-computer.ts";
+import { AcpHostMcp } from "./acp-host-mcp.ts";
+import { loadConfig, type NekoConfig } from "./config.ts";
+import { getProvider } from "./providers.ts";
+import {
+  hostProfileMeta,
+  hostToolNames,
+  sameHostProfile,
+  storedHostProfile,
+  type HostCapabilityProfile,
+} from "./host-profile.ts";
+import {
+  acquireSessionLease,
+  AsyncSessionWriter,
+  listSessionMetas,
+  loadSession,
+  newSessionId,
+  recoverSessionTodos,
+  sessionTitle,
+  type Session,
+  type SessionLease,
+  type SessionTurnState,
+} from "./session.ts";
+import { applySkillPolicyForTurn } from "./skills.ts";
+import { planTurnCapabilities } from "./turn-capabilities.ts";
+import { matchedTurnContext } from "./turn-context.ts";
+import {
+  createTaskSession, loadTaskSession, taskSessionConfigId, taskSessionContextMode, taskSessionExists,
+  TaskSessionRecoveryRequiredError, TaskSessionWriterUnavailableError, TaskSwitchCommittedError,
+  type ExpectedTaskActivation, type FixedTaskProtocolV1, type TaskActivationReceipt,
+  type TaskRuntimeInput, type TaskSessionCoordinator, type TaskSessionRuntime,
+} from "./task-session.ts";
+
+import { isJsonObject, isText } from "../shared/wire.ts";
+
+/** Node's toWeb readable and the SDK's web ReadableStream are the same runtime object; only their
+ * generic variance differs, so the bridge is an identity pass-through. */
+function webReadable(stream: any): ReadableStream<Uint8Array> { return stream; }
+
+const MODES: acp.SessionMode[] = [
+  { id: "default", name: "Default", description: "Prompt before gated writes and commands." },
+  { id: "accept-edits", name: "Accept edits", description: "Approve Neko file edits; other gated actions still prompt." },
+  { id: "plan", name: "Plan", description: "Read-only; all gated actions are denied." },
+  { id: "auto", name: "Auto", description: "Approve coding tools, outside writes, and computer; destructive bash still asks; seatbelts remain." },
+];
+const MODE_IDS = new Set(MODES.map((mode) => mode.id));
+const ALLOW_ONCE = "allow_once";
+const ALLOW_ALWAYS = "allow_always";
+const REJECT_ONCE = "reject_once";
+const REJECT_ALWAYS = "reject_always";
+const CHATGPT_TERMINAL_AUTH = "neko-chatgpt-login";
+
+function isPermissionMode(value: string): value is PermissionMode {
+  return MODE_IDS.has(value);
+}
+
+interface AcpSession {
+  sessionId: string;
+  contextAdmission?: ContextAdmissionState;
+  root: string;
+  record: Session;
+  lease: SessionLease;
+  runtime: AgentRuntime;
+  computer?: WiiiComputerTool;
+  pending?: AbortController;
+  pendingSettled?: Promise<void>;
+  settlePending?: () => void;
+  permissionClient?: acp.AgentContext;
+  toolCalls: Map<string, acp.ToolCallUpdate>;
+  alwaysAllow: Set<string>;
+  alwaysReject: Set<string>;
+  maxStepsHit: boolean;
+  streamedContentSinceTool: string;
+  liveAgentMessageId: string;
+  activeToolCallIds: Set<string>;
+  writer: AsyncSessionWriter;
+  persistenceFailure?: unknown;
+  persistenceFailed: boolean;
+  taskMode?: boolean;
+  taskReceipt?: TaskActivationReceipt;
+  executionRequired?: boolean;
+  hostEffectProtocol?: 1;
+  flush(): Promise<void>;
+  flushOutput(): void;
+  close(): Promise<void>;
+}
+
+function notifyPublicSession(client: acp.AgentContext, session: AcpSession, params: acp.SessionNotification): Promise<void> {
+  session.runtime.config.profileBridge?.assertCurrent(session.runtime.config);
+  // SAFETY: locally built ACP notifications are JSON; strings are sanitized before transmission.
+  const sanitized = redactCredentialJSON(JSON.parse(JSON.stringify(params)) as JsonValue, session.runtime.config.credentialSecrets) as acp.SessionNotification;
+  return client.notify(acp.methods.client.session.update, sanitized);
+}
+
+const TASK_PROTOCOL_V1: FixedTaskProtocolV1 = { version: 1, mode: "fixed-active-task" };
+
+function taskProtocolFromMeta(meta: any): FixedTaskProtocolV1 | undefined {
+  const value = isJsonObject(meta) ? meta["neko.taskProtocol"] : undefined;
+  const execution = isJsonObject(meta) ? meta["neko.executionProtocol"] : undefined;
+  const hostEffects = isJsonObject(meta) ? meta["neko.hostEffectProtocol"] : undefined;
+  if (hostEffects !== undefined && (!isJsonObject(hostEffects) || Object.keys(hostEffects).length !== 1
+    || hostEffects.version !== 1 || execution === undefined || value === undefined)) {
+    throw new acp.RequestError(-32602, "Host effect protocol requires version 1, fixed task and execution protocols.");
+  }
+  if (execution !== undefined && (!isJsonObject(execution) || execution.version !== 1 || value === undefined)) {
+    throw new acp.RequestError(-32602, "Neko execution protocol requires version 1 and fixed task protocol v1.");
+  }
+  if (value === undefined) return undefined;
+  if (!isJsonObject(value) || value.version !== 1 || value.mode !== "fixed-active-task") {
+    throw new acp.RequestError(-32602, "Unsupported Neko task protocol version or mode.");
+  }
+  return execution ? { ...TASK_PROTOCOL_V1, executionVersion: 1, ...(hostEffects ? { hostEffectVersion: 1 as const } : undefined) } : TASK_PROTOCOL_V1;
+}
+
+function expectedTaskFromMeta(meta: any): ExpectedTaskActivation {
+  const value = isJsonObject(meta) ? meta["neko.taskExpected"] : undefined;
+  if (!isJsonObject(value) || !isText(value.id) || !/^[a-f0-9]{32}$/.test(value.id)
+    || !isText(value.root) || !isAbsolute(value.root)
+    || !Number.isSafeInteger(value.activationEpoch) || Number(value.activationEpoch) < 1
+    || !isText(value.activationId) || !/^[a-f0-9]{32}$/.test(value.activationId)) {
+    throw new acp.RequestError(-32602, "Neko task load requires a valid expected activation receipt.");
+  }
+  return {
+    id: value.id, root: value.root, activationEpoch: Number(value.activationEpoch),
+    activationId: value.activationId,
+  };
+}
+
+function contextReceipt(session: AcpSession) {
+  const state = session.contextAdmission;
+  return state ? {version: 1, sessionId: session.sessionId, contextPinSHA256: state.manifest.contextPinSHA256,
+    manifestSHA256: state.manifestSHA256, sourceIds: state.sourceIds,
+    task: session.taskReceipt!, execution: session.runtime.registry.taskExecutionReceipt()!} : undefined;
+}
+function matchesTaskEcho(session: AcpSession, meta: any): boolean {
+  if (session.contextAdmission && contextManifestDigest(meta?.["neko.contextAdmission"] ?? null) !== contextManifestDigest(contextReceipt(session))) return false;
+  const receipt = session.taskReceipt;
+  if (!receipt) return true; // Existing ACP and opt-in task sessions without v1 keep their wire contract.
+  const value = isJsonObject(meta) ? meta["neko.task"] : undefined;
+  if (!isJsonObject(value) || value.version !== 1 || value.id !== receipt.id
+    || value.activationEpoch !== receipt.activationEpoch || value.activationId !== receipt.activationId) return false;
+  const execution = isJsonObject(meta) ? meta["neko.execution"] : undefined;
+  if (execution === undefined) return !session.executionRequired;
+  const binding = session.runtime.registry.taskExecutionReceipt();
+  return isJsonObject(execution) && binding !== undefined && execution.version === 1
+    && execution.taskId === binding.taskId && execution.activationEpoch === binding.activationEpoch
+    && execution.activationId === binding.activationId && execution.bashTarget === binding.bashTarget
+    && execution.authorityId === binding.authorityId && execution.policyId === binding.policyId;
+}
+
+function assertTaskEcho(session: AcpSession, meta: any): void {
+  if (!matchesTaskEcho(session, meta)) {
+    throw new acp.RequestError(-32602, "Neko task activation receipt is missing or stale.");
+  }
+}
+
+function taskOuterMeta(session: AcpSession, includeHostEffects = false) {
+  return session.taskReceipt ? { _meta: { "neko.task": session.taskReceipt,
+    "neko.execution": session.runtime.registry.taskExecutionReceipt()!,
+    ...(session.contextAdmission ? {"neko.contextAdmission": contextReceipt(session)} : undefined),
+    ...(includeHostEffects && session.hostEffectProtocol ? { "neko.hostEffects": session.runtime.agent.hostEffectState() } : undefined) } } : {};
+}
+
+interface ScopedAcpRuntime extends TaskSessionRuntime {
+  session: AcpSession;
+  getMessages(): unknown[];
+  getSourceEvents(): CompactionSourceEvent[];
+  assertQuiescent(): void;
+  settleForClose(): void;
+  close(): Promise<void>;
+}
+
+export interface AcpRuntimeFactoryOptions {
+  config?: NekoConfig;
+  configForRoot?: (root: string, profile?: string | null) => NekoConfig;
+  buildRuntime?: typeof buildAgentRuntime;
+  /** Internal lifecycle seam: production stdio awaits every connection-owned cleanup task. */
+  trackCleanup?: (task: Promise<void>) => void;
+  /** Optional exclusive authority selected by the trusted process launcher, never by ACP input. */
+  hostProfile?: HostCapabilityProfile;
+  /** Trusted launcher opt-in; never selected by ACP input or model content. */
+  contextProtocol?: 1;
+}
+
+function modeState(mode: PermissionMode, profile?: HostCapabilityProfile): acp.SessionModeState {
+  return {
+    currentModeId: mode,
+    availableModes: profile ? MODES.filter((item) => profile.allowedModes.some((mode) => mode === item.id)) : MODES,
+  };
+}
+
+function toolKind(name: string): acp.ToolKind {
+  if (["read_file", "ls", "glob"].includes(name)) return "read";
+  if (["search"].includes(name)) return "search";
+  if (["write_file", "edit", "multi_edit"].includes(name)) return "edit";
+  if (name === "bash") return "execute";
+  if (name.startsWith("web_")) return "fetch";
+  return "other";
+}
+
+function toolLocations(root: string, args: any): acp.ToolCallLocation[] | undefined {
+  const raw = isText(args.path) ? args.path : isText(args.file_path) ? args.file_path : "";
+  if (!raw) return undefined;
+  return [{ path: isAbsolute(raw) ? resolve(raw) : resolve(root, raw) }];
+}
+
+function toolUpdate(root: string, call: ToolCall, status: acp.ToolCallStatus = "pending"): acp.ToolCallUpdate {
+  return {
+    toolCallId: call.id,
+    title: describeToolCall(call.name, call.arguments),
+    name: call.name,
+    kind: toolKind(call.name),
+    status,
+    locations: toolLocations(root, call.arguments),
+    rawInput: call.arguments,
+  };
+}
+
+function observationText(value: any): string {
+  if (isText(value)) return value;
+  try { return JSON.stringify(value); } catch { return String(value); }
+}
+
+function promptText(blocks: acp.ContentBlock[]) {
+  const text: string[] = [];
+  const images: string[] = [];
+  for (const block of blocks) {
+    if (block.type === "text") text.push(block.text);
+    else if (block.type === "resource_link") text.push(`[Attached resource: ${block.uri}${block.name ? ` (${block.name})` : ""}]`);
+    else if (block.type === "resource" && "text" in block.resource) {
+      text.push(`[Embedded resource: ${block.resource.uri}]\n${block.resource.text}`);
+    } else if (block.type === "image") {
+      images.push(`data:${block.mimeType};base64,${block.data}`);
+      text.push(`[Image #${images.length}]`);
+    }
+  }
+  return { text: text.join("\n\n").trim(), images };
+}
+
+function abortable<T>(promise: Promise<T>, signal?: AbortSignal): Promise<T> {
+  if (!signal) return promise;
+  if (signal.aborted) return Promise.reject(new DOMException("aborted", "AbortError"));
+  return new Promise<T>((resolvePromise, rejectPromise) => {
+    const abort = () => rejectPromise(new DOMException("aborted", "AbortError"));
+    signal.addEventListener("abort", abort, { once: true });
+    promise.then(resolvePromise, rejectPromise).finally(() => signal.removeEventListener("abort", abort));
+  });
+}
+
+function sessionRoot(cwd: string): string {
+  if (!isAbsolute(cwd)) throw new acp.RequestError(-32602, "ACP session cwd must be an absolute path.");
+  const root = resolve(cwd);
+  try {
+    if (!statSync(root).isDirectory()) throw new Error("not a directory");
+    return realpathSync.native(root);
+  } catch {
+    throw new acp.RequestError(-32602, "ACP session cwd must be an existing directory.");
+  }
+}
+
+function sameRoot(a: string, b: string): boolean {
+  const left = process.platform === "win32" ? a.toLowerCase() : a;
+  const right = process.platform === "win32" ? b.toLowerCase() : b;
+  return left === right;
+}
+
+function comparableRoot(path: string): string {
+  try { return realpathSync.native(resolve(path)); }
+  catch { return resolve(path); }
+}
+
+const ACP_COMMANDS: acp.AvailableCommand[] = [
+  { name: "help", description: "Show ACP commands implemented by Neko Core." },
+  { name: "cost", description: "Show cumulative provider token usage for this session." },
+  { name: "compact", description: "Compact historical context through the session's durable context boundary." },
+  { name: "sessions", description: "List durable Neko sessions for this workspace." },
+  { name: "tools", description: "List tools available in this ACP session." },
+];
+const ACP_TASK_COMMAND: acp.AvailableCommand = {
+  name: "task", description: "In an opt-in task session: new <label>, use <id>, list, or status.",
+};
+const ACP_FIXED_TASK_COMMAND: acp.AvailableCommand = {
+  name: "task", description: "In this fixed task session: list or status.",
+};
+
+function commandsForSession(session: AcpSession): acp.AvailableCommand[] {
+  return session.taskMode
+    ? [...ACP_COMMANDS, session.taskReceipt ? ACP_FIXED_TASK_COMMAND : ACP_TASK_COMMAND]
+    : ACP_COMMANDS;
+}
+
+function configOptions(cfg: NekoConfig): acp.SessionConfigOption[] {
+  const profiles = Object.entries(cfg.profiles)
+    .sort(([a], [b]) => a.localeCompare(b))
+    .map(([value, profile]) => ({ value, name: profile.label || value, description: profile.provider || "profile" }));
+  const providers = [...new Set([cfg.provider, ...Object.values(cfg.profiles).map((profile) => profile.provider).filter(Boolean)])]
+    .sort().map((value) => ({ value: String(value), name: String(value) }));
+  const activeProfile = cfg.profile ? cfg.profiles[cfg.profile] : undefined;
+  const models = [...new Set([cfg.model, ...(activeProfile?.models ?? [])].filter(Boolean))]
+    .map((value) => ({ value, name: value }));
+  const efforts = [...new Set(["default", "none", "low", "medium", "high", "xhigh", "max", cfg.effort || "default"])]
+    .map((value) => ({ value, name: value }));
+  return [
+    { type: "select", id: "provider", name: "Provider", category: "model_config", currentValue: cfg.provider, options: providers },
+    { type: "select", id: "profile", name: "Provider profile", category: "model_config", currentValue: cfg.profile ?? "__custom__", options: [
+      ...(cfg.profile ? [] : [{ value: "__custom__", name: "Custom config" }]), ...profiles,
+    ] },
+    { type: "select", id: "model", name: "Model", category: "model", currentValue: cfg.model, options: models },
+    { type: "select", id: "reasoning_effort", name: "Reasoning effort", category: "thought_level", currentValue: cfg.effort || "default", options: efforts },
+  ];
+}
+
+function stableMessageId(sessionId: string, index: number, role: string): string {
+  return `msg_${createHash("sha256").update(`${sessionId}\0${index}\0${role}`).digest("hex").slice(0, 24)}`;
+}
+
+function messageId(sessionId: string, message: any, index: number): string {
+  return isText(message?._neko_acp_message_id) && message._neko_acp_message_id
+    ? message._neko_acp_message_id
+    : stableMessageId(sessionId, index, String(message?.role ?? "message"));
+}
+
+function normalizeCoreToolCall(value: any): ToolCall | null {
+  const name = isText(value?.name) ? value.name : value?.function?.name;
+  if (!isText(name) || !name) return null;
+  let args = value.arguments ?? value?.function?.arguments ?? {};
+  if (isText(args)) {
+    try { args = JSON.parse(args); } catch { args = {}; }
+  }
+  if (!isJsonObject(args)) args = {};
+  return { id: String(value.id ?? name), name, arguments: args };
+}
+
+function textContent(content: any): string {
+  if (isText(content)) return content;
+  if (!Array.isArray(content)) return content == null ? "" : observationText(content);
+  return content.map((part: any) => {
+    if (part?.type === "text") return String(part.text ?? "");
+    if (part?.type === "image_url") return "[Image]";
+    return "";
+  }).filter(Boolean).join("\n");
+}
+
+function encodeCursor(offset: number): string {
+  return Buffer.from(`neko-acp-v1:${offset}`, "utf8").toString("base64url");
+}
+
+function decodeCursor(cursor: string | null | undefined): number {
+  if (!cursor) return 0;
+  try {
+    const decoded = Buffer.from(cursor, "base64url").toString("utf8");
+    const match = /^neko-acp-v1:(\d+)$/.exec(decoded);
+    const offset = match ? Number(match[1]) : -1;
+    if (!Number.isSafeInteger(offset) || offset < 0) throw new Error("invalid");
+    return offset;
+  } catch {
+    throw new acp.RequestError(-32602, "Invalid ACP session cursor.");
+  }
+}
+
+function supportsTerminalAuth(capabilities?: acp.ClientCapabilities): boolean {
+  return capabilities?.auth?.terminal === true
+    || (capabilities?.terminal === true && capabilities._meta?.["terminal-auth"] === true);
+}
+
+/** AgentContext is request-scoped, while its SDK connection context is stable. Keeping capability
+ * negotiation on that identity prevents one ACP client from lending authority to another. */
+function connectionKey(client: acp.AgentContext): object {
+  // SAFETY: ACP SDK 1.3 exposes this stable object through its internal connectionContext getter;
+  // the public declaration omits only the @internal member, not the runtime invariant.
+  const context = (client as acp.AgentContext & { readonly connectionContext: object }).connectionContext;
+  return context;
+}
+
+/** Create a testable ACP AgentApp. Production callers use {@link runAcpServer}. */
+export function createNekoAcpAgent(options: AcpRuntimeFactoryOptions = {}): acp.AgentApp {
+  const sessions = new Map<string, AcpSession>();
+  const taskSessions = new Map<string, TaskSessionCoordinator<ScopedAcpRuntime>>();
+  const taskTransitions = new Map<string, Promise<void>>();
+  const computerCapabilities = new WeakMap<object, WiiiComputerCapability>();
+  const buildRuntime = options.buildRuntime ?? buildAgentRuntime;
+  const baseConfig = options.config;
+  const hostProfile = options.hostProfile;
+  if (options.contextProtocol !== undefined && (options.contextProtocol !== 1
+    || hostProfile?.id !== "nekobot" || hostProfile.operationProtocol !== 1)) {
+    throw new Error("Context admission requires the trusted NekoBot host profile and protocol v1");
+  }
+  const taskAuthorityId = hostProfile
+    ? `acp:${storedHostProfile(hostProfile).toolSurfaceHash}`
+    : "acp:unhosted";
+  const taskConfigId = (cfg: NekoConfig) => {
+    const original = taskSessionConfigId(cfg, hostProfile?.allowedModes.includes(cfg.mode) ? cfg.mode : hostProfile?.allowedModes[0] ?? cfg.mode);
+    return options.contextProtocol ? createHash("sha256").update(JSON.stringify([original, "neko.contextProtocol", 1])).digest("hex") : original;
+  };
+  const contextInput = (meta: any, cfg: NekoConfig, resume: boolean) => {
+    try {
+      const protocol = isJsonObject(meta) ? meta["neko.contextProtocol"] : undefined;
+      const manifest = isJsonObject(meta) ? meta["neko.contextManifest"] : undefined;
+      const expected = isJsonObject(meta) ? meta["neko.contextExpected"] : undefined;
+      if (!options.contextProtocol) {
+        if (protocol !== undefined || manifest !== undefined || expected !== undefined) throw new Error("context admission was not enabled by the trusted launcher");
+        return {};
+      }
+      if (!isJsonObject(protocol) || Object.keys(protocol).length !== 1 || protocol.version !== 1 || taskSessionContextMode(cfg) !== "structured") {
+        throw new Error("context admission requires negotiated v1 and structured context");
+      }
+      if (resume) {
+        if (manifest !== undefined) throw new Error("context resume cannot replace its admitted manifest");
+        const contextExpected = parseContextExpected(expected);
+        if (["id", "root", "activationEpoch", "activationId"].some(key => contextExpected.task[key] !== meta["neko.taskExpected"]?.[key])
+          || contextManifestDigest(contextExpected.execution) !== contextManifestDigest(meta["neko.executionExpected"])) throw new Error("context expectation conflicts with activation receipts");
+        return {contextProtocol: 1 as const, contextExpected};
+      }
+      if (expected !== undefined) throw new Error("context new cannot supply a prior receipt");
+      return {contextProtocol: 1 as const, contextManifest: parseContextManifest(manifest)};
+    } catch {throw new acp.RequestError(-32602, "Invalid or unnegotiated context admission metadata");}
+  };
+
+  const executionAuthorityId = (cfg: NekoConfig, client: acp.AgentContext) => {
+    const capability = computerCapabilities.get(connectionKey(client));
+    return createHash("sha256").update(JSON.stringify({ version: 2,
+      bashTarget: cfg.sandbox ? "sandbox" : "host", computerInputPolicy: cfg.computerUseInputPolicy, taskAuthorityId,
+      readOutsideRoot: cfg.readOutsideRoot, additionalWriteRoots: [...cfg.additionalWriteRoots].sort(),
+      sandboxNetwork: cfg.sandboxNetwork, sandboxDomains: [...cfg.sandboxDomains].sort(),
+      allowDangerousBash: cfg.allowDangerousBash, hooks: cfg.hooks,
+      childSecretEnvNames: [...cfg.childSecretEnvNames].sort(),
+      computer: capability ? { protocol: capability.semanticProtocol, methods: [...capability.methods].sort() } : null,
+    })).digest("hex");
+  };
+  const assertExecutionExpected = (meta: any, cfg: NekoConfig, client: acp.AgentContext,
+    expected: ExpectedTaskActivation | undefined) => {
+    const execution = isJsonObject(meta) ? meta["neko.executionExpected"] : undefined;
+    if (!isJsonObject(execution) || execution.version !== 1 || !expected
+      || execution.taskId !== expected.id || execution.activationEpoch !== expected.activationEpoch
+      || execution.activationId !== expected.activationId
+      || execution.bashTarget !== (cfg.sandbox ? "sandbox" : "host")
+      || execution.authorityId !== executionAuthorityId(cfg, client)) {
+      throw new acp.RequestError(-32602, "Neko execution expectation does not match trusted activation authority.");
+    }
+  };
+
+  const app = acp.agent({ name: "neko-core" });
+
+  app.onRequest("initialize", ({ params, client }) => {
+    const key = connectionKey(client);
+    const computer = hostProfile ? null : parseWiiiComputerCapability(params.clientCapabilities);
+    if (computer) computerCapabilities.set(key, computer);
+    else computerCapabilities.delete(key);
+    const authMethods: acp.AuthMethod[] = supportsTerminalAuth(params.clientCapabilities)
+      ? [{
+      id: CHATGPT_TERMINAL_AUTH,
+      name: "Sign in to ChatGPT with Neko",
+      description: "Run Neko's browser-based subscription OAuth flow in a separate terminal.",
+      type: "terminal",
+      args: ["login", "openai", "chatgpt"],
+      env: {},
+    }] : [];
+    return {
+      protocolVersion: params.protocolVersion === acp.PROTOCOL_VERSION ? params.protocolVersion : acp.PROTOCOL_VERSION,
+      agentCapabilities: {
+        loadSession: true,
+        promptCapabilities: { embeddedContext: true },
+        sessionCapabilities: { list: {}, resume: {}, close: {} },
+        ...(hostProfile ? { mcpCapabilities: { acp: true } } : undefined),
+      },
+      authMethods,
+      agentInfo: { name: "neko-core", version: VERSION },
+      _meta: {
+        "neko.taskProtocol": TASK_PROTOCOL_V1,
+        ...(options.contextProtocol ? {"neko.contextProtocol": {version: 1}} : undefined),
+        "neko.executionProtocol": { version: 1 },
+        ...(hostProfile?.id === "nekobot" ? { "neko.hostEffectProtocol": { version: 1 } } : undefined),
+        ...(hostProfile?.operationProtocol ? { "neko.operationProtocol": { version: 1 } } : undefined),
+        ...(hostProfile ? { "neko.hostProfile": hostProfileMeta(hostProfile) } : undefined),
+      },
+    };
+  });
+
+  const sessionHostServer = (params: { additionalDirectories?: string[]; mcpServers?: unknown[] }): (acp.McpServerAcp & { type: "acp" }) | undefined => {
+    if (params.additionalDirectories?.length) {
+      throw new acp.RequestError(-32602, "Neko ACP does not yet support additionalDirectories.");
+    }
+    if (!hostProfile) {
+      if (!params.mcpServers?.length) return undefined;
+      throw new acp.RequestError(
+        -32602,
+        "Client-supplied ACP MCP servers are disabled; configure trusted MCP servers in Neko instead.",
+      );
+    }
+    if (!Array.isArray(params.mcpServers) || params.mcpServers.length !== 1) {
+      throw new acp.RequestError(-32602, `Host profile '${hostProfile.id}' requires exactly one in-band ACP MCP server.`);
+    }
+    const server = params.mcpServers[0];
+    if (!isJsonObject(server) || server.type !== "acp" || server.name !== hostProfile.mcpServerName
+      || !isText(server.serverId) || !server.serverId || server.serverId.length > 256
+      || /[\u0000-\u001f\u007f]/.test(server.serverId)) {
+      throw new acp.RequestError(
+        -32602,
+        `Host profile '${hostProfile.id}' accepts only its '${hostProfile.mcpServerName}' ACP-transport MCP server.`,
+      );
+    }
+    return { type: "acp", name: server.name, serverId: server.serverId };
+  };
+
+  const configForSession = (root: string, record?: Session): NekoConfig => {
+    let cfg: NekoConfig;
+    if (options.configForRoot) cfg = options.configForRoot(root, record?.profile);
+    else if (baseConfig) cfg = baseConfig;
+    else cfg = loadConfig({ cwd: root, ...(record?.profile ? { profile: record.profile } : undefined) });
+    // Never let one ACP session mutate a caller-owned/base config object shared with another session.
+    cfg = cfg.withModel(cfg.model).withEffort(cfg.effort);
+    if (record?.profile && cfg.profile !== record.profile) {
+      throw new acp.RequestError(-32002, `ACP session profile '${record.profile}' is unavailable.`);
+    }
+    if (record?.provider && cfg.provider !== record.provider) {
+      throw new acp.RequestError(-32002, `ACP session provider '${record.provider}' no longer matches its saved profile.`);
+    }
+    if (record?.model) cfg = cfg.withModel(record.model);
+    if (record?.reasoningEffort !== undefined) cfg = cfg.withEffort(record.reasoningEffort);
+    return cfg;
+  };
+
+  const usageSnapshot = (session: AcpSession) => session.runtime.agent.cost.snapshot();
+
+  const restoreUsage = (session: AcpSession) => {
+    session.runtime.agent.cost.restore(session.record.usage);
+  };
+
+  const storedMessages = async (session: AcpSession): Promise<any[]> => {
+    const secret = session.runtime.config.credentialSecrets;
+    if (!secret.length) return [...session.runtime.agent.messages];
+    const messages: any[] = [];
+    let lastYield = performance.now();
+    for (const message of session.runtime.agent.messages) {
+      const serialized = JSON.stringify(message, (_key, value) =>
+        isText(value) ? redactCredentialText(value, secret) : value);
+      messages.push(JSON.parse(serialized));
+      if (performance.now() - lastYield >= 8) {
+        await new Promise<void>((resolveYield) => setTimeout(resolveYield, 0));
+        lastYield = performance.now();
+      }
+    }
+    return messages;
+  };
+
+  const scopedMessages = (session: AcpSession): any[] => {
+    const secret = session.runtime.config.credentialSecrets;
+    return JSON.parse(JSON.stringify(session.runtime.agent.messages, (_key, value) =>
+      isText(value) ? redactCredentialText(value, secret) : value));
+  };
+
+  const persist = (session: AcpSession, turnState = session.record.turnState): Promise<void> => {
+    if (session.taskMode) {
+      try {
+        session.record = {
+          ...session.record,
+          updatedAt: new Date().toISOString(),
+          provider: session.runtime.config.provider,
+          model: session.runtime.config.model,
+          profile: session.runtime.config.profile,
+          mode: session.runtime.registry.mode,
+          reasoningEffort: session.runtime.config.effort,
+          revision: (session.record.revision ?? 0) + 1,
+          messages: scopedMessages(session),
+          usage: usageSnapshot(session),
+          turnState,
+        };
+        const coordinator = taskSessions.get(session.sessionId);
+        if (coordinator?.active.runtime.session === session) coordinator.checkpoint();
+        return Promise.resolve();
+      } catch (error) {
+        return Promise.reject(error);
+      }
+    }
+    return session.writer.saveLazy(async () => {
+      session.record = {
+        ...session.record,
+        schemaVersion: 2,
+        cwd: session.root,
+        provider: session.runtime.config.provider,
+        model: session.runtime.config.model,
+        profile: session.runtime.config.profile,
+        mode: session.runtime.registry.mode,
+        reasoningEffort: session.runtime.config.effort,
+        revision: (session.record.revision ?? 0) + 1,
+        messages: await storedMessages(session),
+        completionContract: session.runtime.agent.completionContract,
+        usage: usageSnapshot(session),
+        turnState,
+        contextFingerprint: createHash("sha256").update(JSON.stringify({
+          provider: session.runtime.config.provider,
+          model: session.runtime.config.model,
+          profile: session.runtime.config.profile,
+          effort: session.runtime.config.effort,
+          hostProfile: session.record.hostProfile,
+          system: session.runtime.agent.messages.filter((message: any) => message?.role === "system"),
+        })).digest("hex"),
+      };
+      return session.record;
+    });
+  };
+
+  const queuePersist = (session: AcpSession, turnState = session.record.turnState): void => {
+    void persist(session, turnState).catch((error) => {
+      session.persistenceFailure ??= error;
+      session.persistenceFailed = true;
+      session.pending?.abort();
+    });
+  };
+
+  const infoMeta = (session: AcpSession) => ({
+    model: session.runtime.config.model,
+    provider: session.runtime.config.provider,
+    profile: session.runtime.config.profile,
+    messageCount: session.record.messages.length,
+    continuityLevel: session.record.turnState?.status === "interrupted" ? "recovered" : "durable",
+    revision: session.record.revision ?? 0,
+    ...(session.record.hostProfile ? { hostProfile: session.record.hostProfile } : undefined),
+  });
+
+  const syncSessionState = async (session: AcpSession, client: acp.AgentContext): Promise<void> => {
+    await notifyPublicSession(client, session, {
+      sessionId: session.sessionId,
+      ...taskOuterMeta(session),
+      update: {
+        sessionUpdate: "session_info_update",
+        title: sessionTitle(session.record),
+        updatedAt: session.record.updatedAt,
+        _meta: infoMeta(session),
+      },
+    });
+    await notifyPublicSession(client, session, {
+      sessionId: session.sessionId,
+      ...taskOuterMeta(session),
+      update: { sessionUpdate: "current_mode_update", currentModeId: session.runtime.registry.mode },
+    });
+    await notifyPublicSession(client, session, {
+      sessionId: session.sessionId,
+      ...taskOuterMeta(session),
+      update: { sessionUpdate: "config_option_update", configOptions: configOptions(session.runtime.config) },
+    });
+    await notifyPublicSession(client, session, {
+      sessionId: session.sessionId,
+      ...taskOuterMeta(session),
+      update: { sessionUpdate: "available_commands_update", availableCommands: commandsForSession(session) },
+    });
+    await notifyPublicSession(client, session, {
+      sessionId: session.sessionId,
+      ...taskOuterMeta(session),
+      update: {
+        sessionUpdate: "usage_update",
+        used: session.runtime.agent.cost.lastPrompt,
+        size: session.runtime.config.contextWindow,
+      },
+    });
+  };
+
+  const replaySession = async (session: AcpSession, client: acp.AgentContext): Promise<void> => {
+    session.toolCalls.clear();
+    for (let index = 0; index < session.runtime.agent.messages.length; index++) {
+      const message = session.runtime.agent.messages[index];
+      if (!message || message.role === "system" || message._neko_internal === true) continue;
+      const id = messageId(session.sessionId, message, index);
+      if (message.role === "user") {
+        const text = textContent(message.content);
+        if (text) await notifyPublicSession(client, session, {
+          sessionId: session.sessionId,
+          ...taskOuterMeta(session),
+          update: { sessionUpdate: "user_message_chunk", messageId: id, content: { type: "text", text } },
+        });
+        continue;
+      }
+      if (message.role === "assistant") {
+        const text = textContent(message.content);
+        if (text) await notifyPublicSession(client, session, {
+          sessionId: session.sessionId,
+          ...taskOuterMeta(session),
+          update: { sessionUpdate: "agent_message_chunk", messageId: id, content: { type: "text", text } },
+        });
+        for (const raw of Array.isArray(message.tool_calls) ? message.tool_calls : []) {
+          const call = normalizeCoreToolCall(raw);
+          if (!call) continue;
+          const update = toolUpdate(session.root, call);
+          session.toolCalls.set(update.toolCallId, update);
+          await notifyPublicSession(client, session, {
+            sessionId: session.sessionId,
+            ...taskOuterMeta(session),
+            // SAFETY: toolUpdate constructs title/id/status; its shared return type also admits partial updates.
+            update: { sessionUpdate: "tool_call", ...update } as acp.SessionUpdate,
+          });
+        }
+        continue;
+      }
+      if (message.role === "tool") {
+        const text = textContent(message.content);
+        const toolCallId = String(message.tool_call_id ?? "tool");
+        const update: acp.ToolCallUpdate = {
+          toolCallId,
+          status: session.runtime.agent.hostEffectState().pending.some(effect => effect.operationId === message._neko_host_effect_operation)
+            ? "pending" : classifyToolObservation(text) === "failed" || /outcome unknown|interrupted/i.test(text)
+              ? "failed" : "completed",
+          content: [{ type: "content", content: { type: "text", text } }],
+          rawOutput: text,
+        };
+        session.toolCalls.set(toolCallId, { ...(session.toolCalls.get(toolCallId) ?? {
+          toolCallId, title: toolCallId, kind: "other", status: "pending",
+        }), ...update });
+        await notifyPublicSession(client, session, {
+          sessionId: session.sessionId,
+          ...taskOuterMeta(session),
+          update: { sessionUpdate: "tool_call_update", ...update },
+        });
+      }
+    }
+  };
+
+  const activate = async (
+    record: Session,
+    root: string,
+    cfg: NekoConfig,
+    client: acp.AgentContext,
+    restored: boolean,
+    hostServer?: acp.McpServerAcp & { type: "acp" },
+    taskScope?: TaskScope,
+    hostEffects?: { version: 1; journal: HostEffectRecord[] },
+    contextManifest?: ContextManifest,
+  ): Promise<AcpSession> => {
+    if (!taskScope && sessions.has(record.id)) throw new acp.RequestError(-32000, "ACP session already has an active writer.");
+    let lease: SessionLease;
+    try { lease = taskScope ? { release: () => {} } : acquireSessionLease(record.id); }
+    catch (error) { throw new acp.RequestError(-32000, error instanceof Error ? error.message : String(error)); }
+
+    const toolCalls = new Map<string, acp.ToolCallUpdate>();
+    const alwaysAllow = new Set<string>();
+    const alwaysReject = new Set<string>();
+    let session!: AcpSession;
+    let sendChain = Promise.resolve();
+    const enqueue = (update: acp.SessionUpdate) => {
+      cfg.profileBridge?.assertCurrent(cfg);
+      // SAFETY: locally constructed ACP updates are JSON; only credential-bearing strings change.
+      const sanitized = redactCredentialJSON(JSON.parse(JSON.stringify(update)) as JsonValue, cfg.credentialSecrets) as acp.SessionUpdate;
+      sendChain = sendChain.then(() => client.notify(acp.methods.client.session.update, {
+        sessionId: record.id, ...taskOuterMeta(session), update: sanitized,
+      }));
+      void sendChain.catch(() => session.pending?.abort());
+    };
+    const approval = async (name: string, args: { [key: string]: JsonValue }): Promise<boolean> => {
+      if (alwaysReject.has(name)) return false;
+      if (alwaysAllow.has(name)) return true;
+      const permissionClient = session.permissionClient;
+      if (!permissionClient) return false;
+      await session.flush();
+      const call = [...toolCalls.values()].reverse().find((value) => value.name === name)
+        ?? { toolCallId: randomUUID(), title: describeToolCall(name, args), name, kind: toolKind(name), status: "pending" as const, rawInput: args };
+      const response = await abortable(permissionClient.request(acp.methods.client.session.requestPermission, {
+        sessionId: record.id,
+        ...taskOuterMeta(session),
+        // SAFETY: the local typed tool-call projection is JSON and sanitation preserves its shape.
+        toolCall: redactCredentialJSON(JSON.parse(JSON.stringify(call)) as JsonValue, cfg.credentialSecrets) as acp.ToolCallUpdate,
+        options: [
+          { optionId: ALLOW_ONCE, name: "Allow once", kind: "allow_once" },
+          { optionId: ALLOW_ALWAYS, name: `Always allow ${name} in this session`, kind: "allow_always" },
+          { optionId: REJECT_ONCE, name: "Reject once", kind: "reject_once" },
+          { optionId: REJECT_ALWAYS, name: `Always reject ${name} in this session`, kind: "reject_always" },
+        ],
+      }, { cancellationSignal: session.pending?.signal }), session.pending?.signal);
+      if (response.outcome.outcome !== "selected") return false;
+      if (response.outcome.optionId === ALLOW_ALWAYS) alwaysAllow.add(name);
+      if (response.outcome.optionId === REJECT_ALWAYS) alwaysReject.add(name);
+      return response.outcome.optionId === ALLOW_ONCE || response.outcome.optionId === ALLOW_ALWAYS;
+    };
+
+    let runtime: AgentRuntime | undefined;
+    let outputSecret = JSON.stringify(cfg.credentialSecrets);
+    let outputFilter = new CredentialOutputFilter(cfg.credentialSecrets);
+    const emitOutput = (chunks: CredentialOutputChunk[]) => {
+      for (const chunk of chunks) {
+        if (!chunk.text) continue;
+        // SAFETY: this locally built update retains the ACP channel and sanitized text contract.
+        enqueue({ sessionUpdate: chunk.kind === "reasoning" ? "agent_thought_chunk" : "agent_message_chunk",
+          ...(chunk.kind === "reasoning" ? undefined : { messageId: session.liveAgentMessageId }),
+          content: { type: "text", text: chunk.text } } as acp.SessionUpdate);
+      }
+    };
+    const prepareOutputFilter = () => {
+      if (JSON.stringify(cfg.credentialSecrets) === outputSecret) return;
+      emitOutput(outputFilter.flush());
+      outputSecret = JSON.stringify(cfg.credentialSecrets);
+      outputFilter = new CredentialOutputFilter(cfg.credentialSecrets);
+    };
+    let hostTools: AcpHostMcp | undefined;
+    const computerCapability = hostProfile ? undefined : computerCapabilities.get(connectionKey(client));
+    const computer = computerCapability ? new WiiiComputerTool(client, computerCapability, record.id) : undefined;
+    try {
+      if (hostProfile) hostTools = await AcpHostMcp.connect(hostProfile, client, hostServer!,
+        taskScope ? { sessionId: record.id, scope: taskScope, hostEffectProtocol: hostEffects?.version, contextManifest } : undefined);
+      hostTools?.bindCredential(() => { cfg.profileBridge?.assertCurrent(cfg); return cfg.credentialSecrets; });
+      // Capture trusted selection before a custom factory can mutate its config argument.
+      const expectedBashTarget = cfg.sandbox ? "sandbox" : "host";
+      const expectedInputPolicy = cfg.computerUseInputPolicy;
+      runtime = await buildRuntime(cfg, {
+        root,
+        ...(taskScope ? { taskScope } : undefined),
+        mode: record.mode ?? cfg.mode,
+        approval,
+        hostProfile,
+        hostTools,
+        computer: computer ?? false,
+        onCheckpoint: async () => {
+          if (session.persistenceFailed) throw session.persistenceFailure;
+          await persist(session, {
+            ...(session.record.turnState ?? { status: "running" }),
+            status: "running",
+            activeToolCallIds: [...session.activeToolCallIds],
+          });
+        },
+        onDelta: (text, kind) => {
+          if (!text || kind === "tool") return;
+          prepareOutputFilter();
+          if (kind !== "reasoning") session.streamedContentSinceTool += text;
+          if (kind !== "reasoning" && !session.liveAgentMessageId) session.liveAgentMessageId = `msg_${randomUUID()}`;
+          const last = runtime!.agent.messages.at(-1);
+          if (kind !== "reasoning" && last?.role === "assistant" && !last._neko_acp_message_id) {
+            last._neko_acp_message_id = session.liveAgentMessageId;
+          }
+          emitOutput(outputFilter.push(text, kind === "reasoning" ? "reasoning" : "content"));
+        },
+        onEvent: (kind, data) => {
+          if (kind === "tool_call") {
+            emitOutput(outputFilter.flush());
+            // SAFETY: call object is built here from already-typed id/name/arguments members.
+            const update = toolUpdate(root, data as ToolCall);
+            toolCalls.set(update.toolCallId, update);
+            session.activeToolCallIds.add(update.toolCallId);
+            // SAFETY: sessionUpdate payload is built here as the ACP contract requires.
+            enqueue({ sessionUpdate: "tool_call", ...update } as acp.SessionUpdate);
+          } else if (kind === "tool_result") {
+            emitOutput(outputFilter.flush());
+            // SAFETY: call object is built here from already-typed id/name/arguments members.
+            const call = data.call as ToolCall;
+            const text = observationText(data.observation);
+            const suspended = runtime!.agent.hostEffectState().pending.some(effect =>
+              runtime!.agent.messages.at(-1)?._neko_host_effect_operation === effect.operationId);
+            const status = suspended ? "pending" : classifyToolObservation(data.observation) === "failed" ? "failed" : "completed";
+            const update: acp.ToolCallUpdate = {
+              toolCallId: call.id,
+              status,
+              content: [{ type: "content", content: { type: "text", text } }],
+              rawOutput: text,
+            };
+            toolCalls.set(call.id, { ...(toolCalls.get(call.id) ?? toolUpdate(root, call)), ...update });
+            session.activeToolCallIds.delete(call.id);
+            enqueue({ sessionUpdate: "tool_call_update", ...update });
+            session.streamedContentSinceTool = "";
+            session.liveAgentMessageId = "";
+          } else if (kind === "recovery") {
+            queuePersist(session, {
+              ...(session.record.turnState ?? { status: "running" }),
+              status: "running",
+              activeToolCallIds: [...session.activeToolCallIds],
+            });
+          } else if (kind === "max_steps") {
+            session.maxStepsHit = true;
+          } else if (kind === "final") {
+            emitOutput(outputFilter.flush());
+            const final = isText(data) ? data : "";
+            const last = runtime!.agent.messages.at(-1);
+            if (last?.role === "assistant" && !last._neko_acp_message_id) {
+              last._neko_acp_message_id = session.liveAgentMessageId || `msg_${randomUUID()}`;
+            }
+            if (final && !session.streamedContentSinceTool.endsWith(final)) {
+              enqueue({
+                sessionUpdate: "agent_message_chunk",
+                messageId: last?._neko_acp_message_id,
+                content: { type: "text", text: final },
+              });
+            }
+            queuePersist(session, session.record.turnState);
+          }
+        },
+      });
+      // A task runtime must bind before constructing Agent/context. Reject an unbound custom
+      // factory here; binding after it returned would be too late to guarantee admission.
+      if (taskScope && runtime.registry.taskScope !== taskScope) {
+        throw new acp.RequestError(-32000,
+          "ACP task runtime must bind the exact task scope before Agent construction.");
+      }
+      if (taskScope) {
+        try { runtime.registry.assertTaskExecutionBinding(); }
+        catch (error) { throw new acp.RequestError(-32000, error instanceof Error ? error.message : "Task execution binding is unavailable."); }
+        const receipt = runtime.registry.taskExecutionReceipt();
+        if (receipt?.bashTarget !== expectedBashTarget) {
+          throw new acp.RequestError(-32000, "ACP task runtime does not bind the configured Bash target.");
+        }
+        if (contextManifest) hostTools!.bindContextPolicy(receipt.policyId);
+        if (receipt.interaction.policy !== expectedInputPolicy || runtime.registry.computerInputPolicy !== expectedInputPolicy) {
+          throw new acp.RequestError(-32000, "ACP task runtime does not bind the configured computer input policy.");
+        }
+        if (runtime.registry.computerHandler || (computer
+          ? runtime.registry.computerPort !== computer
+          : runtime.registry.computerPort || receipt.capabilities.computer !== "unavailable")) {
+          throw new acp.RequestError(-32000, "ACP task runtime does not bind the negotiated computer route.");
+        }
+      }
+      const closeRuntime = runtime.close.bind(runtime);
+      runtime.close = async () => {
+        try { await computer?.close(); } finally { await closeRuntime(); }
+      };
+
+      let closed = false;
+      session = {
+        sessionId: record.id,
+        root,
+        record,
+        lease,
+        runtime,
+        computer,
+        permissionClient: client,
+        toolCalls,
+        alwaysAllow,
+        alwaysReject,
+        maxStepsHit: false,
+        streamedContentSinceTool: "",
+        liveAgentMessageId: "",
+        activeToolCallIds: new Set(),
+        writer: new AsyncSessionWriter(),
+        persistenceFailed: false,
+        taskMode: Boolean(taskScope),
+        flush: async () => {
+          emitOutput(outputFilter.flush());
+          await sendChain;
+          await session.writer.flush();
+          if (session.persistenceFailed) throw session.persistenceFailure;
+        },
+        flushOutput: () => emitOutput(outputFilter.flush()),
+        close: async () => {
+          if (closed) return;
+          closed = true;
+          session.pending?.abort();
+          await session.pendingSettled?.catch(() => {});
+          await sendChain.catch(() => {});
+          let failure: unknown;
+          try {
+            if (!session.taskMode) {
+              const interrupted = session.record.turnState?.status === "running";
+              await persist(session, interrupted ? {
+                ...session.record.turnState,
+                status: "interrupted",
+                lastStopReason: "connection_closed",
+                activeToolCallIds: [...session.activeToolCallIds],
+              } : session.record.turnState);
+            }
+          } catch (error) { failure = error; }
+          try { await session.runtime.close(); } catch (error) { failure ??= error; }
+          lease.release();
+          if (failure) throw failure;
+        },
+      };
+
+      if (hostEffects) {
+        runtime.agent.messages = structuredClone(record.messages);
+        runtime.agent.configureHostEffects(record.id, hostEffects.journal);
+        session.hostEffectProtocol = 1;
+      }
+      if (restored) {
+        runtime.agent.messages = structuredClone(record.messages);
+        runtime.agent.restoreCompletionContract(record.completionContract);
+        runtime.agent.messages.forEach((message: any, index: number) => {
+          if ((message?.role === "user" || message?.role === "assistant") && !message._neko_acp_message_id) {
+            message._neko_acp_message_id = stableMessageId(record.id, index, message.role);
+          }
+        });
+        restoreUsage(session);
+        const wasRunning = record.turnState?.status === "running";
+        const beforeSeal = JSON.stringify(runtime.agent.messages);
+        runtime.agent.sealDanglingToolCalls();
+        const sealedUnknownOutcome = JSON.stringify(runtime.agent.messages) !== beforeSeal;
+        runtime.agent.refreshSystemPrompt();
+        runtime.registry.todos = recoverSessionTodos(runtime.agent.messages);
+        session.activeToolCallIds.clear();
+        await persist(session, wasRunning || sealedUnknownOutcome ? {
+          status: "interrupted",
+          startedAt: record.turnState?.startedAt,
+          recoveredAt: new Date().toISOString(),
+          lastStopReason: "process_interrupted",
+          activeToolCallIds: [],
+        } : { ...(record.turnState ?? { status: "idle" }), activeToolCallIds: [] });
+      } else {
+        await persist(session, { status: "idle", activeToolCallIds: [] });
+      }
+      if (!taskScope) sessions.set(record.id, session);
+      return session;
+    } catch (error) {
+      try { await runtime?.close(); } catch { /* preserve the activation failure */ }
+      if (!runtime) try { await computer?.close(); } catch { /* preserve the activation failure */ }
+      if (!runtime) try { await hostTools?.close(); } catch { /* preserve the activation failure */ }
+      lease.release();
+      throw error;
+    }
+  };
+
+  const taskRuntimeFactory = (
+    root: string,
+    cfg: NekoConfig,
+    client: acp.AgentContext,
+    hostServer?: acp.McpServerAcp & { type: "acp" },
+  ) => async (input: TaskRuntimeInput): Promise<ScopedAcpRuntime> => {
+    const now = new Date().toISOString();
+    const record: Session = {
+      schemaVersion: 2,
+      id: input.sessionId,
+      createdAt: now,
+      updatedAt: now,
+      cwd: root,
+      provider: cfg.provider,
+      model: cfg.model,
+      profile: cfg.profile,
+      mode: hostProfile?.allowedModes.includes(cfg.mode) ? cfg.mode : hostProfile?.allowedModes[0] ?? cfg.mode,
+      reasoningEffort: cfg.effort,
+      revision: 0,
+      // SAFETY: the coordinator validates and clones its stored message array before activation.
+      messages: input.messages as Session["messages"],
+      turnState: { status: "idle", activeToolCallIds: [] },
+      ...(hostProfile ? { hostProfile: storedHostProfile(hostProfile) } : undefined),
+    };
+    const session = await activate(record, root, cfg.withModel(cfg.model).withEffort(cfg.effort), client,
+      input.messages.length > 0, hostServer, input.scope,
+      input.hostEffectVersion ? { version: 1, journal: input.hostEffects ?? [] } : undefined, input.contextManifest ?? input.contextState?.admission?.manifest);
+    try { session.runtime.agent.restoreCompactionSourceEvents(input.sourceEvents); }
+    catch (error) { await session.close().catch(() => {}); throw error; }
+    let context: ReturnType<typeof bindStructuredContext> | undefined;
+    try {
+      context = input.contextMode === "structured" ? bindStructuredContext({agent: session.runtime.agent, registry: session.runtime.registry,
+      home: cfg.resolvedHome, scope: input.scope, sessionId: input.sessionId, policyId: session.runtime.registry.taskExecutionReceipt()?.policyId, admission: input.contextManifest, messages: session.runtime.agent.messages, state: input.contextState,
+      inputBudget: () => session.runtime.config.contextWindow - Math.max(0, session.runtime.config.maxTokens),
+      countTokens: rows => estimateRequestTokens([...rows], session.runtime.registry.schemas()), credential: () => session.runtime.config.credentialSecrets,
+      publish: (digest, candidate, state) => {
+        const coordinator = taskSessions.get(input.sessionId);
+        if (!coordinator || coordinator.active.scope !== input.scope) throw new Error("Task changed before context publication");
+        return coordinator.checkpointCompaction(digest, candidate, state);
+      }}) : undefined;
+    session.contextAdmission = context?.snapshot(session.runtime.agent.messages).admission;
+    } catch (error) {await session.close().catch(() => {}); throw error;}
+    return {
+      session,
+      getMessages: () => {session.runtime.agent.assertContextReady(); return scopedMessages(session);},
+      contextRecoveryRequired: () => session.runtime.agent.contextRecoveryRequired,
+      getStructuredContextState: context ? () => context.snapshot(session.runtime.agent.messages) : undefined,
+      getHostEffects: () => {
+        const journal = session.runtime.agent.hostEffects();
+        const keys = session.runtime.config.credentialSecrets;
+        if (keys.some(key => key && JSON.stringify(journal).includes(JSON.stringify(key).slice(1, -1)))) {
+          throw new Error("Host effect archive contains a configured credential; checkpoint blocked");
+        }
+        return journal;
+      },
+      getSourceEvents: () => {
+        const events = session.runtime.agent.compactionSourceEvents();
+        for (const key of session.runtime.config.credentialSecrets) assertNoConfiguredCredentialInSourceEvents(events, key);
+        return events;
+      },
+      assertQuiescent: () => {
+        if (session.pending || session.activeToolCallIds.size > 0
+          || session.record.turnState?.status === "running"
+          || session.runtime.registry.backgrounds.some((job) => !job.done)) {
+          throw new Error("An ACP task cannot switch during a prompt, approval, tool, or background job.");
+        }
+      },
+      settleForClose: () => {
+        if (session.pending || session.record.turnState?.status === "running"
+          || session.runtime.registry.backgrounds.some((job) => !job.done)) {
+          throw new Error("An ACP task cannot close while a prompt or background job is live.");
+        }
+        if (session.activeToolCallIds.size > 0) {
+          // Cancellation settled, but the mutation result is unknown. Persist a synthetic result,
+          // never rerun the tool implicitly after resume.
+          session.runtime.agent.sealDanglingToolCalls();
+          session.activeToolCallIds.clear();
+          session.record.turnState = {
+            status: "interrupted", lastStopReason: "outcome_unknown", activeToolCallIds: [],
+          };
+        }
+      },
+      close: () => session.close(),
+    };
+  };
+
+  const attachTaskSession = async (
+    coordinator: TaskSessionCoordinator<ScopedAcpRuntime>,
+    client: acp.AgentContext,
+    replay: boolean,
+  ) => {
+    if (sessions.has(coordinator.id) || taskSessions.has(coordinator.id)) {
+      await coordinator.close();
+      throw new acp.RequestError(-32000, "ACP task session already has an active writer.");
+    }
+    const session = coordinator.active.runtime.session;
+    session.taskReceipt = coordinator.receipt ?? undefined;
+    session.executionRequired = coordinator.executionVersion === 1;
+    taskSessions.set(coordinator.id, coordinator);
+    sessions.set(coordinator.id, session);
+    try {
+      coordinator.checkpoint();
+      if (replay) await replaySession(session, client);
+      await syncSessionState(session, client);
+      return { session, response: {
+        modes: modeState(session.runtime.registry.mode, hostProfile),
+        configOptions: configOptions(session.runtime.config),
+        _meta: {
+          ...(session.contextAdmission ? {"neko.contextProtocol": {version: 1}, "neko.contextAdmission": contextReceipt(session)} : undefined),
+          ...(session.hostEffectProtocol ? { "neko.hostEffectProtocol": { version: 1 }, "neko.hostEffects": session.runtime.agent.hostEffectState() } : undefined),
+          "neko.task": coordinator.receipt ?? {
+            id: coordinator.active.id, label: coordinator.active.label, root: coordinator.active.root,
+          },
+          ...(session.taskReceipt ? { "neko.execution": session.runtime.registry.taskExecutionReceipt()! } : undefined),
+          ...(coordinator.recoveredFromPriorReceipt
+            ? { "neko.taskRecovery": { version: 1, kind: "prior_receipt_retry" } }
+            : undefined),
+        },
+      } };
+    } catch (error) {
+      sessions.delete(coordinator.id);
+      taskSessions.delete(coordinator.id);
+      await coordinator.close().catch(() => {});
+      throw error;
+    }
+  };
+
+  app.onRequest("session/new", async ({ params, client }) => {
+    const taskProtocol = taskProtocolFromMeta(params._meta);
+    if (taskProtocol?.hostEffectVersion && hostProfile?.id !== "nekobot") {
+      throw new acp.RequestError(-32602, "Host effects require the restricted NekoBot launch profile.");
+    }
+    if (hostProfile?.operationProtocol && taskProtocol?.executionVersion !== 1) {
+      throw new acp.RequestError(-32602, "NekoBot requires fixed task and execution protocol v1 before host admission.");
+    }
+    const taskLabel = params._meta?.["neko.taskLabel"];
+    if (taskProtocol && (!isText(taskLabel) || !taskLabel.trim())) {
+      throw new acp.RequestError(-32602, "Neko task protocol v1 requires a valid neko.taskLabel.");
+    }
+    const hostServer = sessionHostServer(params);
+    const root = sessionRoot(params.cwd);
+    const cfg = configForSession(root);
+    const context = contextInput(params._meta, cfg, false);
+    if (taskLabel !== undefined) {
+      if (!isText(taskLabel)) throw new acp.RequestError(-32602, "neko.taskLabel must be a task label string.");
+      const coordinator = await createTaskSession({
+        home: cfg.resolvedHome, root, label: taskLabel, ...context,
+        authorityId: taskAuthorityId, configId: taskConfigId(cfg), contextMode: taskSessionContextMode(cfg),
+        ...(taskProtocol?.executionVersion ? { executionAuthorityId: executionAuthorityId(cfg, client) } : undefined),
+        ...(taskProtocol ? { taskProtocol } : undefined),
+        runtimeFactory: taskRuntimeFactory(root, cfg, client, hostServer),
+      });
+      const { response } = await attachTaskSession(coordinator, client, false);
+      return { sessionId: coordinator.id, ...response };
+    }
+    const now = new Date().toISOString();
+    const record: Session = {
+      schemaVersion: 2,
+      id: newSessionId(),
+      createdAt: now,
+      updatedAt: now,
+      cwd: root,
+      provider: cfg.provider,
+      model: cfg.model,
+      profile: cfg.profile,
+      mode: hostProfile?.allowedModes.includes(cfg.mode) ? cfg.mode : hostProfile?.allowedModes[0] ?? cfg.mode,
+      reasoningEffort: cfg.effort,
+      revision: 0,
+      messages: [],
+      turnState: { status: "idle", activeToolCallIds: [] },
+      ...(hostProfile ? { hostProfile: storedHostProfile(hostProfile) } : undefined),
+    };
+    const session = await activate(record, root, cfg, client, false, hostServer);
+    try {
+      await syncSessionState(session, client);
+      return { sessionId: record.id, modes: modeState(session.runtime.registry.mode, hostProfile), configOptions: configOptions(cfg) };
+    } catch (error) {
+      sessions.delete(record.id);
+      await session.close().catch(() => {});
+      throw error;
+    }
+  });
+
+  app.onRequest("session/list", ({ params }) => {
+    const filter = params.cwd ? sessionRoot(params.cwd) : null;
+    const offset = decodeCursor(params.cursor);
+    const pageSize = 50;
+    const all = listSessionMetas().filter((meta) => sameHostProfile(meta.hostProfile, hostProfile)
+      && (!filter || sameRoot(comparableRoot(meta.cwd), filter)));
+    const page = all.slice(offset, offset + pageSize);
+    return {
+      sessions: page.map((meta) => ({
+        sessionId: meta.id,
+        cwd: resolve(meta.cwd),
+        title: sessionTitle(meta),
+        updatedAt: meta.updatedAt,
+        _meta: {
+          model: meta.model,
+          provider: meta.provider ?? "",
+          profile: meta.profile ?? null,
+          mode: meta.mode ?? "auto",
+          messageCount: meta.msgCount,
+          continuityLevel: meta.turnState?.status === "interrupted" ? "recovered" : "durable",
+          revision: meta.revision ?? 0,
+          ...(meta.hostProfile ? { hostProfile: meta.hostProfile } : undefined),
+        },
+      })),
+      ...(offset + pageSize < all.length ? { nextCursor: encodeCursor(offset + pageSize) } : undefined),
+    };
+  });
+
+  const restore = async (
+    params: acp.LoadSessionRequest | acp.ResumeSessionRequest,
+    client: acp.AgentContext,
+    replay: boolean,
+  ) => {
+    const taskProtocol = taskProtocolFromMeta(params._meta);
+    if (taskProtocol?.hostEffectVersion && hostProfile?.id !== "nekobot") {
+      throw new acp.RequestError(-32602, "Host effects require the restricted NekoBot launch profile.");
+    }
+    if (hostProfile?.operationProtocol && taskProtocol?.executionVersion !== 1) {
+      throw new acp.RequestError(-32602, "NekoBot requires fixed task and execution protocol v1 before host admission.");
+    }
+    if (!taskProtocol && isJsonObject(params._meta) && params._meta["neko.taskExpected"] !== undefined) {
+      throw new acp.RequestError(-32602, "Neko task expectation requires task protocol v1.");
+    }
+    if (!options.contextProtocol && isJsonObject(params._meta) && ["neko.contextProtocol", "neko.contextManifest", "neko.contextExpected"].some(key => params._meta?.[key] !== undefined)) throw new acp.RequestError(-32602, "context admission is unavailable in this launch mode");
+    const expectedTask = taskProtocol ? expectedTaskFromMeta(params._meta) : undefined;
+    const hostServer = sessionHostServer(params);
+    const taskWriterUnavailableError = () => new acp.RequestError(-32002,
+      "Neko task writer unavailable; explicit recovery is required.", {
+        "neko.taskError": { version: 1, kind: "writer_unavailable",
+          action: "retain_mapping_and_request_recovery" },
+      });
+    if (sessions.has(params.sessionId)) {
+      if (taskProtocol && taskSessions.get(params.sessionId)?.receipt) {
+        throw taskWriterUnavailableError();
+      }
+      throw new acp.RequestError(-32000, "ACP session already has an active writer.");
+    }
+    const root = sessionRoot(params.cwd);
+    const taskConfig = taskProtocol || /^[a-f0-9]{32}$/.test(params.sessionId)
+      ? configForSession(root) : undefined;
+    // Task IDs and legacy session IDs share a hex shape. A present task store takes precedence;
+    // probe it before loading legacy bytes/profile, including a corrupt or colliding legacy record.
+    if (taskConfig && (taskProtocol || taskSessionExists(taskConfig.resolvedHome, params.sessionId))) {
+      let coordinator: TaskSessionCoordinator<ScopedAcpRuntime>;
+      try {
+        if (taskProtocol?.executionVersion) assertExecutionExpected(params._meta, taskConfig, client, expectedTask);
+        const context = contextInput(params._meta, taskConfig, true);
+        coordinator = await loadTaskSession({
+          ...context,
+          home: taskConfig.resolvedHome, root, sessionId: params.sessionId,
+          authorityId: taskAuthorityId, configId: taskConfigId(taskConfig), contextMode: taskSessionContextMode(taskConfig),
+          ...(taskProtocol?.executionVersion ? { executionAuthorityId: executionAuthorityId(taskConfig, client) } : undefined),
+          ...(taskProtocol ? { taskProtocol, expectedTask } : undefined),
+          runtimeFactory: taskRuntimeFactory(root, taskConfig, client, hostServer),
+        });
+      } catch (error) {
+        if (taskProtocol && error instanceof TaskSessionWriterUnavailableError) {
+          throw taskWriterUnavailableError();
+        }
+        if (taskProtocol && error instanceof TaskSessionRecoveryRequiredError) {
+          throw new acp.RequestError(-32002, "Neko task activation needs explicit recovery.", {
+            "neko.taskError": { version: 1, kind: "recovery_required",
+              action: "retain_mapping_and_request_recovery" },
+          });
+        }
+        throw new acp.RequestError(-32002, error instanceof Error ? error.message : "ACP task session unavailable.");
+      }
+      const { response } = await attachTaskSession(coordinator, client, replay);
+      return response;
+    }
+    const record = loadSession(params.sessionId);
+    if (!record) throw new acp.RequestError(-32002, "ACP session not found or its checkpoints are corrupt.");
+    if (!sameHostProfile(record.hostProfile, hostProfile)) {
+      throw new acp.RequestError(-32002, "ACP session belongs to a different host capability profile.");
+    }
+    let storedRoot: string;
+    try { storedRoot = sessionRoot(record.cwd); }
+    catch { throw new acp.RequestError(-32002, "ACP session workspace is no longer available."); }
+    if (!sameRoot(storedRoot, root)) throw new acp.RequestError(-32602, "ACP session cwd does not match the saved workspace.");
+    const cfg = configForSession(root, record);
+    const session = await activate(record, root, cfg, client, true, hostServer);
+    try {
+      if (replay) await replaySession(session, client);
+      await syncSessionState(session, client);
+      return { modes: modeState(session.runtime.registry.mode, hostProfile), configOptions: configOptions(session.runtime.config) };
+    } catch (error) {
+      sessions.delete(record.id);
+      await session.close().catch(() => {});
+      throw error;
+    }
+  };
+
+  app.onRequest("session/load", ({ params, client }) => restore(params, client, true));
+  app.onRequest("session/resume", ({ params, client }) => restore(params, client, false));
+
+  const hostEffectRequest = { parse(value: any) {
+    if (!isJsonObject(value) || !isText(value.sessionId) || !isJsonObject(value.resolution)
+      || Object.keys(value).some(key => !["sessionId", "_meta", "resolution"].includes(key))) {
+      throw new acp.RequestError(-32602, "Invalid host effect resolution request");
+    }
+    return value;
+  } };
+  app.onRequest("session/resolve_host_effect", hostEffectRequest, async ({ params }) => {
+    const session = sessions.get(String(params.sessionId));
+    if (!session || hostProfile?.id !== "nekobot" || !session.hostEffectProtocol) {
+      throw new acp.RequestError(-32602, "Host effect protocol was not negotiated for this session");
+    }
+    assertTaskEcho(session, params._meta);
+    if (session.pending || taskTransitions.has(session.sessionId)) throw new acp.RequestError(-32000, "Session is busy");
+    // Synchronous transition claim fences concurrent prompts, close and duplicate resolve requests.
+    let settle!: () => void;
+    const transition = new Promise<void>(resolve => { settle = resolve; });
+    taskTransitions.set(session.sessionId, transition);
+    try {
+      const resolution = await session.runtime.agent.resolveHostEffect(parseHostEffectResolution(params.resolution));
+      await persist(session, { status: "idle", activeToolCallIds: [] });
+      const outer = taskOuterMeta(session, true);
+      return { _meta: { ...outer._meta, "neko.hostEffectResolution": resolution } };
+    } catch (error) {
+      throw new acp.RequestError(-32002, error instanceof Error ? error.message : "Host effect reconciliation failed");
+    } finally {
+      taskTransitions.delete(session.sessionId);
+      settle();
+    }
+  });
+
+  app.onRequest("session/set_mode", async ({ params, client }) => {
+    const session = sessions.get(params.sessionId);
+    if (!session) throw new acp.RequestError(-32002, "ACP session not found.");
+    if (session.taskMode) throw new acp.RequestError(-32000,
+      "Task sessions cannot change mode until their mode is durably bound to each task.");
+    if (!isPermissionMode(params.modeId)) throw new acp.RequestError(-32602, "Unknown Neko permission mode.");
+    if (hostProfile && !hostProfile.allowedModes.includes(params.modeId)) {
+      throw new acp.RequestError(-32602, `Mode '${params.modeId}' is outside host profile '${hostProfile.id}'.`);
+    }
+    session.runtime.registry.mode = params.modeId;
+    await persist(session, session.record.turnState);
+    await notifyPublicSession(client, session, {
+      sessionId: params.sessionId,
+      update: { sessionUpdate: "current_mode_update", currentModeId: params.modeId },
+    });
+    return {};
+  });
+
+  app.onRequest("session/set_config_option", async ({ params, client }) => {
+    const session = sessions.get(params.sessionId);
+    if (!session) throw new acp.RequestError(-32002, "ACP session not found.");
+    if (session.taskMode) throw new acp.RequestError(-32000,
+      "Task sessions cannot change provider or model configuration until it is durably bound to each task.");
+    if (session.pending) throw new acp.RequestError(-32000, "Session configuration cannot change during an active prompt.");
+    if (!isText(params.value)) throw new acp.RequestError(-32602, "Neko ACP configuration options are selectors.");
+    const current = session.runtime.config;
+    let next: NekoConfig;
+    if (params.configId === "model") {
+      const allowed = configOptions(current).find((option) => option.id === "model");
+      const values = allowed?.type === "select" ? allowed.options.flatMap((item: any) => item.options ?? [item]).map((item: any) => item.value) : [];
+      if (!values.includes(params.value)) throw new acp.RequestError(-32602, "Unknown model option.");
+      next = current.withModel(params.value);
+    } else if (params.configId === "reasoning_effort") {
+      const value = params.value === "default" ? "" : params.value;
+      if (!new Set(["", "none", "low", "medium", "high", "xhigh", "max"]).has(value)) {
+        throw new acp.RequestError(-32602, "Unknown reasoning effort.");
+      }
+      next = current.withEffort(value);
+    } else if (params.configId === "profile") {
+      if (params.value === "__custom__" || !current.profiles[params.value]) throw new acp.RequestError(-32602, "Unknown provider profile.");
+      next = loadConfig({ cwd: session.root, home: current.resolvedHome, profile: params.value });
+    } else if (params.configId === "provider") {
+      const candidates = Object.entries(current.profiles).filter(([, profile]) => profile.provider === params.value);
+      if (current.provider === params.value) next = current.withModel(current.model);
+      else if (candidates.length) next = loadConfig({ cwd: session.root, home: current.resolvedHome, profile: candidates[0][0] });
+      else throw new acp.RequestError(-32602, "Unknown provider option.");
+    } else {
+      throw new acp.RequestError(-32602, "Unknown Neko ACP configuration option.");
+    }
+    const hasOpaqueContinuation = session.runtime.agent.messages.some((message: any) => Array.isArray(message?.provider_data) && message.provider_data.length);
+    if (hasOpaqueContinuation && (next.provider !== current.provider || next.baseUrl !== current.baseUrl)) {
+      throw new acp.RequestError(-32000, "This session has provider-specific continuation state; fork it before changing provider or endpoint.");
+    }
+    const provider = getProvider(next);
+    current.adopt(next);
+    session.runtime.agent.setProvider(provider);
+    session.runtime.agent.setMaxContextTokens(current.contextWindow);
+    session.runtime.agent.refreshSystemPrompt();
+    await persist(session, session.record.turnState);
+    const updated = configOptions(current);
+    await notifyPublicSession(client, session, {
+      sessionId: session.sessionId,
+      update: { sessionUpdate: "config_option_update", configOptions: updated },
+    });
+    await notifyPublicSession(client, session, {
+      sessionId: session.sessionId,
+      update: { sessionUpdate: "session_info_update", updatedAt: session.record.updatedAt, _meta: infoMeta(session) },
+    });
+    return { configOptions: updated };
+  });
+
+  app.onRequest("session/prompt", async ({ params, client, signal }) => {
+    const session = sessions.get(params.sessionId);
+    if (!session) throw new acp.RequestError(-32002, "ACP session not found.");
+    assertTaskEcho(session, params._meta);
+    if (taskTransitions.has(params.sessionId)) throw new acp.RequestError(-32000,
+      "ACP task transition is in progress.");
+    if (session.pending) throw new acp.RequestError(-32000, "An ACP prompt is already active for this session.");
+    try { session.runtime.agent.assertHostEffectsReady(); }
+    catch (error) { throw new acp.RequestError(-32002, error instanceof Error ? error.message : "Host effect is blocked"); }
+    const input = promptText(params.prompt);
+    if (params.prompt.some((block) => block.type === "image" || block.type === "audio")) {
+      throw new acp.RequestError(-32602, "Neko ACP v1 does not advertise image or audio prompt support.");
+    }
+    if (!input.text) throw new acp.RequestError(-32602, "ACP prompt must contain text or supported context.");
+    if (/^\/task(?:\s|$)/.test(input.text)) {
+      const coordinator = taskSessions.get(params.sessionId);
+      if (!coordinator) throw new acp.RequestError(-32602, "Task commands require an opt-in task session.");
+      const command = /^\/task(?:\s+(.*))?$/s.exec(input.text)?.[1]?.trim() ?? "status";
+      if (session.taskReceipt && /^(?:new|use)(?:\s|$)/.test(command)) {
+        throw new acp.RequestError(-32602, "Neko task protocol v1 fixes the active task for this session.");
+      }
+      let message: string;
+      if (command === "status") {
+        const active = coordinator.active;
+        message = `Active task: ${active.label} (${active.id})\nRoot: ${active.root}`;
+      } else if (command === "list") {
+        message = coordinator.tasks.map((task) =>
+          `${task.id === coordinator.active.id ? "*" : " "} ${task.id}  ${task.label}  ${task.root}`).join("\n");
+      } else if (command.startsWith("new ")) {
+        const id = coordinator.createTask(command.slice(4).trim());
+        message = `Created inactive task ${id}. Use /task use ${id} to activate it.`;
+      } else if (command.startsWith("use ")) {
+        const id = command.slice(4).trim();
+        let settleTransition!: () => void;
+        const settled = new Promise<void>((resolveSettled) => { settleTransition = resolveSettled; });
+        taskTransitions.set(params.sessionId, settled);
+        try {
+          await coordinator.switchTask(id);
+          const active = coordinator.active;
+          sessions.set(params.sessionId, active.runtime.session);
+          await syncSessionState(active.runtime.session, client);
+          message = `Active task: ${active.label} (${active.id})\nRoot: ${active.root}`;
+        } catch (error) {
+          if (error instanceof TaskSwitchCommittedError) {
+            // The coordinator committed B before old-A cleanup failed; never route another prompt to A.
+            const committed = coordinator.active.runtime.session;
+            sessions.set(params.sessionId, committed);
+            await syncSessionState(committed, client).catch(() => {});
+            throw new acp.RequestError(-32000,
+              `Task switch committed to ${coordinator.active.id}, but prior task cleanup failed.`);
+          }
+          if (error instanceof Error && error.message.startsWith("An ACP task cannot switch")) {
+            throw new acp.RequestError(-32000, error.message);
+          }
+          throw error;
+        } finally {
+          taskTransitions.delete(params.sessionId);
+          settleTransition();
+        }
+      } else {
+        throw new acp.RequestError(-32602, "Use /task new <label>, /task use <id>, /task list, or /task status.");
+      }
+      await notifyPublicSession(client, session, {
+        sessionId: params.sessionId,
+        ...taskOuterMeta(session),
+        update: { sessionUpdate: "agent_message_chunk", messageId: `msg_${randomUUID()}`,
+          content: { type: "text", text: message } },
+      });
+      return { stopReason: "end_turn", ...taskOuterMeta(session) };
+    }
+    const pending = new AbortController();
+    session.pending = pending;
+    session.pendingSettled = new Promise<void>((resolvePending) => { session.settlePending = resolvePending; });
+    const abort = () => pending.abort();
+    signal.addEventListener("abort", abort, { once: true });
+    session.permissionClient = client;
+    const runtime = session.runtime;
+    session.maxStepsHit = false;
+    session.streamedContentSinceTool = "";
+    session.liveAgentMessageId = "";
+    let lease: { close(): void } | undefined;
+    try {
+      const slash = /^\/(help|cost|sessions|tools)(?:\s|$)/.exec(input.text);
+      if (slash) {
+        const command = slash[1];
+        const text = command === "help"
+          ? commandsForSession(session)
+            .map((item) => `/${item.name} - ${item.description}`).join("\n")
+          : command === "cost"
+            ? runtime.agent.cost.summary()
+            : command === "sessions"
+              ? session.taskMode ? "Use /task list to see tasks in this task session."
+                : listSessionMetas().filter((meta) => sameHostProfile(meta.hostProfile, hostProfile)
+                && sameRoot(comparableRoot(meta.cwd), session.root)).slice(0, 20)
+                .map((meta) => `${meta.id}  ${sessionTitle(meta)}`).join("\n") || "No durable sessions in this workspace."
+              : runtime.registry.schemas().map((schema: any) => schema.function?.name ?? schema.name).filter(Boolean).sort().join("\n");
+        await notifyPublicSession(client, session, {
+          sessionId: session.sessionId,
+          ...taskOuterMeta(session),
+          update: { sessionUpdate: "agent_message_chunk", messageId: `msg_${randomUUID()}`, content: { type: "text", text } },
+        });
+        return { stopReason: "end_turn", ...taskOuterMeta(session) };
+      }
+      if (/^\/compact\s*$/.test(input.text)) {
+        session.record.turnState = {status: "running", startedAt: new Date().toISOString(), activeToolCallIds: []};
+        await persist(session, session.record.turnState);
+        let cancelled = false;
+        try { await runtime.agent.compact({signal: pending.signal, minHeadTokens: 256, minSavingsTokens: 64}); }
+        catch (error) {
+          if (!pending.signal.aborted || runtime.agent.contextRecoveryRequired) throw error;
+          cancelled = true;
+        }
+        const applied = runtime.agent.lastCompactionOutcome === "applied";
+        const text = applied ? "Compacted historical context and saved the checkpoint."
+          : cancelled ? "Compaction cancelled before publication; original context retained."
+          : `Context unchanged (${runtime.agent.lastCompactionOutcome}).`;
+        const stopReason = pending.signal.aborted ? "cancelled" : "end_turn";
+        session.record.turnState = {status: "idle", lastStopReason: stopReason, activeToolCallIds: []};
+        await persist(session, session.record.turnState);
+        await notifyPublicSession(client, session, {sessionId: session.sessionId, ...taskOuterMeta(session),
+          update: {sessionUpdate: "agent_message_chunk", messageId: `msg_${randomUUID()}`, content: {type: "text", text}}});
+        await syncSessionState(session, client);
+        return {stopReason, ...taskOuterMeta(session)};
+      }
+      if (hostProfile) {
+        lease = runtime.registry.enterTurn({
+          name: `host:${hostProfile.id}`,
+          allowedTools: hostToolNames(hostProfile),
+          allowBackgroundBash: false,
+          reason: "exclusive launch-authorized host capability surface",
+        });
+      } else {
+        const plan = planTurnCapabilities({
+          rawUserText: input.text,
+          source: "user",
+          imageCount: input.images.length,
+          attachmentCount: params.prompt.filter((block) => block.type !== "text" && block.type !== "image").length,
+          root: runtime.registry.root,
+          home: runtime.config.resolvedHome,
+        });
+        lease = runtime.registry.enterTurn({
+          name: plan.profile,
+          allowedTools: plan.allowedTools,
+          allowBackgroundBash: plan.allowBackgroundBash,
+          editTarget: plan.editTarget,
+          bashPolicy: plan.bashPolicy,
+          reason: plan.reason,
+        });
+        applySkillPolicyForTurn(runtime.registry, input.text, runtime.registry.root, runtime.config.resolvedHome);
+        await session.computer?.prepareTurn(pending.signal);
+        runtime.agent.setTurnSystemContext(matchedTurnContext(
+          input.text,
+          runtime.registry,
+          runtime.config.resolvedHome,
+        ).text);
+      }
+      session.record.turnState = {
+        status: "running",
+        startedAt: new Date().toISOString(),
+        activeToolCallIds: [],
+      };
+      // Handle an early provider failure while the accepted prompt is checkpointed.
+      const answerResult = runtime.agent.runResilient(input.text, {
+        signal: pending.signal,
+        images: input.images.length ? input.images : undefined,
+      }).then((answer) => ({ answer }), (error) => ({ error }));
+      const lastUser = [...runtime.agent.messages].reverse().find((message: any) => message?.role === "user" && message._neko_internal !== true);
+      if (lastUser && !lastUser._neko_acp_message_id) lastUser._neko_acp_message_id = `msg_${randomUUID()}`;
+      await persist(session, session.record.turnState);
+      const outcome = await answerResult;
+      if ("error" in outcome) throw outcome.error;
+      const answer = outcome.answer;
+      await session.flush();
+      const stopReason = !pending.signal.aborted && answer === "[interrupted]"
+        ? "cancelled"
+        : pending.signal.aborted
+          ? "cancelled"
+          : session.maxStepsHit
+            ? "max_turn_requests"
+            : "end_turn";
+      const interruptedMutation = stopReason === "cancelled" && session.activeToolCallIds.size > 0;
+      session.record.turnState = interruptedMutation
+        ? { status: "interrupted", lastStopReason: stopReason, activeToolCallIds: [...session.activeToolCallIds] }
+        : { status: "idle", lastStopReason: stopReason, activeToolCallIds: [] };
+      await persist(session, session.record.turnState);
+      await syncSessionState(session, client);
+      return { stopReason, ...taskOuterMeta(session, true) };
+    } catch (error) {
+      const lastStopReason = pending.signal.aborted ? "cancelled" : "error";
+      pending.abort();
+      session.record.turnState = {
+        ...(session.record.turnState ?? { status: "interrupted" }),
+        status: "interrupted",
+        lastStopReason,
+        activeToolCallIds: [...session.activeToolCallIds],
+      };
+      await persist(session, session.record.turnState);
+      session.flushOutput();
+      await session.flush();
+      throw new acp.RequestError(error instanceof acp.RequestError ? error.code : -32603,
+        error instanceof acp.RequestError ? redactCredentialText(error.message, runtime.config.credentialSecrets) : "Internal error");
+    } finally {
+      signal.removeEventListener("abort", abort);
+      runtime.registry.setSkillPolicyForTurn(undefined);
+      lease?.close();
+      try { await session.computer?.release(); } catch { /* best-effort turn lease cleanup */ }
+      try {
+        runtime.agent.clearTurnSystemContext();
+      } finally {
+        if (session.pending === pending) {
+          session.pending = undefined;
+          session.settlePending?.();
+          session.settlePending = undefined;
+          session.pendingSettled = undefined;
+        }
+      }
+    }
+  });
+
+  app.onNotification("session/cancel", async ({ params }) => {
+    const session = sessions.get(params.sessionId);
+    // ACP cancel is a notification, so a stale/missing v1 echo is ignored before any abort.
+    if (session && matchesTaskEcho(session, params._meta)) session.pending?.abort();
+  });
+
+  app.onRequest("session/close", async ({ params }) => {
+    const beforeTransition = sessions.get(params.sessionId);
+    if (!beforeTransition && isJsonObject(params._meta) && params._meta["neko.task"] !== undefined) {
+      throw new acp.RequestError(-32002, "Neko task session not found; close outcome is unknown.");
+    }
+    if (beforeTransition) assertTaskEcho(beforeTransition, params._meta);
+    await taskTransitions.get(params.sessionId);
+    const session = sessions.get(params.sessionId);
+    if (!session) return {};
+    assertTaskEcho(session, params._meta);
+    const coordinator = taskSessions.get(params.sessionId);
+    if (coordinator) {
+      const closeMeta = taskOuterMeta(session);
+      session.pending?.abort();
+      await session.pendingSettled?.catch(() => {});
+      await coordinator.close();
+      taskSessions.delete(params.sessionId);
+      sessions.delete(params.sessionId);
+      return closeMeta;
+    }
+    sessions.delete(params.sessionId);
+    await session.close();
+    return {};
+  });
+
+  app.onConnect((connection) => {
+    const key = connectionKey(connection.client);
+    const cleanup = connection.closed.finally(async () => {
+      computerCapabilities.delete(key);
+      await Promise.allSettled([...taskTransitions.values()]);
+      const open = [...sessions.values()].filter((session) => !session.taskMode);
+      const scoped = [...taskSessions.values()];
+      sessions.clear();
+      taskSessions.clear();
+      taskTransitions.clear();
+      await Promise.allSettled([
+        ...open.map((session) => session.close()),
+        ...scoped.map(async (coordinator) => {
+          coordinator.active.runtime.session.pending?.abort();
+          await coordinator.active.runtime.session.pendingSettled?.catch(() => {});
+          await coordinator.close();
+        }),
+      ]);
+    });
+    options.trackCleanup?.(cleanup);
+  });
+
+  return app;
+}
+
+/** Serve ACP v1 over stdio. Stdout is protocol-only; diagnostics belong on stderr. */
+export async function runAcpServer(options: AcpRuntimeFactoryOptions = {}): Promise<void> {
+  const stderrLog = console.error.bind(console);
+  const previousLog = console.log;
+  const previousWarn = console.warn;
+  console.log = (...values: unknown[]) => stderrLog(...values);
+  console.warn = (...values: unknown[]) => stderrLog(...values);
+  try {
+    const output = Writable.toWeb(process.stdout);
+    // SAFETY: Node's toWeb stream and the SDK's web ReadableStream are the same runtime object;
+    // their generic variance differs only in type-argument defaults.
+    const input = webReadable(Readable.toWeb(process.stdin));
+    const cleanupTasks: Promise<void>[] = [];
+    const connection = createNekoAcpAgent({
+      ...options,
+      trackCleanup: (task) => {
+        cleanupTasks.push(task);
+        options.trackCleanup?.(task);
+      },
+    }).connect(acp.ndJsonStream(output, input));
+    await connection.closed;
+    await Promise.all(cleanupTasks);
+  } finally {
+    console.log = previousLog;
+    console.warn = previousWarn;
+  }
+}

@@ -1,0 +1,49 @@
+# Integrated local executor authority (S3)
+
+This slice composes Root `3309dd3ded89dad671d8d3dd9b193f795896123f` with the immutable registry package `cdfa7d01a3189c765197f819ff1a23e89a26a547`. The immutable registry package remains a separate dependency; this patch adds only a wire-compatible `Registry.WithInstall` journal guard and its targeted tests in `registry.go`/`install_guard_test.go`. The frozen package evidence remains intact. Tauri/renderer/Core own sources and real pairing/provider/cloud configuration remain outside this patch.
+
+## Wire and durable authority
+
+`Work.executorPolicyVersion=1`, immutable `executorPin` (registry `InstallPin`), and `currentAttemptLease` (registry `AttemptLease`) identify the installation and the current attempt. The lease binds request, attempt, original work epoch, canonical authority hash and monotonic fence. Its lifetime is at most 600000 milliseconds; heartbeat does not renew a task lease. Admission `CoreBinding.executorProof` and `StoppedReceipt.executorProof` echo the exact strict companion `RuntimeProof`.
+
+Authority hash is SHA256 of canonical v1 JSON with domain `nekobot-task-authority-v1`, request/source/owner/space/bot/config, audience, text/lane, publication/account/resource/adapter/context/plugin/collaboration/task-link/install pins. It excludes mutable status, reply, task-control revision, current epoch, lease and historical Core activation. The original work epoch lives in the saved lease and is never rewritten by suspension or cancellation. Historical Core hashes, receipts and context archives stay intact.
+
+New configured requests pin the current installation at intake, including when the same installation is temporarily not ready. Claim version `Event.executorClaimVersion=1` issues a new attempt lease, then journals the exact pin and lease. Unconfigured historical work is adopted only at that new versioned claim when `Core=nil`, `AttemptID=""`, `RuntimeAttemptBinding=nil`, and no operations exist. Already launched legacy work has no automatic executor adoption. A legacy group has no implicit adoption at stage creation. Goal/stage journal commits use `Registry.WithInstall(pin, callback)`, which holds the registry mutex and checks exact installation/generation without requiring readiness. A revoke linearized first blocks the next stage commit; transient offline status with the same pin can retain queued work. The callback performs journal commit only, no native frames, workers or registry reentry. New group goals freeze their installation pin; all stages, supplements and replacements copy their original installation pin, never today's generation.
+
+Replay checks typed versions, immutable pins, original attempt scope and transitions only. It never consults the registry, current clock or current installation. Registry corruption, descriptor mismatch, revoked generation, unavailable heartbeat or restart retire live attempt authority without making an otherwise valid ledger globally corrupt. Queued obligations remain queued; there is no alternate host fallback. A different generation suspends a group before any next stage; a temporary loss with the same pin preserves unclaimed queued work.
+
+## Trusted manager and Rust boundary
+
+Production `runtime.New` always selects configured executor mode. It opens the private registry under configured `STATE/executors`; registry failure leaves the HTTP/journal service usable and dispatch denied. Readiness requires a fresh trusted Rust process probe:
+
+```
+neko-host --executor-probe --runtime CORE --supervisor SUPERVISOR --install-state-root STATE
+```
+
+The probe validates pinned native Core, writer helper and compiled supervisor bytes. Its descriptor must exactly match Go's configured host/Core SHA256, canonical configured state-root hash and capabilities hash. The capability hash is SHA256 of canonical `["executor_lease_v1","native_pid_session_stop_v1"]`. State-root hashing uses resolved absolute paths, strips Windows extended prefix, lowercases and uses `/` on Windows; it hashes configured `STATE`, never `STATE/tasks` or a request directory.
+
+A fresh probe is required every five seconds, with a five-second timeout and a 15-second readiness window. Reading the pinned Core bytes on every probe is an intentionally bounded fixture cost; no unverified mtime optimization is claimed. Probe failure retires leases; reconnect can restore readiness of the same installation, never revive those leases. There is no lease renewal, remote heartbeat, pairing flow or executor repair API here.
+
+Configured launch adds `--install-state-root STATE` to the existing eight arguments. The manager supplies both `executorPin` and `attemptLease` in the launch envelope. Rust validates strict exact-key wire shapes, versions, safe integers, request/install scope, actual host/Core/state/capability digests and wall-clock bounds before task directory creation or Core spawn. It requires `STATE/tasks` as the task base and a native Windows Core for this proof profile. Unknown fields, versions, missing fields, mismatches or expiration fail closed.
+
+Rust asks the manager for `launch_ready` authorization before creating a task directory, and `prompt_ready` authorization immediately before a Core prompt. Go checks current attempt authority for these handshakes and again for admission, text, completion and tools/effects. Ledger, connections and registry lock ordering is **ledger → connections → executors**. Dispatch checks the current configured host bytes again before OS start. Registry callbacks may perform bounded ledger/effect work but never block on native framed IO or reenter ledger. Native frame reads/writes happen outside the registry mutex. Live Go guards are authority; the Rust companion is static validation/provenance, not an unlocked registry-file authorization check.
+
+The original eight-argument host mode is denied by default before task directory creation. Direct owned compatibility fixtures may explicitly set `NEKO_EXECUTOR_TEST_UNCONFIGURED=1`; production manager environment excludes that variable and all provider credentials. Such fixtures have no executor capability or live lease evidence. `Snapshot.executor` exposes registry readiness metadata and `local_executor_lease_v1` only when a registry is configured; plain typed fixtures are not native readiness proof.
+
+## Stop, expiry and recovery
+
+Live lease loss fences prompt/admission/output/effects immediately. Reconciliation journals `work.executor_suspended`, increments work epoch, and moves an active attempt to `suspending`. The current attempt's exact saved companion proof remains usable for `BindRuntimeAttempt` and stop receipts after expiry/revoke and after that epoch change. These typed receipt paths cannot admit, produce output or revive authority. Old attempt/PID/session/proof combinations are rejected.
+
+Version 1 stop receipts retain positive native PID and session matching the current runtime binding. After process wait, they may settle an expired/revoked attempt. Receipt version 2 has `kind="never_launched"`, PID 0, empty session and exact current companion proof; it is valid only with no Core, runtime binding or operations. The dedicated journal event is `work.runtime_never_launched`. Trusted manager records it only after OS host `cmd.Start` failed without a child; trusted Rust can attest it after a validated companion's launch gate was rejected, before **any** task directory write or Core spawn. Invalid companion or ambiguous possible spawn produces no such receipt and remains blocked for explicit recovery. Version 2 is not a renderer API.
+
+Resume/requeue is explicit. It requires the prior attempt's exact stop proof, completed effects, unchanged installation and current context/account/channel/project/plugin permissions; the next claim gets a fresh lease. Registry restart retires old leases and does not prove that an old process stopped. Unresolved or unknown effects remain unresolved and are not repeated. This patch adds no automatic semantic crash resume, remote/device adoption or historical Core rewrite.
+
+## Frame bound and integration hook
+
+`ledger.MarshalRuntimeLaunch(work, additiveFields)` produces the actual encoded launch envelope, including Core resume, install/lease and trusted additive metadata. Reserved authority keys cannot be supplied through the additive map. The maximum remains **64000 bytes**, including JSON escaping. Root's context-admission producer can supply its typed manifest through this helper and must check its additional fields before committing the corresponding input.
+
+Before an attempt exists, configured intake reserves the largest valid companion width; that reservation is neither stored nor a live lease. Claim checks the reservation before registry issue and the actual envelope before ledger commit. New oversized intake commits nothing. A legacy accepted task that can no longer fit the configured envelope is fenced by `work.runtime_frame_blocked`, with failure `runtime_frame_oversized`; its obligation, pins, archives and Core provenance remain intact. Other requests and the journal remain usable after repeated restarts.
+
+## Evidence boundaries
+
+The owned tests cover durable ledger/registry CAS and replay, live Go revocation fences, immutable group/task pins, strict Rust companion/time validation, stop provenance after lease loss, unconfigured denial and frame bounds. `scripts/e2e_executor_boundary.py` invokes the compiled Rust host's actual descriptor and pre-Core refusal path: its positive wire is a synthetic companion and its launch gate is explicitly rejected. It launches no Core, model, provider, GUI or pairing configuration. Root owns combined production manager/native/Core execution, real positive PID/session wait proof, whole-product/UI/phone/cloud validation and context-manifest integration.

@@ -1,0 +1,898 @@
+/**
+ * Full-pipeline fullscreen simulation: the REAL ChatApp wired exactly like production (fake TTY stdout
+ * -> FrameDiffer -> BSU/ESU wrapper, raw-ish stdin), with EVERY written byte replayed into a
+ * VirtualTerminal. Asserts the screen is never left blank ("black screen") across the exact flows the
+ * owner hit: entering fullscreen, typing, growing the window, shrinking it. This is the deterministic
+ * reproduction harness for the class of bugs that only real terminals used to reveal.
+ */
+import { EventEmitter } from "node:events";
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { expect, test } from "bun:test";
+import { render } from "ink";
+import React from "react";
+
+import { ChatApp } from "../src/ui/chat.tsx";
+import { FrameDiffer } from "../src/ui/frame-diff.ts";
+import { installAltScreenGuard } from "../src/ui/altscreen.ts";
+import { wrapStdoutForSync } from "../src/ui/sync-stdout.ts";
+import { VirtualTerminal } from "./vt.ts";
+
+class FakeTtyOut extends EventEmitter {
+  isTTY = true;
+  constructor(public columns: number, public rows: number, private vt: VirtualTerminal) { super(); }
+  writes = 0; all = "";
+  write(s: string): boolean { this.writes++; this.all += String(s); this.vt.write(String(s)); return true; }
+  setSize(cols: number, rows: number): void { this.columns = cols; this.rows = rows; this.vt.resize(cols, rows); this.emit("resize"); }
+}
+class FakeStdin extends EventEmitter {
+  isTTY = true; private data: string | null = null;
+  setRawMode() {} setEncoding() {} ref() {} unref() {} pause() {} resume() {}
+  read(): string | null { const d = this.data; this.data = null; return d; }
+  push(s: string): void { this.data = s; this.emit("readable"); this.emit("data", s); }
+}
+const tick = (ms: number) => new Promise((r) => setTimeout(r, ms));
+
+test("feedback review keeps consent and actions visible on an 80x24 terminal with long notes", async () => {
+  const taskHome = mkdtempSync(join(tmpdir(), "neko-feedback-screen-"));
+  const originalHome = process.env.HOME, originalProfile = process.env.USERPROFILE;
+  const originalFetch = globalThis.fetch;
+  process.env.HOME = taskHome; process.env.USERPROFILE = taskHome;
+  globalThis.fetch = Object.assign(async () => { throw new Error("No network in feedback screen test"); }, { preconnect: originalFetch.preconnect });
+  const vt = new VirtualTerminal(80, 24);
+  const out = new FakeTtyOut(80, 24, vt);
+  const stdin = new FakeStdin();
+  // SAFETY: the fixture implements the TTY write, dimensions and event contract used by the guard.
+  const preAltDispose = installAltScreenGuard(out as any, { mouse: false });
+  // SAFETY: fixture streams provide the TTY and event methods consumed by Ink and the stdout wrapper.
+  const app = renderFS(React.createElement(ChatApp, {
+    yolo: true, sessionId: "feedback-screen", preAltDispose,
+    provider: { complete: async () => { throw new Error("Feedback must not call the model"); } },
+  }), { stdout: wrapStdoutForSync(out as any, { supported: true }), stdin: stdin as any, patchConsole: false, exitOnCtrlC: false });
+  const waitFor = async (text: string) => {
+    const end = Date.now() + 5000;
+    while (!vt.text().includes(text) && Date.now() < end) await tick(20);
+    expect(vt.text()).toContain(text);
+  };
+  try {
+    await waitFor("/help");
+    stdin.push("/feedback"); await tick(30); stdin.push("\r");
+    await waitFor("Feedback 1/2");
+    stdin.push(`\x1b[200~${"Synthetic long description. ".repeat(145)}\x1b[201~`);
+    await tick(80); stdin.push("\r");
+    await waitFor("Feedback 2/2");
+    expect(vt.text()).toContain("conversation OFF");
+    expect(vt.text()).toContain("Send feedback");
+    expect(vt.text()).toContain("Cancel");
+    expect(vt.text()).toContain("Esc cancel");
+    stdin.push("\x1b"); await waitFor("/help");
+  } finally {
+    app.unmount(); await tick(50);
+    globalThis.fetch = originalFetch;
+    if (originalHome === undefined) delete process.env.HOME; else process.env.HOME = originalHome;
+    if (originalProfile === undefined) delete process.env.USERPROFILE; else process.env.USERPROFILE = originalProfile;
+    rmSync(taskHome, { recursive: true, force: true });
+  }
+}, 15000);
+
+/** render() with fullscreen ON via the EXPLICIT ChatApp prop (never NEKO_FULLSCREEN mutation - racy
+ * across files under bun's CI test scheduling), and Ink forced `interactive: true`: Ink otherwise
+ * consults is-in-ci and stops writing frames entirely - on GitHub runners the sims' VirtualTerminal
+ * stayed BLANK and every assertion failed. */
+function renderFS(node: any, options: any) {
+  return render(React.cloneElement(node, { fullscreen: true }), { ...options, interactive: true });
+}
+
+test("virtual terminal consumes cursor-shape control sequences without visible residue", () => {
+  const vt = new VirtualTerminal(40, 4);
+  vt.write("ready\x1b[5 q"); // DECSCUSR: blinking bar cursor
+  expect(vt.text()).toContain("ready");
+  expect(vt.text()).not.toContain("[5 q");
+});
+
+test("virtual terminal tracks Unicode display cells, not UTF-16 code units", () => {
+  const vt = new VirtualTerminal(40, 4);
+  vt.write("A界B");
+  expect(vt.c).toBe(4); // 1 + wide CJK cell pair + 1
+  expect(vt.lines()[0]).toBe("A界B");
+
+  const combining = new VirtualTerminal(40, 4);
+  combining.write("e\u0301x");
+  expect(combining.c).toBe(2); // one grapheme/cell for e + combining acute, then x
+  expect(combining.lines()[0]).toBe("e\u0301x");
+});
+
+test("fullscreen sim: startup, typing, grow and shrink never leave a black screen", async () => {
+  const vt = new VirtualTerminal(100, 30);
+  const out = new FakeTtyOut(100, 30, vt);
+  const stdin = new FakeStdin();
+  const differ = new FrameDiffer();
+  const provider: any = { complete: async () => ({ content: "phan hoi ok", tool_calls: [] }) };
+  const session: any = {
+    id: "sim", createdAt: new Date().toISOString(), updatedAt: "", cwd: process.cwd(), model: "m",
+    messages: Array.from({ length: 8 }, (_, i) => ({ role: i % 2 ? "assistant" : "user", content: `noi dung sim ${i}` })),
+  };
+  // SAFETY: test-built fixture/bridge; fields are exactly what this test controls.
+  const preAltDispose = installAltScreenGuard(out as any, { mouse: false }); // runChat's pre-render alt entry
+  const app = renderFS(
+    // SAFETY: test-built fixture/bridge; fields are exactly what this test controls.
+    React.createElement(ChatApp as any, { yolo: true, provider, resumedSession: session, sessionId: "sim", frameDiffer: differ, preAltDispose }),
+    // SAFETY: test-built fixture/bridge; fields are exactly what this test controls.
+    { stdout: wrapStdoutForSync(out as any, { supported: true, differ }) as any, stdin: stdin as any, patchConsole: false, exitOnCtrlC: false },
+  );
+  await tick(600); // alt-screen + first composed paint + warm
+  expect(vt.isBlank()).toBe(false); // startup fullscreen must not be black
+  expect(vt.text()).toContain("noi dung sim 7"); // the transcript tail is actually painted
+
+  // --- typing echoes ---
+  stdin.push("x"); await tick(60); stdin.push("y"); await tick(120);
+  expect(vt.text()).toContain("xy");
+
+  // --- GROW the window (maximize-like) ---
+  out.setSize(120, 36);
+  await tick(500); // debounce 150ms + repaint
+  expect(vt.isBlank()).toBe(false); // grow must not black the screen
+  expect(vt.text()).toContain("noi dung sim 7");
+
+  // --- SHRINK the window (the stale-height overflow case) ---
+  out.setSize(90, 22);
+  await tick(500);
+  expect(vt.isBlank()).toBe(false); // shrink must not black the screen
+  expect(vt.text()).toContain("noi dung sim 7");
+
+  // typing after all of it still lands
+  stdin.push("z"); await tick(150);
+  expect(vt.text()).toContain("z");
+  app.unmount();
+  await tick(50);
+}, 30000);
+
+// CI flake quarantine — https://github.com/meiiie/neko-core/issues/72 (Ink/sim timing; re-enable after harden)
+test.skip("resize after a completed turn keeps the input row empty", async () => {
+  const home = mkdtempSync(join(tmpdir(), "neko-resize-turn-"));
+  const previousHome = process.env.HOME;
+  const previousProfile = process.env.USERPROFILE;
+  process.env.HOME = process.env.USERPROFILE = home;
+  let app: ReturnType<typeof render> | undefined;
+  try {
+    const vt = new VirtualTerminal(110, 32);
+    const out = new FakeTtyOut(110, 32, vt);
+    const stdin = new FakeStdin();
+    const differ = new FrameDiffer();
+    const provider: any = { complete: async () => ({ content: "final answer", tool_calls: [] }) };
+    // SAFETY: test-built fixture/bridge; fields are exactly what this test controls.
+    const preAltDispose = installAltScreenGuard(out as any, { mouse: false });
+    app = renderFS(
+      // SAFETY: test-built fixture/bridge; fields are exactly what this test controls.
+      React.createElement(ChatApp as any, { yolo: true, provider, sessionId: "resize-after-turn", frameDiffer: differ, preAltDispose }),
+      // SAFETY: test-built fixture/bridge; fields are exactly what this test controls.
+      { stdout: wrapStdoutForSync(out as any, { supported: true, differ }) as any, stdin: stdin as any, patchConsole: false, exitOnCtrlC: false },
+    );
+    await tick(300);
+    stdin.push("PROMPT-MUST-NOT-GHOST"); await tick(30); stdin.push("\r");
+    const deadline = Date.now() + 10_000;
+    while ((!vt.text().includes("final answer") || vt.text().includes("esc to interrupt")) && Date.now() < deadline) {
+      await tick(30);
+    }
+    expect(vt.text()).toContain("final answer");
+    expect(vt.text()).not.toContain("esc to interrupt");
+
+    out.setSize(80, 20);
+    await tick(700);
+    const promptRows = vt.lines().filter((line) => /^\s*>/.test(line));
+    expect(promptRows.at(-1)?.trim(), vt.text()).toBe(">");
+    stdin.push("\x1b[1;5A"); await tick(120); // Ctrl+Up belongs to transcript scroll, not prompt history
+    expect(vt.lines().filter((line) => /^\s*>/.test(line)).at(-1)?.trim()).toBe(">");
+  } finally {
+    app?.unmount();
+    await tick(50);
+    if (previousHome === undefined) delete process.env.HOME; else process.env.HOME = previousHome;
+    if (previousProfile === undefined) delete process.env.USERPROFILE; else process.env.USERPROFILE = previousProfile;
+    rmSync(home, { recursive: true, force: true });
+  }
+}, 30000);
+
+test("STARTUP-fullscreen sim: alt entered BEFORE the first render - content visible with zero input", async () => {
+  // The regression the toggle-path sim missed: with fullscreen as the DEFAULT, `neko --yolo` boots
+  // straight into fullscreen. If the alt-screen is entered AFTER the first paint (mount effect), the
+  // switch wipes the frame and Ink never repaints -> black until a keypress. This reproduces runChat's
+  // exact startup order: guard installed pre-render, first Ink frame paints INTO the alt screen.
+  const vt = new VirtualTerminal(100, 30);
+  const out = new FakeTtyOut(100, 30, vt);
+  const stdin = new FakeStdin();
+  const differ = new FrameDiffer();
+  const provider: any = { complete: async () => ({ content: "ok", tool_calls: [] }) };
+  const session: any = {
+    id: "boot", createdAt: new Date().toISOString(), updatedAt: "", cwd: process.cwd(), model: "m",
+    messages: [{ role: "user", content: "boot-marker cau hoi" }, { role: "assistant", content: "boot-marker tra loi" }],
+  };
+  // SAFETY: test-built fixture/bridge; fields are exactly what this test controls.
+  const preAltDispose = installAltScreenGuard(out as any, { mouse: false }); // runChat's pre-render order
+  const app = renderFS(
+    // SAFETY: test-built fixture/bridge; fields are exactly what this test controls.
+    React.createElement(ChatApp as any, { yolo: true, provider, resumedSession: session, sessionId: "boot", frameDiffer: differ, preAltDispose }),
+    // SAFETY: test-built fixture/bridge; fields are exactly what this test controls.
+    { stdout: wrapStdoutForSync(out as any, { supported: true, differ }) as any, stdin: stdin as any, patchConsole: false, exitOnCtrlC: false },
+  );
+  await tick(500); // startup + warm settle - NO input at all
+  expect(vt.isBlank()).toBe(false);                 // the screen is NOT black
+  expect(vt.text()).toContain("boot-marker tra loi"); // the transcript is actually painted
+  expect(vt.text()).toContain(">");                  // the input chrome too
+  app.unmount();
+  await tick(50);
+}, 30000);
+
+test("sticky prompt survives FrameDiffer composition and its first-row click jumps to the exact turn", async () => {
+  const vt = new VirtualTerminal(118, 30);
+  const out = new FakeTtyOut(118, 30, vt);
+  const stdin = new FakeStdin();
+  const differ = new FrameDiffer();
+  const messages: any[] = [];
+  for (let i = 0; i < 50; i++) {
+    messages.push({ role: "user", content: `ANCHOR PROMPT ${i}` });
+    messages.push({ role: "assistant", content: `answer ${i}` });
+  }
+  const session: any = { id: "anchor", createdAt: new Date().toISOString(), updatedAt: "", cwd: process.cwd(), model: "m", messages };
+  // SAFETY: test-built fixture/bridge; fields are exactly what this test controls.
+  const preAltDispose = installAltScreenGuard(out as any, { mouse: false });
+  const app = renderFS(
+    // SAFETY: test-built fixture/bridge; fields are exactly what this test controls.
+    React.createElement(ChatApp as any, { yolo: true, provider: { complete: async () => ({ content: "", tool_calls: [] }) }, resumedSession: session, sessionId: "anchor", frameDiffer: differ, preAltDispose }),
+    // SAFETY: test-built fixture/bridge; fields are exactly what this test controls.
+    { stdout: wrapStdoutForSync(out as any, { supported: true, differ }) as any, stdin: stdin as any, patchConsole: false, exitOnCtrlC: false },
+  );
+  try {
+    const hydrated = () => vt.text().includes("answer 49") && !vt.text().includes("Loading earlier history");
+    for (let waited = 0; waited < 3000 && !hydrated(); waited += 25) await tick(25);
+    expect(hydrated()).toBe(true); // don't click a replay row while async hydration can replace its identity
+      stdin.push("\x1b[5~");
+      let anchor = "";
+      for (let step = 0; step < 8; step++) {
+        for (let waited = 0; waited < 500; waited += 25) {
+          anchor = vt.lines()[0]?.trim() ?? "";
+          // SAFETY: test-built fixture/bridge; fields are exactly what this test controls.
+          if ((differ as any).band?.top === 2 && /^> ANCHOR PROMPT \d+$/.test(anchor)) break;
+          await tick(25);
+        }
+        // SAFETY: test-built fixture/bridge; fields are exactly what this test controls.
+        if ((differ as any).band?.top === 2 && /^> ANCHOR PROMPT \d+$/.test(anchor)) break;
+        stdin.push("\x1b[1;5A"); // move one content row older until the current prompt is fully above the band
+      }
+      expect(anchor).toMatch(/^> ANCHOR PROMPT \d+$/);
+      // SAFETY: test-built fixture/bridge; fields are exactly what this test controls.
+      expect((differ as any).band?.top).toBe(2); // row 1 belongs to the sticky header, band begins below it
+
+    stdin.push("\x1b[<0;5;1M");
+    let jumped = false;
+    for (let waited = 0; waited < 3000; waited += 25) {
+      const rows = vt.lines();
+      // SAFETY: test-built fixture/bridge; fields are exactly what this test controls.
+      if ((differ as any).band?.top === 1 && rows.slice(0, 4).some((row) => row.trim() === anchor)) { jumped = true; break; }
+      await tick(25);
+    }
+    // Preserve the visible source/destination when diagnosing a failed real input jump.
+    // SAFETY: this test owns the FrameDiffer fixture and synthetic transcript.
+    expect({jumped, anchor, bandTop: (differ as any).band?.top, rows: vt.lines().slice(0, 6)}).toMatchObject({jumped: true});
+  } finally {
+    app.unmount();
+    await tick(50);
+  }
+}, 30000);
+
+test("resumed web tool output stays reachable in the main history viewport", async () => {
+  const vt = new VirtualTerminal(100, 30);
+  const out = new FakeTtyOut(100, 30, vt);
+  const stdin = new FakeStdin();
+  const session: any = {
+    id: "tool-gap", createdAt: new Date().toISOString(), updatedAt: "", cwd: process.cwd(), model: "m",
+    messages: [
+      { role: "user", content: "fetch the current advisory" },
+      { role: "assistant", content: "", tool_calls: [{ id: "fetch-1", function: { name: "web_fetch", arguments: '{"url":"https://example.com/advisory"}' } }] },
+      { role: "tool", tool_call_id: "fetch-1", content: `${"\n".repeat(12)}FETCH RESULT\n\nBODY${"\n".repeat(12)}` },
+    ],
+  };
+  // SAFETY: test-built fixture/bridge; fields are exactly what this test controls.
+  const preAltDispose = installAltScreenGuard(out as any, { mouse: false });
+  const app = renderFS(
+    // SAFETY: test-built fixture/bridge; fields are exactly what this test controls.
+    React.createElement(ChatApp as any, { yolo: true, provider: { complete: async () => ({ content: "", tool_calls: [] }) }, resumedSession: session, sessionId: "tool-gap", preAltDispose }),
+    // SAFETY: test-built fixture/bridge; fields are exactly what this test controls.
+    { stdout: wrapStdoutForSync(out as any, { supported: true }) as any, stdin: stdin as any, patchConsole: false, exitOnCtrlC: false },
+  );
+  await tick(650);
+  const rows = vt.lines();
+  expect(rows.filter((line) => line.trim() === "BODY")).toHaveLength(1);
+  expect(vt.text()).toContain("FETCH RESULT"); // Resume preserves source content in the main scrollback.
+  app.unmount();
+  await tick(50);
+}, 30000);
+
+// CI flake quarantine — https://github.com/meiiie/neko-core/issues/72 (Ink/sim timing; re-enable after harden)
+test.skip("fullscreen drag-select: uniform highlight, copies on release, PERSISTS for Ctrl+C", async () => {
+  const vt = new VirtualTerminal(100, 30);
+  const out = new FakeTtyOut(100, 30, vt);
+  const stdin = new FakeStdin();
+  const differ = new FrameDiffer();
+  const provider: any = { complete: async () => ({ content: "ok", tool_calls: [] }) };
+  const session: any = {
+    id: "sel", createdAt: new Date().toISOString(), updatedAt: "", cwd: process.cwd(), model: "m",
+    messages: [{ role: "user", content: "SELECTME a unique line" }, { role: "assistant", content: "a reply here" }],
+  };
+  // SAFETY: test-built fixture/bridge; fields are exactly what this test controls.
+  const preAltDispose = installAltScreenGuard(out as any, { mouse: false });
+  const app = renderFS(
+    // SAFETY: test-built fixture/bridge; fields are exactly what this test controls.
+    React.createElement(ChatApp as any, { yolo: true, provider, resumedSession: session, sessionId: "sel", frameDiffer: differ, preAltDispose }),
+    // SAFETY: test-built fixture/bridge; fields are exactly what this test controls.
+    { stdout: wrapStdoutForSync(out as any, { supported: true, differ }) as any, stdin: stdin as any, patchConsole: false, exitOnCtrlC: false },
+  );
+  for (let waited = 0; waited < 2000 && !vt.text().includes("SELECTME"); waited += 25) await tick(25);
+  const ls = vt.lines();
+  const y = ls.findIndex((l) => l.includes("SELECTME")) + 1; // 1-based screen row of the line
+  expect(y).toBeGreaterThan(0);
+  const x0 = ls[y - 1].indexOf("SELECTME") + 1, x1 = x0 + "SELECTME".length;
+  out.all = "";
+  stdin.push(`\x1b[<0;${x0};${y}M`); await tick(30);   // press left
+  stdin.push(`\x1b[<32;${x1};${y}M`); await tick(30);  // drag right
+  stdin.push(`\x1b[<0;${x1};${y}m`); await tick(90);   // release
+  expect(out.all).toContain("\x1b[48;5;25m"); // UNIFORM solid-blue highlight (not per-char inverse)
+  expect(out.all).toContain("\x1b]52;");       // copied on release via OSC 52
+  expect(vt.text()).toContain("copied");        // "copied N chars to clipboard" confirmation
+  out.all = "";
+  stdin.push("\x03"); await tick(80);           // the habit: the selection persists, Ctrl+C copies it
+  expect(out.all).toContain("\x1b]52;");        // Ctrl+C copied the still-active selection
+  app.unmount();
+  await tick(50);
+}, 30000);
+
+test("fullscreen prompt drag-select copies every soft-wrapped row in both directions", async () => {
+  const vt = new VirtualTerminal(190, 30);
+  const out = new FakeTtyOut(190, 30, vt);
+  const stdin = new FakeStdin();
+  const differ = new FrameDiffer();
+  // SAFETY: FakeTtyOut implements the writable TTY surface exercised by the alt-screen guard.
+  const preAltDispose = installAltScreenGuard(out as any, { mouse: false });
+  const app = renderFS(
+    // SAFETY: test-built fixture/bridge; fields are exactly what this test controls.
+    React.createElement(ChatApp as any, {
+      yolo: true,
+      provider: { complete: async () => ({ content: "", tool_calls: [] }) },
+      sessionId: "prompt-soft-wrap-select",
+      frameDiffer: differ,
+      preAltDispose,
+    }),
+    // SAFETY: fake stdin/stdout implement the exact TTY methods used by the renderer wrapper.
+    { stdout: wrapStdoutForSync(out as any, { supported: true, differ }) as any, stdin: stdin as any, patchConsole: false, exitOnCtrlC: false },
+  );
+  const draft = "ban nghi sao hehehe " + Array.from({ length: 7 }, (_, i) => `[Pasted text #${i + 1} +2 lines]`).join("");
+  const copied = () => {
+    const matches = [...out.all.matchAll(/\x1b\]52;c;([A-Za-z0-9+/=]*)\x07/g)];
+    return matches.length ? Buffer.from(matches.at(-1)![1], "base64").toString("utf8") : "";
+  };
+  try {
+    await tick(350);
+    stdin.push(draft);
+    for (let waited = 0; waited < 2000 && !vt.text().includes("#7 +2 lines]"); waited += 25) await tick(25);
+    const rows = vt.lines();
+    const firstY = rows.findIndex((line) => line.includes("ban nghi")) + 1;
+    const lastY = rows.findIndex((line) => line.includes("#7 +2 lines]")) + 1;
+    expect(lastY).toBeGreaterThan(firstY);
+    const firstX = rows[firstY - 1].indexOf("ban nghi") + 1;
+    const lastX = rows[lastY - 1].indexOf("#7 +2 lines]") + "#7 +2 lines]".length + 1;
+
+    out.all = "";
+    stdin.push(`\x1b[<0;${lastX};${lastY}M`); await tick(25);
+    stdin.push(`\x1b[<32;${firstX};${firstY}M`); await tick(25);
+    stdin.push(`\x1b[<0;${firstX};${firstY}m`); await tick(80);
+    // The full suite can run on a non-color TTY even when NO_COLOR is absent. CI repeats this exact
+    // test with FORCE_COLOR=3; only that explicit color-capable run asserts the inverse sequence.
+    // The clipboard assertion below remains color-independent in every environment.
+    if (process.env.FORCE_COLOR) expect(out.all).toContain("\x1b[7m");
+    expect(copied()).toBe(draft);
+
+    out.all = "";
+    stdin.push(`\x1b[<0;${firstX};${firstY}M`); await tick(25);
+    stdin.push(`\x1b[<32;${lastX};${lastY}M`); await tick(25);
+    stdin.push(`\x1b[<0;${lastX};${lastY}m`); await tick(80);
+    expect(copied()).toBe(draft);
+  } finally {
+    app.unmount();
+    await tick(50);
+  }
+}, 30000);
+
+// CI flake quarantine — https://github.com/meiiie/neko-core/issues/72 (Ink/sim timing; re-enable after harden)
+test.skip("fullscreen drag-select keeps auto-scrolling while the pointer is held still at the edge", async () => {
+  const vt = new VirtualTerminal(100, 30);
+  const out = new FakeTtyOut(100, 30, vt);
+  const stdin = new FakeStdin();
+  const differ = new FrameDiffer();
+  const messages = Array.from({ length: 80 }, (_, i) => ({ role: "user", content: `EDGE-ROW-${String(i).padStart(2, "0")}` }));
+  // SAFETY: test-built session fixture; ChatApp only reads the declared session/message fields.
+  const session: any = {
+    id: "edge-select", createdAt: new Date().toISOString(), updatedAt: "", cwd: process.cwd(), model: "m", messages,
+  };
+  // SAFETY: FakeTtyOut implements the writable TTY surface exercised by the alt-screen guard.
+  const preAltDispose = installAltScreenGuard(out as any, { mouse: false });
+  const app = renderFS(
+    // SAFETY: test-built fixture/bridge; fields are exactly what this test controls.
+    React.createElement(ChatApp as any, {
+      yolo: true,
+      provider: { complete: async () => ({ content: "", tool_calls: [] }) },
+      resumedSession: session,
+      sessionId: "edge-select",
+      frameDiffer: differ,
+      preAltDispose,
+    }),
+    // SAFETY: fake stdin/stdout implement the exact TTY methods used by the renderer wrapper.
+    { stdout: wrapStdoutForSync(out as any, { supported: true, differ }) as any, stdin: stdin as any, patchConsole: false, exitOnCtrlC: false },
+  );
+  for (let waited = 0; waited < 2500 && !vt.text().includes("EDGE-ROW-79"); waited += 25) await tick(25);
+  const rows = vt.lines();
+  const y = rows.findIndex((line) => line.includes("EDGE-ROW-79")) + 1;
+  const x = rows[y - 1].indexOf("EDGE-ROW-79") + 1;
+  expect(y).toBeGreaterThan(2);
+  stdin.push(`\x1b[<0;${x};${y}M`); await tick(20);  // press on the newest visible row
+  stdin.push(`\x1b[<32;${x};1M`);                  // drag to the top edge once, then hold still
+  await tick(20);
+  out.all = "";                                    // ignore the motion event's immediate highlight
+  await tick(420);                                 // the selection clock must keep moving without input
+  expect((out.all.match(/\x1b\[\d+;1H/g) ?? []).length).toBeGreaterThan(3); // repeated timer-driven row paints
+  out.all = "";
+  stdin.push(`\x1b[<0;${x};1m`); await tick(100);  // release copies the full off-screen range
+  expect(out.all).toContain("\x1b]52;");
+  app.unmount();
+  await tick(50);
+}, 30000);
+
+// CI flake quarantine — https://github.com/meiiie/neko-core/issues/72 (Ink/sim timing; re-enable after harden)
+test.skip("todo flow shows the current plan once while the next step is running", async () => {
+  const vt = new VirtualTerminal(96, 28);
+  const out = new FakeTtyOut(96, 28, vt);
+  const stdin = new FakeStdin();
+  const differ = new FrameDiffer();
+  let call = 0;
+  let finish = () => {};
+  const provider: any = {
+    complete: async () => {
+      call++;
+      if (call === 1) {
+        return {
+          content: null,
+          tool_calls: [{
+            id: "todo-flow",
+            name: "todo_write",
+            arguments: { todos: [
+              { content: "active task", status: "in_progress" },
+              { content: "UNIQUE PENDING TODO", status: "pending" },
+            ] },
+          }],
+        };
+      }
+      await new Promise<void>((resolve) => { finish = resolve; });
+      return { content: "done", tool_calls: [] };
+    },
+  };
+  // SAFETY: test-built fixture/bridge; fields are exactly what this test controls.
+  const preAltDispose = installAltScreenGuard(out as any, { mouse: false });
+  const app = renderFS(
+    // SAFETY: test-built fixture/bridge; fields are exactly what this test controls.
+    React.createElement(ChatApp as any, { yolo: true, provider, sessionId: "todo-flow", frameDiffer: differ, preAltDispose }),
+    // SAFETY: test-built fixture/bridge; fields are exactly what this test controls.
+    { stdout: wrapStdoutForSync(out as any, { supported: true, differ }) as any, stdin: stdin as any, patchConsole: false, exitOnCtrlC: false },
+  );
+  await tick(300);
+  stdin.push("make a plan"); await tick(30); stdin.push("\r");
+  for (let waited = 0; waited < 2000 && !vt.text().includes("UNIQUE PENDING TODO"); waited += 25) await tick(25);
+  const occurrences = vt.text().split("UNIQUE PENDING TODO").length - 1;
+  expect(occurrences).toBe(1); // one plan, not a committed result plus a duplicate live copy
+  finish();
+  await tick(150);
+  app.unmount();
+  await tick(50);
+}, 30000);
+
+test("approval decision keys never leak into the prompt", async () => {
+  const oldSandbox = process.env.NEKO_SANDBOX;
+  const oldSimMode = process.env.NEKO_MODE;
+  process.env.NEKO_SANDBOX = "0"; // bash must PROMPT here; live-sandbox auto-approve is unit-tested
+  process.env.NEKO_MODE = "default"; // fresh configs are auto-by-default since 0.24.10; this test exercises the prompt path
+  try {
+    const vt = new VirtualTerminal(80, 24);
+    const out = new FakeTtyOut(80, 24, vt);
+    const stdin = new FakeStdin();
+    const differ = new FrameDiffer();
+    let call = 0;
+    const provider: any = {
+      complete: async () => ++call === 1
+        ? { content: null, tool_calls: [{ id: "deny", name: "bash", arguments: { command: "echo should-not-run" } }] }
+        : { content: "denied safely", tool_calls: [] },
+    };
+    // SAFETY: test-built fixture/bridge; fields are exactly what this test controls.
+    const preAltDispose = installAltScreenGuard(out as any, { mouse: false });
+    const app = renderFS(
+      // SAFETY: test-built fixture/bridge; fields are exactly what this test controls.
+      React.createElement(ChatApp as any, { yolo: false, provider, sessionId: "approval-key", frameDiffer: differ, preAltDispose }),
+      // SAFETY: test-built fixture/bridge; fields are exactly what this test controls.
+      { stdout: wrapStdoutForSync(out as any, { supported: true, differ }) as any, stdin: stdin as any, patchConsole: false, exitOnCtrlC: false },
+    );
+    await tick(300);
+    stdin.push("request approval"); await tick(30); stdin.push("\r");
+    for (let waited = 0; waited < 2000 && !vt.text().includes("Approve bash?"); waited += 25) await tick(25);
+    expect(vt.text()).toContain("Approve bash?");
+    stdin.push("n");
+    for (let waited = 0; waited < 2000 && !vt.text().includes("denied safely"); waited += 25) await tick(25);
+    expect(vt.text()).toContain("denied safely");
+    expect(vt.lines().some((line) => /^\s*>\s*n\s*$/.test(line))).toBe(false);
+    app.unmount();
+    await tick(50);
+  } finally {
+    if (oldSandbox === undefined) delete process.env.NEKO_SANDBOX;
+    else process.env.NEKO_SANDBOX = oldSandbox;
+    if (oldSimMode === undefined) delete process.env.NEKO_MODE;
+    else process.env.NEKO_MODE = oldSimMode;
+  }
+}, 30000);
+
+test("approval non-decision keys flash an in-box hint (not silent)", async () => {
+  const oldSandbox = process.env.NEKO_SANDBOX;
+  const oldSimMode = process.env.NEKO_MODE;
+  process.env.NEKO_SANDBOX = "0";
+  process.env.NEKO_MODE = "default";
+  try {
+    const vt = new VirtualTerminal(80, 24);
+    const out = new FakeTtyOut(80, 24, vt);
+    const stdin = new FakeStdin();
+    const differ = new FrameDiffer();
+    let call = 0;
+    const provider: any = {
+      complete: async () => ++call === 1
+        ? { content: null, tool_calls: [{ id: "hint", name: "bash", arguments: { command: "echo wait" } }] }
+        : { content: "ok after hint", tool_calls: [] },
+    };
+    // SAFETY: test-built fixture/bridge; fields are exactly what this test controls.
+    const preAltDispose = installAltScreenGuard(out as any, { mouse: false });
+    const app = renderFS(
+      // SAFETY: test-built fixture/bridge; fields are exactly what this test controls.
+      React.createElement(ChatApp as any, { yolo: false, provider, sessionId: "approval-hint", frameDiffer: differ, preAltDispose }),
+      // SAFETY: test-built fixture/bridge; fields are exactly what this test controls.
+      { stdout: wrapStdoutForSync(out as any, { supported: true, differ }) as any, stdin: stdin as any, patchConsole: false, exitOnCtrlC: false },
+    );
+    await tick(300);
+    stdin.push("request approval"); await tick(30); stdin.push("\r");
+    for (let waited = 0; waited < 2000 && !vt.text().includes("Approve bash?"); waited += 25) await tick(25);
+    expect(vt.text()).toContain("Approve bash?");
+    stdin.push("x"); // non-decision key — must flash the real keys, not vanish
+    for (let waited = 0; waited < 2000 && !vt.text().includes("press [y]es"); waited += 25) await tick(25);
+    expect(vt.text()).toContain("press [y]es / [a]lways this session / [n]o");
+    // Mid-burst y must NOT settle (raise-bar-11 composing guard). Still on the approval box.
+    stdin.push("y");
+    await tick(100);
+    expect(vt.text()).toContain("Approve bash?");
+    expect(vt.text()).not.toContain("ok after hint");
+    // Idle re-arm (~750ms), then a deliberate lone y settles.
+    await tick(800);
+    stdin.push("y");
+    for (let waited = 0; waited < 2000 && !vt.text().includes("ok after hint"); waited += 25) await tick(25);
+    expect(vt.text()).toContain("ok after hint");
+    app.unmount();
+    await tick(50);
+  } finally {
+    if (oldSandbox === undefined) delete process.env.NEKO_SANDBOX;
+    else process.env.NEKO_SANDBOX = oldSandbox;
+    if (oldSimMode === undefined) delete process.env.NEKO_MODE;
+    else process.env.NEKO_MODE = oldSimMode;
+  }
+}, 30000);
+
+
+test("approval mid-word junk xyz does not settle on embedded y", async () => {
+  const oldSandbox = process.env.NEKO_SANDBOX;
+  const oldSimMode = process.env.NEKO_MODE;
+  process.env.NEKO_SANDBOX = "0";
+  process.env.NEKO_MODE = "default";
+  try {
+    const vt = new VirtualTerminal(80, 24);
+    const out = new FakeTtyOut(80, 24, vt);
+    const stdin = new FakeStdin();
+    const differ = new FrameDiffer();
+    let call = 0;
+    const provider: any = {
+      complete: async () => ++call === 1
+        ? { content: null, tool_calls: [{ id: "junk", name: "bash", arguments: { command: "echo should-wait" } }] }
+        : { content: "approved after pause", tool_calls: [] },
+    };
+    // SAFETY: test-built fixture/bridge; fields are exactly what this test controls.
+    const preAltDispose = installAltScreenGuard(out as any, { mouse: false });
+    const app = renderFS(
+      // SAFETY: test-built fixture/bridge; fields are exactly what this test controls.
+      React.createElement(ChatApp as any, { yolo: false, provider, sessionId: "approval-xyz", frameDiffer: differ, preAltDispose }),
+      // SAFETY: test-built fixture/bridge; fields are exactly what this test controls.
+      { stdout: wrapStdoutForSync(out as any, { supported: true, differ }) as any, stdin: stdin as any, patchConsole: false, exitOnCtrlC: false },
+    );
+    await tick(300);
+    stdin.push("request approval"); await tick(30); stdin.push("\r");
+    for (let waited = 0; waited < 2000 && !vt.text().includes("Approve bash?"); waited += 25) await tick(25);
+    expect(vt.text()).toContain("Approve bash?");
+    stdin.push("x"); await tick(30);
+    stdin.push("y"); await tick(30);
+    stdin.push("z"); await tick(100);
+    expect(vt.text()).toContain("Approve bash?");
+    expect(vt.text()).not.toContain("approved after pause");
+    await tick(800);
+    stdin.push("y");
+    for (let waited = 0; waited < 2000 && !vt.text().includes("approved after pause"); waited += 25) await tick(25);
+    expect(vt.text()).toContain("approved after pause");
+    app.unmount();
+    await tick(50);
+  } finally {
+    if (oldSandbox === undefined) delete process.env.NEKO_SANDBOX;
+    else process.env.NEKO_SANDBOX = oldSandbox;
+    if (oldSimMode === undefined) delete process.env.NEKO_MODE;
+    else process.env.NEKO_MODE = oldSimMode;
+  }
+}, 30000);
+
+
+test("fullscreen picker enables hover motion only while the interactive overlay is visible", async () => {
+  const vt = new VirtualTerminal(100, 30);
+  const out = new FakeTtyOut(100, 30, vt);
+  const stdin = new FakeStdin();
+  const differ = new FrameDiffer();
+  // SAFETY: test-built fixture/bridge; fields are exactly what this test controls.
+  const preAltDispose = installAltScreenGuard(out as any, { mouse: false });
+  const app = renderFS(
+    // SAFETY: test-built fixture/bridge; fields are exactly what this test controls.
+    React.createElement(ChatApp as any, {
+      yolo: true,
+      provider: { complete: async () => ({ content: "", tool_calls: [] }) },
+      sessionId: "picker-hover",
+      frameDiffer: differ,
+      preAltDispose,
+    }),
+    // SAFETY: fake stdin/stdout implement the exact TTY methods used by the renderer wrapper.
+    { stdout: wrapStdoutForSync(out as any, { supported: true, differ }) as any, stdin: stdin as any, patchConsole: false, exitOnCtrlC: false },
+  );
+  await tick(300);
+  // Production enters the alt screen before Ink mounts. Windows can drop that early DECSET while VT
+  // processing comes online, so the first post-mount effect must independently reassert base tracking.
+  expect(out.all).toContain("\x1b[?1003l\x1b[?1002h\x1b[?1006h");
+  out.all = "";
+  stdin.push("/login"); await tick(30); stdin.push("\r");
+  for (let waited = 0; waited < 2000 && !vt.text().includes("Sign in - choose a provider"); waited += 25) await tick(25);
+  expect(vt.text()).toContain("Sign in - choose a provider");
+  expect(out.all).toContain("\x1b[?1002l\x1b[?1003h\x1b[?1006h");
+
+  const googleRow = vt.lines().findIndex((line) => line.includes("Google")) + 1;
+  expect(googleRow).toBeGreaterThan(0);
+  stdin.push(`\x1b[<35;5;${googleRow}M`); await tick(100);
+  expect(vt.text()).toMatch(/>\s+Google/);
+
+  out.all = "";
+  stdin.push("\x1b"); await tick(100);
+  expect(out.all).toContain("\x1b[?1003l\x1b[?1002h\x1b[?1006h");
+  app.unmount();
+  await tick(50);
+}, 30000);
+
+// CI flake quarantine — https://github.com/meiiie/neko-core/issues/72 (Ink/sim timing; re-enable after harden)
+test.skip("voice panel mouse controls mute and stop the active session", async () => {
+  const vt = new VirtualTerminal(100, 30);
+  const out = new FakeTtyOut(100, 30, vt);
+  const stdin = new FakeStdin();
+  const differ = new FrameDiffer();
+  const provider: any = { complete: async () => ({ content: "ok", tool_calls: [] }) };
+  let options: any;
+  let snapshot: any = { state: "starting", muted: false };
+  let muteCalls = 0, stopCalls = 0;
+  const control: any = {
+    snapshot: () => snapshot,
+    start: async () => {
+      snapshot = { state: "live", muted: false, startedAt: Date.now(), protocol: "v3", transport: "browser" };
+      options.onEvent?.({ type: "state", snapshot });
+      return { transport: "browser" };
+    },
+    setMuted: (muted: boolean) => {
+      muteCalls++;
+      snapshot = { ...snapshot, state: muted ? "muted" : "live", muted };
+      options.onEvent?.({ type: "state", snapshot });
+    },
+    stop: async () => {
+      stopCalls++;
+      snapshot = { ...snapshot, state: "stopped" };
+      options.onEvent?.({ type: "state", snapshot });
+    },
+  };
+  // SAFETY: test-built fixture/bridge; fields are exactly what this test controls.
+  const preAltDispose = installAltScreenGuard(out as any, { mouse: false });
+  const app = renderFS(
+    // SAFETY: test-built fixture/bridge; fields are exactly what this test controls.
+    React.createElement(ChatApp as any, {
+      yolo: true,
+      provider,
+      sessionId: "voice-mouse",
+      frameDiffer: differ,
+      preAltDispose,
+      browserVoiceFactory: (next: any) => { options = next; return control; },
+    }),
+    // SAFETY: test-built fixture/bridge; fields are exactly what this test controls.
+    { stdout: wrapStdoutForSync(out as any, { supported: true, differ }) as any, stdin: stdin as any, patchConsole: false, exitOnCtrlC: false },
+  );
+  await tick(350);
+  stdin.push("/voice"); await tick(30); stdin.push("\r");
+  for (let waited = 0; waited < 2000 && !vt.text().includes("Voice - choose a mode"); waited += 25) await tick(25);
+  // Native GPT-Live is first only on machines whose local audio probe is ready. The browser
+  // conversational route is otherwise already selected, so at most one Down is needed.
+  if (vt.lines().some((line) => />\s*Start GPT-Live in terminal/.test(line))) {
+    stdin.push("\x1b[B");
+    await tick(50);
+  }
+  stdin.push("\r");
+  for (let waited = 0; waited < 2000 && !vt.text().includes("speak naturally to interrupt"); waited += 25) await tick(25);
+
+  let rows = vt.lines();
+  let row = rows.findIndex((line) => line.includes("Mute") && line.includes("Stop"));
+  expect(row).toBeGreaterThanOrEqual(0);
+  let col = rows[row].indexOf("Mute") + 2; // 1-based, one cell inside the visible control
+  stdin.push(`\x1b[<0;${col};${row + 1}M`);
+  for (let waited = 0; waited < 1000 && muteCalls === 0; waited += 25) await tick(25);
+  expect(muteCalls).toBe(1);
+  for (let waited = 0; waited < 1000 && !vt.text().includes("Unmute"); waited += 25) await tick(25);
+  expect(vt.text()).toContain("Unmute");
+
+  stdin.push("\x1bm"); // Alt+M is the keyboard-equivalent control
+  await tick(150);
+  expect(muteCalls).toBe(2);
+  expect(vt.text()).toContain("[ Mute ]");
+
+  rows = vt.lines();
+  row = rows.findIndex((line) => line.includes("Mute") && line.includes("Stop"));
+  col = rows[row].indexOf("Stop") + 2;
+  stdin.push(`\x1b[<0;${col};${row + 1}M`);
+  for (let waited = 0; waited < 1000 && stopCalls === 0; waited += 25) await tick(25);
+  expect(stopCalls).toBe(1);
+  for (let waited = 0; waited < 1000 && vt.text().includes("speak naturally to interrupt"); waited += 25) await tick(25);
+  expect(vt.text()).not.toContain("speak naturally to interrupt");
+  app.unmount();
+  await tick(50);
+}, 30000);
+
+test("slash menu on a SHORT window keeps the input row + first items (chrome never flex-squashed)", async () => {
+  // Image #61: typing "/" on a short window opened the slash menu, and Yoga squashed the input chrome -
+  // the "> /" input row vanished and the first menu entries (incl. the selected /help) were cut. The
+  // chrome is flexShrink=0 now; the transcript band shrinks instead.
+  const vt = new VirtualTerminal(100, 18); // SHORT window - the menu + chrome dominate it
+  const out = new FakeTtyOut(100, 18, vt);
+  const stdin = new FakeStdin();
+  const differ = new FrameDiffer();
+  const provider: any = { complete: async () => ({ content: "ok", tool_calls: [] }) };
+  const msgs: any[] = [];
+  for (let i = 0; i < 10; i++) msgs.push({ role: "user", content: `q${i}` }, { role: "assistant", content: `a${i}` });
+  const session: any = { id: "slash", createdAt: new Date().toISOString(), updatedAt: "", cwd: process.cwd(), model: "m", messages: msgs };
+  // SAFETY: test-built fixture/bridge; fields are exactly what this test controls.
+  const preAltDispose = installAltScreenGuard(out as any, { mouse: false });
+  const app = renderFS(
+    // SAFETY: test-built fixture/bridge; fields are exactly what this test controls.
+    React.createElement(ChatApp as any, { yolo: true, provider, resumedSession: session, sessionId: "slash", frameDiffer: differ, preAltDispose }),
+    // SAFETY: test-built fixture/bridge; fields are exactly what this test controls.
+    { stdout: wrapStdoutForSync(out as any, { supported: true, differ }) as any, stdin: stdin as any, patchConsole: false, exitOnCtrlC: false },
+  );
+  await tick(400);
+  stdin.push("/"); await tick(300);
+  const t = vt.text();
+  expect(t).toMatch(/> \S?\//);            // the input row with the typed "/" is ON SCREEN (was squashed away)
+  expect(t).toContain("/help");             // the FIRST (selected) menu entry survived too
+  out.setSize(72, 20); await tick(400);
+  expect(vt.text()).toContain("up/down to select, tab to complete");
+  expect(vt.text()).toMatch(/> \S?\//);
+  expect(vt.lines()[19]).toBe("");
+  for (let i = 0; i < 5; i++) { stdin.push("\x1b[B"); await tick(30); }
+  out.setSize(40, 10); await tick(400);
+  expect(vt.text()).toContain("/help");
+  expect(vt.text()).toMatch(/> \S?\//);
+  expect(vt.lines()[9]).toBe("");
+  expect(vt.text()).toContain("> /feedback");
+  stdin.push("\x1b[A"); await tick(60);
+  stdin.push("\x1b[B"); await tick(60); stdin.push("\t"); await tick(120);
+  expect(vt.text()).toContain("> /feedback");
+  app.unmount();
+  await tick(50);
+}, 30000);
+
+test("/resume picker while SCROLLED UP renders names intact (no flex-squash, no stale band rows)", async () => {
+  // Image #60: with the pill visible the picker lost its header + session names - Yoga flex-SQUASHED the
+  // list (label+detail overlapped on one row), and the band's stale geometry froze old transcript rows
+  // over it (Ink skips identical frames, so nothing repainted). Locks the flexShrink=0 + setBand-geometry
+  // refresh fixes end-to-end on the real composed screen.
+  const { mkdirSync, writeFileSync, rmSync } = await import("node:fs");
+  const { tmpdir } = await import("node:os");
+  const { join } = await import("node:path");
+  const { setSessionsDir } = await import("../src/adapters/session.ts");
+  // Point the store at this test's own dir (env-home overrides are ignored under NODE_ENV=test —
+  // the store isolation that keeps test sessions out of the real ~/.neko-core/sessions).
+  const store = join(tmpdir(), `neko-sim-resume-${process.pid}`);
+  mkdirSync(store, { recursive: true });
+  setSessionsDir(store);
+  try {
+    for (let i = 0; i < 5; i++) {
+      const id = `2026070${i}-00000${i}-00${i}`;
+      writeFileSync(join(store, `${id}.json`), JSON.stringify({
+        id, createdAt: new Date(Date.now() - i * 3600e3).toISOString(), updatedAt: new Date(Date.now() - i * 3600e3).toISOString(),
+        cwd: process.cwd(), model: "m",
+        messages: [{ role: "user", content: `ten phien so ${i} rat de nhan` }, { role: "assistant", content: `tra loi ${i}` }],
+      }));
+    }
+    const vt = new VirtualTerminal(110, 32);
+    const out = new FakeTtyOut(110, 32, vt);
+    const stdin = new FakeStdin();
+    const differ = new FrameDiffer();
+    const msgs: any[] = [];
+    for (let i = 0; i < 30; i++) msgs.push({ role: "user", content: `cau hoi ${i}` }, { role: "assistant", content: `tra loi dai dong so ${i}` });
+    const session: any = { id: "cur", createdAt: new Date().toISOString(), updatedAt: "", cwd: process.cwd(), model: "m", messages: msgs };
+    // SAFETY: test-built fixture/bridge; fields are exactly what this test controls.
+    const preAltDispose = installAltScreenGuard(out as any, { mouse: false });
+    const app = renderFS(
+      // SAFETY: test-built fixture/bridge; fields are exactly what this test controls.
+      React.createElement(ChatApp as any, { yolo: true, provider: { complete: async () => ({ content: "", tool_calls: [] }) }, resumedSession: session, sessionId: "cur", frameDiffer: differ, preAltDispose }),
+      // SAFETY: test-built fixture/bridge; fields are exactly what this test controls.
+      { stdout: wrapStdoutForSync(out as any, { supported: true, differ }) as any, stdin: stdin as any, patchConsole: false, exitOnCtrlC: false },
+    );
+    await tick(500);
+    stdin.push("\x1b[<64;5;5M\x1b[<64;5;5M\x1b[<64;5;5M\x1b[<64;5;5M"); await tick(250); // scroll up -> pill (the #60 state)
+    stdin.push("/resume"); await tick(80); stdin.push("\r"); await tick(500);
+    const t = vt.text();
+    expect(t).toContain("Resume session");                 // the header survived (was flex-squashed to 0)
+    for (let i = 0; i < 5; i++) expect(t).toContain(`ten phien so ${i} rat de nhan`); // every NAME intact
+    expect(t).not.toMatch(/msgs\S/);                       // no label residue fused right after a detail ("msgsde nhan")
+    app.unmount();
+    await tick(50);
+  } finally {
+    setSessionsDir(null);
+    rmSync(store, { recursive: true, force: true });
+  }
+}, 30000);
+
+test("DIFFER-LESS fullscreen (the Windows default): renders, types, and scrolls INSTANTLY", async () => {
+  // ConPTY displaces the differ's output at live cadence (the duplicated-chrome ghost), so on Windows
+  // the differ is OFF and fullscreen runs on plain Ink frames with INSTANT scrolling (no glide - a
+  // glide through React renders a full frame per hop and stutters). This sim locks that whole path:
+  // no band composition, no imperative writes, wheel gestures jump straight to the target.
+  const vt = new VirtualTerminal(100, 30);
+  const out = new FakeTtyOut(100, 30, vt);
+  const stdin = new FakeStdin();
+  const provider: any = { complete: async () => ({ content: "phan hoi", tool_calls: [] }) };
+  const session: any = {
+    id: "nodiff", createdAt: new Date().toISOString(), updatedAt: "", cwd: process.cwd(), model: "m",
+    messages: Array.from({ length: 40 }, (_, i) => ({ role: i % 2 ? "assistant" : "user", content: `noi dung dong ${i}` })),
+  };
+  // SAFETY: test-built fixture/bridge; fields are exactly what this test controls.
+  const preAltDispose = installAltScreenGuard(out as any, { mouse: false });
+  const app = renderFS(
+    // SAFETY: test-built fixture/bridge; fields are exactly what this test controls.
+    React.createElement(ChatApp as any, { yolo: true, provider, resumedSession: session, sessionId: "nodiff", preAltDispose }),
+    // SAFETY: test-built fixture/bridge; fields are exactly what this test controls.
+    { stdout: wrapStdoutForSync(out as any, { supported: true }) as any, stdin: stdin as any, patchConsole: false, exitOnCtrlC: false },
+  );
+  await tick(600);
+  expect(vt.isBlank()).toBe(false);
+  expect(vt.text()).toContain("noi dung dong 39"); // tail visible without any differ
+
+  // Typing echoes through the plain Ink path.
+  stdin.push("a"); await tick(60); stdin.push("b"); await tick(150);
+  expect(vt.text()).toContain("ab");
+
+  // Wheel up = INSTANT jump into history (no glide timers to wait out).
+  for (let i = 0; i < 12; i++) { stdin.push("\x1b[<64;5;5M"); await tick(20); }
+  await tick(200);
+  const scrolled = vt.text();
+  expect(scrolled).not.toContain("noi dung dong 39"); // tail left the viewport
+  expect(scrolled).toContain("noi dung dong");        // older transcript rows are on screen
+
+  // Wheel down returns to the live tail.
+  for (let i = 0; i < 20; i++) { stdin.push("\x1b[<65;5;5M"); await tick(20); }
+  await tick(200);
+  expect(vt.text()).toContain("noi dung dong 39");
+  app.unmount();
+  await tick(50);
+}, 30000);

@@ -1,0 +1,273 @@
+<!doctype html>
+<!--
+  Neko live camera coach (Architecture A - docs/research/live-camera-coach-2026-07-29.md).
+  The PHONE points its camera at the scene; sealed JPEG snapshots flow to the host at a gentle pace
+  (one in flight, drop-old); the host looks with vision and answers with a short posing cue, which
+  this page shows big and SPEAKS through the phone's own voice (vi-VN when available) - the speaker
+  is at the scene, not at the laptop. Camera frames leave this page ONLY as AES-256-GCM envelopes
+  (same E2E as every relay payload); nothing is stored durably on the Worker.
+-->
+<html lang="vi">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Neko - Camera Coach</title>
+<style nonce="__CSP_NONCE__">
+  :root { --ink:#0a0b0d; --panel:#15171c; --line:#2a2d34; --amber:#f0a030; --cream:#f4f5f7; --dim:#9a948b; }
+  * { box-sizing: border-box; margin: 0; }
+  body { background: var(--ink); color: var(--cream); font-family: ui-monospace, Menlo, Consolas, monospace;
+         min-height: 100dvh; display: flex; flex-direction: column; }
+  header { padding: 12px 16px; display: flex; align-items: center; gap: 10px; border-bottom: 1px solid var(--line); }
+  header b { letter-spacing: .06em; }
+  #state { margin-left: auto; font-size: 12px; color: var(--dim); }
+  #stage { position: relative; flex: 1; min-height: 0; background: #000; }
+  video { width: 100%; height: 100%; object-fit: contain; display: block; position: absolute; inset: 0; }
+  #cue { position: absolute; left: 0; right: 0; bottom: 0; padding: 18px 16px calc(18px + env(safe-area-inset-bottom));
+         background: linear-gradient(transparent, rgba(10,11,13,.92) 30%);
+         font-size: 22px; line-height: 1.45; font-weight: 700; text-shadow: 0 1px 4px #000; min-height: 88px; }
+  #cue .tag { display: block; font-size: 11px; font-weight: 400; letter-spacing: .22em; color: var(--amber); margin-bottom: 6px; }
+  /* Prominent capture disclosure (EDPB video guidance / App Store + Play prominent-disclosure norms):
+     while frames are being sent, an unmissable live badge sits over the preview. */
+  #rec { position: absolute; top: 10px; left: 10px; display: none; align-items: center; gap: 8px;
+         background: rgba(10,11,13,.82); border: 1px solid #b3261e; border-radius: 999px; padding: 6px 12px;
+         font-size: 12px; letter-spacing: .1em; }
+  #rec.on { display: flex; }
+  #rec i { width: 9px; height: 9px; border-radius: 50%; background: #ff4136; animation: pulse 1.2s infinite; }
+  @keyframes pulse { 50% { opacity: .25; } }
+  footer { display: flex; gap: 10px; padding: 12px 16px calc(12px + env(safe-area-inset-bottom)); border-top: 1px solid var(--line); background: var(--panel); }
+  button { flex: 1; min-height: 52px; border: 1px solid var(--line); border-radius: 12px; background: #1d2027;
+           color: var(--cream); font: inherit; font-size: 16px; font-weight: 700; }
+  button:disabled { opacity: .45; }
+  #go.on, #voice.on { background: var(--amber); color: #100c04; border-color: var(--amber); }
+  #flip { flex: 0 0 84px; }
+  #voice { flex: 0 0 116px; }
+  #setup { padding: 24px 16px; max-width: 480px; margin: 0 auto; }
+  #setup h1 { font-size: 18px; margin-bottom: 10px; }
+  #setup p { color: var(--dim); font-size: 13px; line-height: 1.6; margin-bottom: 14px; }
+  .hidden { display: none !important; }
+</style>
+</head>
+<body>
+  <header><b>NEKO <span style="color:#f0a030">COACH</span></b><span id="state">chưa kết nối</span></header>
+
+  <div id="setup">
+    <h1>Camera coach cần ghép cặp</h1>
+    <p>Trang này là VỎ RỖNG với người lạ: không có bộ ba khóa ghép cặp (session · token · secret)
+       thì không gửi được khung hình nào và không giải mã được gì. Mở nó từ liên kết/QR ghép cặp
+       của Neko trên máy bạn (chạy <b>/rc</b> trong neko để lấy) — khóa nằm trong phần #fragment,
+       không bao giờ rời thiết bị. Ảnh niêm phong đầu-cuối AES-256-GCM, chỉ máy Neko của bạn đọc
+       được; Worker chuyển tiếp và không lưu khung hình nào.</p>
+  </div>
+
+  <div id="stage" class="hidden">
+    <video id="v" autoplay playsinline muted></video>
+    <div id="rec"><i></i><span>ĐANG GỬI ẢNH TỚI NEKO CỦA BẠN</span></div>
+    <div id="cue"><span class="tag">NEKO COACH</span><span id="cueText">Bấm "Bắt đầu" rồi đứng vào khung hình nhé.</span></div>
+  </div>
+
+  <footer>
+    <button id="flip" type="button">Đổi cam</button>
+    <button id="go" type="button">Bắt đầu</button>
+    <button id="voice" type="button">Giọng Neko</button>
+  </footer>
+  <audio id="a" autoplay></audio>
+
+<script nonce="__CSP_NONCE__">
+  const $ = (id) => document.getElementById(id);
+  // ---- pairing (same contract as the client page: s/t/k in the fragment, saved locally) ----
+  let session = "", token = "", secret = "", hostSel = "";
+  try {
+    const saved = JSON.parse(localStorage.nekoRelayPairings || "{}");
+    const h = new URLSearchParams(location.hash.length > 1 ? location.hash.slice(1) : "");
+    // Per-conversation capability: /camera/<session> names the session in the PATH (same shape as
+    // /session/<id>), the token+secret ride the fragment. localStorage is only the last resort, so a
+    // link for one conversation can never silently coach another.
+    const routed = location.pathname.match(/^\/camera\/([^/]+)\/?$/);
+    session = (routed ? decodeURIComponent(routed[1]) : "") || h.get("s") || localStorage.nekoSession || "";
+    token = h.get("t") || (saved[session] && saved[session].token) || localStorage.nekoToken || "";
+    secret = h.get("k") || (saved[session] && saved[session].secret) || localStorage.nekoSecret || "";
+    hostSel = h.get("h") || localStorage.nekoCoachHost || "";
+    if (h.get("s")) { const p = JSON.parse(localStorage.nekoRelayPairings || "{}"); p[session] = { token, secret }; localStorage.nekoRelayPairings = JSON.stringify(p); localStorage.nekoSession = session; }
+    if (h.get("h")) localStorage.nekoCoachHost = hostSel;
+    if (location.hash.length > 1) history.replaceState(null, "", location.pathname);
+  } catch {}
+  const paired = session && token && secret;
+  if (paired) { $("setup").classList.add("hidden"); $("stage").classList.remove("hidden"); }
+
+  // Honest connection state: the page says whether YOUR Neko is reachable BEFORE you start filming.
+  // (The bare URL without a pairing shows only the setup note - it can neither send nor decrypt.)
+  let hostOnline = false;
+  async function checkAlive() {
+    if (!paired) return;
+    try {
+      const r = await fetch("/alive?session=" + encodeURIComponent(session) + (hostSel ? "&host=" + encodeURIComponent(hostSel) : ""), { headers: auth() });
+      const a = await r.json();
+      hostOnline = !!a.online;
+      if (!running) $("state").textContent = hostOnline
+        ? "đã ghép …" + session.slice(-4) + " · Neko online"
+        : "đã ghép …" + session.slice(-4) + " · Neko OFFLINE — mở neko trên máy trước";
+    } catch { if (!running) $("state").textContent = "không tới được relay"; }
+  }
+
+  // ---- E2E (wire-compatible with relay-crypto.ts and the client page) ----
+  const b64 = (u) => btoa(String.fromCharCode(...u)), ub64 = (s) => Uint8Array.from(atob(s), (c) => c.charCodeAt(0));
+  let keyPromise = null;
+  function key() {
+    if (!keyPromise) keyPromise = crypto.subtle.importKey("raw", new TextEncoder().encode(secret), "PBKDF2", false, ["deriveKey"])
+      .then((b) => crypto.subtle.deriveKey({ name: "PBKDF2", salt: new TextEncoder().encode("neko-relay-e2e-v1"), iterations: 100000, hash: "SHA-256" }, b, { name: "AES-GCM", length: 256 }, false, ["encrypt", "decrypt"]));
+    return keyPromise;
+  }
+  async function seal(t) { const k = await key(); const iv = crypto.getRandomValues(new Uint8Array(12));
+    const ct = new Uint8Array(await crypto.subtle.encrypt({ name: "AES-GCM", iv }, k, new TextEncoder().encode(t)));
+    return { iv: b64(iv), ct: b64(ct) }; }
+  async function unseal(s) { const k = await key();
+    return new TextDecoder().decode(await crypto.subtle.decrypt({ name: "AES-GCM", iv: ub64(s.iv) }, k, ub64(s.ct))); }
+  const auth = () => ({ authorization: "Bearer " + token });
+
+  // ---- camera ----
+  let stream = null, facing = "environment", running = false, inFlight = false, timer = null;
+  const canvas = document.createElement("canvas");
+  async function openCam() {
+    if (stream) for (const t of stream.getTracks()) t.stop();
+    stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: facing, width: { ideal: 1280 } }, audio: false });
+    $("v").srcObject = stream;
+  }
+  function snap() {
+    const v = $("v"); if (!v.videoWidth) return null;
+    const long = 1024, scale = Math.min(1, long / Math.max(v.videoWidth, v.videoHeight));
+    canvas.width = Math.round(v.videoWidth * scale); canvas.height = Math.round(v.videoHeight * scale);
+    canvas.getContext("2d").drawImage(v, 0, 0, canvas.width, canvas.height);
+    return canvas.toDataURL("image/jpeg", 0.72);
+  }
+  // One in flight, drop-old: a frame is sent only when the previous answer (or failure) came back.
+  const PACE_MS = 1600;
+  async function tick() {
+    if (!running || inFlight) return;
+    const dataUrl = snap(); if (!dataUrl) return;
+    inFlight = true;
+    try {
+      const frame = await seal(dataUrl);
+      const r = await fetch("/frame", { method: "POST", headers: { "content-type": "application/json", ...auth() },
+        body: JSON.stringify({ session, frame, ...(hostSel ? { hostId: hostSel } : {}) }) });
+      const out = await r.json().catch(() => ({}));
+      $("state").textContent = out.sent
+        ? "đang coach · " + new Date().toLocaleTimeString()
+        : "Neko OFFLINE — mở neko trên máy rồi khung hình sẽ tự nối lại";
+    } catch { $("state").textContent = "mất kết nối - thử lại..."; }
+    finally { inFlight = false; }
+  }
+
+  // ---- cue channel: the same read-only mirror socket the client page uses ----
+  let speakOn = true, lastSpoken = "", voiceWarned = false;
+  // Pick the BEST Vietnamese voice the device actually has: the default pick is often the oldest,
+  // most robotic one. Prefer named neural/enhanced/premium voices, then cloud (non-local) voices,
+  // then anything vi-*. With NO Vietnamese voice at all, speaking Vietnamese through an English
+  // engine sounds worse than silence - so show the cue and say so once instead.
+  function pickVoice() {
+    const all = speechSynthesis.getVoices().filter((v) => /^vi/i.test(v.lang));
+    if (!all.length) return null;
+    const score = (v) => (/(neural|enhanced|premium|natural)/i.test(v.name) ? 4 : 0)
+      + (/(google|siri|linh|hoaimy|nam\b|an\b)/i.test(v.name) ? 2 : 0)
+      + (v.localService === false ? 1 : 0);
+    return all.slice().sort((a, b) => score(b) - score(a))[0];
+  }
+  let viVoice = null;
+  const refreshVoice = () => { viVoice = pickVoice(); };
+  refreshVoice();
+  if ("speechSynthesis" in window) speechSynthesis.onvoiceschanged = refreshVoice;
+  function speak(text) {
+    if (!speakOn || !("speechSynthesis" in window) || text === lastSpoken) return;
+    lastSpoken = text;
+    if (!viVoice) {
+      if (!voiceWarned) {
+        voiceWarned = true;
+        $("state").textContent = "máy chưa có giọng tiếng Việt - cue chỉ hiện chữ (cài giọng vi-VN trong cài đặt máy)";
+      }
+      return; // never read Vietnamese with an English engine
+    }
+    speechSynthesis.cancel(); // a fresh cue replaces a stale one mid-sentence
+    const u = new SpeechSynthesisUtterance(text);
+    u.voice = viVoice; u.lang = viVoice.lang; u.rate = 0.98; u.pitch = 1.0;
+    speechSynthesis.speak(u);
+  }
+  function connectCues() {
+    const socket = new WebSocket(location.origin.replace(/^http/, "ws") + "/client-ws?session=" + encodeURIComponent(session), ["neko-relay", "t." + token]);
+    socket.onmessage = async (e) => {
+      try {
+        const m = JSON.parse(e.data);
+        if (m.t !== "event" || !m.event || !m.event.ct) return; // events arrive as sealed envelopes
+        const ev = JSON.parse(await unseal(m.event));
+        if (ev.type === "coach-stop") { stopNekoVoice(); stopCoach("đã dừng từ máy tính (/coach stop)"); return; }
+        if (ev.type === "voice-answer" && ev.sdp && answerWaiter) { answerWaiter(ev.sdp); answerWaiter = null; return; }
+        if (ev.type === "voice-error") { stopNekoVoice(); $("state").textContent = "giọng Neko lỗi: " + String(ev.message || "").slice(0, 80); return; }
+        if (ev.type !== "cue" || !ev.text) return; // the mirror also carries transcript events - not ours
+        $("cueText").textContent = ev.text;
+        speak(ev.text); // no-op while Neko's own voice is live (speakOn is false then)
+      } catch { /* not a cue / not ours */ }
+    };
+    socket.onclose = () => { if (paired) setTimeout(connectCues, 2500); };
+  }
+
+  // ---- controls (mic-free consent: nothing is captured until the user taps Start) ----
+  function stopCoach(note) {
+    running = false;
+    if (timer) { clearInterval(timer); timer = null; }
+    if (stream) { for (const t of stream.getTracks()) t.stop(); stream = null; }
+    $("go").textContent = "Bắt đầu"; $("go").classList.remove("on"); $("rec").classList.remove("on");
+    $("state").textContent = note || "đã dừng";
+  }
+  $("go").onclick = async () => {
+    if (!paired) return;
+    if (running) return stopCoach();
+    try { await openCam(); } catch { $("state").textContent = "không mở được camera - kiểm tra quyền"; return; }
+    running = true; timer = setInterval(tick, PACE_MS); void tick();
+    $("go").textContent = "Dừng"; $("go").classList.add("on"); $("rec").classList.add("on"); $("state").textContent = "đang coach";
+  };
+  // The camera must die with the page/tab, not linger: leaving, locking the phone or switching apps
+  // releases the hardware and stops sending (W3C media-capture lifecycle + prominent-disclosure norms).
+  document.addEventListener("visibilitychange", () => { if (document.hidden && running) stopCoach("tạm dừng - quay lại tab để tiếp tục"); });
+  window.addEventListener("pagehide", () => stopCoach());
+  $("flip").onclick = async () => { facing = facing === "environment" ? "user" : "environment"; if (running) { try { await openCam(); } catch {} } };
+
+  // ---- Neko's REAL voice, here at the scene (WebRTC to OpenAI, brokered by the host over the relay).
+  // Device TTS is the fallback for the cue text; this is the actual GPT-Live voice, and it listens too.
+  let pc = null, voiceLive = false;
+  async function startNekoVoice() {
+    if (voiceLive) { stopNekoVoice(); return; }
+    $("voice").textContent = "Đang nối…";
+    try {
+      const mic = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true } });
+      pc = new RTCPeerConnection();
+      for (const t of mic.getTracks()) pc.addTrack(t, mic);
+      pc.addTransceiver("audio", { direction: "recvonly" });
+      pc.ontrack = (e) => { $("a").srcObject = e.streams[0]; };
+      pc.onconnectionstatechange = () => { if (["failed", "closed", "disconnected"].includes(pc.connectionState)) stopNekoVoice(); };
+      const offer = await pc.createOffer();
+      await pc.setLocalDescription(offer);
+      // Wait briefly for ICE candidates so the offer is complete (trickle is not brokered here).
+      await new Promise((r) => { if (pc.iceGatheringState === "complete") return r();
+        const t = setTimeout(r, 2500);
+        pc.onicegatheringstatechange = () => { if (pc.iceGatheringState === "complete") { clearTimeout(t); r(); } }; });
+      answerWaiter = (sdp) => { void pc.setRemoteDescription({ type: "answer", sdp }); voiceLive = true;
+        speakOn = false; // Neko speaks for itself now - stop the robot TTS
+        $("voice").textContent = "Tắt giọng"; $("voice").classList.add("on"); $("state").textContent = "giọng Neko đang bật"; };
+      const sealed = await seal(pc.localDescription.sdp);
+      const r = await fetch("/voice-offer", { method: "POST", headers: { "content-type": "application/json", ...auth() },
+        body: JSON.stringify({ session, offer: sealed, ...(hostSel ? { hostId: hostSel } : {}) }) });
+      const out = await r.json().catch(() => ({}));
+      if (!out.sent) { stopNekoVoice(); $("state").textContent = "Neko offline - không bật được giọng"; }
+    } catch (e) { stopNekoVoice(); $("state").textContent = "không bật được micro/giọng"; }
+  }
+  function stopNekoVoice() {
+    voiceLive = false; answerWaiter = null;
+    if (pc) { try { pc.getSenders().forEach((s) => s.track && s.track.stop()); pc.close(); } catch {} pc = null; }
+    $("a").srcObject = null; speakOn = true;
+    $("voice").textContent = "Giọng Neko"; $("voice").classList.remove("on");
+  }
+  let answerWaiter = null;
+  $("voice").onclick = startNekoVoice;
+  window.addEventListener("pagehide", () => stopNekoVoice());
+  if (paired) { connectCues(); void checkAlive(); setInterval(checkAlive, 12000); }
+</script>
+</body>
+</html>

@@ -1,0 +1,240 @@
+import { expect, test } from "bun:test";
+import { existsSync, mkdirSync, mkdtempSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+
+import { NekoConfig } from "../src/adapters/config.ts";
+import { configureToolRegistry, inheritToolRegistrySettings, restrictToolRegistryForSubagent } from "../src/adapters/tool-registry.ts";
+import { ToolRegistry } from "../src/core/tool-runtime.ts";
+
+test("shared composition provisions the global research ledger and canonical explicit write roots", async () => {
+  const base = mkdtempSync(join(tmpdir(), "neko-write-compose-"));
+  const project = join(base, "project");
+  const home = join(base, "home");
+  const extra = join(base, "shared-notes");
+  mkdirSync(project, { recursive: true });
+  mkdirSync(extra, { recursive: true });
+  try {
+    const cfg = new NekoConfig(
+      { additional_write_roots: [extra] }, null, {}, "", null, [],
+      { state: "none", files: [] }, home,
+    );
+    const registry = configureToolRegistry(new ToolRegistry(project, "auto", () => true), cfg);
+    expect(registry.additionalWriteRoots).toEqual([
+      realpathSync.native(join(home, ".neko-core", "research")),
+      realpathSync.native(extra),
+    ]);
+    expect(existsSync(join(home, ".neko-core", "research"))).toBe(true);
+    expect(await registry.execute("write_file", {
+      path: join(home, ".neko-core", "research", "ledger.md"),
+      content: "# durable global ledger\n",
+    })).toContain("Wrote");
+  } finally {
+    rmSync(base, { recursive: true, force: true });
+  }
+});
+
+test("configured memory home governs read, search, write, disable, and child registry", async () => {
+  const base = realpathSync(mkdtempSync(join(tmpdir(), "neko-memory-home-compose-")));
+  const root = join(base, "project");
+  const processHome = join(base, "process-home");
+  const configuredHome = join(base, "configured-home");
+  const previousHome = process.env.HOME;
+  const previousUserProfile = process.env.USERPROFILE;
+  try {
+    mkdirSync(root, { recursive: true });
+    for (const home of [processHome, configuredHome]) {
+      mkdirSync(join(home, ".neko-core", "memory"), { recursive: true });
+    }
+    writeFileSync(join(processHome, ".neko-core", "memory", "project.md"), "# Process home only\nA_MARKER\nAUNIQUEFACT\n", "utf8");
+    writeFileSync(join(configuredHome, ".neko-core", "memory", "project.md"), "# Configured home only\nB_MARKER\nBUNIQUEFACT\n", "utf8");
+    process.env.HOME = processHome;
+    process.env.USERPROFILE = processHome;
+    const cfg = new NekoConfig({}, null, {}, "", null, [], { state: "none", files: [] }, configuredHome);
+    const parent = configureToolRegistry(new ToolRegistry(root, "auto", () => true), cfg);
+
+    expect(await parent.execute("memory", { action: "read", name: "project" })).toContain("B_MARKER");
+    expect(await parent.execute("memory", { action: "search", query: "BUNIQUEFACT" })).toContain("project.md");
+    expect(await parent.execute("memory", { action: "search", query: "AUNIQUEFACT" })).toContain("no memory matches");
+    expect(await parent.execute("memory", { action: "write", name: "fresh", content: "# B-only note" })).toContain("Saved memory");
+    expect(await parent.execute("memory", { action: "read", name: "fresh" })).toContain("B-only note");
+    expect(existsSync(join(configuredHome, ".neko-core", "memory", "fresh.md"))).toBe(true);
+    expect(existsSync(join(processHome, ".neko-core", "memory", "fresh.md"))).toBe(false);
+
+    const child = inheritToolRegistrySettings(new ToolRegistry(root, "auto", () => true), parent);
+    expect(await child.execute("memory", { action: "read", name: "project" })).toContain("B_MARKER");
+    writeFileSync(join(configuredHome, ".neko-core", "memory", ".disabled"), "disabled\n", "utf8");
+    expect(await parent.execute("memory", { action: "read", name: "project" })).toContain("Memory is off");
+    expect(await child.execute("memory", { action: "read", name: "project" })).toContain("Memory is off");
+
+    const denied = configureToolRegistry(new ToolRegistry(root, "default", () => false), cfg);
+    expect(await denied.execute("memory", { action: "write", name: "denied", content: "no write" })).toContain("Denied by user");
+    expect(existsSync(join(configuredHome, ".neko-core", "memory", "denied.md"))).toBe(false);
+  } finally {
+    if (previousHome === undefined) delete process.env.HOME;
+    else process.env.HOME = previousHome;
+    if (previousUserProfile === undefined) delete process.env.USERPROFILE;
+    else process.env.USERPROFILE = previousUserProfile;
+    rmSync(base, { recursive: true, force: true });
+  }
+});
+test("shared composition refuses missing configured write roots", () => {
+  const base = mkdtempSync(join(tmpdir(), "neko-write-missing-"));
+  const home = join(base, "home");
+  const cfg = new NekoConfig(
+    { additional_write_roots: [join(base, "missing")] }, null, {}, "", null, [],
+    { state: "none", files: [] }, home,
+  );
+  expect(() => configureToolRegistry(new ToolRegistry(base, "auto", () => true), cfg))
+    .toThrow("directory does not exist");
+  rmSync(base, { recursive: true, force: true });
+});
+
+test("shared composition canonicalizes a parent alias but refuses an aliased grant leaf", () => {
+  const base = realpathSync(mkdtempSync(join(tmpdir(), "neko-write-alias-")));
+  const actualParent = join(base, "actual-parent");
+  const aliasParent = join(base, "parent-alias");
+  const actualExtra = join(base, "actual-extra");
+  const aliasExtra = join(base, "extra-alias");
+  mkdirSync(actualParent, { recursive: true });
+  mkdirSync(actualExtra, { recursive: true });
+  try {
+    symlinkSync(actualParent, aliasParent, process.platform === "win32" ? "junction" : "dir");
+    symlinkSync(actualExtra, aliasExtra, process.platform === "win32" ? "junction" : "dir");
+    const aliasedHome = join(aliasParent, "home");
+    const cfg = new NekoConfig({}, null, {}, "", null, [], { state: "none", files: [] }, aliasedHome);
+    const registry = configureToolRegistry(new ToolRegistry(base, "auto", () => true), cfg);
+    expect(registry.additionalWriteRoots).toEqual([
+      realpathSync.native(join(aliasedHome, ".neko-core", "research")),
+    ]);
+
+    const directAlias = new NekoConfig(
+      { additional_write_roots: [aliasExtra] }, null, {}, "", null, [],
+      { state: "none", files: [] }, join(actualParent, "separate-home"),
+    );
+    expect(() => configureToolRegistry(new ToolRegistry(base, "auto", () => true), directAlias))
+      .toThrow("must name a canonical directory");
+  } finally {
+    rmSync(base, { recursive: true, force: true });
+  }
+});
+
+test("shared registry composition wires native web and preserves every child safety boundary", () => {
+  const cfg = new NekoConfig({
+    allow_dangerous_bash: true,
+    sandbox: true,
+    sandbox_network: true,
+    vision: true,
+    computer_use_overlay: true,
+    computer_use_resident: false,
+    computer_use_input: "inject",
+    searxng_url: "http://search.local",
+    search_backend: "searxng",
+    scrape_backend: "jina",
+    hooks: { pre_tool_use: "pre", post_tool_use: "post" },
+  }, null, { custom: { key_env: "CUSTOM_PROVIDER_KEY" } }, "");
+  const parent = configureToolRegistry(new ToolRegistry(".", "auto", () => true), cfg);
+  parent.disabled.add("bash");
+  parent.checkAction = async () => ({ ok: true, reason: "safe" });
+  parent.summarize = async () => "summary";
+  parent.subagent = async () => "parent only";
+
+  expect(parent.web).toBeDefined();
+  expect(parent.vision).toBe(true);
+  expect(parent.sandboxBash).toBe(true);
+  expect(parent.sandboxAllowNetwork).toBe(true);
+  expect(parent.childSecretEnvNames).toContain("CUSTOM_PROVIDER_KEY");
+
+  const child = inheritToolRegistrySettings(new ToolRegistry(".", parent.mode, parent.prompt), parent);
+  expect(child.mcp).toBe(parent.mcp);
+  expect(child.web).toBe(parent.web);
+  expect(child.checkAction).toBe(parent.checkAction);
+  expect(child.summarize).toBe(parent.summarize);
+  expect(child.loadSkill).toBe(parent.loadSkill);
+  expect(child.disabled.has("bash")).toBe(true);
+  expect(child.allowDangerousBash).toBe(true);
+  expect(child.sandboxBash).toBe(true);
+  expect(child.sandboxAllowNetwork).toBe(true);
+  expect(child.presence).toBe(true);
+  expect(child.residentUia).toBe(false);
+  expect(child.inputBackend).toBe("inject");
+  expect(child.childSecretEnvNames).toEqual(parent.childSecretEnvNames);
+  expect(child.childSecretEnvNames).not.toBe(parent.childSecretEnvNames);
+  expect(child.subagent).toBeUndefined();
+});
+
+test("native web remains a fallback alongside namespaced MCP web tools", () => {
+  const mcp = {
+    toolSchemas: () => [{ type: "function", function: { name: "mcp__browser__web_search", parameters: {} } }],
+    has: () => false,
+    call: async () => "",
+  };
+  const cfg = new NekoConfig({}, null, {}, "");
+  const registry = configureToolRegistry(new ToolRegistry(".", "auto", () => true, mcp), cfg);
+  const names = registry.schemas().map((schema: any) => schema.function.name);
+  expect(names).toContain("web_search");
+  expect(names).toContain("mcp__browser__web_search");
+  expect(new Set(names).size).toBe(names.length);
+});
+
+test("reviewer capability boundary hides and refuses write/edit/bash while generic workers retain authority", async () => {
+  const root = mkdtempSync(join(tmpdir(), "neko-reviewer-"));
+  const parent = new ToolRegistry(root, "auto", () => true);
+  const reviewer = restrictToolRegistryForSubagent(
+    inheritToolRegistrySettings(new ToolRegistry(root, "auto", () => true), parent),
+    "reviewer",
+  );
+
+  expect(reviewer.schemas().map((schema: any) => schema.function.name)).toEqual(["read_file", "search"]);
+  expect(await reviewer.execute("write_file", { path: "blocked.txt", content: "blocked" })).toContain("not available");
+  expect(await reviewer.execute("edit", { path: "blocked.txt", old_string: "x", new_string: "y" })).toContain("not available");
+  expect(await reviewer.execute("bash", { command: "echo blocked" })).toContain("not available");
+  expect(existsSync(join(root, "blocked.txt"))).toBe(false);
+
+  const generic = restrictToolRegistryForSubagent(
+    inheritToolRegistrySettings(new ToolRegistry(root, "auto", () => true), parent),
+    undefined,
+  );
+  const genericNames = generic.schemas().map((schema: any) => schema.function.name);
+  expect(genericNames).toContain("write_file");
+  expect(genericNames).toContain("bash");
+  expect(genericNames).not.toContain("task");
+  expect(await generic.execute("bash", { command: "echo no", run_in_background: true }))
+    .toContain("background bash is unavailable in a sub-agent");
+});
+
+test("reviewer/explorer reads drop executable hooks while generic/custom workers retain them", async () => {
+  const root = mkdtempSync(join(tmpdir(), "neko-readonly-hooks-"));
+  writeFileSync(join(root, "source.txt"), "safe read");
+  const parent = new ToolRegistry(root, "auto", () => true);
+  parent.hooks = {
+    preToolUse: "echo pre>pre-hook.txt",
+    postToolUse: "echo post>post-hook.txt",
+  };
+
+  for (const type of ["reviewer", "explorer"]) {
+    const child = restrictToolRegistryForSubagent(
+      inheritToolRegistrySettings(new ToolRegistry(root, "auto", () => true), parent),
+      type,
+    );
+    expect(child.hooks).toBeUndefined();
+    expect(await child.execute("read_file", { path: "source.txt" })).toContain("safe read");
+  }
+  expect(existsSync(join(root, "pre-hook.txt"))).toBe(false);
+  expect(existsSync(join(root, "post-hook.txt"))).toBe(false);
+
+  const generic = restrictToolRegistryForSubagent(
+    inheritToolRegistrySettings(new ToolRegistry(root, "auto", () => true), parent),
+  );
+  expect(generic.hooks).toBe(parent.hooks);
+  expect(await generic.execute("read_file", { path: "source.txt" })).toContain("safe read");
+  expect(existsSync(join(root, "pre-hook.txt"))).toBe(true);
+  expect(existsSync(join(root, "post-hook.txt"))).toBe(true);
+
+  const custom = restrictToolRegistryForSubagent(
+    inheritToolRegistrySettings(new ToolRegistry(root, "auto", () => true), parent),
+    "custom-auditor",
+  );
+  expect(custom.hooks).toBe(parent.hooks);
+  rmSync(root, { recursive: true, force: true });
+});

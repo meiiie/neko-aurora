@@ -1,0 +1,197 @@
+import { expect, test } from "bun:test";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+
+import { describeToolCall, GATED, resolveTool, SAFE, toOpenAISchema, toolSchemas } from "../src/core/tools.ts";
+import { ToolRegistry } from "../src/core/tool-runtime.ts";
+
+test("read_file refuses a path that escapes the root THROUGH a symlink (not just lexical ../)", async () => {
+  const root = mkdtempSync(join(tmpdir(), "nk-root-"));
+  const outside = mkdtempSync(join(tmpdir(), "nk-outside-"));
+  writeFileSync(join(outside, "secret.txt"), "TOPSECRET");
+  let linked = false;
+  // a 'junction' (dir symlink) needs no admin on Windows; skip if the platform still refuses.
+  try { symlinkSync(outside, join(root, "link"), "junction"); linked = true; } catch { /* no symlink perm */ }
+  if (!linked) return;
+  const tools = new ToolRegistry(root, "auto", () => true);
+  const res = String(await tools.execute("read_file", { path: "link/secret.txt" }));
+  expect(res).toMatch(/escapes project root/i); // refused
+  expect(res).not.toContain("TOPSECRET"); // and never leaked the file
+});
+
+test("noTools (perception mode) exposes NO tool schemas — vision-only endpoints reject tool-calling", () => {
+  const r = new ToolRegistry(process.cwd(), "auto", () => true);
+  expect(r.schemas().length).toBeGreaterThan(0);
+  r.noTools = true;
+  expect(r.schemas()).toEqual([]);
+});
+
+test("computer action validates inputs deterministically (no NaN/garbage reaches PowerShell)", async () => {
+  const tools = new ToolRegistry(process.cwd(), "auto", () => true);
+  if (process.platform !== "win32") {
+    // The computer tool drives Windows UI Automation; elsewhere it must refuse UP FRONT with a clear
+    // platform message (not a confusing validation error for a tool that can't run anyway).
+    expect(String(await tools.execute("computer", { action: "click" }))).toContain("Windows-only");
+    return;
+  }
+  expect(tools.computerInputPolicy).toBe("background");
+  tools.computerInputPolicy = "foreground";
+  let helperDispatchReads = 0;
+  tools.loadSkill = () => ({ body: "", get dir(): string {
+    helperDispatchReads++;
+    throw new Error("Malformed input reached computer helper dispatch");
+  } });
+  // Every malformed case returns before temporary payloads or native helper dispatch.
+  expect(String(await tools.execute("computer", { action: "click" }))).toContain("numeric");
+  expect(String(await tools.execute("computer", { action: "click", x: "abc", y: 5 }))).toContain("numeric");
+  expect(String(await tools.execute("computer", { action: "stroke", points: [1, 2, "x", 4] }))).toContain("NUMBERS");
+  expect(String(await tools.execute("computer", { action: "invoke" }))).toContain("needs 'name'");
+  expect(String(await tools.execute("computer", { action: "type" }))).toContain("needs non-empty 'text'");
+  expect(String(await tools.execute("computer", { action: "key" }))).toContain("needs 'keys'");
+  expect(String(await tools.execute("computer", { action: "scroll", direction: "sideways" }))).toContain("up | down | left | right");
+  expect(String(await tools.execute("computer", { action: "scroll", direction: "down", amount: 11 }))).toContain("integer from 1 to 10");
+  expect(String(await tools.execute("computer", { action: "wait", duration_ms: -1 }))).toContain("0 to 10000");
+  expect(String(await tools.execute("computer", { action: "open" }))).toContain("needs 'target'");
+  expect(String(await tools.execute("computer", { action: "bogus" }))).toContain("Unknown computer action");
+  expect(helperDispatchReads).toBe(0);
+});
+
+test("computer wait and display dispatch through deterministic one-shot helpers", async () => {
+  if (process.platform !== "win32") return;
+  const root = mkdtempSync(join(tmpdir(), "nk-computer-root-"));
+  try {
+    const skill = join(root, "computer-use");
+    const scripts = join(skill, "scripts");
+    mkdirSync(scripts, { recursive: true });
+    writeFileSync(join(scripts, "input.ps1"), [
+      "# neko-computer-input-policy-v1",
+      "param([string]$action, [string]$unused, [string]$duration)",
+      'if ($action -eq "wait") { Write-Output ("waited {0} ms" -f $duration) }',
+    ].join("\n"));
+    writeFileSync(
+      join(scripts, "display.ps1"),
+      'Write-Output "screen=1920x1080 coordinate_space=physical_px dpi_awareness=per-monitor-v2"',
+    );
+
+    const tools = new ToolRegistry(root, "auto", () => true);
+    tools.loadSkill = () => ({ body: "", dir: skill });
+    tools.residentUia = false;
+    expect(String(await tools.execute("computer", { action: "wait", duration_ms: 1 }))).toContain("waited 1 ms");
+    expect(String(await tools.execute("computer", { action: "display" }))).toMatch(/coordinate_space=physical_px.*per-monitor-v2/);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+}, 15_000);
+
+test("computer screenshot embeds vision bytes, while text-only mode keeps the helper path", async () => {
+  if (process.platform !== "win32") return;
+  const root = mkdtempSync(join(tmpdir(), "nk-shot-root-"));
+  const skill = join(root, "computer-use");
+  const scripts = join(skill, "scripts");
+  mkdirSync(scripts, { recursive: true });
+  // A deterministic 1x1 GIF avoids reading the developer's real desktop in the unit suite.
+  writeFileSync(join(scripts, "screenshot.ps1"), [
+    'param([string]$out)',
+    '[IO.File]::WriteAllBytes($out,[Convert]::FromBase64String("R0lGODlhAQABAIAAAAAAAP///ywAAAAAAQABAAACAUwAOw=="))',
+    '[IO.File]::WriteAllText((Join-Path $PSScriptRoot "capture-path.txt"),$out)',
+    'Write-Output ("saved $out view=1x1 screen=1x1 scale=1")',
+  ].join("\n"));
+  const tools = new ToolRegistry(root, "auto", () => true);
+  tools.loadSkill = () => ({ body: "", dir: skill });
+  // This fixture exercises the deterministic one-shot screenshot adapter. Resident-host startup and
+  // fallback have dedicated tests; probing a missing resident-uia.ps1 twice made this 5s test timing-flaky.
+  tools.residentUia = false;
+  const textOnly = String(await tools.execute("computer", { action: "screenshot" }));
+  const fallbackPath = textOnly.match(/^saved\s+(.+?)\s+view=/)?.[1];
+  expect(fallbackPath).toBeTruthy();
+  expect(existsSync(fallbackPath!)).toBe(true); // separate vision helper can consume it
+  rmSync(fallbackPath!, { force: true });
+
+  tools.vision = true;
+  const result = await tools.execute("computer", { action: "screenshot" });
+  expect(Array.isArray(result)).toBe(true);
+  // SAFETY: test-built fixture; the asserted shape is exactly what this test constructs.
+  const parts = result as any[];
+  expect(parts.find((p) => p.type === "text").text).toContain("captured view=1x1 screen=1x1 scale=1");
+  expect(parts.find((p) => p.type === "image_url").image_url.url).toContain("data:image/gif;base64,");
+  const stalePath = parts.find((p) => p.type === "text").text.match(/neko_shot_\d+\.gif/)?.[0];
+  expect(stalePath).toBeUndefined(); // dead temp paths are not advertised to the model
+  const capturePath = readFileSync(join(scripts, "capture-path.txt"), "utf8");
+  expect(existsSync(capturePath)).toBe(false); // bytes are embedded before finally removes the file
+}, 15_000); // two real no-profile PowerShell launches; Bun's 5s default has no process-startup headroom
+
+test("describeToolCall uses Claude-style labels + primary arg", () => {
+  expect(describeToolCall("read_file", { path: "src/a.ts" })).toBe("Read(src/a.ts)");
+  expect(describeToolCall("edit", { path: "a.ts" })).toBe("Update(a.ts)");
+  expect(describeToolCall("bash", { command: "bun test" })).toBe("Bash(bun test)");
+  expect(describeToolCall("ls", {})).toBe("List");
+  expect(describeToolCall("todo_write", { todos: [] })).toBe("Update Todos");
+  expect(describeToolCall("web_search", { query: "x" })).toBe("WebSearch(x)");
+  expect(describeToolCall("web_fetch", { url: "http://x.io" })).toBe("Fetch(http://x.io)");
+  expect(describeToolCall("network_probe", { target: "example.com", ports: [443] })).toBe("NetworkProbe(example.com)");
+});
+
+test("schema shape", () => {
+  const s = toOpenAISchema(resolveTool("read_file"));
+  expect(s.type).toBe("function");
+  expect(s.function.name).toBe("read_file");
+  expect(s.function.parameters.required).toEqual(["path"]);
+
+  const bash = toOpenAISchema(resolveTool("bash"));
+  expect(bash.function.parameters.properties.network_domains).toMatchObject({
+    type: "array",
+    maxItems: 16,
+    items: { type: "string" },
+  });
+  expect(bash.function.description).toContain("network_domains");
+
+  const computer = toOpenAISchema(resolveTool("computer"));
+  expect(computer.function.parameters.properties.action.enum).toContain("watch");
+  expect(computer.function.parameters.properties.mark.type).toBe("integer");
+  expect(computer.function.parameters.properties.settle_ms.type).toBe("number");
+});
+
+test("tool order", () => {
+  const expected = [
+    "read_file", "source_lookup", "search", "glob", "ls", "disk_cleanup_scan", "network_probe", "write_file", "edit", "multi_edit", "bash", "computer", "todo_write",
+    "web_search", "web_fetch", "exit_plan_mode", "task", "memory", "skill", "workflow", "playbook",
+  ];
+  if (process.platform !== "win32") {
+    expected.splice(expected.indexOf("disk_cleanup_scan"), 1);
+    expected.splice(expected.indexOf("computer"), 1);
+  }
+  expect(toolSchemas().map((t: any) => t.function.name)).toEqual(expected);
+});
+
+test("tool schemas hide Windows-only computer control on other platforms", () => {
+  expect(toolSchemas("linux").map((t: any) => t.function.name)).not.toContain("computer");
+  expect(toolSchemas("linux").map((t: any) => t.function.name)).not.toContain("disk_cleanup_scan");
+  expect(toolSchemas("win32").map((t: any) => t.function.name)).toContain("computer");
+  expect(toolSchemas("win32").map((t: any) => t.function.name)).toContain("disk_cleanup_scan");
+});
+
+test("resolve unknown throws", () => {
+  expect(() => resolveTool("nope")).toThrow();
+});
+
+test("permission classes", () => {
+  expect(resolveTool("read_file").permission).toBe(SAFE);
+  expect(resolveTool("glob").permission).toBe(SAFE);
+  expect(resolveTool("disk_cleanup_scan").permission).toBe(SAFE);
+  expect(resolveTool("write_file").permission).toBe(GATED);
+  expect(resolveTool("edit").permission).toBe(GATED);
+  expect(resolveTool("computer").permission).toBe(GATED);
+  expect(resolveTool("task").permission).toBe(GATED);
+});
+
+test("describeToolCall honestTruncate keeps path/command tail", () => {
+  const cmd = "bash -lc 'echo START; for i in 1 2 3; do echo item-$i; done; printf \"%s\\n\" very-long-path-/workspace/research/neko-ux-playground/raise-bar-13/notes/order.txt-with-extra-suffix-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa'";
+  const label = describeToolCall("bash", { command: cmd });
+  expect(label.startsWith("Bash(")).toBe(true);
+  expect(label).toContain("…");
+  // Tail of the distinctive suffix must remain (mid-arg-only cut hid it as ve…).
+  expect(label).toMatch(/a{8,}/);
+  expect(label).not.toContain("ve…");
+  expect(label.length).toBeLessThanOrEqual("Bash(".length + 80 + 1);
+});

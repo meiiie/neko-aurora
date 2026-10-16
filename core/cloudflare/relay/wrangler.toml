@@ -1,0 +1,23 @@
+name = "neko-relay"
+main = "worker.js"
+compatibility_date = "2026-07-11"
+workers_dev = true # universal bootstrap/rollback endpoint; operators may attach their own Custom Domain
+
+[observability]
+enabled = true
+head_sampling_rate = 0.1
+
+# Serve client.html as a text module (imported by worker.js).
+[[rules]]
+type = "Text"
+globs = ["**/*.html"]
+fallthrough = true
+
+# One Durable Object per session holds the queue + long-poll waiters.
+[[durable_objects.bindings]]
+name = "RELAY"
+class_name = "RelaySession"
+
+[[migrations]]
+tag = "v1"
+new_sqlite_classes = ["RelaySession"]   # SQLite-backed DO = works on the FREE Workers plan

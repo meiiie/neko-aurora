@@ -1,0 +1,9 @@
+# Local effect receipts after cancellation
+
+Independent audit of 3cb9b6f reproduced a service-wide startup failure: an artifact intent was journaled, exclusive file creation failed, then cancellation changed the task status while its operation remained started. Recovery and replay incorrectly required running work for receipt reconciliation.
+
+Receipt reconciliation now accepts every existing task lifecycle status. It changes only the operation receipt and, for exact bytes matching the committed hash and length, the artifact receipt. It retains task status, desired state, epoch, Core binding, reply and cancellation fence. Missing, unreadable or partial bytes produce an unknown receipt; they are never retried or reported as a saved file. A cancelled task can therefore retain a truthful receipt for an effect already performed without resuming its agent or publishing a new agent reply.
+
+New completed events carry completionVersion 1 and require all operations completed. Finish rejects started or unknown outcomes. The original unversioned completion events remain readable because earlier app versions could legitimately write the invalid terminal combination. Recovery reconciles their receipts without rewriting the historical task outcome or treating the old bug as journal corruption. Non-completion events cannot carry the completion marker.
+
+Tests exercise forced exclusive-create failure followed by cancellation with exact, missing and partial bytes, three reopen/recovery cycles and unrelated intake; rejection of unresolved completion and forged new completion; and repeated recovery of legacy completed work with an unresolved effect. These tests verify the local journal and host artifact store. They do not establish cloud synchronization or rollback of an external effect.

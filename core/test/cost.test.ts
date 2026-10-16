@@ -1,0 +1,139 @@
+import { expect, test } from "bun:test";
+
+import { CostTracker, effectiveContextTokens } from "../src/core/cost.ts";
+
+// CostTracker.add() has three real branches that nothing exercised before:
+//  - the `if (!usage) return;` no-op
+//  - `total_tokens ?? prompt + completion` (fallback when the provider omits total)
+//  - the `!== undefined` guards that decide whether lastPrompt/lastCompletion advance
+// These are pure and model-agnostic, so they're exactly the kind of thing that should
+// stay locked by a deterministic unit test rather than a live provider call.
+test("CostTracker.add handles missing usage, total fallback, and partial fields", () => {
+  const t = new CostTracker();
+
+  // no usage -> a strict no-op: counters and per-call snapshots must not move
+  t.add(undefined);
+  expect(t.calls).toBe(0);
+  expect(t.totalTokens).toBe(0);
+  expect(t.lastPrompt).toBe(0);
+  expect(t.lastCompletion).toBe(0);
+
+  // only prompt_tokens given -> total falls back to prompt+completion; lastCompletion stays put
+  t.add({ prompt_tokens: 100 });
+  expect(t.calls).toBe(1);
+  expect(t.promptTokens).toBe(100);
+  expect(t.completionTokens).toBe(0);
+  expect(t.totalTokens).toBe(100); // 100 + 0 fallback, NOT undefined/NaN
+  expect(t.lastPrompt).toBe(100);
+  expect(t.lastCompletion).toBe(0); // guard held: no completion field -> not advanced
+
+  // explicit total_tokens wins over the prompt+completion sum
+  t.add({ prompt_tokens: 50, completion_tokens: 20, total_tokens: 999 });
+  expect(t.calls).toBe(2);
+  expect(t.totalTokens).toBe(1099); // 100 + 999, the explicit value, not 100 + 70
+  expect(t.lastPrompt).toBe(50);
+  expect(t.lastCompletion).toBe(20);
+  expect(t.summary()).toContain("last request: 50 input / 20 output");
+  expect(t.summary()).toContain("session cumulative is not one prompt");
+  expect(t.summary()).toContain("tokens only — Neko does not estimate USD");
+});
+
+test("CostTracker rejects malformed negative/NaN counters and clamps cached input to the prompt", () => {
+  const t = new CostTracker();
+  t.add({ prompt_tokens: 100, completion_tokens: Number.NaN, total_tokens: -1, cached_tokens: 500 });
+  expect(t.promptTokens).toBe(100);
+  expect(t.completionTokens).toBe(0);
+  expect(t.totalTokens).toBe(100);
+  expect(t.cachedTokens).toBe(100);
+  expect(t.summary()).toContain("100% of in");
+});
+
+// Cache-read accounting is provider-shape-agnostic: the anthropic adapter reports a flat
+// `cached_tokens`, OpenAI-compatible endpoints report `prompt_tokens_details.cached_tokens`
+// (forwarded verbatim by providers.ts). Both must land in the same counter so /cost and the
+// bench can report a real prefix-cache hit rate.
+test("CostTracker counts cached tokens from both usage shapes and reports the hit rate", () => {
+  const t = new CostTracker();
+  t.add({ prompt_tokens: 100, completion_tokens: 10, cached_tokens: 80 }); // anthropic-adapter shape
+  expect(t.cachedTokens).toBe(80);
+  expect(t.lastCached).toBe(80);
+  t.add({ prompt_tokens: 200, completion_tokens: 10, prompt_tokens_details: { cached_tokens: 150 } }); // OpenAI shape
+  expect(t.cachedTokens).toBe(230);
+  expect(t.lastCached).toBe(150);
+  t.add({ prompt_tokens: 100, completion_tokens: 10, prompt_cache_hit_tokens: 60 }); // DeepSeek shape
+  expect(t.cachedTokens).toBe(290);
+  // SAFETY: test-built fixture/bridge; fields are exactly what this test controls.
+  t.add({ prompt_tokens: 100, completion_tokens: 10, prompt_tokens_details: null as any }); // NVIDIA sends null details -> safe 0
+  expect(t.cachedTokens).toBe(290);
+  t.add({ prompt_tokens: 50, completion_tokens: 5 }); // no cache info -> lastCached resets, total holds
+  expect(t.cachedTokens).toBe(290);
+  expect(t.lastCached).toBe(0);
+  expect(t.summary()).toContain("290 cached"); // surfaced, with a share of prompt tokens
+  const noCache = new CostTracker();
+  noCache.add({ prompt_tokens: 10, completion_tokens: 1 });
+  expect(noCache.summary()).not.toContain("cached"); // silent when the provider reports none
+});
+
+test("CostTracker reports cache writes separately without inflating context tokens", () => {
+  const t = new CostTracker();
+  t.add({ prompt_tokens: 100, completion_tokens: 5, cache_write_tokens: 80 });
+  expect(t.cacheWriteTokens).toBe(80);
+  expect(t.lastCacheWrite).toBe(80);
+  expect(t.totalTokens).toBe(105);
+  expect(t.summary()).toContain("80 cache-written");
+});
+
+test("CostTracker never reports an aggregated cache sum as larger than the live last request", () => {
+  const t = new CostTracker();
+  t.add({
+    prompt_tokens: 360,
+    completion_tokens: 45,
+    cached_tokens: 200,
+    context_tokens: 140,
+    context_cached_tokens: 110,
+    model_calls: 3,
+  });
+  expect(t.cachedTokens).toBe(200);
+  expect(t.lastPrompt).toBe(140);
+  expect(t.lastCached).toBe(110);
+  expect(t.summary()).toContain("last request: 140 input / 45 output (110 input cached)");
+
+  const legacy = new CostTracker();
+  legacy.add({ prompt_tokens: 360, cached_tokens: 200, context_tokens: 140, model_calls: 3 });
+  expect(legacy.lastCached).toBe(140); // old aggregate shape is clamped, never displayed as impossible
+});
+
+
+test("effectiveContextTokens prefers the larger of provider last-prompt and local estimate", () => {
+  expect(effectiveContextTokens(53, 12_000)).toBe(12_000);
+  expect(effectiveContextTokens(20_000, 12_000)).toBe(20_000);
+  expect(effectiveContextTokens(0, 0)).toBe(0);
+  // SAFETY: deliberately invalid numeric wire input; NaN must fall through to the estimate.
+  expect(effectiveContextTokens(Number.NaN as any, 100)).toBe(100);
+});
+
+test("CostTracker.summary surfaces live context estimate when provider under-reports", () => {
+  const t = new CostTracker();
+  t.add({ prompt_tokens: 53, completion_tokens: 95 });
+  const text = t.summary({ contextEstimate: 18_000 });
+  expect(text).toContain("last request: 53 input / 95 output");
+  expect(text).toContain("live context estimate: ~18000 tokens");
+  expect(t.summary()).not.toContain("live context estimate");
+});
+
+test("CostTracker snapshot round-trips through restore for session resume", () => {
+  const t = new CostTracker();
+  t.add({ prompt_tokens: 1000, completion_tokens: 40, cached_tokens: 100, model_calls: 2 });
+  t.add({ prompt_tokens: 1100, completion_tokens: 20, context_tokens: 900 });
+  const snap = t.snapshot();
+  expect(snap.calls).toBe(3);
+  expect(snap.promptTokens).toBe(2100);
+  const fresh = new CostTracker();
+  fresh.restore(snap);
+  expect(fresh.snapshot()).toEqual(snap);
+  // SAFETY: deliberately malformed snapshot; restore must ignore negative promptTokens.
+  fresh.restore({ ...snap, promptTokens: -1 } as any); // malformed: ignored
+  expect(fresh.promptTokens).toBe(2100);
+  fresh.restore(null);
+  expect(fresh.totalTokens).toBe(snap.totalTokens);
+});

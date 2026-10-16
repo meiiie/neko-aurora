@@ -1,0 +1,1565 @@
+/**
+ * Slash-command handling for the REPL, separated from the React component. Each command acts
+ * on the REPL through CommandCtx (the command API surface), so chat.tsx stays the lifecycle +
+ * render, and this file owns "what the commands do".
+ */
+import type { Agent } from "../core/agent.ts";
+import { COMPACT_AT, estimateRequestTokens } from "../core/agent.ts";
+import { effectiveContextTokens } from "../core/cost.ts";
+import { renderCompletionContract } from "../core/completion-contract.ts";
+import { loadConfig, type NekoConfig } from "../adapters/config.ts";
+import { rememberNote, renderContext } from "../adapters/context.ts";
+import { initProject } from "../adapters/project.ts";
+import { getProvider, listModelOptions, type ModelOption } from "../adapters/providers.ts";
+import { patchUserConfig, setActiveProfile, setEffort, setModel } from "../adapters/project.ts";
+import { fillRecipe, listRecipes, loadRecipe } from "../adapters/recipes.ts";
+import { listSessionMetas, loadSession, renameSession, sessionTitle, type Session } from "../adapters/session.ts";
+import { SessionHandoffStore } from "../adapters/session-handoff.ts";
+import { terminalSafeText } from "../shared/terminal-text.ts";
+import { listSkills, loadSkill } from "../adapters/skills.ts";
+import type { ToolRegistry } from "../core/tool-runtime.ts";
+import { listTools } from "../core/tools.ts";
+import { deleteMemoryFile, listMemories, memoryEnabled, memoryTool, readMemoryFile, setMemoryEnabled } from "../core/memory.ts";
+import { fmtBytes, relativeTime, trunc } from "./format.ts";
+import type { Overlay } from "./select-list.tsx";
+import type { Line, LineKind } from "./transcript.tsx";
+import { clearChatGptCredentials, hasChatGptCredentials, openBrowser } from "../adapters/chatgpt-auth.ts";
+import { authChoices, profileDisplayName, providerChoices } from "../adapters/provider-choice.ts";
+import { getChatGptUsage, type ChatGptUsageReport, type ChatGptUsageWindow } from "../adapters/chatgpt-provider.ts";
+import { discoverCodexSupport } from "../adapters/codex-app-server.ts";
+import { installCodexSupportPack, readCodexSupportPack, removeCodexSupportPack } from "../adapters/codex-support-pack.ts";
+import { clearGeminiCredentials, discoverGeminiCli, hasGeminiCredentials } from "../adapters/gemini-cli.ts";
+import { hasGrokCredentials } from "../adapters/grok-auth.ts";
+import { hasKimiCredentials } from "../adapters/kimi-auth.ts";
+import { hasOpenCodeCredentials } from "../adapters/opencode-auth.ts";
+import { hasClineCredentials } from "../adapters/cline-auth.ts";
+import { installGeminiSupportPack, readGeminiSupportPack, removeGeminiSupportPack } from "../adapters/gemini-support-pack.ts";
+import { discoverLibreOffice } from "../adapters/libreoffice.ts";
+import { discoverOfficeCli, installOfficeSupportPack, readOfficeSupportPack, removeOfficeSupportPack } from "../adapters/office-support-pack.ts";
+import { getLastGeminiUsage } from "../adapters/gemini-provider.ts";
+import { getChatGptVoiceUsage } from "../adapters/chatgpt-voice.ts";
+import { clampEffort, effortSuggestions, isEffortName, resolveEffort } from "../adapters/effort.ts";
+import { browserBridgeStage, readBrowserCapability, readBrowserBridgeStatus, withBrowserBridge } from "../adapters/browser-bridge.ts";
+import { activeBrowserMeeting, startBrowserMeeting, stopBrowserMeeting } from "../adapters/browser-meeting.ts";
+import { discoverMeetingSupport, installMeetingSupportPack, readMeetingSupportPack, removeMeetingSupportPack } from "../adapters/meeting-support-pack.ts";
+import { deleteMeeting, formatMeetingTime, latestMeeting, listMeetings, readMeeting, readMeetingTranscript, type MeetingManifest } from "../adapters/meeting.ts";
+import { transcribeMeeting } from "../adapters/meeting-transcription.ts";
+import { detectSandbox, normalizeSandboxDomains, type SandboxKind } from "../core/sandbox.ts";
+import { messageOf } from "../shared/debug.ts";
+import type { FeedbackLogLine } from "../adapters/feedback.ts";
+import { openFeedback } from "./feedback-flow.ts";
+import type { FeedbackReport } from "../shared/feedback-wire.ts";
+
+import { isBool, isText } from "../shared/wire.ts";
+
+/** Model instruction for /continue. Kept as one constant so the TUI can show `/continue` in the
+ * transcript while still sending this full controller prompt (tagged `_neko_internal`). */
+export const CONTINUE_PROMPT =
+  "Continue the task from where it was interrupted. Review your current todo list and the recent " +
+  "tool results above, then resume the FIRST incomplete todo and keep working until every todo is " +
+  "done. If a tool call was cut off, re-run it. Do NOT restart from scratch or re-ask what the task " +
+  "is - it is already established above.";
+
+/** Tips shown in the /help overlay description (not dumped into the transcript). */
+export const HELP_TIPS = [
+  "Input: @path adds a file; end a line with \\ for multiline; # saves a memory note.",
+  "Editing: Left/Right move the cursor, Ctrl+A/Ctrl+E start/end, Ctrl+W delete word, Ctrl+U clear line, Ctrl+G external editor.",
+  "Keys: Shift+Tab cycle mode · Up/Down history · Alt+C copy draft · Alt+V paste image · Ctrl+O expand · Ctrl+B bash to background · Ctrl+L clear.",
+  "Modes: Shift+Tab cycles default|accept-edits|plan|auto — auto allows outside writes + computer; destructive bash still asks. --yolo/--always-approve skips remaining prompts (not a classifier; Ctrl+O stays expand).",
+  "Esc: clear input (idle) or interrupt a running turn. Ctrl+C: clear input, then again to quit.",
+  "Caret: set caret_glyph (bar/block/underline/thin-block) or NEKO_CARET if the cursor glyph looks offset.",
+].join(" · ");
+
+/** Compact help text kept for tests/benches that still assert the classic dump shape. Prefer the
+ * ephemeral /help overlay in the live REPL so the task trail is not permanently crowded. */
+export const HELP = [
+  "Commands:",
+  "  /help /cost /usage /voice /model /provider /support /browser /meeting /tools /skill(s) /init /clear /compact /transcript /reset /exit",
+  "  /goal <text> · /loop <n> <task> · /auto <goal> · /contract · /sessions · /resume · /handoff · /continue · /retry · /effort · /context",
+  "  /mcp · /mcp-prompt · /recipe(s) · /memory · /remember · /paste · /rc · /relay · /coach · /login · /logout · /feedback",
+  "Input: @path adds a file; end a line with \\ for multiline; # saves a memory note.",
+    "Editing: Left/Right move the cursor, Ctrl+A/Ctrl+E start/end, Ctrl+W delete word, Ctrl+U clear line, Ctrl+G external editor.",
+    "Keys: Shift+Tab cycle mode · Up/Down history · Alt+C copy draft · Alt+V paste image · Ctrl+O expand · Ctrl+B bash to background · Ctrl+L clear.",
+    "Modes: Shift+Tab cycles default|accept-edits|plan|auto — auto allows outside writes + computer; destructive bash still asks. --yolo/--always-approve skips remaining prompts (not a classifier; Ctrl+O stays expand).",
+    "Esc: clear input (idle) or interrupt a running turn. Ctrl+C: clear input, then again to quit.",
+    "Caret: set caret_glyph (bar/block/underline/thin-block) or NEKO_CARET if the cursor glyph looks offset.",
+].join("\n");
+
+export const SLASH: { name: string; desc: string }[] = [
+  { name: "/help", desc: "show help" },
+  { name: "/feedback", desc: "add notes, review session logs, and send private email feedback" },
+  { name: "/cost", desc: "session token totals (not USD) vs the last model request" },
+  { name: "/usage", desc: "subscription/session quota and token usage for the active account" },
+  { name: "/voice", desc: "terminal GPT-Live, browser compatibility, ChatGPT, or dictation" },
+  { name: "/model", desc: "switch model or provider (/model list · /model <id>)" },
+  { name: "/provider", desc: "switch provider (account) then pick its model - picker or /provider <name>" },
+  { name: "/support", desc: "manage optional model and Office components" },
+  { name: "/browser", desc: "connect a signed-in Chrome tab (guided setup/status)" },
+  { name: "/meeting", desc: "consented local meeting capture, transcription, and evidence" },
+  { name: "/tools", desc: "list / toggle tools (/tools bash)" },
+  { name: "/skill", desc: "load a skill (/skill name) · /skills to list" },
+  { name: "/init", desc: "scaffold ./.neko-core/config.json" },
+  { name: "/clear", desc: "clear transcript + context" },
+  { name: "/compact", desc: "summarize the conversation to free context" },
+  { name: "/transcript", desc: "scroll + search the full conversation (incl. earlier resumed lines)" },
+  { name: "/copy", desc: "copy the last response to the clipboard (/copy all = whole conversation)" },
+  { name: "/fps", desc: "UI frame rate: auto-follow your display or set 30..240 (/fps [auto|n])" },
+  { name: "/title", desc: "name this session + pin the terminal tab title (/title <name>)" },
+  { name: "/goal", desc: "set an ongoing goal (/goal <text>)" },
+  { name: "/loop", desc: "run a task N times (/loop <n> <task>)" },
+  { name: "/auto", desc: "closed loop: work + self-review until done (/auto <goal>)" },
+  { name: "/contract", desc: "show the active completion contract and independent verdict" },
+  { name: "/sessions", desc: "list saved sessions here" },
+  { name: "/resume", desc: "resume a session (/resume [id|all]; Ctrl+A in the picker flips scope)" },
+  { name: "/task", desc: "explicit task session (/task new|use|list|status|resume)" },
+  { name: "/handoff", desc: "send/list summary-only messages for this session" },
+  { name: "/continue", desc: "pick up an interrupted task where it left off" },
+  { name: "/retry", desc: "re-run the last message (e.g. after an error)" },
+  { name: "/effort", desc: "model-aware reasoning preference (/effort <level>|default|list)" },
+  { name: "/context", desc: "window capacity, last request, and next-request estimate" },
+  { name: "/memory", desc: "inspect/control local memory (/memory [on|off|list|read|forget|identity])" },
+  { name: "/remember", desc: "save a project note or explicit cross-project user observation" },
+  { name: "/recipe", desc: "run a saved recipe (/recipe <name> [args])" },
+  { name: "/recipes", desc: "list saved recipes" },
+  { name: "/mcp", desc: "list connected MCP tools + prompts" },
+  { name: "/mcp-prompt", desc: "run an MCP prompt (/mcp-prompt <server> <name> [k=v])" },
+  { name: "/paste", desc: "attach an image from the clipboard (or Alt+V)" },
+  { name: "/remote-control", desc: "toggle a local HTTP control server (/rc) - drive Neko from elsewhere" },
+  { name: "/relay", desc: "drive multiple Neko sessions from your phone (live + E2E; /relay new rotates)" },
+  { name: "/coach", desc: "photo coach: your phone films, Neko watches and speaks posing cues (/coach status, /coach stop)" },
+  { name: "/login", desc: "connect/update credentials; use /provider to switch" },
+  { name: "/logout", desc: "sign out the active auth route only" },
+  { name: "/rewind", desc: "undo the last turn (restore context + revert this turn's file edits)" },
+  { name: "/bashes", desc: "list background bash tasks (Ctrl+B to background a running one)" },
+  { name: "/reset", desc: "reset conversation context" },
+  { name: "/exit", desc: "quit" },
+  { name: "/sandbox", desc: "show or set sandbox network policy (consent required)" },
+];
+
+/** Conservative, model-free routing for tasks that need an interactive or signed-in browser tab. */
+export function isInteractiveBrowserRequest(input: string): boolean {
+  const text = input
+    .normalize("NFKD")
+    .replace(/\p{Mark}/gu, "")
+    .toLowerCase()
+    .replace(/\s+/g, " ")
+    .trim();
+  if (!text || text.startsWith("/")) return false;
+
+  const signedInSite = /\b(facebook|x\.com|twitter|gmail|zalo|wechat|linkedin|instagram|tiktok|notion|google (?:docs|drive))\b/.test(text);
+  const browserTarget = /\b(browser|chrome|chromium|edge|trinh duyet|tab|website|trang web)\b/.test(text);
+  const browserAction = /\b(browse|open|use|control|navigate|visit|read|check|sign in|login|duyet|luot|mo|dung|dieu khien|truy cap|doc|kiem tra|dang nhap)\b/.test(text);
+  const explicitWebBrowse = /\b(?:browse (?:the )?web|duyet web|luot web)\b/.test(text);
+  return explicitWebBrowse || (browserAction && (browserTarget || signedInSite));
+}
+
+/** What a command may do to the REPL. */
+export interface CommandCtx {
+  cfg: NekoConfig;
+  agent: Agent;
+  registry: ToolRegistry;
+  busy: boolean;
+  queue: string[];
+  addLine: (kind: LineKind, text: string) => void;
+  setLines: (lines: Line[]) => void;
+  nextId: () => number;
+  setOverlay: (o: Overlay | null) => void;
+  feedbackLog?: () => FeedbackLogLine[];
+  feedbackDiagnostics?: () => FeedbackLogLine[];
+  previewFeedback?: (text: string, onClose: () => void) => void;
+  submitFeedback?: (report: FeedbackReport, savedPath: string) => Promise<void>;
+  setBusy: (b: boolean) => void;
+  installChatGptSupport?: typeof installCodexSupportPack;
+  setQueued: (n: number) => void;
+  resumeInto: (s: Session) => void;
+  currentSessionId: string;
+  persistSession: () => void;
+  runText: (text: string, internal?: boolean) => void;
+  compact: (reason: "manual" | "auto" | "resume") => Promise<string>; // shows the compacting progress bar
+  openTranscript: () => void; // open the full-thread scroll+search viewer (/transcript)
+  copy: (arg: string) => void; // copy last response / whole conversation to the clipboard (OSC 52)
+  setFps: (choice: number | "auto") => void; // /fps: persist + apply the UI frame rate
+  setTitle: (name: string) => void; // /title: name the session + pin the tab title
+  setupBrowser?: () => Promise<string>; // /browser: open consented Store/local setup and start the bridge
+  exit: () => void;
+}
+
+/** Local /sandbox status, with native Bash attestation kept separate from local primitive discovery. */
+export function sandboxCommandStatus(
+  enabled: boolean,
+  kind: SandboxKind,
+  native: "local" | "attested" | "unattested" = "local",
+): string {
+  if (!enabled) return "off";
+  if (native === "attested") return "on (native backend-enforced)";
+  if (native === "unattested") return "on (native backend lacks sandbox attestation; bash FAILS CLOSED)";
+  return kind === "none"
+    ? "on (requested but unavailable; no trusted OS primitive; bash FAILS CLOSED; no host fallback)"
+    : `on (${kind})`;
+}
+
+/** The last two path segments - enough to tell projects apart without eating the row. */
+function folderTail(cwd: string): string {
+  const parts = cwd.replace(/\\/g, "/").split("/").filter(Boolean);
+  return terminalSafeText(parts.slice(-2).join("/") || cwd, { maxChars: 160 });
+}
+
+const HANDOFF_DISPLAY_LIMIT = 10;
+const HANDOFF_SUMMARY_DISPLAY_CHARS = 2048;
+
+/** Escape untrusted handoff text to one bounded ASCII-only terminal line. */
+function handoffDisplay(value: string, maxChars: number): string {
+  return terminalSafeText(value, { maxChars, ascii: true });
+}
+
+/** Open the resume picker (claude-code/codex-class).
+ * - "smart" (default): this folder's sessions first, every other project after - so plain /resume
+ *   reads as the per-folder list, while TYPING searches across every project (titles + folders).
+ * - "cwd": strictly this folder (Ctrl+A from smart).
+ * - "all": flat every-project list, newest first (/resume all). */
+function openResumePicker(ctx: CommandCtx, scope: "smart" | "cwd" | "all", all = listSessionMetas()): void {
+  // Metadata only (no full transcript parse) - listing 2860 sessions this way is ~50ms of stat calls
+  // vs ~600ms of JSON parsing, which is what made the picker lag ~1s to open. Reuse this snapshot while
+  // switching scope so Ctrl+A never re-stats the entire store on the UI thread.
+
+  const here = process.cwd();
+  const mine = all.filter((s) => s.cwd === here);
+  const list = scope === "cwd" ? mine : scope === "all" ? all : [...mine, ...all.filter((s) => s.cwd !== here)];
+  if (!list.length) {
+    // This scope has no sessions. If OTHER projects do, open the all-projects picker directly
+    // (don't dead-end on a "Ctrl+A" hint when there's no picker on screen to press it on - which read
+    // as a freeze). Only when nothing exists anywhere is an info line the right answer.
+    if (scope !== "all" && all.length) return openResumePicker(ctx, "all", all);
+    return ctx.addLine("info", "no saved sessions yet");
+  }
+  ctx.setOverlay({
+    title: scope === "all" ? "Resume session (all projects, newest first)"
+      : scope === "cwd" ? "Resume session (this folder only)" : "Resume session",
+    description: scope === "smart" ? "this folder first · typing searches every project" : undefined,
+    ctrlAHint: scope === "smart" ? "this folder only" : scope === "cwd" ? "all projects" : "this folder first",
+    onCtrlA: () => openResumePicker(ctx, scope === "smart" ? "cwd" : scope === "cwd" ? "all" : "smart", all),
+    onRename: (it, name) => {
+      renameSession(it.id, name);
+      openResumePicker(ctx, scope); // refresh the list with the new title
+    },
+    items: list.map((s) => ({
+      id: s.id,
+      label: sessionTitle(s),
+      // The folder rides on every out-of-folder row (and is part of what typing filters on), so a
+      // global search can be steered by project name, claude-code style.
+      detail: `${relativeTime(s.updatedAt)} · ${s.msgCount} msgs` +
+        (s.branch ? ` · ${terminalSafeText(s.branch, { maxChars: 120 })}` : "") + (s.bytes ? ` · ${fmtBytes(s.bytes)}` : "") +
+        (s.cwd !== here ? ` · ${folderTail(s.cwd)}` : ""),
+    })),
+    // Preview is built LAZILY (Space on the highlighted item) - only THEN is that one transcript loaded.
+    getPreview: (it) => {
+      const s = loadSession(it.id);
+      if (!s) return "(could not load)";
+      return s.messages
+        .filter((m: any) => (m.role === "user" || m.role === "assistant") && isText(m.content))
+        .slice(-4)
+        .map((m: any) => (m.role === "user" ? "> " : "  ") + terminalSafeText(trunc(String(m.content), 100), { maxChars: 120 }))
+        .join("\n") || "(no text messages)";
+    },
+    onSelect: (it) => {
+      ctx.setOverlay(null);
+      const target = loadSession(it.id);
+      if (!target) return;
+      // Honest note when crossing projects: the transcript is that folder's, the tools are this one's.
+      if (target.cwd && target.cwd !== process.cwd()) {
+        ctx.addLine("info", `(this session was recorded in ${terminalSafeText(target.cwd, { maxChars: 512 })}; tools keep running in the current folder)`);
+      }
+      ctx.resumeInto(target);
+    },
+  });
+}
+
+/** Switch the active provider profile LIVE: persist it as the default (no --profile flag, no config edit),
+ * rebuild the provider (new endpoint + key + model), swap it into the running agent, and adopt the settings
+ * into the in-session cfg. Returns true when the new provider HAS a key (so the caller may chain the model
+ * picker); false when it errored or the provider still needs /login. */
+function switchProfile(ctx: CommandCtx, name: string): boolean {
+  const { cfg, agent, addLine } = ctx;
+  if (!cfg.profiles[name]) {
+    addLine("error", `no provider "${name}". Known: ${Object.keys(cfg.profiles).sort().join(", ")}`);
+    return false;
+  }
+  let next: NekoConfig;
+  try {
+    next = loadConfig({ profile: name });
+  } catch (error) {
+    addLine("error", `loading provider "${name}": ${error instanceof Error ? error.message : error}`);
+    return false;
+  }
+  // Selection and onboarding are separate. Never replace a working provider with an unusable one;
+  // /login owns credential setup and activates the profile only after that setup succeeds.
+  if (next.usesChatGptAuth && !hasChatGptCredentials()) {
+    addLine("info", `note: provider "${name}" needs ChatGPT sign-in - type /login.`);
+    return false;
+  }
+  if (next.usesGeminiAuth && !hasGeminiCredentials()) {
+    addLine("info", `note: provider "${name}" needs Google sign-in - type /login.`);
+    return false;
+  }
+  if (next.usesKimiAuth && !hasKimiCredentials()) {
+    addLine("info", `note: provider "${name}" needs Kimi Code sign-in - type /login.`);
+    return false;
+  }
+  if (next.usesGrokAuth && !hasGrokCredentials()) {
+    addLine("info", `note: provider "${name}" needs Grok subscription sign-in - type /login.`);
+    return false;
+  }
+  if (next.usesOpenCodeAuth && !hasOpenCodeCredentials()) {
+    addLine("info", `note: provider "${name}" needs OpenCode Console sign-in - type /login.`);
+    return false;
+  }
+  if (next.usesClineAuth && !hasClineCredentials()) {
+    addLine("info", `note: provider "${name}" needs Cline Account sign-in - type /login.`);
+    return false;
+  }
+  if (!next.usesChatGptAuth && !next.usesGeminiAuth && !next.usesGrokAuth && !next.usesKimiAuth && !next.usesOpenCodeAuth && !next.usesClineAuth && !next.apiKey && !next.isLocalEndpoint) {
+    addLine("info", `note: provider "${name}" has no API key yet - type /login to add it (it saves to this provider).`);
+    return false;
+  }
+  setActiveProfile(name); // persist only a usable default for the next session
+  cfg.adopt(next); // in-session cfg now = the new provider (endpoint+model+key)
+  agent.setProvider(getProvider(cfg)); // the running agent calls the new endpoint from the next turn
+  agent.setMaxContextTokens(cfg.contextWindow);
+  addLine("info", `provider -> ${name}  (${cfg.provider} · ${cfg.model})`);
+  return true;
+}
+
+/** Open the model picker for the CURRENT provider (lists that endpoint's models; selecting persists it). */
+async function openModelPicker(ctx: CommandCtx): Promise<void> {
+  const { cfg, addLine } = ctx;
+  ctx.setBusy(true);
+  try {
+    const models = await listModelOptions(cfg);
+    ctx.setBusy(false);
+    if (!models.length) return addLine("info", "no models returned by this provider");
+    ctx.setOverlay({
+      title: `Select model  (${profileDisplayName(cfg)})`,
+      items: [
+        ...models.map((model) => ({ id: model.id, label: model.label, detail: modelDetail(model, cfg.model) })),
+        { id: "__neko_change_provider__", label: "Change provider/account...", detail: "use an existing login or API key; /login is only for setup" },
+      ],
+      onSelect: (it) => {
+        ctx.setOverlay(null);
+        if (it.id === "__neko_change_provider__") {
+          openProviderPicker(ctx);
+          return;
+        }
+        const selected = models.find((model) => model.id === it.id);
+        if (selected?.available === false) {
+          openCodexInstallPrompt(ctx, selected);
+          return;
+        }
+        if (selected) applyModelSelection(ctx, selected);
+      },
+    });
+  } catch (error) {
+    ctx.setBusy(false);
+    addLine("error", `listing models: ${error instanceof Error ? error.message : error}`);
+  }
+}
+
+function applyModelSelection(ctx: CommandCtx, selected: ModelOption): void {
+  const { cfg, addLine } = ctx;
+  cfg.data.model = selected.id;
+  if (selected.contextWindow) cfg.data.model_context = { ...(cfg.data.model_context ?? {}), [selected.id]: selected.contextWindow };
+  if (isBool(selected.vision)) cfg.data.vision = selected.vision;
+  setModel(selected.id, cfg.profile, selected.contextWindow, selected.vision);
+  ctx.agent.setMaxContextTokens(cfg.contextWindow);
+  const before = cfg.effort;
+  const resolved = resolveEffort(before, selected);
+  if (before && before !== "off" && resolved !== before) {
+    addLine("info", `model -> ${selected.id}; effort preference ${before} -> ${resolved} for this model`);
+  } else {
+    const defaultNote = !before && selected.defaultEffort ? `; default effort ${selected.defaultEffort}` : "";
+    addLine("info", `model -> ${selected.id}${defaultNote}`);
+  }
+}
+
+function openCodexInstallPrompt(ctx: CommandCtx, selected: ModelOption): void {
+  if (readCodexSupportPack(ctx.cfg.resolvedHome)) {
+    applyModelSelection(ctx, { ...selected, available: true });
+    ctx.addLine("info", "Neko will prepare ChatGPT automatically when you send your next message.");
+    return;
+  }
+  ctx.setOverlay({
+    title: `Set up ChatGPT for ${selected.id}? Your sign-in is kept.`,
+    items: [
+      { id: "install", label: "Set up ChatGPT", detail: "one-time official OpenAI download; approximately 110 MiB / 315 MiB disk" },
+      { id: "cancel", label: "Not now", detail: "keep the current model; download nothing" },
+    ],
+    onSelect: (choice) => {
+      ctx.setOverlay(null);
+      if (choice.id !== "install") return ctx.addLine("info", "Support Pack installation cancelled; current model unchanged.");
+      ctx.setBusy(true);
+      void (ctx.installChatGptSupport ?? installCodexSupportPack)({ force: true, notify: (message) => ctx.addLine("info", message) })
+        .then(() => {
+          applyModelSelection(ctx, { ...selected, available: true });
+          ctx.addLine("info", "Manage, update, or remove this optional component anytime with /support.");
+        })
+        .catch((error) => ctx.addLine("error", `Codex Support Pack failed: ${error instanceof Error ? error.message : error}. Retry with /support chatgpt install.`))
+        .finally(() => ctx.setBusy(false));
+    },
+  });
+}
+
+type SupportKind = "chatgpt" | "gemini" | "office";
+
+/** A discoverable owner-aware management surface. Neko only offers Remove for files it installed. */
+function openSupportCenter(ctx: CommandCtx): void {
+  const codex = discoverCodexSupport();
+  const codexManaged = readCodexSupportPack();
+  const gemini = discoverGeminiCli();
+  const geminiManaged = readGeminiSupportPack();
+  const office = discoverOfficeCli();
+  const officeManaged = readOfficeSupportPack();
+  const libreOffice = discoverLibreOffice();
+  const meeting = discoverMeetingSupport();
+  const meetingManaged = readMeetingSupportPack();
+  ctx.setOverlay({
+    title: "Manage optional support components",
+    items: [
+      {
+        id: "chatgpt",
+        label: "ChatGPT Codex Support Pack",
+        detail: supportDetail("chatgpt", codex.state, codex.detail, codex.executable?.source === "managed", codexManaged?.installedBytes),
+      },
+      {
+        id: "gemini",
+        label: "Gemini CLI Support Pack",
+        detail: supportDetail("gemini", gemini.state, gemini.detail, gemini.executable?.source === "managed", geminiManaged?.installedBytes),
+      },
+      {
+        id: "office",
+        label: "Office Artifact Support Pack",
+        detail: `${supportDetail("office", office.state, office.detail, office.executable?.source === "managed", officeManaged?.installedBytes)}; PDF verifier ${libreOffice.state === "ready" ? "ready" : "optional"}`,
+      },
+      {
+        id: "meeting",
+        label: "Meeting Transcription Support Pack",
+        detail: meetingManaged
+          ? `installed by Neko - ${formatMiB(meetingPackBytes(meetingManaged))} managed files - ${meeting.state}`
+          : meeting.state === "ready" ? `using an existing local parakeet-cli - Neko installed nothing` : "not installed - capture still works; local transcription is optional",
+      },
+      { id: "close", label: "Close", detail: "No changes" },
+    ],
+    onSelect: (item) => {
+      if (item.id === "close") return ctx.setOverlay(null);
+      if (item.id === "meeting") return openMeetingSupportManager(ctx);
+      // SAFETY: argument was just matched against the support component list.
+      openSupportManager(ctx, item.id as SupportKind);
+    },
+  });
+}
+
+function openMeetingSupportManager(ctx: CommandCtx): void {
+  const managed = readMeetingSupportPack();
+  const status = discoverMeetingSupport();
+  const bytes = managed ? meetingPackBytes(managed) : 0;
+  const items = managed ? [
+    { id: "update", label: "Update or repair", detail: `verify and replace ${formatMiB(bytes)} of managed local ASR files` },
+    { id: "remove", label: "Remove support pack", detail: `free managed engine/model files; meeting audio and transcripts stay` },
+    { id: "back", label: "Back", detail: "Return to all support components" },
+  ] : status.state === "ready" ? [
+    { id: "back", label: "Back", detail: "Using an existing parakeet-cli with Neko's verified model. Neko will not remove the external engine." },
+  ] : [
+    { id: "install", label: "Install balanced Vietnamese support", detail: "about 190 MiB model plus engine; local-only; no administrator access" },
+    { id: "quick", label: "Install quick support", detail: "about 60 MiB model; faster and smaller, with lower accuracy" },
+    { id: "back", label: "Back", detail: "Download nothing; recording can still be kept for later transcription" },
+  ];
+  ctx.setOverlay({
+    title: "Manage Meeting Transcription Support Pack",
+    items,
+    onSelect: (item) => {
+      if (item.id === "back") return openSupportCenter(ctx);
+      if (item.id === "remove") {
+        ctx.setOverlay(null);
+        const removed = removeMeetingSupportPack();
+        ctx.addLine("info", removed
+          ? `Meeting Support Pack removed; freed about ${formatMiB(bytes)}. Existing meeting audio/transcripts were kept.`
+          : "No Neko-managed Meeting Support Pack was installed.");
+        return openSupportCenter(ctx);
+      }
+      ctx.setOverlay(null);
+      ctx.setBusy(true);
+      const tier = item.id === "quick" ? "quick" : "balanced";
+      void installMeetingSupportPack({ force: item.id === "update", tier, notify: (message) => ctx.addLine("info", message) })
+        .then(() => ctx.addLine("info", "Meeting transcription is ready. Audio remains local; use /meeting to start."))
+        .catch((error) => ctx.addLine("error", `Meeting Support Pack failed: ${error instanceof Error ? error.message : error}. Check the connection and retry.`))
+        .finally(() => { ctx.setBusy(false); openSupportCenter(ctx); });
+    },
+  });
+}
+
+function meetingPackBytes(pack: NonNullable<ReturnType<typeof readMeetingSupportPack>>): number {
+  return pack.model.bytes + (pack.engine?.executableBytes ?? 0);
+}
+
+function openMeetingCenter(ctx: CommandCtx): void {
+  const active = activeBrowserMeeting()?.snapshot();
+  const support = discoverMeetingSupport();
+  const latest = latestMeeting();
+  const items: { id: string; label: string; detail: string }[] = [];
+  if (active) {
+    items.push({ id: "stop", label: "Stop recording now", detail: `${active.meeting.title} - ${active.state}; finalizes local audio immediately` });
+  } else if (support.state === "ready") {
+    items.push({ id: "start", label: "Start a meeting", detail: "native browser consent picker; mic/system channels; video is never stored" });
+  } else {
+    items.push({ id: "install-start", label: "Install local transcription, then start", detail: "recommended; about 190 MiB model plus engine; Vietnamese; no administrator access" });
+    items.push({ id: "start", label: "Record now, transcribe later", detail: "download nothing now; audio stays local for a later retry" });
+  }
+  if (latest?.state === "recorded") items.push({ id: "transcribe", label: "Transcribe latest recording", detail: `${latest.title} - local-only ASR` });
+  if (latest?.state === "ready") items.push({ id: "show", label: "Read latest transcript", detail: `${latest.title} - ${latest.transcription?.segmentCount ?? 0} timestamped segments` });
+  items.push(
+    { id: "list", label: "Recent meetings", detail: `${listMeetings().length} local meeting(s)` },
+    { id: "support", label: "Transcription support", detail: `${support.state} - ${support.detail}` },
+    { id: "close", label: "Close", detail: "No changes" },
+  );
+  ctx.setOverlay({
+    title: "Meeting companion - local, consented, timestamp-grounded",
+    items,
+    onSelect: (item) => {
+      if (item.id === "close") return ctx.setOverlay(null);
+      if (item.id === "support") return openMeetingSupportManager(ctx);
+      ctx.setOverlay(null);
+      if (item.id === "start") return void startMeetingCapture(ctx, "");
+      if (item.id === "stop") return void stopMeetingCapture(ctx);
+      if (item.id === "transcribe" && latest) return void transcribeMeetingInTui(ctx, latest);
+      if (item.id === "show" && latest) return showMeetingInTui(ctx, latest);
+      if (item.id === "list") return listMeetingsInTui(ctx);
+      if (item.id === "install-start") {
+        ctx.setBusy(true);
+        void installMeetingSupportPack({ tier: "balanced", notify: (message) => ctx.addLine("info", message) })
+          .then(() => startMeetingCapture(ctx, ""))
+          .catch((error) => ctx.addLine("error", `Meeting Support Pack failed: ${error instanceof Error ? error.message : error}. Recording was not started; retry or choose Record now.`))
+          .finally(() => ctx.setBusy(false));
+      }
+    },
+  });
+}
+
+async function startMeetingCapture(ctx: CommandCtx, title: string): Promise<void> {
+  if (activeBrowserMeeting()) return ctx.addLine("info", "A meeting capture is already active. Open /meeting to inspect or stop it.");
+  try {
+    const session = await startBrowserMeeting({
+      title,
+      onEvent: (event) => {
+        if (event.type === "state" && event.state !== "waiting" && event.state !== "finalizing") {
+          ctx.addLine(event.state === "failed" ? "error" : "info", `meeting ${event.meetingId}: ${event.state}${event.message ? ` - ${event.message}` : ""}`);
+        }
+      },
+    });
+    const support = discoverMeetingSupport();
+    ctx.addLine("info", [
+      `Meeting ${session.meeting.id} opened in a local consent page.`,
+      "Choose a screen/tab, enable Share audio, confirm recording rights, then press Start.",
+      "Mic and meeting audio use separate channels; video is never sent or stored. /meeting stop always stops immediately.",
+      support.state === "ready" ? "When stopped, choose Transcribe latest from /meeting." : "Transcription support is not installed; the WAV can be kept and transcribed later from /support meeting.",
+    ].join("\n"));
+    void session.waitUntilStopped().then((meeting) => {
+      if (meeting?.state === "recorded") ctx.addLine("info", `Meeting audio finalized locally: ${meeting.id}. Open /meeting to transcribe it.`);
+      else if (!meeting) ctx.addLine("info", "Meeting capture ended before audio was recorded; no evidence was kept.");
+    });
+  } catch (error) {
+    ctx.addLine("error", `meeting capture failed: ${error instanceof Error ? error.message : error}`);
+  }
+}
+
+async function stopMeetingCapture(ctx: CommandCtx): Promise<void> {
+  try {
+    const meeting = await stopBrowserMeeting("TUI stop");
+    ctx.addLine("info", meeting ? `Stopped and finalized meeting ${meeting.id}.` : "No meeting capture is active.");
+  } catch (error) {
+    ctx.addLine("error", `meeting stop failed: ${error instanceof Error ? error.message : error}`);
+  }
+}
+
+async function transcribeMeetingInTui(ctx: CommandCtx, meeting: MeetingManifest, language = "vi"): Promise<void> {
+  const support = discoverMeetingSupport();
+  if (support.state !== "ready") {
+    ctx.addLine("info", "Local transcription support is not ready. Choose Install in the Meeting Support Pack; the recording is safe and can be retried.");
+    return openMeetingSupportManager(ctx);
+  }
+  ctx.setBusy(true);
+  try {
+    const transcript = await transcribeMeeting(meeting.id, { language, notify: (message) => ctx.addLine("info", message) });
+    ctx.addLine("info", `Transcript ready for ${meeting.id}: ${transcript.segments.length} timestamped segments. Open /meeting show ${meeting.id}.`);
+  } catch (error) {
+    ctx.addLine("error", `meeting transcription failed; audio was kept for retry: ${error instanceof Error ? error.message : error}`);
+  } finally {
+    ctx.setBusy(false);
+  }
+}
+
+function resolveMeetingForUi(value?: string): MeetingManifest | null {
+  return !value || value === "latest" ? latestMeeting() : readMeeting(value);
+}
+
+function showMeetingInTui(ctx: CommandCtx, meeting: MeetingManifest, offset = 0): void {
+  const transcript = readMeetingTranscript(meeting.id);
+  if (!transcript) return ctx.addLine("info", `${meeting.id} - ${meeting.title} - ${meeting.state}\nNo transcript is ready.`);
+  const limit = 50;
+  const page = transcript.segments.slice(offset, offset + limit);
+  const lines = [
+    `${meeting.title} (${meeting.id}) - ${transcript.language} - ${transcript.segments.length} segments`,
+    ...page.map((segment) => `[${formatMeetingTime(segment.startMs)}] ${segment.speaker}: ${segment.text}`),
+  ];
+  if (offset + limit < transcript.segments.length) lines.push(`... ${transcript.segments.length - offset - limit} more; /meeting show ${meeting.id} ${offset + limit}`);
+  ctx.addLine("info", lines.join("\n"));
+}
+
+function listMeetingsInTui(ctx: CommandCtx): void {
+  const meetings = listMeetings();
+  if (!meetings.length) return ctx.addLine("info", "No local meetings yet. Open /meeting to start one.");
+  ctx.addLine("info", meetings.slice(0, 30).map((meeting) => `${meeting.id}  ${meeting.state}  ${meeting.title}`).join("\n"));
+}
+
+function confirmMeetingDelete(ctx: CommandCtx, meeting: MeetingManifest): void {
+  ctx.setOverlay({
+    title: `Permanently delete ${meeting.title}?`,
+    items: [
+      { id: "keep", label: "Keep meeting", detail: "Recommended if you may need the evidence later" },
+      { id: "delete", label: "Delete local evidence", detail: "irreversible: audio, transcript, and metadata" },
+    ],
+    onSelect: (item) => {
+      ctx.setOverlay(null);
+      if (item.id !== "delete") return ctx.addLine("info", "Meeting kept.");
+      try { deleteMeeting(meeting.id); ctx.addLine("info", `Deleted all local evidence for ${meeting.id}.`); }
+      catch (error) { ctx.addLine("error", `meeting delete failed: ${error instanceof Error ? error.message : error}`); }
+    },
+  });
+}
+
+function supportDetail(kind: SupportKind, state: string, detail: string, activeManaged: boolean, bytes?: number): string {
+  if (bytes != null) return `installed by Neko - ${formatMiB(bytes)} on disk - ${activeManaged ? state : `available; active bridge ${detail}`}`;
+  if (state === "ready") return `using an existing ${kind === "chatgpt" ? "Codex" : kind === "gemini" ? "Gemini" : "OfficeCLI"} - Neko installed nothing`;
+  return `not installed - ${kind === "chatgpt" ? "GPT-5.5/API/Ollama still work" : kind === "gemini" ? "required only for Code Assist Standard/Enterprise ACP" : "optional for typed Word/Excel/PowerPoint work"}`;
+}
+
+function openSupportManager(ctx: CommandCtx, kind: SupportKind): void {
+  const managed = kind === "chatgpt" ? readCodexSupportPack() : kind === "gemini" ? readGeminiSupportPack() : readOfficeSupportPack();
+  const status = kind === "chatgpt" ? discoverCodexSupport() : kind === "gemini" ? discoverGeminiCli() : discoverOfficeCli();
+  const title = kind === "chatgpt" ? "ChatGPT Codex Support Pack" : kind === "gemini" ? "Gemini CLI Support Pack" : "Office Artifact Support Pack";
+  const officeVerifier = kind === "office" ? discoverLibreOffice() : undefined;
+  const backDetail = kind === "office"
+    ? `LibreOffice PDF verifier: ${officeVerifier!.state} - ${officeVerifier!.detail}`
+    : "Return to all support components";
+  const items: { id: string; label: string; detail: string }[] = managed ? [
+    { id: "update", label: "Update or repair", detail: `verify and replace the ${formatMiB(managed.installedBytes)} Neko-managed component` },
+    { id: "remove", label: "Remove support pack", detail: kind === "chatgpt"
+      ? `free ${formatMiB(managed.installedBytes)}; ChatGPT sign-in stays and GPT-5.5 still works`
+      : kind === "gemini" ? `free ${formatMiB(managed.installedBytes)}; enterprise sign-in stays for a quick reinstall`
+        : `free ${formatMiB(managed.installedBytes)}; your Office files and separate installs stay untouched` },
+    { id: "back", label: "Back", detail: backDetail },
+  ] : status.state === "ready" ? [
+    { id: "back", label: "Back", detail: kind === "office" ? `Using an existing OfficeCLI. ${backDetail}` : `Using an existing ${kind === "chatgpt" ? "Codex" : "Gemini"}. Neko did not install it and will not remove it.` },
+  ] : [
+    { id: "install", label: "Install support pack", detail: kind === "chatgpt" ? "approximately 110 MiB download / 315 MiB disk" : kind === "gemini" ? "about 55 MiB download / 200 MiB disk; no administrator access" : "about 35 MiB; verified official checksum; no Microsoft Office required" },
+    { id: "back", label: "Back", detail: kind === "office" ? `Download nothing. ${backDetail}` : "Download nothing" },
+  ];
+  if (kind === "office" && officeVerifier?.state !== "ready") {
+    items.splice(items.length - 1, 0, {
+      id: "libreoffice",
+      label: officeVerifier?.state === "broken" ? "Repair LibreOffice PDF verifier (optional)" : "Get LibreOffice PDF verifier (optional)",
+      detail: "open the official download page; large desktop suite; does not replace typed editing",
+    });
+  }
+  ctx.setOverlay({
+    title: `Manage ${title}`,
+    items,
+    onSelect: (item) => {
+      if (item.id === "back") return openSupportCenter(ctx);
+      if (item.id === "libreoffice") {
+        ctx.setOverlay(null);
+        const url = "https://www.libreoffice.org/download/download-libreoffice/";
+        openBrowser(url);
+        ctx.addLine("info", `Opened the official LibreOffice download page: ${url}\nAfter installation, reopen /support office; Neko will detect it automatically and use a private profile for PDF verification.`);
+        return;
+      }
+      if (item.id === "remove") return openSupportRemoveConfirm(ctx, kind, managed!.installedBytes);
+      ctx.setOverlay(null);
+      ctx.setBusy(true);
+      void (kind === "chatgpt"
+        ? (ctx.installChatGptSupport ?? installCodexSupportPack)({ force: item.id === "update", notify: (message) => ctx.addLine("info", message) })
+        : kind === "gemini"
+          ? installGeminiSupportPack({ force: item.id === "update", notify: (message) => ctx.addLine("info", message) })
+          : installOfficeSupportPack({ force: item.id === "update", notify: (message) => ctx.addLine("info", message) }))
+        .then(() => ctx.addLine("info", `${title} is ready. Return to /support anytime to update or remove it.`))
+        .catch((error) => ctx.addLine("error", `${title} failed: ${error instanceof Error ? error.message : error}. Check the connection and retry.`))
+        .finally(() => { ctx.setBusy(false); openSupportCenter(ctx); });
+    },
+  });
+}
+
+function openSupportRemoveConfirm(ctx: CommandCtx, kind: SupportKind, bytes: number): void {
+  const title = kind === "chatgpt" ? "ChatGPT Codex Support Pack" : kind === "gemini" ? "Gemini CLI Support Pack" : "Office Artifact Support Pack";
+  const items = kind === "office" ? [
+    { id: "keep", label: "Keep installed", detail: "Recommended if you still create or edit Office artifacts" },
+    { id: "remove", label: `Remove and free ${formatMiB(bytes)}`, detail: "Office files and any separate OfficeCLI installation stay untouched" },
+  ] : [
+    { id: "keep", label: "Keep installed", detail: "Recommended if you still use this subscription route" },
+    { id: "remove", label: `Remove and free ${formatMiB(bytes)}`, detail: kind === "chatgpt"
+      ? "ChatGPT sign-in stays; GPT-5.5/API/Ollama are unaffected"
+      : "Enterprise sign-in stays; reinstall the pack to use Code Assist again" },
+    { id: "remove-and-signout", label: "Remove and sign out", detail: kind === "chatgpt"
+      ? `free ${formatMiB(bytes)} and remove Neko's ChatGPT session; API keys stay`
+      : `free ${formatMiB(bytes)} and remove Neko's Google session; API keys stay` },
+  ];
+  ctx.setOverlay({
+    title: `Remove ${title}?`,
+    items,
+    onSelect: (item) => {
+      if (item.id !== "remove" && item.id !== "remove-and-signout") return openSupportManager(ctx, kind);
+      ctx.setOverlay(null);
+      if (kind !== "office") ctx.agent.setProvider(getProvider(ctx.cfg)); // dispose a hidden provider process before Windows removes it
+      const removed = kind === "chatgpt" ? removeCodexSupportPack() : kind === "gemini" ? removeGeminiSupportPack() : removeOfficeSupportPack();
+      const signedOut = kind !== "office" && item.id === "remove-and-signout";
+      if (signedOut) (kind === "chatgpt" ? clearChatGptCredentials : clearGeminiCredentials)();
+      ctx.addLine(removed ? "info" : "error", removed
+        ? `${title} removed; freed ${formatMiB(bytes)}. ${kind === "office" ? "Office files and separate installs were kept." : signedOut ? "Neko also signed this account out." : "Your sign-in was kept."} Reinstall anytime from /support.`
+        : `${title} was already absent; no files were removed.`);
+      openSupportCenter(ctx);
+    },
+  });
+}
+
+function formatMiB(bytes: number): string {
+  return `${(bytes / 1024 / 1024).toFixed(1)} MiB`;
+}
+
+function modelDetail(model: ModelOption, current: string): string {
+  const parts: string[] = [];
+  if (model.id === current) parts.push("current");
+  if (model.description) parts.push(model.description);
+  if (model.defaultEffort) parts.push(`default ${model.defaultEffort}`);
+  if (model.efforts?.length) parts.push(`effort ${model.efforts.map((level) => level.effort).join("/")}`);
+  if (model.contextWindow) parts.push(`${Math.round(model.contextWindow / 1000)}k ctx`);
+  if (model.requiresCodexSupport) parts.push(model.available === false ? "support pack required" : "Codex bridge ready");
+  return parts.join(" - ");
+}
+
+export function formatChatGptUsage(report: ChatGptUsageReport, nowSeconds = Math.floor(Date.now() / 1000)): string {
+  const lines = [`ChatGPT usage (${report.planType || "unknown"})`];
+  for (const [index, limit] of report.limits.entries()) {
+    if (index > 0) lines.push(`${limit.name}:`);
+    const prefix = index === 0 ? "" : "  ";
+    if (limit.primary) lines.push(`${prefix}${formatUsageWindow(limit.primary, nowSeconds)}${limit.limitReached || !limit.allowed ? " - LIMIT REACHED" : ""}`);
+    if (limit.secondary) lines.push(`${prefix}${formatUsageWindow(limit.secondary, nowSeconds)}`);
+  }
+  if (report.credits) {
+    const value = report.credits.unlimited ? "unlimited" : report.credits.hasCredits ? `balance ${report.credits.balance ?? "available"}` : "none";
+    lines.push(`credits: ${value}`);
+  }
+  return lines.join("\n");
+}
+
+function formatUsageWindow(window: ChatGptUsageWindow, nowSeconds: number): string {
+  const label = window.windowSeconds >= 6 * 24 * 3600 ? `${Math.round(window.windowSeconds / 86400)}d`
+    : window.windowSeconds >= 3600 ? `${Math.round(window.windowSeconds / 3600)}h`
+    : `${Math.round(window.windowSeconds / 60)}m`;
+  const left = Math.max(0, Math.round(100 - window.usedPercent));
+  const reset = window.resetsAt ? ` - resets in ${formatDuration(Math.max(0, window.resetsAt - nowSeconds))}` : "";
+  return `${label}: ${Math.round(window.usedPercent)}% used, ${left}% left${reset}`;
+}
+
+function formatDuration(seconds: number): string {
+  const days = Math.floor(seconds / 86400);
+  const hours = Math.floor((seconds % 86400) / 3600);
+  const minutes = Math.ceil((seconds % 3600) / 60);
+  return [days ? `${days}d` : "", hours ? `${hours}h` : "", !days && minutes ? `${minutes}m` : ""].filter(Boolean).join(" ") || "now";
+}
+
+/** Provider picker (account first). On select, switch to it and CHAIN straight into its model picker, so the
+ * flow is one smooth "pick account -> pick its model" — provider stays the primary axis (it's the account /
+ * quota that costs money), and the same model name on two providers never gets confused. */
+function openProviderPicker(ctx: CommandCtx, initialFamily?: string): void {
+  const { cfg } = ctx;
+  const chooseFamily = (family: string) => {
+    const apiProfiles = new Set<string>();
+    for (const [name, profile] of Object.entries(cfg.profiles)) {
+      if (profile.auth === "chatgpt_oauth" || profile.auth === "gemini_oauth" || profile.auth === "grok_oauth" || profile.auth === "kimi_oauth" || profile.auth === "opencode_oauth" || profile.auth === "cline_oauth" || profile.auth === "none") continue;
+      try { if (loadConfig({ profile: name }).apiKey) apiProfiles.add(name); } catch { /* status only */ }
+    }
+    const routes = authChoices(cfg, family, { chatgpt: hasChatGptCredentials(), gemini: hasGeminiCredentials(), grok: hasGrokCredentials(), kimi: hasKimiCredentials(), opencode: hasOpenCodeCredentials(), cline: hasClineCredentials(), apiProfiles });
+    if (routes.length === 1) {
+      if (switchProfile(ctx, routes[0].id)) void openModelPicker(ctx);
+      return;
+    }
+    ctx.setOverlay({
+      title: `${family === "openai" ? "OpenAI" : family === "google" ? "Google" : family === "zai" ? "Z.AI" : family} - choose account`,
+      items: routes,
+      onSelect: async (route) => {
+        ctx.setOverlay(null);
+        if (switchProfile(ctx, route.id)) await openModelPicker(ctx);
+      },
+    });
+  };
+  if (initialFamily) return chooseFamily(initialFamily);
+  ctx.setOverlay({
+    title: "Select provider (account) - then pick its model",
+    items: providerChoices(cfg),
+    onSelect: (it) => {
+      ctx.setOverlay(null);
+      chooseFamily(it.id);
+    },
+  });
+}
+
+/** Run a "/..." command. Returns when done; the caller returns from its turn afterwards. */
+export async function runSlashCommand(input: string, ctx: CommandCtx): Promise<void> {
+  const { cfg, agent, addLine } = ctx;
+  const cmd = input.split(/\s+/)[0];
+  switch (cmd) {
+    case "/exit":
+    case "/quit":
+      return ctx.exit();
+    case "/help": {
+      // Ephemeral overlay: do not dump the full command list into the permanent transcript.
+      ctx.setOverlay({
+        title: "Commands",
+        description: HELP_TIPS,
+        items: SLASH.map((c) => ({ id: c.name, label: c.name, detail: c.desc })),
+        search: true,
+        showCount: true,
+        onSelect: (it) => {
+          ctx.setOverlay(null);
+          // One short line — not the whole catalog — so the user can recall what they picked.
+          ctx.addLine("info", `${it.label} — ${it.detail ?? ""}`.trim());
+        },
+        onCancel: () => {}, // silent Esc; avoid a stray "(cancelled)" in the task trail
+      });
+      return;
+    }
+    case "/feedback": {
+      if (input.trim() !== "/feedback") return addLine("info", "Use /feedback to enter private notes in the dedicated form, outside the model conversation.");
+      openFeedback(ctx);
+      return;
+    }
+    case "/cost": {
+      const estimate = estimateRequestTokens(agent.messages, ctx.registry.schemas());
+      return addLine("info", agent.cost.summary({ contextEstimate: estimate }));
+    }
+    case "/usage": {
+      const voice = formatVoiceUsage();
+      if (cfg.usesGeminiAuth) {
+        const usage = getLastGeminiUsage();
+        const lines = ["Gemini usage (Code Assist Standard/Enterprise)"];
+        if (usage) {
+          lines.push(`last turn: ${usage.inputTokens} input / ${usage.outputTokens} output tokens`);
+          for (const model of usage.models) lines.push(`${model.model}: ${model.inputTokens} input / ${model.outputTokens} output`);
+        } else lines.push("last turn: no Gemini turn recorded in this Neko session");
+        lines.push("Limits depend on the Code Assist license. Google does not expose remaining requests through ACP.");
+        lines.push("Neko will show a clear retry/reset message if Google reports a limit.");
+        if (voice) lines.push("", voice);
+        return addLine("info", lines.join("\n"));
+      }
+      if (!cfg.usesChatGptAuth) return addLine("info", ["subscription quota is available for ChatGPT or Gemini login; use /cost for this session's tokens", voice].filter(Boolean).join("\n\n"));
+      ctx.setBusy(true);
+      try { addLine("info", [formatChatGptUsage(await getChatGptUsage()), voice].filter(Boolean).join("\n\n")); }
+      catch (error) { addLine("error", `reading usage: ${error instanceof Error ? error.message : error}`); }
+      finally { ctx.setBusy(false); }
+      return;
+    }
+    case "/meeting": {
+      const rest = input.slice("/meeting".length).trim();
+      if (!rest) { openMeetingCenter(ctx); return; }
+      const [actionRaw, idRaw, third] = rest.split(/\s+/);
+      const action = actionRaw.toLowerCase();
+      if (action === "status") {
+        const active = activeBrowserMeeting()?.snapshot();
+        const support = discoverMeetingSupport();
+        const latest = latestMeeting();
+        return addLine("info", [
+          `capture: ${active ? `${active.state} (${active.meeting.id})` : "idle"}`,
+          `transcription: ${support.state} (${support.detail})`,
+          `latest: ${latest ? `${latest.id} - ${latest.state} - ${latest.title}` : "none"}`,
+          "privacy: native browser consent; local audio/transcript; video is never stored",
+        ].join("\n"));
+      }
+      if (action === "start") return await startMeetingCapture(ctx, rest.slice(actionRaw.length).trim());
+      if (action === "stop") return await stopMeetingCapture(ctx);
+      if (action === "list") return listMeetingsInTui(ctx);
+      if (action === "show" || action === "read") {
+        const meeting = resolveMeetingForUi(idRaw);
+        if (!meeting) return addLine("error", "meeting not found - use /meeting list");
+        const offset = third == null ? 0 : Number(third);
+        if (!Number.isInteger(offset) || offset < 0) return addLine("info", "usage: /meeting show [id|latest] [segment-offset]");
+        return showMeetingInTui(ctx, meeting, offset);
+      }
+      if (action === "transcribe") {
+        const meeting = resolveMeetingForUi(idRaw);
+        if (!meeting) return addLine("error", "meeting not found - use /meeting list");
+        return await transcribeMeetingInTui(ctx, meeting, third ?? "vi");
+      }
+      if (action === "delete") {
+        const meeting = resolveMeetingForUi(idRaw);
+        if (!meeting) return addLine("error", "meeting not found - use /meeting list");
+        return confirmMeetingDelete(ctx, meeting);
+      }
+      return addLine("info", "usage: /meeting [status|start [title]|stop|list|show [id] [offset]|transcribe [id] [vi|en|auto]|delete <id>] ");
+    }
+    case "/browser": {
+      const action = input.slice("/browser".length).trim().toLowerCase();
+      if (action && action !== "install" && action !== "setup" && action !== "status") {
+        return addLine("info", "usage: /browser [setup|status]");
+      }
+      const capability = readBrowserCapability();
+      const status = capability ? readBrowserBridgeStatus() : undefined;
+      if (action === "status" || (!action && capability)) {
+        if (!capability) return addLine("info", "browser control is not set up yet - type /browser setup to start guided setup");
+        const stage = browserBridgeStage(capability, status);
+        const state = stage === "tab_attached"
+          ? "ready - one Chrome tab is attached"
+          : stage === "extension_connected"
+            ? "extension connected - open a target tab and attach it"
+            : stage === "bridge_online"
+              ? "bridge online, but the Chrome extension is not connected - type /browser setup"
+              : "configured, but no live Chrome connection is verified - type /browser setup";
+        return addLine("info", `browser: ${state}\nBrowser access stays local and only the tab you explicitly attach is controllable.`);
+      }
+      if (!ctx.setupBrowser) return addLine("error", "browser setup is unavailable in this host; run `neko browser install`");
+      ctx.setBusy(true);
+      const hadCapability = !!capability;
+      try {
+        const message = await ctx.setupBrowser();
+        addLine("info", message);
+      } catch (error) {
+        addLine("error", `browser setup failed: ${error instanceof Error ? error.message : String(error)}`);
+      } finally {
+        // setup creates the local capability before opening Chrome. Keep the live agent/tool index in
+        // sync even if Chrome itself could not be opened; the user can still attach it manually.
+        if (!hadCapability && readBrowserCapability()) {
+          ctx.registry.mcp = withBrowserBridge(ctx.registry.mcp);
+          ctx.agent.refreshSystemPrompt();
+        }
+        ctx.setBusy(false);
+      }
+      return;
+    }
+    case "/support": {
+      const action = input.slice("/support".length).trim().toLowerCase();
+      if (!action) { openSupportCenter(ctx); return; }
+      if (action === "gemini") { openSupportManager(ctx, "gemini"); return; }
+      if (action === "chatgpt" || action === "codex") { openSupportManager(ctx, "chatgpt"); return; }
+      if (action === "office" || action === "officecli") { openSupportManager(ctx, "office"); return; }
+      if (action === "meeting" || action === "meetings") { openMeetingSupportManager(ctx); return; }
+      const meetingAction = action.startsWith("meeting ") ? action.slice("meeting ".length).trim()
+        : action.startsWith("meetings ") ? action.slice("meetings ".length).trim()
+          : null;
+      if (meetingAction === "status") {
+        const status = discoverMeetingSupport();
+        const managed = readMeetingSupportPack();
+        const disk = managed ? `; ${formatMiB(meetingPackBytes(managed))} managed files` : "";
+        return addLine("info", `Meeting transcription: ${status.state} (${status.detail})${disk}. Capture remains available without the pack; audio and transcripts stay local.`);
+      }
+      if (meetingAction === "remove" || meetingAction === "uninstall") {
+        const removed = removeMeetingSupportPack();
+        return addLine("info", removed
+          ? "Meeting Support Pack removed. Existing meeting audio and transcripts were kept."
+          : "No Neko-managed Meeting Support Pack is installed.");
+      }
+      if (meetingAction === "install" || meetingAction === "update" || meetingAction === "quick") {
+        ctx.setBusy(true);
+        try {
+          await installMeetingSupportPack({
+            force: meetingAction === "update",
+            tier: meetingAction === "quick" ? "quick" : "balanced",
+            notify: (message) => addLine("info", message),
+          });
+          addLine("info", "Meeting transcription is ready. Open /meeting to start.");
+        } catch (error) {
+          addLine("error", `Meeting Support Pack failed: ${error instanceof Error ? error.message : error}. Check the connection and retry.`);
+        } finally { ctx.setBusy(false); }
+        return;
+      }
+      if (meetingAction) return addLine("info", "usage: /support meeting [status|install|quick|update|remove]");
+      const officeAction = action.startsWith("office ") ? action.slice("office ".length).trim()
+        : action.startsWith("officecli ") ? action.slice("officecli ".length).trim()
+          : null;
+      if (officeAction === "status") {
+        const status = discoverOfficeCli();
+        const libreOffice = discoverLibreOffice();
+        const managed = readOfficeSupportPack();
+        const disk = managed ? `; ${(managed.installedBytes / 1024 / 1024).toFixed(1)} MiB on disk` : "";
+        return addLine("info", [
+          `Office typed engine: ${status.state} (${status.detail})${disk}.`,
+          `LibreOffice PDF verifier: ${libreOffice.state} (${libreOffice.detail}).`,
+          "The verifier uses a private per-job profile and never replaces typed structure inspection/editing.",
+        ].join("\n"));
+      }
+      if (officeAction === "remove" || officeAction === "uninstall") {
+        const removed = removeOfficeSupportPack();
+        return addLine("info", removed
+          ? "Office Support Pack removed. Office files and any separate OfficeCLI installation were kept."
+          : "No Neko-managed Office Support Pack is installed; an existing OfficeCLI was not changed.");
+      }
+      if (officeAction === "install" || officeAction === "update") {
+        ctx.setBusy(true);
+        try { await installOfficeSupportPack({ force: officeAction === "update", notify: (message) => addLine("info", message) }); }
+        catch (error) { addLine("error", `Office Support Pack failed: ${error instanceof Error ? error.message : error}. Check the connection and retry.`); }
+        finally { ctx.setBusy(false); }
+        return;
+      }
+      if (officeAction) return addLine("info", "usage: /support office [status|install|update|remove]");
+      const geminiAction = action.startsWith("gemini ") ? action.slice("gemini ".length).trim() : null;
+      if (geminiAction === "status") {
+        const status = discoverGeminiCli();
+        const managed = readGeminiSupportPack();
+        const disk = managed ? `; ${(managed.installedBytes / 1024 / 1024).toFixed(1)} MiB on disk` : "";
+        return addLine("info", `Gemini CLI support: ${status.state} (${status.detail})${disk}. Only Code Assist Standard/Enterprise uses it; Gemini API keys connect directly to Google.`);
+      }
+      if (geminiAction === "remove" || geminiAction === "uninstall") {
+        agent.setProvider(getProvider(cfg));
+        const removed = removeGeminiSupportPack();
+        const fallback = discoverGeminiCli();
+        return addLine("info", removed
+          ? `Gemini CLI Support Pack removed. Bridge status: ${fallback.state} (${fallback.detail}). Your enterprise sign-in remains until /logout.`
+          : "No Neko-managed Gemini CLI Support Pack is installed; an existing Gemini CLI was not changed.");
+      }
+      if (geminiAction === "install" || geminiAction === "update") {
+        ctx.setBusy(true);
+        try { await installGeminiSupportPack({ force: geminiAction === "update", notify: (message) => addLine("info", message) }); }
+        catch (error) { addLine("error", `Gemini Support Pack failed: ${error instanceof Error ? error.message : error}. Check the connection and retry.`); }
+        finally { ctx.setBusy(false); }
+        return;
+      }
+      if (geminiAction) return addLine("info", "usage: /support gemini [status|install|update|remove]");
+      if (action === "status") {
+        const codex = discoverCodexSupport();
+        const codexManaged = readCodexSupportPack();
+        const codexDisk = codexManaged ? `; ${(codexManaged.installedBytes / 1024 / 1024).toFixed(1)} MiB on disk` : "";
+        const gemini = discoverGeminiCli();
+        const geminiManaged = readGeminiSupportPack();
+        const geminiDisk = geminiManaged ? `; ${(geminiManaged.installedBytes / 1024 / 1024).toFixed(1)} MiB on disk` : "";
+        const office = discoverOfficeCli();
+        const officeManaged = readOfficeSupportPack();
+        const officeDisk = officeManaged ? `; ${(officeManaged.installedBytes / 1024 / 1024).toFixed(1)} MiB on disk` : "";
+        const libreOffice = discoverLibreOffice();
+        const meeting = discoverMeetingSupport();
+        const meetingManaged = readMeetingSupportPack();
+        const meetingDisk = meetingManaged ? `; ${formatMiB(meetingPackBytes(meetingManaged))} managed files` : "";
+        return addLine("info", [
+          `ChatGPT Codex support: ${codex.state} (${codex.detail})${codexDisk}`,
+          `Gemini CLI support: ${gemini.state} (${gemini.detail})${geminiDisk}`,
+          `Office artifact support: ${office.state} (${office.detail})${officeDisk}`,
+          `LibreOffice PDF verifier: ${libreOffice.state} (${libreOffice.detail})`,
+          `Meeting transcription: ${meeting.state} (${meeting.detail})${meetingDisk}`,
+          "GPT-5.5, Gemini API keys, other API providers, Ollama, and non-Office tasks do not require these components.",
+        ].join("\n"));
+      }
+      const codexAction = action.startsWith("chatgpt ") ? action.slice("chatgpt ".length).trim()
+          : action.startsWith("codex ") ? action.slice("codex ".length).trim()
+            : action;
+      if (codexAction === "status") {
+        const status = discoverCodexSupport();
+        const managed = readCodexSupportPack();
+        const disk = managed ? `; ${(managed.installedBytes / 1024 / 1024).toFixed(1)} MiB on disk` : "";
+        return addLine("info", `ChatGPT Codex support: ${status.state} (${status.detail})${disk}. GPT-5.5/API/Ollama do not require it.`);
+      }
+      if (codexAction === "remove" || codexAction === "uninstall") {
+        agent.setProvider(getProvider(cfg)); // release an idle App Server before Windows removes it
+        const removed = removeCodexSupportPack();
+        const fallback = discoverCodexSupport();
+        return addLine("info", removed
+          ? `Codex Support Pack removed. Bridge status: ${fallback.state} (${fallback.detail}). ChatGPT sign-in was kept; GPT-5.5/API/Ollama are unaffected.`
+          : "No Neko-managed Support Pack is installed; an existing Codex CLI is never removed by Neko.");
+      }
+      if (codexAction !== "install" && codexAction !== "update") return addLine("info", "usage: /support [status|chatgpt|gemini|office|meeting] [status|install|update|remove]");
+      ctx.setBusy(true);
+      try { await (ctx.installChatGptSupport ?? installCodexSupportPack)({ force: codexAction === "update", notify: (message) => addLine("info", message) }); }
+      catch (error) { addLine("error", `Codex Support Pack failed: ${error instanceof Error ? error.message : error}. Check the connection and retry.`); }
+      finally { ctx.setBusy(false); }
+      return;
+    }
+    case "/model": {
+      if (ctx.registry.taskScope) return addLine("info", "Model changes are unavailable in a scoped task session; resume requires the original model configuration.");
+      const arg = input.slice("/model".length).trim();
+      if (arg === "list") {
+        ctx.setBusy(true);
+        try {
+          const models = await listModelOptions(cfg);
+          return addLine("info", "models: " + (models.map((model) => model.id + (model.id === cfg.model ? " (current)" : "")).join(", ") || cfg.model || "(none)"));
+        } finally {
+          ctx.setBusy(false);
+        }
+      }
+      if (arg) {
+        if (cfg.usesChatGptAuth || cfg.usesGeminiCli) {
+          ctx.setBusy(true);
+          try {
+            const selected = (await listModelOptions(cfg)).find((model) => model.id === arg);
+            if (!selected) return addLine("error", `unknown ${cfg.usesChatGptAuth ? "ChatGPT" : "Gemini"} model '${arg}' - use /model list`);
+            if (selected.available === false) { openCodexInstallPrompt(ctx, selected); return; }
+            applyModelSelection(ctx, selected);
+            return;
+          } finally {
+            ctx.setBusy(false);
+          }
+        }
+        cfg.data.model = arg;
+        setModel(arg, cfg.profile); // remember it for the next session/folder too - in the ACTIVE profile
+        agent.setMaxContextTokens(cfg.contextWindow);
+        return addLine("info", `model -> ${arg}`);
+      }
+      await openModelPicker(ctx); // model of the CURRENT provider (quick swap without changing account)
+      return;
+    }
+    case "/provider":
+    case "/providers":
+    case "/profiles": {
+      if (ctx.registry.taskScope) return addLine("info", "Provider changes are unavailable in a scoped task session; resume requires the original provider configuration.");
+      const arg = input.slice(cmd.length).trim();
+      if (arg === "list") return addLine("info", "providers: " + providerChoices(cfg).map((choice) => choice.label).join(", "));
+      if (arg === "openai") { openProviderPicker(ctx, "openai"); return; }
+      if (arg) { switchProfile(ctx, arg); return; } // explicit internal profile remains available
+      openProviderPicker(ctx); // /provider  -> guided picker: account -> its model
+      return;
+    }
+    case "/tools": {
+      const reg = ctx.registry;
+      const arg = input.split(/\s+/)[1];
+      if (arg) {
+        if (reg.taskScope && ["workflow", "playbook", "skill", "task"].includes(arg)) {
+          return addLine("info", `${arg} is unavailable in a scoped task session`);
+        }
+        if (reg.disabled.has(arg)) reg.disabled.delete(arg);
+        else reg.disabled.add(arg);
+        return addLine("info", `${arg} -> ${reg.disabled.has(arg) ? "off" : "on"}`);
+      }
+      return addLine("info", "tools: " + listTools().map((t) => `${t.name}[${reg.disabled.has(t.name) ? "off" : "on"}]`).join("  "));
+    }
+    case "/init":
+      if (ctx.registry.taskScope) return addLine("info", "/init writes shared NEKO.md; unavailable in a scoped task session");
+      return addLine("info", initProject());
+    case "/skills":
+      if (ctx.registry.taskScope) return addLine("info", "Shared skills are unavailable in a scoped task session until explicit import.");
+      return addLine("info", "skills: " + (listSkills().map((s) => s.name).join(", ") || "(none in ~/.neko-core/skills)"));
+    case "/skill": {
+      if (ctx.registry.taskScope) return addLine("info", "/skill imports shared prose; unavailable in a scoped task session");
+      const name = input.split(/\s+/)[1];
+      if (!name) return addLine("info", "usage: /skill <name>  ·  /skills to list");
+      const skill = loadSkill(name);
+      if (!skill) return addLine("info", `unknown skill '${name}' - /skills to list`);
+      agent.appendSystem(`# Skill: ${skill.name}\n${skill.body}`);
+      return addLine("info", `loaded skill: ${skill.name}`);
+    }
+    case "/clear":
+      agent.messages = [];
+      return ctx.setLines([{ id: ctx.nextId(), kind: "info", text: "(cleared)" }]);
+    case "/rewind": {
+      const undone = agent.rewind();
+      const files = ctx.registry.restoreCheckpoint();
+      const conflicts = ctx.registry.consumeRestoreConflicts();
+      if (!undone && !files && !conflicts.length) return addLine("info", "nothing to rewind");
+      const preserved = conflicts.length
+        ? `; preserved newer changes (not overwritten): ${conflicts.map((path) => terminalSafeText(path, { maxChars: 180 })).join(", ")}`
+        : "";
+      return addLine("info", `(rewound last turn - context restored${files ? `, ${files} file(s) reverted` : ""}${preserved})`);
+    }
+    case "/sandbox": {
+      // User-owned consent surface for the sandbox network policy (the runtime block tells the
+      // agent this command exists, so "turn it on for me" becomes one confirmed step).
+      const [, sub, flag, ...rest] = input.split(/\s+/);
+      if (ctx.registry.taskScope && sub === "network" && (flag === "on" || flag === "off")) {
+        return addLine("info", "Sandbox network changes are unavailable in a scoped task session; resume requires the original policy.");
+      }
+      if (sub === "network" && flag === "off") {
+        patchUserConfig({ sandbox_network: false });
+        ctx.registry.sandboxAllowNetwork = false;
+        return addLine("info", "sandbox_network=false applied now and saved to ~/.neko-core/config.json.");
+      }
+      if (sub === "network" && flag === "on") {
+        const rawDomains = rest.join(" ").split(/[\s,]+/).map((d) => d.trim()).filter(Boolean);
+        let domains: string[];
+        try {
+          domains = normalizeSandboxDomains(rawDomains, 128);
+        } catch (error) {
+          return addLine("info", `invalid sandbox network policy: ${messageOf(error)}`);
+        }
+        if (!domains.length) {
+          return addLine("info", "usage: /sandbox network on <domain ...>  (SRT has no allow-all; list egress domains, e.g. /sandbox network on pypi.org files.pythonhosted.org)");
+        }
+        patchUserConfig({ sandbox_network: true, sandbox_domains: domains });
+        ctx.registry.sandboxAllowNetwork = true;
+        ctx.registry.sandboxDomains = [...domains];
+        return addLine("info", `sandbox_network=true with domains [${domains.join(", ")}] applied now and saved to ~/.neko-core/config.json.`);
+      }
+      const network = !ctx.registry.sandboxAllowNetwork
+        ? "blocked (default-deny)"
+        : ctx.registry.sandboxDomains.length
+          ? `allowlisted [${ctx.registry.sandboxDomains.join(", ")}]`
+          : "BLOCKED (SRT needs explicit sandbox_domains)";
+      const native = ctx.registry.sandboxBash && ctx.registry.nativeBashOwned()
+        ? ctx.registry.nativeBashSandboxAttested() ? "attested" : "unattested"
+        : "local";
+      const kind = ctx.registry.sandboxBash && native === "local" ? detectSandbox() : "none";
+      return addLine(
+        "info",
+        `sandbox: ${sandboxCommandStatus(ctx.registry.sandboxBash, kind, native)}\nnetwork: ${network}\nusage: /sandbox network on <domain ...> | /sandbox network off  (applies now)`,
+      );
+    }
+    case "/bashes": {
+      const bg = ctx.registry.backgrounds;
+      if (!bg.length) return addLine("info", "no background tasks (Ctrl+B moves a running bash to the background)");
+      for (const b of bg) addLine("info", `[${b.id}] ${b.done ? `done (exit ${b.code ?? "?"})` : "running"}: ${b.command}\n${b.output.slice(-800) || "(no output yet)"}`);
+      return;
+    }
+    case "/goal": {
+      const goal = input.slice("/goal".length).trim();
+      if (!goal) return addLine("info", "usage: /goal <text>  (keeps the agent focused on a goal)");
+      agent.appendSystem(`Ongoing goal (keep working toward it every turn): ${goal}`);
+      return addLine("info", `goal set: ${goal}`);
+    }
+    case "/contract": {
+      const contract = agent.completionContract;
+      return addLine("info", contract ? renderCompletionContract(contract) : "no active completion contract");
+    }
+    case "/loop": {
+      const m = input.match(/^\/loop\s+(\d+)\s+([\s\S]+)$/);
+      if (!m) return addLine("info", "usage: /loop <count> <task>  (runs the task N times)");
+      const n = Math.min(20, Math.max(1, parseInt(m[1], 10)));
+      const task = m[2].trim();
+      for (let i = 0; i < n; i++) ctx.queue.push(task);
+      ctx.setQueued(ctx.queue.length);
+      addLine("info", `looping '${trunc(task, 60)}' x${n}`);
+      if (!ctx.busy) {
+        const first = ctx.queue.shift();
+        ctx.setQueued(ctx.queue.length);
+        if (first !== undefined) ctx.runText(first);
+      }
+      return;
+    }
+    case "/transcript":
+    case "/history":
+      ctx.openTranscript();
+      return;
+    case "/copy":
+      ctx.copy(input.slice("/copy".length).trim());
+      return;
+    case "/title":
+      if (ctx.registry.taskScope) return addLine("info", "Task labels are managed by /task; legacy /title is unavailable in a scoped task session.");
+      ctx.setTitle(input.slice("/title".length).trim());
+      return;
+    case "/fps": {
+      const arg = input.slice("/fps".length).trim().toLowerCase();
+      if (arg === "auto") return ctx.setFps("auto");
+      if (arg) {
+        const n = parseInt(arg, 10);
+        if (!Number.isFinite(n) || n < 30 || n > 240) return addLine("info", "usage: /fps [auto|30..240]   (auto follows your display's refresh rate)");
+        return ctx.setFps(n);
+      }
+      // No argument: a picker with a machine-aware recommendation.
+      const { resolveUiFps } = await import("../adapters/display.ts");
+      const r = resolveUiFps(cfg.uiFpsConfig);
+      const auto = r.detected ? `follow your display (~${r.detected}Hz)` : "follow your display (probing runs in background)";
+      ctx.setOverlay({
+        title: `UI frame rate - currently ${r.fps}fps via ${r.source}. Higher than your display's refresh shows nothing extra.`,
+        items: [
+          { id: "auto", label: "auto (recommended)", detail: auto },
+          { id: "60", label: "60 fps", detail: "standard displays - lowest overhead" },
+          { id: "120", label: "120 fps", detail: "high-refresh displays (120Hz+)" },
+          { id: "144", label: "144 fps", detail: "144Hz displays" },
+        ],
+        onSelect: (it) => { ctx.setOverlay(null); ctx.setFps(it.id === "auto" ? "auto" : parseInt(it.id, 10)); },
+      });
+      return;
+    }
+    case "/compact":
+      // Route through the REPL's compaction runner so it shows the progress bar + a "freed ~Nk" line.
+      try {
+        await ctx.compact("manual");
+      } catch (error) {
+        addLine("error", `${error instanceof Error ? error.message : error}`);
+      }
+      return;
+    case "/reset":
+      agent.messages = [];
+      agent.restoreCompletionContract(undefined);
+      return addLine("info", "(conversation reset)");
+    case "/sessions": {
+      if (ctx.registry.taskScope) return addLine("info", "Legacy sessions are separate; use /task list or /task resume <id> before entering task mode.");
+      const all = input.split(/\s+/)[1]?.toLowerCase() === "all";
+      const mine = all ? listSessionMetas() : listSessionMetas().filter((s) => s.cwd === process.cwd());
+      return addLine(
+        "info",
+        mine.length
+          ? "sessions (newest first):\n" + mine.slice(0, 10).map((s) => `  ${s.id}  "${sessionTitle(s)}"`).join("\n")
+          : all ? "no saved sessions yet" : "no saved sessions for this directory (/sessions all shows every project)",
+      );
+    }
+    case "/resume": {
+      if (ctx.registry.taskScope) return addLine("info", "Legacy /resume cannot enter a scoped task session. Use /task use <id>.");
+      const arg = input.split(/\s+/)[1];
+      // "/resume all" is a scope, not a session id (people type it instead of pressing Ctrl+A).
+      if (arg && arg.toLowerCase() !== "all") {
+        const target = loadSession(arg);
+        if (!target) addLine("info", `no session '${arg}' - /resume opens the picker, /resume all shows every project`);
+        else ctx.resumeInto(target);
+        return;
+      }
+      return openResumePicker(ctx, arg ? "all" : "smart");
+    }
+    case "/handoff": {
+      if (ctx.registry.taskScope) return addLine("info", "Legacy handoff is unavailable in a scoped task session.");
+      const rest = input.slice("/handoff".length).trim();
+      const send = /^send\s+(\S+)\s+([\s\S]+)$/.exec(rest);
+      if (send) {
+        const target = send[1];
+        const summary = send[2].trim();
+        if (!summary) return addLine("info", "usage: /handoff send <target-session-id> <summary>");
+        try {
+          ctx.persistSession();
+          const sent = new SessionHandoffStore().send(ctx.currentSessionId, target, summary);
+          return addLine("info", [
+            `handoff queued: ${sent.id}`,
+            `source=${sent.source.sessionId}`,
+            `target=${sent.targetSessionId}`,
+            "payload=summary only; provenance=local-unverified",
+          ].join("\n"));
+        } catch (error) {
+          return addLine("error", handoffDisplay(error instanceof Error ? error.message : String(error), 512));
+        }
+      }
+      if (rest === "inbox") {
+        try {
+          const pending = new SessionHandoffStore().listPending(ctx.currentSessionId);
+          const shown = pending.items.slice(0, HANDOFF_DISPLAY_LIMIT);
+          const lines = pending.items.length
+            ? [`pending handoffs for ${ctx.currentSessionId}:`]
+            : [`no pending handoffs for ${ctx.currentSessionId}.`];
+          for (const item of shown) {
+            lines.push(`- ${item.id}  from=${item.source.sessionId}  at=${item.createdAt}`);
+            lines.push(`  cwd=${handoffDisplay(item.source.cwd, 512)}  model=${handoffDisplay(item.source.model, 256)}`);
+            lines.push(`  summary=${handoffDisplay(item.summary, HANDOFF_SUMMARY_DISPLAY_CHARS)}`);
+            lines.push("  provenance=local-unverified; verify this summary before using it");
+          }
+          if (pending.items.length > shown.length) {
+            lines.push(`showing first ${shown.length} of ${pending.items.length}; no handoffs were consumed`);
+          }
+          if (pending.rejected.length) {
+            lines.push(`rejected ${pending.rejected.length} malformed handoff file(s)`);
+            for (const item of pending.rejected.slice(0, HANDOFF_DISPLAY_LIMIT)) {
+              lines.push(`  ${handoffDisplay(item.file, 160)}: ${handoffDisplay(item.reason, 160)}`);
+            }
+          }
+          if (pending.truncated) lines.push("inbox scan stopped at the safety budget; no handoffs were consumed");
+          return addLine("info", lines.join("\n"));
+        } catch (error) {
+          return addLine("error", handoffDisplay(error instanceof Error ? error.message : String(error), 512));
+        }
+      }
+      return addLine("info", "usage: /handoff [send <target-session-id> <summary>|inbox]");
+    }
+    case "/continue": {
+      ctx.runText(CONTINUE_PROMPT, true);
+      return;
+    }
+    case "/retry": {
+      // Re-run the last human turn (after a transient error / a bad result). rewind() drops that turn and
+      // its response from context, then we resubmit the same text so it runs fresh.
+      const lastUser = agent.lastUserMessage();
+      const text = isText(lastUser?.content) ? lastUser.content
+        : Array.isArray(lastUser?.content) ? lastUser!.content.map((p: any) => p?.text ?? "").join("") : "";
+      if (!text.trim()) return addLine("info", "nothing to retry");
+      agent.rewind();
+      ctx.runText(text);
+      return;
+    }
+    case "/effort": {
+      if (ctx.registry.taskScope) return addLine("info", "Effort changes are unavailable in a scoped task session; resume requires the original configuration.");
+      if (cfg.usesGeminiCli) return addLine("info", "Gemini manages thinking adaptively for the selected model; OpenAI-style effort tiers do not apply.");
+      let arg = input.slice("/effort".length).trim().toLowerCase();
+      if (arg === "default") arg = "off";
+      let option: ModelOption | undefined;
+      if (cfg.usesChatGptAuth || cfg.provider === "kimi") {
+        ctx.setBusy(true);
+        try { option = (await listModelOptions(cfg)).find((model) => model.id === cfg.model); }
+        catch { /* fallback suggestions remain usable while the model catalog is offline */ }
+        finally { ctx.setBusy(false); }
+      }
+      const advertised = option?.efforts?.map((level) => level.effort).filter(Boolean);
+      const negotiate = (level: string) => {
+        const modelLevel = advertised?.length ? resolveEffort(level, option) : level;
+        return cfg.usesChatGptAuth ? modelLevel : clampEffort(modelLevel, cfg.effortCeiling);
+      };
+      const supported = advertised?.length
+        ? [...new Set(advertised)].filter((level) => negotiate(level) === level)
+        : effortSuggestions(cfg.effortCeiling, cfg.effort);
+      if (cfg.effort && !supported.includes(cfg.effort)) supported.push(cfg.effort);
+      const levels = ["off", ...supported];
+      const apply = (lvl: string) => {
+        if (lvl === "off") delete cfg.data.reasoning_effort;
+        else cfg.data.reasoning_effort = lvl;
+        setEffort(lvl); // persist across sessions
+        const shown = cfg.effort || `default${option?.defaultEffort ? ` (${option.defaultEffort})` : ""}`;
+        if (!cfg.effort) return addLine("info", `effort preference -> ${shown}`);
+        const effective = negotiate(cfg.effort);
+        addLine("info", effective === cfg.effort
+          ? `effort preference -> ${shown}`
+          : `effort preference -> ${shown}; ${cfg.model} uses ${effective}`);
+      };
+      if (arg === "list") {
+        const effective = cfg.effort
+          ? negotiate(cfg.effort)
+          : option?.defaultEffort || "model default";
+        return addLine("info", `${cfg.model} effort: default, ${supported.join(", ")}  (preference: ${cfg.effort || "default"}; effective: ${effective})`);
+      }
+      if (arg) {
+        if (arg !== "off" && !isEffortName(arg)) return addLine("error", "effort must be one provider tier name (letters, digits, '.', '_' or '-')");
+        return apply(arg);
+      }
+      // No arg -> interactive picker (Faster -> Smarter), Claude-style.
+      ctx.setOverlay({
+        title: `Reasoning effort for ${cfg.model}  (Faster -> Smarter)`,
+        items: levels.map((level) => {
+          const metadata = option?.efforts?.find((candidate) => candidate.effort === level);
+          const effective = level === "off" ? "" : negotiate(level);
+          const description = level === "off"
+            ? `use model default${option?.defaultEffort ? ` (${option.defaultEffort})` : ""}`
+            : metadata?.description || (effective !== level ? `${cfg.model} uses ${effective}` : "");
+          return { id: level, label: level === "off" ? "default" : level, detail: [level === (cfg.effort || "off") ? "current preference" : "", description].filter(Boolean).join(" - ") };
+        }),
+        onSelect: (it) => {
+          ctx.setOverlay(null);
+          apply(it.id);
+        },
+      });
+      return;
+    }
+    case "/context": {
+      const win = cfg.contextWindow;
+      const last = agent.cost.lastPrompt;
+      const next = estimateRequestTokens(agent.messages, ctx.registry.schemas());
+      const used = effectiveContextTokens(last, next);
+      const pct = Math.min(100, Math.max(0, Math.round((100 * used) / win)));
+      const providerPct = last ? Math.min(100, Math.max(0, Math.round((100 * last) / win))) : 0;
+      return addLine(
+        "info",
+        `context window capacity: ${win} tokens\n` +
+        (last ? `last provider report: ${last} input / ${agent.cost.lastCompletion} output (${providerPct}% of capacity)\n` : "") +
+        `live context (max of provider last-prompt and local estimate): ~${used} tokens (${pct}% of capacity)\n` +
+        `next request estimate: ~${next} tokens\n` +
+        `auto-compacts past ${Math.round(COMPACT_AT * 100)}%`,
+      );
+    }
+    case "/remember": {
+      const rest = input.slice("/remember".length).trim();
+      const userScope = rest.startsWith("--user");
+      const note = userScope ? rest.slice("--user".length).trim() : rest;
+      if (!note) return addLine("info", "usage: /remember [--user] <note>   (or just start a line with #)");
+      const scope = ctx.registry.taskScope;
+      const home = scope ? ctx.registry.memoryHome : cfg.resolvedHome;
+      if (scope && userScope) {
+        return addLine("info", "Shared /remember --user is unavailable in a scoped task; use /remember <note> for task memory.");
+      }
+      return addLine("info", scope
+        ? memoryTool({ action: "append", name: "notes.md", content: note }, home, scope)
+        : rememberNote(note, userScope ? "user" : "project", home));
+    }
+    case "/memory": {
+      const rest = input.slice("/memory".length).trim();
+      const [rawAction = "", ...parts] = rest.split(/\s+/);
+      const action = rawAction || "status";
+      const name = parts.join(" ").trim();
+      const scope = ctx.registry.taskScope;
+      const home = scope ? ctx.registry.memoryHome : cfg.resolvedHome;
+      if (scope && (action === "on" || action === "off")) {
+        return addLine("info", "Global memory on/off is unavailable inside a scoped task; no legacy memory was changed.");
+      }
+      if (action === "on") return addLine("info", setMemoryEnabled(true, home));
+      if (action === "off") return addLine("info", setMemoryEnabled(false, home));
+      if (action === "identity") return addLine("info", scope
+        ? "Shared identity is quarantined from this task. /task status shows the active task."
+        : renderContext(process.cwd(), home));
+      if (action === "list") {
+        const memories = listMemories(home, scope);
+        return addLine("info", memories.length ? memories.map((memory) => `- ${memory.name}: ${memory.summary}`).join("\n") : "(no memories yet)");
+      }
+      if (action === "read") {
+        if (!name) return addLine("info", "usage: /memory read <name>");
+        return addLine("info", readMemoryFile(name, home, scope));
+      }
+      if (action === "forget" || action === "delete") {
+        if (!name) return addLine("info", "usage: /memory forget <name>");
+        return addLine("info", deleteMemoryFile(name, home, scope));
+      }
+      if (action !== "status" && action !== "help") {
+        return addLine("info", "usage: /memory [on|off|list|read <name>|forget <name>|identity]");
+      }
+      const memories = listMemories(home, scope);
+      if (scope) return addLine("info", [
+        `Neko task memory: ${memoryEnabled(home) ? "on" : "off"}`,
+        `task: ${scope.id}`,
+        `saved task memory files: ${memories.length}`,
+        "legacy memory is excluded until an explicit import",
+      ].join("\n"));
+      return addLine("info", [
+        `Neko memory: ${memoryEnabled(home) ? "on" : "off"}`,
+        "identity: ~/.neko-core/NEKO.md (create once; always user-owned)",
+        "core profiles: ~/.neko-core/memory/user.md + self.md (bounded in context)",
+        `saved memory files: ${memories.length}`,
+        "episodes: ~/.neko-core/sessions (raw history; not injected wholesale)",
+        "procedures: ~/.neko-core/workflows + playbook.md",
+        "controls: /memory list | read <name> | forget <name> | off | on | identity",
+        "save an explicit preference: /remember --user <note>",
+      ].join("\n"));
+    }
+    case "/mcp": {
+      const mcp = ctx.registry.mcp;
+      if (!mcp) return addLine("info", "no MCP servers connected (configure mcp_servers / neko mcp add)");
+      const tools = mcp.toolSchemas().map((s: any) => s.function.name);
+      const prompts = mcp.promptList?.() ?? [];
+      return addLine(
+        "info",
+        `MCP tools: ${tools.join(", ") || "(none)"}\nMCP prompts: ${prompts.map((p) => `${p.server}:${p.name}`).join(", ") || "(none)"}`,
+      );
+    }
+    case "/mcp-prompt": {
+      const [, server, name, ...rest] = input.split(/\s+/);
+      const mcp = ctx.registry.mcp;
+      if (!server || !name) return addLine("info", "usage: /mcp-prompt <server> <name> [key=val ...]  ·  /mcp to list");
+      if (!mcp?.getPrompt) return addLine("info", "no MCP prompts available");
+      const promptArgs: Record<string, string> = {};
+      for (const kv of rest) {
+        const i = kv.indexOf("=");
+        if (i > 0) promptArgs[kv.slice(0, i)] = kv.slice(i + 1);
+      }
+      addLine("info", `running MCP prompt ${server}:${name}`);
+      ctx.runText(await mcp.getPrompt(server, name, promptArgs));
+      return;
+    }
+    case "/recipes":
+      if (ctx.registry.taskScope) return addLine("info", "Shared recipes are unavailable in a scoped task session until explicit import.");
+      return addLine("info", "recipes: " + (listRecipes().map((r) => r.name).join(", ") || "(none in ~/.neko-core/recipes)"));
+    case "/recipe": {
+      if (ctx.registry.taskScope) return addLine("info", "Shared recipes cannot be imported into a scoped task session yet.");
+      const rest = input.slice("/recipe".length).trim();
+      const name = rest.split(/\s+/)[0];
+      if (!name) return addLine("info", "usage: /recipe <name> [args]  ·  /recipes to list");
+      const r = loadRecipe(name);
+      if (!r) return addLine("info", `unknown recipe '${name}' - /recipes to list`);
+      addLine("info", `running recipe: ${name}`);
+      ctx.runText(fillRecipe(r.body, rest.slice(name.length).trim())); // runs as a turn
+      return;
+    }
+    default:
+      return addLine("info", `unknown command ${cmd} - try /help`);
+  }
+}
+
+function formatVoiceUsage(): string {
+  const usage = getChatGptVoiceUsage();
+  if (!usage) return "";
+  const seconds = Math.floor(usage.durationMs / 1000);
+  const duration = `${Math.floor(seconds / 60)}m ${seconds % 60}s`;
+  return [
+    "GPT-Live via Codex Realtime V3 (Lab)",
+    `session: ${usage.active ? "LIVE" : "stopped"} - ${duration}`,
+    "remaining voice quota: not exposed by the Codex realtime integration",
+    usage.lastError ? `last limit/error: ${usage.lastError}` : "",
+  ].filter(Boolean).join("\n");
+}

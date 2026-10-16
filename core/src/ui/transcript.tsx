@@ -1,0 +1,230 @@
+import { existsSync } from "node:fs";
+import { resolve } from "node:path";
+
+import { Box, Text } from "ink";
+
+import type { NekoConfig } from "../adapters/config.ts";
+import { terminalSafeText } from "../shared/terminal-text.ts";
+import { VERSION } from "../shared/version.ts";
+import { highlightLine } from "./highlight.tsx";
+import { fileUri, linkSegments, osc8 } from "./links.ts";
+import { Logo } from "./logo.tsx";
+import { Markdown } from "./markdown.tsx";
+import { collapsedToolResultExpandable } from "./chat-lines.ts";
+
+import { isText } from "../shared/wire.ts";
+import { chromeDenyPrefix, chromeTreePrefix } from "./chrome-glyphs.ts";
+
+/** Parse one diff result line into its parts. Two formats are produced by tool-runtime.ts:
+ *  Write: "+ <code>" / "- <code>"; Edit: "NNNN <sign> <code>" (right-padded line number, then +/-/space).
+ *  marker "" means a plain (non-diff) result line -> the caller leaves it un-highlighted. */
+function parseDiffLine(l: string) {
+  const edit = l.match(/^(\s*\d+) ([+\- ]) (.*)$/);
+  // SAFETY: marker capture group is constrained to the +|-|space alternation in the regex above.
+  if (edit) {
+    // SAFETY: marker capture group is constrained to the +|-|space alternation in the regex above.
+    return { lineNo: edit[1], marker: edit[2] as "+" | "-" | " ", code: edit[3] };
+  }
+  const write = l.match(/^([+\-]) (.*)$/);
+  // SAFETY: marker capture group is constrained to the +|- alternation in the regex above.
+  if (write) {
+    // SAFETY: marker capture group is constrained to the +|- alternation in the regex above.
+    return { marker: write[1] as "+" | "-", code: write[2] };
+  }
+  return { marker: "", code: l };
+}
+
+/** Render one diff/result line, Claude-Code-style: the line number is COLORED by change kind (added =
+ *  green, removed = red, both dim so they read as a gutter, not as content), then the +/- marker in the
+ *  full color, then per-token syntax-highlighted code (added/context) or dim-red code (removed). The
+ *  number carries the signal too, so a wall of edits scans at a glance. Plain result lines stay dim. */
+/** Plain prose with bare URLs turned into OSC 8 hyperlinks (Ctrl+Click in a supporting terminal) -
+ * web_search / web_fetch results list the exact product/source URLs, and those must be reachable. */
+function LinkedText({ text }: { text: string }) {
+  return (
+    <>
+      {linkSegments(text).map((seg, k) =>
+        isText(seg) ? seg : <Text key={k} color="cyan" underline>{osc8(seg.uri, seg.text)}</Text>,
+      )}
+    </>
+  );
+}
+
+function DiffLine({ raw, indent, isError }: { raw: string; indent: string; isError: boolean }) {
+  const disp = raw.length > 200 ? raw.slice(0, 200) + "…" : raw;
+  if (isError) return <Text color="red">{indent + disp}</Text>;
+  const { lineNo, marker, code } = parseDiffLine(disp);
+  if (marker === "") return <Text dimColor>{indent}<LinkedText text={code} /></Text>; // plain result line -> dim, links live
+  const isAdd = marker === "+", isDel = marker === "-";
+  const markerColor = isAdd ? "green" : isDel ? "red" : undefined;
+  return (
+    <Text>
+      <Text color={markerColor} dimColor>{indent}{lineNo ? `${lineNo} ` : ""}</Text>
+      <Text color={markerColor} dimColor={!markerColor} bold={!!markerColor}>{marker} </Text>
+      {/* Removed lines keep per-token syntax colors but FADED (Claude-style: "going away"), so a diff
+          stays readable instead of a wall of red - the red number + marker in the gutter carry the
+          removal signal. Added/context lines are highlighted at full strength. */}
+      {isDel ? <Text dimColor>{highlightLine(code)}</Text> : highlightLine(code)}
+    </Text>
+  );
+}
+
+export type LineKind = "welcome" | "user" | "assistant" | "tool_call" | "tool_result" | "tool_result_full" | "info" | "error";
+export interface Line {
+  id: number;
+  kind: LineKind;
+  text: string;
+  summary?: string; // 1-line collapse for read-type tool results (full is under Ctrl+O)
+  /** Expanded failure header (deny / error / interrupt) — red ● instead of success-green. */
+  failed?: boolean;
+}
+
+/** Success-green vs deny/error/interrupt red for the tool_call ●. */
+export function toolCallBulletColor(failed?: boolean): "red" | "green" {
+  return failed ? "red" : "green";
+}
+
+/** Display-only cleanup for tool output. Extractors often return a block with many blank rows at the
+ * edges; rendering those rows verbatim creates a large black hole between a tool call and its result.
+ * Preserve indentation/content, trim only blank edges, and collapse internal blank runs to one row. */
+export function toolResultDisplayLines(text: string): string[] {
+  const lines = String(text).replaceAll("\r\n", "\n").replaceAll("\r", "\n").split("\n");
+  let start = 0, end = lines.length;
+  while (start < end && !lines[start].trim()) start++;
+  while (end > start && !lines[end - 1].trim()) end--;
+  const out: string[] = [];
+  let blank = false;
+  for (const line of lines.slice(start, end)) {
+    if (!line.trim()) { if (blank) continue; blank = true; }
+    else blank = false;
+    out.push(line);
+  }
+  return out.length ? out : [""];
+}
+
+/** A tool-call line like "Read(src/core/agent.ts)": when the argument resolves to a real local file,
+ * hyperlink it (file:// URI) so Ctrl+Click opens it - the Claude-Code affordance. The existsSync gate
+ * keeps queries/commands/truncated args as plain text (renders happen once per line via the ANSI cache,
+ * so the stat is paid once, not per frame). */
+function ToolCallText({ text }: { text: string }) {
+  const m = text.match(/^([^()]+)\((.+)\)$/s);
+  if (m && /^[^\s"'`]+$/.test(m[2]) && /[\\/.]/.test(m[2])) {
+    try {
+      const abs = resolve(m[2]);
+      if (existsSync(abs)) {
+        return <Text>{m[1]}(<Text color="cyan">{osc8(fileUri(abs), m[2])}</Text>)</Text>;
+      }
+    } catch { /* an unresolvable arg is just prose */ }
+  }
+  return <Text>{text}</Text>;
+}
+
+/** Color the "+N" green and "-N" red inside an edit/write header like "Edited f  (+3 -1)". */
+function HeaderCounts({ text }: { text: string }) {
+  return (
+    <>
+      {text.split(/([+-]\d+)/).map((p, k) =>
+        /^\+\d+$/.test(p) ? <Text key={k} color="green">{p}</Text>
+        : /^-\d+$/.test(p) ? <Text key={k} color="red">{p}</Text>
+        : p,
+      )}
+    </>
+  );
+}
+
+/** Render one transcript line. The `key` is set by the caller's <Static> map. */
+export function TranscriptLine({ line, cfg, cols }: { line: Line; cfg: NekoConfig; cols?: number }) {
+  // Escape untrusted transcript bytes before Markdown, link, diff, or Ink parsing. The renderer may
+  // subsequently add its own trusted SGR/OSC-8 sequences, but persisted/provider text can no longer
+  // smuggle OSC, CSI, BEL, or C1 controls into that output.
+  line = {
+    ...line,
+    text: terminalSafeText(line.text, { preserveLineBreaks: true }),
+    summary: line.summary === undefined ? undefined : terminalSafeText(line.summary),
+  };
+  switch (line.kind) {
+    case "welcome":
+      return (
+        <Box marginBottom={1}>
+          <Logo />
+          <Box flexDirection="column" marginLeft={2}>
+            <Text>
+              <Text bold color="white">Neko Core</Text> <Text color="#9a9a9a">v{VERSION}</Text>
+            </Text>
+            <Text color="#9a9a9a">
+              <Text color="white">{terminalSafeText((cfg.model || "no model").split("/").pop())}</Text>
+              {" · "}{terminalSafeText(cfg.provider)}{" · "}{terminalSafeText(cfg.profile ?? "no profile")}
+              {cfg.effort ? ` · ${terminalSafeText(cfg.effort)} effort` : ""}
+            </Text>
+            <Text color="#9a9a9a">{terminalSafeText(process.cwd(), { maxChars: 512 })}</Text>
+          </Box>
+        </Box>
+      );
+    case "user":
+      // A blank line above each user turn so the prompt stands clear of the previous turn's output
+      // (Claude-Code's UserPromptMessage does marginTop={1}); otherwise turns run together.
+      return (
+        <Box marginTop={1} width={cols} paddingLeft={1} paddingRight={1} backgroundColor="#303030">
+          <Text><Text color="cyan">{"> "}</Text><Text color="white">{line.text}</Text></Text>
+        </Box>
+      );
+    case "assistant":
+      return (
+        <Box flexDirection="column" marginTop={1} marginBottom={1}>
+          <Markdown text={line.text} width={cols} />
+        </Box>
+      );
+    case "tool_call":
+      // A blank line above each tool call groups it with its result and separates it from the prompt.
+      // failed=true: deny / Error / (interrupted) — green ● lied that the call succeeded (raise-bar-10).
+      return (
+        <Box marginTop={1}>
+          <Text><Text color={toolCallBulletColor(line.failed)}>● </Text><ToolCallText text={line.text} /></Text>
+        </Box>
+      );
+    case "tool_result": {
+      if (line.summary) {
+        // Summaries are stored as `${toolCall}\n${obs}` — do not hint expand when obs is only an
+        // empty sentinel already covered by e.g. "Listed empty-dir (0 items)" (raise-bar-7).
+        const more = collapsedToolResultExpandable(line.text);
+        return <Text dimColor>{`${chromeTreePrefix()}${line.summary}${more ? " (ctrl+o to expand)" : ""}`}</Text>;
+      }
+      const all = toolResultDisplayLines(line.text);
+      // Failed bash often opens with a stack frame, not "Error:" — also honor FAILED markers /
+      // an Error: line anywhere in the body so failures stay red and scannable.
+      const isError = /^(Error|Blocked|Denied|Refused)/i.test(all[0] ?? "")
+        || /\(exit \d+ -- command FAILED\)/.test(line.text)
+        || /^\[loop guard\]/im.test(line.text)
+        || /^Error:/m.test(line.text);
+      const COLLAPSE = 8;
+      const hidden = all.length - COLLAPSE;
+      const shown = hidden > 0 ? all.slice(0, COLLAPSE) : all;
+      return (
+        <Box flexDirection="column">
+          {shown.map((l, i) => {
+            const indent = i === 0 ? chromeTreePrefix() : "     ";
+            if (i === 0 && !isError && /\([^)]*[+-]\d+[^)]*\)/.test(l)) {
+              // Edit/write header: dim, but color the +N green and -M red (Claude-style).
+              return <Text key={i} dimColor>{indent}<HeaderCounts text={l.length > 200 ? l.slice(0, 200) + "…" : l} /></Text>;
+            }
+            return <DiffLine key={i} raw={l} indent={indent} isError={isError} />;
+          })}
+          {hidden > 0 ? <Text dimColor>{`     … +${hidden} lines (ctrl+o to expand)`}</Text> : null}
+        </Box>
+      );
+    }
+    case "tool_result_full":
+      return (
+        <Box flexDirection="column">
+          {toolResultDisplayLines(line.text).map((l, i) => (
+            <DiffLine key={i} raw={l} indent={i === 0 ? chromeTreePrefix() : "     "} isError={false} />
+          ))}
+        </Box>
+      );
+    case "error":
+      return <Text color="red">{chromeDenyPrefix()}{line.text}</Text>;
+    default:
+      // info lines carry actionable URLs (relay pairing, release notes) - make them Ctrl+Click-able.
+      return <Text color="gray"><LinkedText text={line.text} /></Text>;
+  }
+}

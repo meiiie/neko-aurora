@@ -1,0 +1,206 @@
+# Deploy neko.holilihu.online
+
+The landing page for Neko Core, plus the two installer paths the README promises. Static files served
+by a Cloudflare Worker; no build step, no framework, no external requests from the page.
+
+```
+cloudflare/site/
+  public/index.html     markup, in English, with data-i18n keys
+  public/styles.css     the brand system: ink/cream bands, amber accent, monospace headings
+  public/app.js         Vietnamese dictionary, platform detection, install tabs, copy
+  public/*.png|ico      brand assets, copied from /assets
+  worker.js             /install.sh and /install.ps1 -> raw.githubusercontent; everything else -> assets
+  wrangler.toml         the deploy config
+```
+
+## Current deployment
+
+`neko.holilihu.online` is already attached to the `neko-site` Worker. The landing page
+returns HTTP 200; `/install.sh` and `/install.ps1` redirect to the matching installer
+in `meiiie/neko-core/main`. Verified 2026-09-09 for v1.6.2, Worker version
+`4009600a-808d-4f6d-ab12-482db7f68203`.
+
+Ordinary release deploys must not remove DNS records or change redirect rules.
+The old root redirect to `bang_c` was a historical bootstrap issue, not a current
+deployment step. If a redirect regresses, inspect the exact matching rule before
+proposing a scoped change; Cloudflare Redirect Rules run before Workers.
+
+## Deploy
+
+Use an already authenticated Wrangler session for the account owning
+`holilihu.online`. Only run `wrangler login` when authentication is missing.
+From this repository, the feedback package provides the pinned Wrangler tool:
+
+```bash
+cd cloudflare/feedback
+bun install --frozen-lockfile
+cd ../site
+node ../feedback/node_modules/wrangler/bin/wrangler.js deploy
+```
+
+It prints a `https://neko-site.<your-subdomain>.workers.dev` URL. Check that first — it bypasses every
+redirect rule, so it tells you whether the deploy itself is good before DNS is involved:
+
+```bash
+curl -sI https://neko-site.<subdomain>.workers.dev/ | head -1          # HTTP/2 200
+curl -sI https://neko-site.<subdomain>.workers.dev/install.sh | head -2 # 302 -> raw.githubusercontent
+```
+
+## Attach the domain (new installations only)
+
+Dashboard -> **Workers & Pages** -> `neko-site` -> **Settings** -> **Domains & Routes** -> **Add** ->
+**Custom domain** -> `neko.holilihu.online`. Cloudflare replaces the existing DNS record for that
+hostname and issues the certificate itself; nothing to configure in DNS by hand.
+
+## Verify (do all four)
+
+```bash
+curl -sI https://neko.holilihu.online/ | head -1                        # 200, not 302
+curl -sIL https://neko.holilihu.online/install.sh | grep -i '^location' # raw.githubusercontent .../install.sh
+curl -sIL https://neko.holilihu.online/install.ps1 | grep -i '^location'
+curl -fsSL https://neko.holilihu.online/install.sh | head -3            # the real installer, not HTML
+```
+
+The last one is the one that matters. `curl … | sh` is printed in the README, inside both installer
+scripts, and in every release note: if it ever returns HTML, every new user's first command fails.
+
+## The version on the page comes from the release, not from this repo
+
+The Worker reads `releases/latest` from the GitHub API and rewrites `[data-release]` spots — the version
+in the announce bar and the footer, and the five download sizes. Update the baked fallback and redeploy
+at release time even though the live lookup updates automatically. Three things keep that safe: it is cached ten minutes, it fails open to whatever was baked in at
+deploy time, and it only fills in elements the markup marked for it.
+
+Two traps, both paid for:
+
+- **Static assets are served BEFORE the Worker.** `/` never reached it, so the rewrite silently did
+  nothing while `/install.sh` and `/__release` worked fine — they have no matching file. Fixed with
+  `run_worker_first` in `wrangler.toml`. If the version ever stops updating, check this first.
+
+  It bit a second time, in the opposite direction: adding `not_found_handling = "404-page"` made the
+  asset layer answer every non-matching path with `404.html` instead of falling through, which swallowed
+  `/__release` the moment the 404 page shipped. Every path the Worker must own is now listed in
+  `run_worker_first` explicitly — including the two installer paths, because a contract should not
+  depend on a fall-through that a later setting can remove.
+- **Do not stack two caches with the same TTL.** The first version also passed `cf: { cacheTtl: 600 }` on
+  the GitHub call. When the outer cache expired it re-read the still-cached inner one and re-primed the
+  same stale answer for another ten minutes — v0.18.0 shipped and one region kept serving 0.17.1 while
+  another was already correct. There is now exactly one cache, and freshness is checked against a
+  timestamp the Worker writes into the entry rather than against the platform honouring `max-age`.
+
+To check by hand: `curl -s https://neko.holilihu.online/__release`. It must agree with
+`gh release view --json tagName`, and the rendered page must contain the same number — `/__release` being
+right while the page is stale means the HTML rewrite is not running.
+
+## The scales are measured, not asserted
+
+`audit.js` (next to this file) walks every rendered element and reports anything off the spacing or type
+scale, every control under 44px on its short edge, and any text column past ~78ch. Run it after any
+visual change:
+
+```js
+// copy audit.js into public/, then in the console:
+const src = await (await fetch("/_audit.js")).text();
+for (const w of [320, 390, 430, 768, 1024, 1440]) {
+  const f = document.createElement("iframe");
+  f.src = "/"; f.width = w; f.height = 900; document.body.appendChild(f);
+  await new Promise(r => { f.onload = r; setTimeout(r, 2200); });
+  f.contentWindow.eval(src);
+  console.log(w, f.contentWindow.__audit(String(w)));
+  f.remove();
+}
+```
+
+Take the file back out of `public/` before deploying — it is a tool, not part of the site.
+
+The current state: zero off-scale values and zero targets under 44px at all six widths, with four
+documented exemptions listed at the top of `styles.css`. Things it caught that eyeballing had not:
+button padding at 9/20 and 14/30, section rhythm at 72, the gutter at 40, five separate uses of 15px
+type, a language control at 39×32, `sha256` links at 20×20, and a nav that needed 380px of content
+inside 312px of usable width at 360px — where the wordmark and the CTA were overlapping.
+
+## Changing the page
+
+Edit `public/index.html` and run the pinned deployment command above again. Things to keep in mind:
+
+- **English lives in the markup, Vietnamese lives in `app.js`.** Add a `data-i18n="some.key"` to the
+  element with the English text inside it, then add `"some.key"` to the `VI` object. A key with no
+  translation falls back to the English already in the page, so a half-finished translation degrades to
+  English rather than to a blank element — and a crawler or a reader with JavaScript off still gets a
+  real page. To check nothing was missed:
+
+  ```js
+  // paste in the browser console after switching to Vietnamese
+  [...document.querySelectorAll("[data-i18n]")].filter(n => !n.innerHTML.trim())
+  ```
+
+- **Download links use GitHub's `releases/latest/download/` permalinks.** Live sizes come from the
+  release API; update baked fallback sizes when they materially change.
+- **Claims on this page are checkable.** Everything it says about tools, gating, offline use and the
+  oracle is true of the shipped binary. Keep it that way; a landing page that oversells is a support
+  burden, not marketing.
+- **Images are compressed with ffmpeg, not committed raw.** The generated art arrives at 1–1.5 MB; the
+  whole `public/` directory is 276 KB because everything goes through this:
+
+  ```bash
+  # the hero character: 3:4, screened over the frame, so its pure-black ground must survive
+  ffmpeg -i src.png -vf "scale=720:-1:flags=lanczos" -quality 90 public/neko-hero.webp
+  # the hero frame backdrop and the OG backdrop
+  ffmpeg -i bg.png  -vf "scale=1440:-1:flags=lanczos" -quality 82 public/hero-bg.webp
+  ffmpeg -i bg.png  -vf "scale=1200:630:force_original_aspect_ratio=increase,crop=1200:630" -quality 85 public/og-bg.webp
+  ```
+
+- **The demo clip is a real recording, cut and compressed, never re-enacted.** A 116-second screen
+  capture (57 MB) becomes a 30-second loop under 450 KB. The poster is a still of the *finished*
+  dashboard, so the page shows the outcome before anyone presses play:
+
+  ```bash
+  ffmpeg -ss 42 -t 30 -i run.mp4 -an -vf "scale=1280:-2:flags=lanczos"          -c:v libx264 -crf 31 -preset slow -movflags +faststart -pix_fmt yuv420p public/demo-excel.mp4
+  ffmpeg -ss 42 -t 30 -i run.mp4 -an -vf "scale=1280:-2:flags=lanczos"          -c:v libvpx-vp9 -crf 42 -b:v 0 -row-mt 1 public/demo-excel.webm
+  ffmpeg -i run.mp4 -vf "select='gte(t,108)',scale=1280:-2" -frames:v 1 -vsync 0 public/demo-excel-poster.webp
+  ```
+
+  `preload="none"` means nobody pays for the video until they ask for it, and the caption says plainly
+  that it is unedited. If the recording is ever re-shot, keep both of those true.
+
+- **The README banner is a ROUNDED CARD rendered headlessly.** `banner-card.html` is a 1280x420
+  rounded-corner card (cindy.cn-style: kicker, big wordmark, accented tagline, feature strip, the
+  cat + a READY badge) on a TRANSPARENT page. Render it with headless Chrome - no server, no
+  screenshot-scale correction, and `--default-background-color=00000000` bakes REAL alpha corners,
+  which is what keeps them round on both GitHub themes:
+
+  ```powershell
+  & "C:\Program Files\Google\Chrome\Application\chrome.exe" --headless=new `
+    --screenshot=assets/neko-core-banner.png --window-size=1280,420 `
+    --force-device-scale-factor=1 --default-background-color=00000000 `
+    --hide-scrollbars file:///E:/Sach/Sua/NekoCore/cloudflare/site/banner-card.html
+  ```
+
+  (The old flow - serve public/, screenshot, ffmpeg crop at the 1.0208 scale factor - still works
+  for the OG cards, which want a solid background anyway.) `public/404.html` is a real page rather
+  than Cloudflare's default:
+  `not_found_handling = "404-page"` in `wrangler.toml` serves it with a genuine 404 status, so a link
+  checker still reads it as missing. It carries its own tiny language script — `app.js` assumes the
+  landing page's elements, and a 404 that throws is worse than one that is only in English.
+
+- **The social card is regenerated, not hand-edited.** `og-card.html` (next to this file) is the source:
+  copy it into `public/`, open it, screenshot, and crop. The viewport screenshot is scaled by
+  `screenshotWidth / window.innerWidth` — 1.0208 on the machine this was built on — so the crop is
+  `1200 × 630` multiplied by that factor, then scaled back down:
+
+  ```bash
+  ffmpeg -i shot.jpg -vf "crop=1225:643:0:0,scale=1200:630:flags=lanczos" -q:v 3 public/og.jpg
+  ```
+
+  Set `?lang=vi` (or overwrite `#head` from the console) for `og-vi.jpg`. Do not ask an image model to
+  render the words — Vietnamese diacritics come back as gibberish.
+
+- **The cat is composited, never cut out.** It was generated on pure black and is drawn with
+  `mix-blend-mode: screen` inside `.art-frame`, where black resolves to the backdrop exactly and the fur
+  edges stay intact. Keying it out by hand leaves a chewed silhouette. If you regenerate the character,
+  keep the background pure `#000` or this stops working.
+
+- **Art briefs** for the OG card, the README banner and the mascot are in
+  [`docs/marketing/IMAGE-BRIEFS.md`](../../docs/marketing/IMAGE-BRIEFS.md). The short version: generate
+  art only, never text — then composite the words in HTML and screenshot, or the Vietnamese diacritics
+  come out as gibberish.

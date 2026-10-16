@@ -1,0 +1,5 @@
+# Local Wiii installation metadata
+
+Base: exact Neko022a06a. GET /v1/adapters/installation-catalog requires existing local owner cookie/Host/Origin, no query, no-store. Response version1/ownerUserId/spaceId/installation/projects. Installation is the original executors.InstallPin wire: version, executorId, generation, hostSha256, coreSha256, rootSha256, capabilitiesSha256 (Descriptor anonymously embedded by existing Go type). Projects have id/name/revision/channelIds only, stable ID order. No project goal, continuity, work, private messages, account, file contents, filesystem path, boot/readiness or leases.
+
+ReadInstallation verifies current registry identity under its lock and refuses closed/poisoned/revoked/corrupt state. It does not observe expiry, renew, reconcile or write. Configured offline installation identity is metadata, not proof of readiness/process identity or a grant. Missing/nil registry returns503. Existing adapter catalog is unchanged. Local owner may see their project routing descriptors; same-name projects remain separate IDs. Every message still needs normal exact project/channel intake validation.

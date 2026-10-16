@@ -1,0 +1,1100 @@
+<!doctype html>
+<html lang="en"><head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, interactive-widget=resizes-content">
+<meta name="theme-color" content="#0c0c0c">
+<title>Neko remote</title>
+<link rel="icon" type="image/png" href="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAABccqhmAAAC1klEQVR4nO3ZUU7DMBAE0JyIy3JHrgHfoFYq7jq2d96T8ofaZLI7Tct1AQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAkO3r8+N75Fh93kABBQDBFAAEUwAQTAFAMAUAAUYX3X8HWDFHuxxt7r7AOGmOdjnaTI3AOGmOdjnaTE3FhUYFxkOrF1IBDFIAVFi9kApAAbDQ6oVUAAoABXBbEbQZNl8BuGOOuh1tpkYBcMccdTvaTI0CIJkCKGi6qMakFQWgAAimAG4qAE8F7Ch+dhUAyeILYGW4U98cXuBJdSIFwO4UwMJwZ743vEIBTKQA2F1MAay4yIhgOUb0D34KgHQKwBMAwSI+6Z/xBEA6BeAJgGAKQAEQTAEEFED0Dz0TcpmR1+z3NAMDobxzQ096TwWgACJnIGUBFEBtLh2fAK5EKaEogNpcFEATCiCjAJ9RADn3+iEFoAA8ASiA9p+AO30F6PCpu9O5zHqdCCmh7DQUHZZup3OZ9TowxU5Ld4LqAlhzFfDigCqA3xQArSiA2rze/Xu4lQKozevdv48glH0oAHltN3T3n1EuBSCv7Ybu/jPiL/fof/xoWhiWdVzPParNy6wbrqMY3Nq8FIDhOorBrc1LMRiuoyiA2rwUgOE6igKozUsBGC4CKYCBUO6/TTCHAhgIxTDSRXQBRF88pO9A9MVD+g5EXzyk70DMhcI/ReyFAoCx3WiRmwKAsd1okZsCgLHdaJGbAoCx3ZAbAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAwNXYDzqjb1SOEsX2AAAAAElFTkSuQmCC">
+<link rel="apple-touch-icon" href="data:image/png;base64,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CgkAACgkAACgkAAAgEICAAAKCQAAKCQAAKCQAACAQgIAAAoJAAAoJAAAoJAAAIBCAgAACgkAACgkAACgkAAAgEICAAAKCQAAKCQAAKCQAACAQgIAAAoJAAAoJAAAoJAAAIBCAgAACgkAACgkAACgkAAAgEICAAAKCQAAKCQAAKCQAACAQgIAAAoJAAAoJAAAoJAAAIBCAgAACgkAACgkAACgkAAAgEICAAAKCQAAKCQAAKCQAACAQgIAAAoJAAAoJAAAoJAAAIBCAgAACgkAACgkAACgkAAAgEICAAAKCQAAKCQAAKCQAACAQgIAAAoJAAAoJAAAoJAAAIBCAgAACgkAACgkAACgkAAAgEICAAAKCQAAKCQAAKCQAACAQgIAAAoJAAAoJAAAoJAAAIBCAgAACgkAACgkAACgkAAAgEICAAAKCQAAKCQAAKCQAACAQgIAAAoJAAAoJAAAoJAAAIBCAgAACgkAACgkAACgkAAAgEICAAAKCQAAKCQAAKCQAACAQgIAAAoJAAAoJAAAoJAAAIBCAgAACgkAACgkAACgkAAAgEICAAAKCQAAKCQAAKCQAACAQgIAAAoJAAAoJAAAoJAAAIBCAgAACgkAACj0f4JcFrX5mmiyAAAAAElFTkSuQmCC">
+<style nonce="__CSP_NONCE__">
+  /* Neko remote = the Neko terminal, on your phone. Same monospace, same amber (#e6932e), same
+     dim rules and `>` prompt and bottom status bar. Every rule below mirrors a real terminal element;
+     nothing decorative. */
+  :root {
+    color-scheme: dark;
+    --bg: #0c0c0c; --ink: #d4d4d4; --dim: #9a9a9a; --faint: #6a6a6a;
+    --amber: #e6932e; --cyan: #56b6c2; --ok: #3fb950; --err: #f47067;
+    --line: #262626; --line2: #333;
+    --mono: "Cascadia Mono", "Cascadia Code", ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  }
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  html, body { height: 100%; }
+  body { margin: 0; background: var(--bg); color: var(--ink); font: 14px/1.65 var(--mono); overscroll-behavior: none; overflow-x: hidden; }
+  a { color: var(--cyan); text-underline-offset: 2px; }
+
+  /* Centered column framed like a terminal window on wide screens (the desktop fix). */
+  .app { max-width: 820px; margin: 0 auto; min-height: 100dvh; display: flex; flex-direction: column; }
+  @media (min-width: 860px) { .app { border-left: 1px solid var(--line); border-right: 1px solid var(--line); } }
+
+  /* Header = the CLI's banner, verbatim: kaomoji logo column + [title / status / host] block. */
+  header { position: sticky; top: 0; z-index: 5; display: grid; grid-template-columns: auto 1fr auto; align-items: start; gap: 14px; padding: 13px 16px 11px; padding-top: max(13px, env(safe-area-inset-top)); background: color-mix(in srgb, var(--bg) 88%, transparent); backdrop-filter: blur(12px); border-bottom: 1px solid var(--line); }
+  .mark { color: var(--amber); font-size: 14px; line-height: 1.6; letter-spacing: 1px; white-space: nowrap; }
+  .hgrid { min-width: 0; }
+  .htitle { color: var(--ink); font-weight: 700; letter-spacing: .2px; }
+  .htitle small { color: var(--dim); font-weight: 400; }
+  .hstatus { color: var(--dim); font-size: 12.5px; margin-top: 1px; display: flex; align-items: center; gap: 6px; white-space: nowrap; }
+  .hstatus .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--faint); flex: none; }
+  .hstatus.ok { color: var(--ok); } .hstatus.ok .dot { background: var(--ok); animation: pulse 2.6s ease-out infinite; }
+  .hstatus.warn { color: var(--amber); } .hstatus.warn .dot { background: var(--amber); }
+  .hstatus.err { color: var(--err); } .hstatus.err .dot { background: var(--err); }
+  @keyframes pulse { 0% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--ok) 55%, transparent); } 70%,100% { box-shadow: 0 0 0 6px transparent; } }
+  .hhost { color: var(--faint); font-size: 12px; margin-top: 1px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .hactions { display: flex; align-items: center; gap: 7px; }
+  .hostpick { min-width: 30px; height: 30px; padding: 0 9px; border: 1px solid var(--line); background: transparent; border-radius: 7px; color: var(--dim); font: 11.5px var(--mono); cursor: pointer; }
+  .hostpick.open, .hostpick:active { color: var(--amber); border-color: color-mix(in srgb, var(--amber) 40%, var(--line)); }
+  .gear { width: 30px; height: 30px; border: 1px solid var(--line); background: transparent; border-radius: 7px; color: var(--dim); display: grid; place-items: center; cursor: pointer; transition: color .15s, border-color .15s; }
+  .gear:active { transform: scale(.92); }
+  .gear.open { color: var(--amber); border-color: color-mix(in srgb, var(--amber) 40%, var(--line)); }
+  .gear svg { width: 15px; height: 15px; }
+
+  /* Settings drawer = manual/advanced pairing + relay. Hidden until the gear opens it. */
+  .cfg { display: grid; gap: 9px; padding: 0 16px; max-height: 0; overflow: hidden; transition: max-height .3s ease, padding .3s ease; border-bottom: 1px solid transparent; }
+  .cfg.show { max-height: 420px; padding: 13px 16px 15px; border-bottom-color: var(--line); }
+  .cfg label { font-size: 11px; color: var(--faint); letter-spacing: .3px; }
+  .cfg input { background: #0a0a0a; border: 1px solid var(--line2); color: var(--ink); border-radius: 7px; padding: 9px 11px; font: 13px var(--mono); transition: border-color .15s, box-shadow .15s; }
+  .cfg input:focus { outline: 0; border-color: var(--amber); box-shadow: 0 0 0 2px color-mix(in srgb, var(--amber) 22%, transparent); }
+  .cfg .btn { justify-self: start; background: transparent; border: 1px solid var(--line2); color: var(--dim); border-radius: 7px; padding: 7px 12px; font: 12.5px var(--mono); cursor: pointer; }
+  .cfg .btn:active { transform: scale(.96); }
+
+  /* One pairing is a hub; this terminal-like drawer switches among running/recent Neko sessions. */
+  .sessions { display: none; padding: 7px 10px 9px; border-bottom: 1px solid var(--line); background: #0a0a0a; }
+  .sessions.show { display: grid; gap: 4px; }
+  .session { width: 100%; display: grid; grid-template-columns: 9px minmax(0,1fr) auto; gap: 9px; align-items: center; text-align: left; border: 1px solid transparent; border-radius: 6px; padding: 7px 8px; background: transparent; color: var(--ink); font: 12.5px/1.35 var(--mono); cursor: pointer; }
+  .session:hover, .session.active { border-color: var(--line2); background: #111; }
+  .session .sdot { width: 7px; height: 7px; border-radius: 50%; background: var(--faint); }
+  .session.online .sdot { background: var(--ok); }
+  .session .smain { min-width: 0; }
+  .session .sname, .session .spath { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .session .spath, .session .smodel { color: var(--faint); font-size: 11px; }
+  .session.busy .smodel { color: var(--amber); }
+
+  /* Transcript = terminal flow: `> ` user echo (cyan), neko reply, `●` tool lines. No chat bubbles. */
+  #log { flex: 1; padding: 14px 16px 24px; }
+  .turn { white-space: pre-wrap; overflow-wrap: anywhere; }
+  .turn.user { color: var(--cyan); margin-top: 18px; }
+  .turn.user:first-child { margin-top: 2px; }
+  .turn.user .mk { color: var(--amber); }
+  .turn.neko { margin-top: 6px; color: var(--ink); }
+  .turn.neko.err { color: var(--err); }
+  .proc { color: var(--dim); font-size: 13px; line-height: 1.75; }
+  .proc .b { color: var(--ok); }
+  .proc .sp { color: var(--amber); }
+  .body b { color: var(--ink); font-weight: 700; }
+  .body a { word-break: break-all; }
+  .body pre { background: #0a0a0a; border: 1px solid var(--line); border-radius: 7px; padding: 8px 10px; overflow-x: auto; margin: 6px 0; white-space: pre; font-size: 13px; }
+  .body code { color: #d7ba7d; }
+  .body pre code { color: var(--ink); }
+  .typing { display: inline-flex; gap: 4px; }
+  .typing i { width: 6px; height: 6px; border-radius: 50%; background: var(--dim); animation: bob 1.1s infinite ease-in-out; }
+  .typing i:nth-child(2) { animation-delay: .15s; } .typing i:nth-child(3) { animation-delay: .3s; }
+  @keyframes bob { 0%,80%,100% { transform: translateY(0); opacity: .4; } 40% { transform: translateY(-4px); opacity: 1; } }
+  @media (prefers-reduced-motion: reduce) { .typing i, .hstatus.ok .dot { animation: none; } }
+
+  /* Pairing card (unpaired) = a calm centered focus, not a field dump. */
+  .pair { max-width: 360px; margin: 8vh auto 0; text-align: center; padding: 0 8px; }
+  .pair img { width: 66px; height: 66px; border-radius: 16px; margin-bottom: 14px; }
+  .pair h2 { font-size: 16px; font-weight: 600; margin: 0 0 8px; color: var(--ink); }
+  .pair p { color: var(--dim); font-size: 13px; line-height: 1.7; margin: 0 0 16px; }
+  .pair p code { color: var(--amber); }
+  .pair input { width: 100%; background: #0a0a0a; border: 1px solid var(--line2); color: var(--ink); border-radius: 8px; padding: 11px 12px; font: 13px var(--mono); text-align: center; }
+  .pair input:focus { outline: 0; border-color: var(--amber); box-shadow: 0 0 0 2px color-mix(in srgb, var(--amber) 22%, transparent); }
+  .pair .adv { margin-top: 14px; color: var(--faint); font-size: 12.5px; cursor: pointer; user-select: none; }
+  .pair .note { color: var(--faint); font-size: 11.5px; line-height: 1.7; margin-top: 18px; }
+  .idle { color: var(--faint); padding: 6px 0; font-size: 12.5px; }
+
+  /* Composer = the terminal's rule-framed `>` prompt + a bottom status bar. */
+  .foot { position: sticky; bottom: 0; background: color-mix(in srgb, var(--bg) 92%, transparent); backdrop-filter: blur(12px); border-top: 1px solid var(--line); padding-bottom: env(safe-area-inset-bottom); }
+  .composer { display: flex; align-items: flex-end; gap: 9px; padding: 9px 16px 7px; }
+  .composer .pr { color: var(--amber); padding: 9px 0; font-size: 15px; line-height: 1.4; }
+  .composer textarea { flex: 1; resize: none; max-height: 128px; background: transparent; border: 0; color: var(--ink); padding: 9px 0; font: 14px/1.45 var(--mono); }
+  .composer textarea:focus { outline: 0; }
+  .composer textarea::placeholder { color: var(--faint); }
+  .send { width: 36px; height: 36px; flex: none; border: 1px solid color-mix(in srgb, var(--amber) 45%, var(--line)); border-radius: 8px; background: transparent; color: var(--amber); display: grid; place-items: center; cursor: pointer; transition: transform .12s, background .15s, opacity .2s; }
+  .send:active { transform: scale(.9); }
+  .send:disabled { opacity: .4; cursor: default; }
+  .send:not(:disabled) { background: color-mix(in srgb, var(--amber) 16%, transparent); }
+  .send.stop { color: var(--err); border-color: color-mix(in srgb, var(--err) 50%, var(--line)); background: color-mix(in srgb, var(--err) 14%, transparent); }
+  .send svg { width: 17px; height: 17px; }
+  .status { display: flex; justify-content: space-between; align-items: center; padding: 0 16px 8px; font-size: 11.5px; color: var(--faint); }
+  .status .l { display: flex; align-items: center; gap: 6px; }
+  .status .l .d { width: 6px; height: 6px; border-radius: 50%; background: var(--faint); }
+  .status.ok .l { color: var(--ok); } .status.ok .l .d { background: var(--ok); }
+  .status.warn .l { color: var(--amber); } .status.warn .l .d { background: var(--amber); }
+  .status.err .l { color: var(--err); } .status.err .l .d { background: var(--err); }
+
+  /* CLI parity shell: the web relay uses the same full-screen geometry as the Ink UI. */
+  :root { --bg: #111; --line: #555; }
+  body { font-size: 16px; line-height: 1.45; }
+  .app {
+    width: 100%; max-width: none; height: 100dvh; min-height: 0; margin: 0;
+    padding: 0 34px 12px; overflow: hidden;
+  }
+  @media (min-width: 860px) { .app { border: 0; } }
+  header {
+    position: relative; top: auto; z-index: 10; flex: none;
+    grid-template-columns: auto minmax(0, 1fr) auto; gap: 20px;
+    padding: 9px 0 0; background: transparent; backdrop-filter: none; border: 0;
+  }
+  .mark { font-size: 18px; line-height: 1.35; letter-spacing: 1px; }
+  .htitle { font-size: 19px; line-height: 1.25; }
+  .htitle small { font-size: inherit; }
+  .hstatus { display: block; margin: 0; color: var(--dim); font-size: 16px; line-height: 1.35; }
+  .hstatus .dot { display: none; }
+  .hhost { margin: 0; color: var(--dim); font-size: 16px; line-height: 1.35; }
+  .hactions { gap: 12px; padding-top: 4px; opacity: .42; transition: opacity .15s; }
+  header:hover .hactions, .hactions:focus-within { opacity: 1; }
+  .hostpick, .gear {
+    width: auto; min-width: 0; height: auto; padding: 2px 0; border: 0; border-radius: 0;
+    color: var(--dim); background: transparent; font: 13px/1.3 var(--mono);
+  }
+  .hostpick.open, .hostpick:active, .gear.open { border: 0; color: var(--amber); }
+  .hostpick:focus-visible, .gear:focus-visible { outline: 1px solid var(--amber); outline-offset: 4px; }
+  .gear svg { display: none; }
+  .gear::after { content: "settings"; }
+
+  .sessions, .cfg {
+    position: fixed; z-index: 30; top: 42px; right: 34px; width: min(460px, calc(100vw - 68px));
+    background: #111; border: 1px solid var(--line); box-shadow: 0 16px 48px #000a;
+  }
+  .sessions { padding: 7px; }
+  .sessions.show { display: grid; }
+  .cfg { display: none; max-height: min(70vh, 520px); overflow: auto; padding: 13px 16px 15px; }
+  .cfg.show { display: grid; max-height: min(70vh, 520px); padding: 13px 16px 15px; border-bottom-color: var(--line); }
+
+  #log { position: relative; z-index: 0; min-height: 0; flex: 1; overflow: auto; padding: 14px 0 22px; scrollbar-width: none; }
+  #log::-webkit-scrollbar { width: 0; height: 0; }
+  .turn.user { margin-top: 18px; }
+  .turn.user .mk { color: var(--cyan); }
+  .turn.neko { margin-top: 8px; }
+  .proc { font-size: 15px; line-height: 1.65; }
+
+  .foot { position: relative; z-index: 20; bottom: auto; flex: none; background: transparent; backdrop-filter: none; border: 0; padding: 0; }
+  .liveui { display: none; margin-bottom: 6px; padding: 8px 12px; border: 1px solid var(--line); background: #111; color: var(--dim); font-size: 13px; }
+  .liveui.show { display: grid; gap: 5px; }
+  .liveui .live-title { color: var(--amber); font-weight: 700; }
+  .liveui .live-preview { max-height: min(220px, 28vh); margin: 0; overflow: auto; color: var(--ink); white-space: pre-wrap; overflow-wrap: anywhere; font: inherit; }
+  .liveui .live-tools { display: grid; gap: 2px; color: var(--dim); }
+  .liveui .live-tool::before { content: "\25CF  "; color: #4d9fff; }
+  .liveui .live-actions { display: flex; flex-wrap: wrap; gap: 8px; padding-top: 2px; }
+  .liveui .overlay-list { display: grid; max-height: min(360px, 42vh); overflow: auto; }
+  .liveui button.overlay-option { width: 100%; display: grid; grid-template-columns: minmax(12ch, auto) 1fr; gap: 14px; border-width: 0 0 0 2px; text-align: left; }
+  .liveui button.overlay-option.active { border-color: var(--cyan); background: #191919; color: var(--cyan); }
+  .liveui .overlay-detail { color: var(--faint); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .liveui button { min-height: 32px; padding: 5px 9px; border: 1px solid var(--line); background: transparent; color: var(--ink); font: inherit; cursor: pointer; }
+  .liveui button:hover, .liveui button:focus-visible { border-color: var(--cyan); color: var(--cyan); outline: 0; }
+  .liveui button.deny:hover, .liveui button.deny:focus-visible { border-color: var(--err); color: var(--err); }
+  .slashmenu {
+    position: absolute; z-index: 20; left: 0; right: 0; bottom: calc(100% - 1px);
+    max-height: min(420px, 56vh); overflow: auto; padding: 5px 0;
+    background: #111; border: 1px solid var(--line);
+    opacity: 0; visibility: hidden; pointer-events: none; transform: translateY(5px);
+    transition: opacity .12s ease, transform .12s ease, visibility 0s linear .12s;
+  }
+  .slashmenu.open { opacity: 1; visibility: visible; pointer-events: auto; transform: translateY(0); transition-delay: 0s; }
+  .slashitem {
+    width: 100%; display: grid; grid-template-columns: minmax(9ch, auto) 1fr; gap: 18px;
+    padding: 5px 12px; border: 0; border-left: 2px solid transparent;
+    background: transparent; color: var(--ink); text-align: left; font: 14px/1.45 var(--mono); cursor: pointer;
+  }
+  .slashitem .name { color: var(--cyan); }
+  .slashitem .desc { color: var(--dim); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .slashitem:hover, .slashitem.active { background: #191919; border-left-color: var(--cyan); }
+  .slashmore { padding: 4px 14px 2px; color: var(--faint); font-size: 12px; }
+  .slashhint { padding: 5px 14px 3px; border-top: 1px solid var(--line); color: var(--faint); font-size: 11px; }
+  .composer { align-items: center; gap: 10px; padding: 5px 0; border-top: 1px solid var(--line); border-bottom: 1px solid var(--line); }
+  .composer:focus-within { border-color: color-mix(in srgb, var(--cyan) 72%, var(--line)); }
+  .composer .pr { color: var(--cyan); padding: 8px 0; font-size: 18px; }
+  .composer textarea { max-height: 128px; padding: 8px 0; font: 16px/1.4 var(--mono); caret-color: var(--cyan); }
+  .send {
+    position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px;
+    overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0;
+  }
+  .status { padding: 8px 16px 0; font-size: 16px; line-height: 1.35; }
+  .status .l { gap: 0; }
+  .status .mode.auto { color: var(--err); }
+  .status .mode.accept-edits, .status.working .hint { color: var(--amber); }
+  .status .hint { color: var(--faint); }
+  @media (prefers-reduced-motion: reduce) { .slashmenu { transition: none; } }
+
+  @media (max-width: 700px) {
+    body { font-size: 14px; }
+    .app {
+      padding: 0 max(14px, env(safe-area-inset-right)) max(8px, env(safe-area-inset-bottom)) max(14px, env(safe-area-inset-left));
+    }
+    header { gap: 8px; padding-top: max(6px, env(safe-area-inset-top)); }
+    .mark { font-size: 14px; }
+    .htitle { font-size: 15px; }
+    .hstatus, .hhost { overflow: hidden; font-size: 12px; text-overflow: ellipsis; }
+    .hactions { gap: 2px; padding-top: 0; opacity: .78; }
+    .hostpick, .gear {
+      min-width: 44px; height: 44px; padding: 0 4px; display: grid; place-items: center; font-size: 11px; touch-action: manipulation;
+    }
+    .sessions, .cfg {
+      top: calc(max(6px, env(safe-area-inset-top)) + 48px);
+      right: max(14px, env(safe-area-inset-right)); left: max(14px, env(safe-area-inset-left)); width: auto;
+      max-height: calc(100dvh - 70px - max(8px, env(safe-area-inset-bottom))); overscroll-behavior: contain;
+    }
+    .cfg.show { max-height: calc(100dvh - 70px - max(8px, env(safe-area-inset-bottom))); }
+    .session { min-height: 44px; }
+    #log { padding: 10px 0 14px; overscroll-behavior: contain; }
+    .proc { font-size: 13px; }
+    .composer { min-height: 52px; gap: 8px; }
+    .composer .pr { padding: 10px 0; }
+    .composer textarea { min-height: 44px; max-height: min(112px, 24dvh); padding: 10px 0; font-size: 16px; }
+    .slashmenu { max-height: min(320px, 42dvh); overscroll-behavior: contain; }
+    .liveui { margin-bottom: 4px; padding: 8px 10px; font-size: 12px; }
+    .liveui.show { max-height: min(54dvh, 360px); overflow: auto; overscroll-behavior: contain; }
+    .liveui button { min-height: 44px; touch-action: manipulation; }
+    .liveui button.overlay-option { grid-template-columns: 1fr; gap: 0; }
+    .slashitem { min-height: 44px; grid-template-columns: 1fr; gap: 0; padding: 6px 10px; font-size: 13px; touch-action: manipulation; }
+    .slashitem .desc { font-size: 11px; }
+    .status { gap: 8px; padding: 7px 4px 0; font-size: 11px; white-space: nowrap; }
+    .status .l, #statustxt { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    #statustxt { display: block; }
+    .status .r { flex: none; }
+    .send {
+      position: static; width: 44px; height: 44px; padding: 0; margin: 0; overflow: visible;
+      clip: auto; white-space: normal; border: 1px solid var(--line); border-radius: 3px;
+      touch-action: manipulation;
+    }
+  }
+  @media (max-width: 700px) and (max-height: 600px) {
+    .hhost { display: none; }
+    #log { padding-top: 6px; padding-bottom: 8px; }
+    .liveui.show { max-height: 42dvh; }
+    .slashhint { display: none; }
+  }
+  @media (max-width: 360px) {
+    .app { padding-right: max(10px, env(safe-area-inset-right)); padding-left: max(10px, env(safe-area-inset-left)); }
+    header { gap: 6px; }
+    .htitle small { display: none; }
+    .gear::after { content: "set"; }
+  }
+</style></head>
+<body>
+<div class="app">
+  <header>
+    <div class="mark">ハ・・マ</div>
+    <div class="hgrid">
+      <div class="htitle"><span id="htitle">Neko Core</span> <small id="hversion">v1.2.1</small></div>
+      <div class="hstatus" id="hstatus"><span class="dot"></span><span id="hstatustxt">not paired</span></div>
+      <div class="hhost" id="hhost"></div>
+    </div>
+    <div class="hactions"><button class="hostpick" id="hostpick" type="button" aria-label="switch Neko session" aria-expanded="false">sessions</button>
+    <button class="gear" id="gear" aria-label="settings"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg></button>
+    </div>
+  </header>
+  <div class="sessions" id="sessions" role="listbox" aria-label="Neko sessions"></div>
+  <div class="cfg" id="cfg">
+    <label for="relay">relay URL</label><input id="relay" autocomplete="off" placeholder="https://neko-relay.<you>.workers.dev">
+    <label for="session">session</label><input id="session" autocomplete="off" placeholder="from /relay">
+    <label for="token">token</label><input id="token" autocomplete="off" type="password" placeholder="from /relay">
+    <label for="secret">secret (end-to-end key)</label><input id="secret" autocomplete="off" type="password" placeholder="from /relay">
+    <button class="btn" id="unpair" type="button">unpair this device</button>
+  </div>
+  <div id="log" role="log" aria-live="polite" aria-relevant="additions text"></div>
+  <div class="foot">
+    <div class="liveui" id="liveui" role="region" aria-live="polite" aria-label="Neko live controls"></div>
+    <div class="slashmenu" id="slashmenu" role="listbox" aria-label="Neko commands"></div>
+    <form class="composer" id="f">
+      <span class="pr">&gt;</span>
+      <textarea id="m" rows="1" role="combobox" aria-label="message Neko" aria-autocomplete="list" aria-haspopup="listbox" aria-controls="slashmenu" aria-expanded="false" placeholder='Try: "explain src/agent.ts"   or   /help' autocomplete="off" autocapitalize="sentences" enterkeyhint="send"></textarea>
+      <button class="send" id="send" type="submit" aria-label="send"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14M13 6l6 6-6 6"/></svg></button>
+    </form>
+    <div class="status" id="status" role="status" aria-live="polite"><span class="l"><span id="statustxt">⏵⏵ not paired</span></span><span class="r" id="statusr">remote</span></div>
+  </div>
+</div>
+<script nonce="__CSP_NONCE__">
+  const $ = (id) => document.getElementById(id);
+  const log = $("log"), relay = $("relay"), session = $("session"), token = $("token"), secret = $("secret"), m = $("m");
+  relay.value = location.origin;
+  const routeMatch = location.pathname.match(/^\/(?:session|hub)\/([^/]+)\/?$/);
+  const routedSession = routeMatch ? decodeURIComponent(routeMatch[1]) : "";
+  if (routedSession) session.value = routedSession;
+  $("hhost").textContent = location.host;
+  let hosts = [], activeHost = "", online = null, kidMismatch = false, hostModel = "";
+  let mirrorSocket = null, mirrorHost = "", mirrorReady = false, mirrorChain = Promise.resolve();
+  let mirrorRetry = null, mirrorFailures = 0;
+  const mirrorSeqByHost = {};
+  const pending = new Map(), loadedHosts = new Set(), drafts = {}, historyPosByHost = {}, historyDraftByHost = {};
+  const FALLBACK_COMMANDS = [
+    ["/help", "show help"], ["/cost", "token usage"], ["/model", "show or switch model"],
+    ["/provider", "switch provider"], ["/tools", "list or toggle tools"], ["/compact", "free context"],
+    ["/context", "context usage"], ["/copy", "copy the last response"], ["/clear", "clear conversation"],
+    ["/relay", "relay controls run on the computer"],
+  ].map(([name, desc]) => ({ name, desc }));
+  let historyByHost = {};
+  let slashSel = 0, slashDismissed = "", approvalSending = "", approvalNote = "", lastApprovalId = "";
+  let overlaySending = "", overlayNote = "", overlaySel = 0, lastOverlayId = "";
+  const currentHost = () => activeHost || hosts[0]?.id || "";
+  const selectedHost = () => hosts.find((h) => h.id === currentHost()) || null;
+  const hostWorking = (host = currentHost()) => pending.has(host) || !!hosts.find((h) => h.id === host)?.meta?.busy;
+  const hostCommands = () => {
+    const commands = selectedHost()?.meta?.commands;
+    if (!Array.isArray(commands)) return FALLBACK_COMMANDS;
+    return commands.map((c) => ({ name: String(c?.name || "").slice(0, 48), desc: String(c?.desc || "").slice(0, 180) }))
+      .filter((c) => /^\/[a-z0-9-]+$/i.test(c.name)).slice(0, 100);
+  };
+
+  const save = () => { try {
+    const sid = session.value.trim();
+    const pairings = JSON.parse(localStorage.nekoRelayPairings || "{}");
+    if (sid) pairings[sid] = { token: token.value, secret: secret.value };
+    localStorage.nekoRelayPairings = JSON.stringify(pairings);
+    localStorage.nekoSession = sid; localStorage.nekoToken = token.value; localStorage.nekoSecret = secret.value; // v3 migration
+  } catch {} };
+  function applyPairing(str) {
+    const hashAt = str.indexOf("#");
+    const h = new URLSearchParams(hashAt >= 0 ? str.slice(hashAt + 1) : str);
+    if (!(h.get("s") || h.get("t") || h.get("k"))) return false;
+    if (h.get("s")) session.value = h.get("s");
+    if (h.get("t")) token.value = h.get("t");
+    if (h.get("k")) secret.value = h.get("k");
+    save(); // persist IMMEDIATELY - a QR scan must survive a reload (v1 only saved on manual typing)
+    return true;
+  }
+  if (location.hash.length > 1 && applyPairing(location.hash)) {
+    history.replaceState(null, "", location.pathname);
+  } else {
+    try {
+      session.value = routedSession || localStorage.nekoSession || "";
+      const saved = JSON.parse(localStorage.nekoRelayPairings || "{}")[session.value] || {};
+      const legacyMatches = localStorage.nekoSession === session.value;
+      token.value = saved.token || (legacyMatches ? localStorage.nekoToken : "") || "";
+      secret.value = saved.secret || (legacyMatches ? localStorage.nekoSecret : "") || "";
+    } catch {}
+  }
+  try {
+    const sid = session.value.trim();
+    const legacyMatches = localStorage.nekoSession === sid;
+    activeHost = JSON.parse(localStorage.nekoActiveHosts || "{}")[sid] || (legacyMatches ? localStorage.nekoActiveHost : "") || "";
+    historyByHost = JSON.parse(localStorage.nekoRelayHistories || "{}")[sid]
+      || (legacyMatches ? JSON.parse(localStorage.nekoRelayHistory || "{}") : {});
+  } catch {}
+
+  const paired = () => !!(session.value.trim() && token.value.trim());
+  const base = () => relay.value.trim().replace(/\/+$/, "");
+  const auth = () => ({ authorization: "Bearer " + token.value.trim() });
+
+  function paintStatus(mode, working, connection) {
+    const status = $("status"), text = $("statustxt");
+    status.className = "status" + (working ? " working" : "");
+    const value = document.createElement("span"); value.className = "mode " + mode; value.textContent = mode;
+    const hint = document.createElement("span"); hint.className = "hint";
+    const compact = matchMedia("(max-width: 700px)").matches;
+    hint.textContent = working ? (compact ? " · working · tap stop" : " · working · esc to stop") : " · " + connection + (compact ? "" : " · shift+tab to cycle");
+    text.replaceChildren(document.createTextNode("⏵⏵ "), value, hint);
+  }
+  const elapsedText = (start) => {
+    const seconds = Math.max(0, Math.floor((Date.now() - Number(start || Date.now())) / 1000));
+    return seconds < 60 ? seconds + "s" : Math.floor(seconds / 60) + "m " + String(seconds % 60).padStart(2, "0") + "s";
+  };
+  function renderLiveUi() {
+    const box = $("liveui"), meta = selectedHost()?.meta || {}, ui = meta.ui || {};
+    const approval = ui.approval && typeof ui.approval.id === "string" ? ui.approval : null;
+    const overlay = ui.overlay && typeof ui.overlay.id === "string" && Array.isArray(ui.overlay.items) ? ui.overlay : null;
+    const working = hostWorking();
+    if (kidMismatch) {
+      closeSlash(); m.disabled = true;
+      if (box.dataset.key === "pairing-mismatch") return;
+      box.dataset.key = "pairing-mismatch"; box.replaceChildren(); box.classList.add("show");
+      const title = document.createElement("div"); title.className = "live-title"; title.textContent = "Pairing key changed";
+      const detail = document.createElement("div"); detail.className = "live-meta";
+      detail.textContent = "This phone link no longer matches Neko. Run /relay qr on the computer, then scan or paste the fresh link.";
+      const actions = document.createElement("div"); actions.className = "live-actions";
+      const settings = document.createElement("button"); settings.type = "button"; settings.textContent = "[open settings]";
+      settings.onclick = () => { $("cfg").classList.add("show"); $("gear").classList.add("open"); requestAnimationFrame(() => secret.focus()); };
+      actions.appendChild(settings); box.append(title, detail, actions);
+      return;
+    }
+    if (!approval && !overlay && !working && !ui.compactingStartedAt && !(Array.isArray(ui.inflight) && ui.inflight.length)) {
+      const hadModal = !!(lastApprovalId || lastOverlayId);
+      lastApprovalId = ""; approvalSending = ""; approvalNote = "";
+      lastOverlayId = ""; overlaySending = ""; overlayNote = ""; overlaySel = 0;
+      box.classList.remove("show"); box.replaceChildren(); m.disabled = false;
+      if (hadModal) requestAnimationFrame(focusComposer);
+      return;
+    }
+    const key = approval ? `approval:${approval.id}:${approvalSending}:${approvalNote}` : overlay ? `overlay:${overlay.id}:${overlaySending}:${overlayNote}:${overlaySel}` : "working";
+    if (box.dataset.key === key && (approval || overlay)) return;
+    box.dataset.key = key; box.replaceChildren(); box.classList.add("show");
+    if (approval) {
+      closeSlash();
+      m.disabled = true;
+      const isNew = lastApprovalId !== approval.id;
+      lastApprovalId = approval.id;
+      const title = document.createElement("div"); title.className = "live-title";
+      title.textContent = approval.toolName === "exit_plan_mode" ? "Ready to code?" : "Approve " + String(approval.toolName || "tool") + "?";
+      const preview = document.createElement("pre"); preview.className = "live-preview"; preview.textContent = String(approval.preview || "");
+      const actions = document.createElement("div"); actions.className = "live-actions";
+      for (const [decision, label] of [["approve", "[y] yes"], ["always", "[a] always"], ["deny", "[n] no"]]) {
+        const button = document.createElement("button"); button.type = "button"; button.dataset.decision = decision;
+        button.textContent = label; button.disabled = !!approvalSending; if (decision === "deny") button.className = "deny";
+        button.onclick = () => sendApproval(decision, approval.id); actions.appendChild(button);
+      }
+      box.append(title, preview);
+      if (Array.isArray(ui.inflight) && ui.inflight.length) {
+        const tools = document.createElement("div"); tools.className = "live-tools";
+        for (const value of ui.inflight.slice(-8)) { const line = document.createElement("div"); line.className = "live-tool"; line.textContent = String(value); tools.appendChild(line); }
+        box.appendChild(tools);
+      }
+      box.appendChild(actions);
+      if (approvalNote) { const note = document.createElement("div"); note.textContent = approvalNote; box.appendChild(note); }
+      if (isNew) requestAnimationFrame(() => actions.querySelector("button")?.focus({ preventScroll: true }));
+      return;
+    }
+    if (overlay) {
+      closeSlash(); m.disabled = true;
+      const isNew = lastOverlayId !== overlay.id;
+      if (isNew) { lastOverlayId = overlay.id; overlaySel = 0; overlaySending = overlayNote = ""; }
+      overlaySel = Math.max(0, Math.min(overlaySel, overlay.items.length - 1));
+      const title = document.createElement("div"); title.className = "live-title"; title.textContent = String(overlay.title || "Choose an option");
+      const description = document.createElement("div"); description.className = "live-meta"; description.textContent = String(overlay.description || "");
+      const list = document.createElement("div"); list.className = "overlay-list"; list.setAttribute("role", "listbox");
+      for (let i = 0; i < overlay.items.length; i++) {
+        const item = overlay.items[i], button = document.createElement("button"); button.type = "button"; button.setAttribute("role", "option");
+        button.className = "overlay-option" + (i === overlaySel ? " active" : ""); button.setAttribute("aria-selected", i === overlaySel ? "true" : "false"); button.disabled = !!overlaySending;
+        const label = document.createElement("span"); label.textContent = String(item.label || item.id || "option");
+        const detail = document.createElement("span"); detail.className = "overlay-detail"; detail.textContent = String(item.detail || "");
+        button.append(label, detail); button.onclick = () => sendOverlay("select", overlay.id, item.id); list.appendChild(button);
+      }
+      box.append(title);
+      if (description.textContent) box.appendChild(description);
+      box.appendChild(list);
+      const actions = document.createElement("div"); actions.className = "live-actions";
+      const cancel = document.createElement("button"); cancel.type = "button"; cancel.className = "deny"; cancel.textContent = "[esc] cancel";
+      cancel.disabled = !!overlaySending; cancel.onclick = () => sendOverlay("cancel", overlay.id); actions.appendChild(cancel); box.appendChild(actions);
+      const hint = document.createElement("div"); hint.textContent = overlay.items.length ? "up/down select · enter choose" : "no options available"; box.appendChild(hint);
+      if (overlayNote) { const note = document.createElement("div"); note.textContent = overlayNote; box.appendChild(note); }
+      if (isNew) requestAnimationFrame(() => list.querySelector("button")?.focus({ preventScroll: true }));
+      return;
+    }
+    m.disabled = false;
+    const title = document.createElement("div"); title.className = "live-title";
+    title.textContent = ui.compactingStartedAt ? "Compacting conversation..." : String(ui.verb || "Working") + "...";
+    const parts = [elapsedText(ui.compactingStartedAt || ui.turnStartedAt)];
+    if (meta.effort) parts.push(meta.effort + " effort");
+    if (Number(ui.step) > 1) parts.push("step " + Number(ui.step));
+    if (Number(ui.queued) > 0) parts.push(Number(ui.queued) + " queued");
+    parts.push("esc to interrupt");
+    const detail = document.createElement("div"); detail.className = "live-meta"; detail.textContent = parts.join(" · ");
+    box.append(title, detail);
+    if (Array.isArray(ui.inflight) && ui.inflight.length) {
+      const tools = document.createElement("div"); tools.className = "live-tools";
+      for (const value of ui.inflight.slice(-8)) { const line = document.createElement("div"); line.className = "live-tool"; line.textContent = String(value); tools.appendChild(line); }
+      box.appendChild(tools);
+    }
+  }
+  async function sendApproval(decision, id) {
+    if (approvalSending) return;
+    approvalSending = `${id}:${decision}`; approvalNote = "sending decision..."; renderLiveUi();
+    try {
+      const k = await key();
+      const raw = JSON.stringify({ type: "approval", id, decision });
+      const control = k ? await sealMsg(k, raw) : raw;
+      const response = await fetch(base() + "/control", { method: "POST", headers: { "content-type": "application/json", ...auth() }, body: JSON.stringify({ session: session.value.trim(), hostId: currentHost(), control }) });
+      if (!response.ok) throw new Error(response.status === 409 ? "Neko disconnected before the decision arrived" : "decision failed (HTTP " + response.status + ")");
+      approvalNote = decision === "deny" ? "denial sent" : "approval sent";
+    } catch (error) {
+      approvalSending = ""; approvalNote = error instanceof Error ? error.message : String(error);
+    }
+    renderLiveUi();
+  }
+  async function sendOverlay(decision, id, itemId) {
+    if (overlaySending) return;
+    overlaySending = `${id}:${decision}`; overlayNote = "sending selection..."; renderLiveUi();
+    try {
+      const k = await key();
+      const raw = JSON.stringify({ type: "overlay", id, decision, ...(itemId ? { itemId } : {}) });
+      const control = k ? await sealMsg(k, raw) : raw;
+      const response = await fetch(base() + "/control", { method: "POST", headers: { "content-type": "application/json", ...auth() }, body: JSON.stringify({ session: session.value.trim(), hostId: currentHost(), control }) });
+      if (!response.ok) throw new Error(response.status === 409 ? "Neko disconnected before the selection arrived" : "selection failed (HTTP " + response.status + ")");
+      overlayNote = decision === "cancel" ? "cancel sent" : "selection sent";
+    } catch (error) {
+      overlaySending = ""; overlayNote = error instanceof Error ? error.message : String(error);
+    }
+    renderLiveUi();
+  }
+  function refresh() {
+    const p = paired();
+    const selected = selectedHost();
+    if (selected) online = !!selected.online;
+    const meta = selected?.meta || {};
+    const working = hostWorking();
+    hostModel = meta.model ? String(meta.model).split("/").pop() : hostModel;
+    const connection = !p ? "not paired"
+      : kidMismatch ? "key mismatch"
+      : working ? "working - E2E streaming"
+      : !hosts.length ? "paired · waiting for Neko"
+      : online === null ? "paired · E2E"
+      : online ? "online · E2E · streaming" : "offline · queued";
+    const headerBits = [hostModel || "no model", meta.provider, meta.profile];
+    if (meta.effort) headerBits.push(meta.effort + " effort");
+    if (meta.browser?.attached) headerBits.push("browser attached");
+    $("hstatus").className = "hstatus";
+    $("hstatustxt").textContent = headerBits.filter(Boolean).join(" · ");
+    const mode = meta.mode || (!p ? "not paired" : "remote");
+    const connectionLabel = kidMismatch ? "key mismatch" : !p ? "not paired" : online === false ? "offline" : online === null ? "connecting" : "online";
+    paintStatus(mode, working, connectionLabel);
+    const pct = Number.isFinite(Number(meta.contextPercent)) ? Math.max(0, Math.min(100, Math.round(Number(meta.contextPercent)))) : 0;
+    $("statusr").textContent = (hostModel || "no model") + " · " + pct + "% ctx";
+    $("htitle").textContent = "Neko Core";
+    $("hversion").textContent = "v" + (meta.version || "1.2.1");
+    $("hhost").textContent = meta.cwd || location.host;
+    $("hostpick").textContent = hosts.length ? `${hosts.length} session${hosts.length === 1 ? "" : "s"}` : "sessions";
+    $("hostpick").title = connection + (meta.title ? " - " + meta.title : "");
+    $("hostpick").disabled = !p;
+    const compact = matchMedia("(max-width: 700px)").matches;
+    m.placeholder = working ? (compact ? "Queue a task..." : "type to queue while Neko works...")
+      : online === false ? (compact ? "Queue for reconnect..." : "queue a task for reconnect...")
+      : compact ? "Message Neko..." : 'Try: "explain src/agent.ts"   or   /help';
+    renderLiveUi();
+    paintComposer();
+    renderSlash();
+    syncEmpty();
+  }
+  async function myKid() {
+    const s = secret.value.trim();
+    if (!s || !crypto.subtle) return null;
+    const d = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(s));
+    return [...new Uint8Array(d)].map((b) => b.toString(16).padStart(2, "0")).join("").slice(0, 8);
+  }
+  async function loadSessions() {
+    const r = await fetch(base() + "/sessions?session=" + encodeURIComponent(session.value.trim()), { headers: auth() });
+    if (!r.ok) {
+      // v2 Worker compatibility: it has one implicit host and ignores the extra hostId field.
+      if (r.status === 404 && !hosts.length) { hosts = [{ id: "default", online, meta: { title: "Neko Core" } }]; activeHost = "default"; renderSessions(); switchHost(activeHost, false); }
+      return;
+    }
+    const data = await r.json();
+    const k = await key();
+    const decoded = [];
+    for (const row of Array.isArray(data.hosts) ? data.hosts : []) {
+      let meta = {};
+      try {
+        if (k && row.meta?.iv && row.meta?.ct) meta = JSON.parse(await unseal(k, row.meta));
+        else if (row.meta && !row.meta.iv) meta = row.meta;
+      } catch { /* wrong key is reported by kid; keep routing metadata opaque */ }
+      decoded.push({ ...row, meta });
+    }
+    hosts = decoded.sort((a, b) => Number(b.online) - Number(a.online) || Number(b.lastSeen || 0) - Number(a.lastSeen || 0));
+    if (!hosts.some((h) => h.id === activeHost)) activeHost = hosts.find((h) => h.online)?.id || hosts[0]?.id || "";
+    renderSessions();
+    if (activeHost) switchHost(activeHost, false);
+  }
+  function renderSessions() {
+    const box = $("sessions"); box.replaceChildren();
+    for (const host of hosts) {
+      const meta = host.meta || {};
+      const button = document.createElement("button");
+      button.type = "button"; button.role = "option";
+      button.className = "session" + (host.online ? " online" : "") + ((meta.busy || pending.has(host.id)) ? " busy" : "") + (host.id === currentHost() ? " active" : "");
+      button.setAttribute("aria-selected", host.id === currentHost() ? "true" : "false");
+      const dot = document.createElement("span"); dot.className = "sdot";
+      const main = document.createElement("span"); main.className = "smain";
+      const name = document.createElement("span"); name.className = "sname"; name.textContent = meta.title || "Neko session";
+      const path = document.createElement("span"); path.className = "spath"; path.textContent = meta.cwd || (host.online ? "online" : "offline");
+      const model = document.createElement("span"); model.className = "smodel"; model.textContent = (meta.busy || pending.has(host.id)) ? "working" : (meta.model ? String(meta.model).split("/").pop() : (host.online ? "ready" : "offline"));
+      main.append(name, path); button.append(dot, main, model);
+      button.onclick = () => switchHost(host.id);
+      box.appendChild(button);
+    }
+  }
+  function switchHost(id, close = true) {
+    const previous = currentHost(); if (previous) drafts[previous] = m.value;
+    activeHost = id || "";
+    approvalSending = approvalNote = lastApprovalId = overlaySending = overlayNote = lastOverlayId = ""; overlaySel = 0; $("liveui").dataset.key = "";
+    try {
+      const map = JSON.parse(localStorage.nekoActiveHosts || "{}"); map[session.value.trim()] = activeHost;
+      localStorage.nekoActiveHosts = JSON.stringify(map); localStorage.nekoActiveHost = activeHost;
+    } catch {}
+    for (const turn of log.querySelectorAll(".turn")) turn.hidden = turn.dataset.host !== activeHost;
+    restoreHost(activeHost);
+    const selected = selectedHost(); online = selected ? !!selected.online : null; hostModel = "";
+    m.value = drafts[activeHost] || ""; historyPosByHost[activeHost] = Infinity; slashDismissed = ""; slashSel = 0; grow(); renderSlash();
+    if (close) { $("sessions").classList.remove("show"); $("hostpick").classList.remove("open"); $("hostpick").setAttribute("aria-expanded", "false"); m.focus(); }
+    emptyKey = "";
+    renderSessions(); refresh(); connectMirror();
+  }
+  async function checkAlive() {
+    if (!paired()) { online = null; kidMismatch = false; refresh(); return; }
+    try {
+      await loadSessions();
+      const hid = currentHost();
+      const r = await fetch(base() + "/alive?session=" + encodeURIComponent(session.value.trim()) + (hid ? "&host=" + encodeURIComponent(hid) : ""), { headers: auth() });
+      if (r.ok) {
+        const g = await r.json(); online = !!g.online;
+        const selected = selectedHost(); if (selected) selected.online = online;
+        const mine = await myKid(); kidMismatch = !!(g.kid && mine && g.kid !== mine);
+      }
+      else { online = null; kidMismatch = false; }
+    } catch { online = null; }
+    refresh();
+  }
+  for (const el of [relay, session, token, secret]) el.oninput = () => { save(); online = null; kidMismatch = false; refresh(); checkAlive(); };
+  $("gear").onclick = () => { closeSlash(); const c = $("cfg"); c.classList.toggle("show"); $("gear").classList.toggle("open", c.classList.contains("show")); };
+  $("hostpick").onclick = () => { closeSlash(); const s = $("sessions"); s.classList.toggle("show"); $("hostpick").classList.toggle("open", s.classList.contains("show")); $("hostpick").setAttribute("aria-expanded", s.classList.contains("show") ? "true" : "false"); };
+  $("unpair").onclick = () => {
+    const oldSession = session.value.trim();
+    for (const hostId of pending.keys()) fetch(base() + "/interrupt", { method: "POST", headers: { "content-type": "application/json", ...auth() }, body: JSON.stringify({ session: session.value.trim(), hostId }) }).catch(() => {});
+    session.value = token.value = secret.value = ""; save(); hosts = []; activeHost = ""; online = null; kidMismatch = false;
+    try { mirrorSocket?.close(); } catch {} mirrorSocket = null; mirrorHost = ""; mirrorReady = false;
+    clearTimeout(mirrorRetry); mirrorRetry = null; mirrorFailures = 0;
+    historyByHost = {}; for (const key of Object.keys(drafts)) delete drafts[key];
+    try {
+      const pairings = JSON.parse(localStorage.nekoRelayPairings || "{}"); delete pairings[oldSession]; localStorage.nekoRelayPairings = JSON.stringify(pairings);
+      const histories = JSON.parse(localStorage.nekoRelayHistories || "{}"); delete histories[oldSession]; localStorage.nekoRelayHistories = JSON.stringify(histories);
+      const active = JSON.parse(localStorage.nekoActiveHosts || "{}"); delete active[oldSession]; localStorage.nekoActiveHosts = JSON.stringify(active);
+      localStorage.removeItem("nekoRelayHistory"); localStorage.removeItem("nekoActiveHost");
+    } catch {}
+    $("cfg").classList.remove("show"); $("gear").classList.remove("open"); $("sessions").classList.remove("show");
+    log.replaceChildren(); loadedHosts.clear(); emptyKey = ""; refresh();
+  };
+
+  // Empty state: pairing card when unpaired, a quiet hint when paired-but-idle, nothing once chatting.
+  function hasTurns() { return [...log.querySelectorAll(".turn")].some((turn) => turn.dataset.host === currentHost()); }
+  let emptyKey = ""; // rebuild only on a STATE change - the periodic refresh must not wipe the paste box mid-typing
+  function syncEmpty() {
+    if (hasTurns()) { emptyKey = "turns"; const gone = $("_empty"); if (gone) gone.remove(); return; }
+    const state = paired() ? "paired:" + currentHost() + ":" + hosts.length : "unpaired";
+    if (state === emptyKey && $("_empty")) return;
+    emptyKey = state;
+    let e = $("_empty");
+    if (!e) { e = document.createElement("div"); e.id = "_empty"; log.appendChild(e); }
+    if (!paired()) {
+      e.className = "pair";
+      e.innerHTML = '<img src="data:image/png;base64,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CgkAACgkAACgkAAAgEICAAAKCQAAKCQAAKCQAACAQgIAAAoJAAAoJAAAoJAAAIBCAgAACgkAACgkAACgkAAAgEICAAAKCQAAKCQAAKCQAACAQgIAAAoJAAAoJAAAoJAAAIBCAgAACgkAACgkAACgkAAAgEICAAAKCQAAKCQAAKCQAACAQgIAAAoJAAAoJAAAoJAAAIBCAgAACgkAACgkAACgkAAAgEICAAAKCQAAKCQAAKCQAACAQgIAAAoJAAAoJAAAoJAAAIBCAgAACgkAACgkAACgkAAAgEICAAAKCQAAKCQAAKCQAACAQgIAAAoJAAAoJAAAoJAAAIBCAgAACgkAACgkAACgkAAAgEICAAAKCQAAKCQAAKCQAACAQgIAAAoJAAAoJAAAoJAAAIBCAgAACgkAACgkAACgkAAAgEICAAAKCQAAKCQAAKCQAACAQgIAAAoJAAAoJAAAoJAAAIBCAgAACgkAACgkAACgkAAAgEICAAAKCQAAKCQAAKCQAACAQgIAAAoJAAAoJAAAoJAAAIBCAgAACgkAACgkAACgkAAAgEICAAAKCQAAKCQAAKCQAACAQgIAAAoJAAAoJAAAoJAAAIBCAgAACgkAACj0f4JcFrX5mmiyAAAAAElFTkSuQmCC" alt=""><h2>Pair this device</h2>'
+        + '<p>Scan the QR from <code>/relay</code> on your computer — or paste the pairing link:</p>'
+        + '<input id="_paste" autocomplete="off" placeholder="https://…/#s=…&t=…&k=…">'
+        + '<div class="adv" id="_adv">manual setup ▸</div>'
+        + '<p class="note">This page is public by design — like a lock without its key, it can do nothing until it holds YOUR pairing keys. Control needs the session + token, and messages are end-to-end encrypted on top.</p>';
+      $("_paste").addEventListener("input", (ev) => { if (applyPairing(ev.target.value.trim())) { online = null; kidMismatch = false; refresh(); checkAlive(); } });
+      $("_adv").onclick = () => { $("cfg").classList.add("show"); $("gear").classList.add("open"); };
+    } else {
+      e.className = "pair";
+      e.innerHTML = '<img src="data:image/png;base64,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CgkAACgkAACgkAAAgEICAAAKCQAAKCQAAKCQAACAQgIAAAoJAAAoJAAAoJAAAIBCAgAACgkAACgkAACgkAAAgEICAAAKCQAAKCQAAKCQAACAQgIAAAoJAAAoJAAAoJAAAIBCAgAACgkAACgkAACgkAAAgEICAAAKCQAAKCQAAKCQAACAQgIAAAoJAAAoJAAAoJAAAIBCAgAACgkAACgkAACgkAAAgEICAAAKCQAAKCQAAKCQAACAQgIAAAoJAAAoJAAAoJAAAIBCAgAACgkAACgkAACgkAAAgEICAAAKCQAAKCQAAKCQAACAQgIAAAoJAAAoJAAAoJAAAIBCAgAACgkAACgkAACgkAAAgEICAAAKCQAAKCQAAKCQAACAQgIAAAoJAAAoJAAAoJAAAIBCAgAACgkAACgkAACgkAAAgEICAAAKCQAAKCQAAKCQAACAQgIAAAoJAAAoJAAAoJAAAIBCAgAACgkAACgkAACgkAAAgEICAAAKCQAAKCQAAKCQAACAQgIAAAoJAAAoJAAAoJAAAIBCAgAACgkAACgkAACgkAAAgEICAAAKCQAAKCQAAKCQAACAQgIAAAoJAAAoJAAAoJAAAIBCAgAACgkAACj0f4JcFrX5mmiyAAAAAElFTkSuQmCC" alt=""><h2>Paired &amp; encrypted</h2><p>Send Neko a task from anywhere — you\'ll watch it work, live.</p>';
+    }
+    if (paired()) {
+      e.className = "idle";
+      e.textContent = hosts.length
+        ? "Remote transcript for " + (selectedHost()?.meta?.title || "this Neko session") + ". Type below exactly as you would in the terminal."
+        : "Waiting for a Neko session. Run /relay in a local Neko terminal; it will appear here automatically.";
+    }
+  }
+
+  const grow = () => { m.style.height = "auto"; m.style.height = Math.min(m.scrollHeight, 128) + "px"; };
+  const slashMatches = () => {
+    const query = m.value;
+    if (m.disabled || !query.startsWith("/") || /\s/.test(query) || slashDismissed === query) return [];
+    return hostCommands().filter((command) => command.name.startsWith(query));
+  };
+  function closeSlash(dismiss = false) {
+    if (dismiss) slashDismissed = m.value;
+    $("slashmenu").classList.remove("open");
+    m.setAttribute("aria-expanded", "false");
+    m.removeAttribute("aria-activedescendant");
+  }
+  function renderSlash() {
+    const menu = $("slashmenu"), matches = slashMatches(), cap = Math.min(matches.length, 10);
+    menu.replaceChildren();
+    if (!cap) { closeSlash(); return; }
+    slashSel = Math.max(0, Math.min(slashSel, cap - 1));
+    for (let i = 0; i < cap; i++) {
+      const command = matches[i], item = document.createElement("button");
+      item.type = "button"; item.id = "slash-option-" + i; item.setAttribute("role", "option"); item.tabIndex = -1;
+      item.className = "slashitem" + (i === slashSel ? " active" : "");
+      item.setAttribute("aria-selected", i === slashSel ? "true" : "false");
+      const name = document.createElement("span"); name.className = "name"; name.textContent = command.name;
+      const desc = document.createElement("span"); desc.className = "desc"; desc.textContent = command.desc;
+      item.append(name, desc);
+      item.onpointerdown = (event) => event.preventDefault();
+      item.onclick = () => { slashSel = i; acceptSlash(true); };
+      menu.appendChild(item);
+    }
+    if (matches.length > cap) {
+      const more = document.createElement("div"); more.className = "slashmore";
+      more.textContent = "+" + (matches.length - cap) + " more - keep typing"; menu.appendChild(more);
+    }
+    const hint = document.createElement("div"); hint.className = "slashhint";
+    hint.textContent = "up/down select · tab complete · enter run · esc close"; menu.appendChild(hint);
+    menu.classList.add("open"); m.setAttribute("aria-expanded", "true");
+    m.setAttribute("aria-activedescendant", "slash-option-" + slashSel);
+  }
+  function acceptSlash(run) {
+    const matches = slashMatches(), command = matches[Math.min(slashSel, matches.length - 1)];
+    if (!command) return false;
+    m.value = command.name + (run ? "" : " "); drafts[currentHost()] = m.value; slashDismissed = ""; closeSlash(); grow(); paintComposer();
+    if (run) $("f").requestSubmit();
+    return true;
+  }
+  function focusComposer() {
+    if (m.disabled || !matchMedia("(pointer: fine)").matches || $("cfg").classList.contains("show") || $("sessions").classList.contains("show")) return;
+    const selection = getSelection();
+    if (selection && !selection.isCollapsed) return;
+    m.focus({ preventScroll: true });
+  }
+  document.addEventListener("pointerup", (event) => {
+    if (event.button !== 0 || event.target.closest("a,button,input,textarea,select,label,[role=option]")) return;
+    $("cfg").classList.remove("show"); $("gear").classList.remove("open");
+    $("sessions").classList.remove("show"); $("hostpick").classList.remove("open");
+    requestAnimationFrame(focusComposer);
+  });
+  window.addEventListener("focus", () => requestAnimationFrame(focusComposer));
+  document.addEventListener("keydown", (event) => {
+    const approval = selectedHost()?.meta?.ui?.approval;
+    if (event.ctrlKey || event.metaKey || event.altKey) return;
+    if (approval) {
+      const decision = event.key === "y" ? "approve" : event.key === "a" ? "always" : (event.key === "n" || event.key === "Escape") ? "deny" : "";
+      if (!decision) return;
+      event.preventDefault(); sendApproval(decision, approval.id); return;
+    }
+    const overlay = selectedHost()?.meta?.ui?.overlay;
+    if (!overlay || !Array.isArray(overlay.items)) return;
+    if (event.key === "Escape") {
+      event.preventDefault(); sendOverlay("cancel", overlay.id); return;
+    }
+    if (!overlay.items.length) return;
+    if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+      event.preventDefault();
+      overlaySel = (overlaySel + (event.key === "ArrowDown" ? 1 : -1) + overlay.items.length) % overlay.items.length;
+      $("liveui").dataset.key = ""; renderLiveUi();
+      requestAnimationFrame(() => $("liveui").querySelectorAll(".overlay-option")[overlaySel]?.focus({ preventScroll: true }));
+    } else if (event.key === "Enter") {
+      event.preventDefault(); sendOverlay("select", overlay.id, overlay.items[overlaySel]?.id);
+    }
+  });
+  const promptHistory = () => [...log.querySelectorAll(".turn.user")]
+    .filter((turn) => turn.dataset.host === currentHost())
+    .map((turn) => String(turn.textContent || "").replace(/^>\s?/, ""));
+  function moveHistory(direction) {
+    if (m.value.includes("\n") || m.selectionStart !== m.selectionEnd) return false;
+    const rows = promptHistory(), host = currentHost(); if (!rows.length) return false;
+    let pos = Number.isFinite(historyPosByHost[host]) ? historyPosByHost[host] : rows.length;
+    if (pos === rows.length) historyDraftByHost[host] = m.value;
+    pos = Math.max(0, Math.min(rows.length, pos + direction));
+    if (pos === historyPosByHost[host]) return true;
+    historyPosByHost[host] = pos; m.value = pos === rows.length ? (historyDraftByHost[host] || "") : rows[pos];
+    drafts[host] = m.value; grow(); renderSlash(); requestAnimationFrame(() => m.setSelectionRange(m.value.length, m.value.length));
+    return true;
+  }
+  m.addEventListener("input", () => { slashDismissed = ""; slashSel = 0; historyPosByHost[currentHost()] = Infinity; drafts[currentHost()] = m.value; grow(); paintComposer(); renderSlash(); });
+  m.addEventListener("keydown", (e) => {
+    if (e.isComposing || e.keyCode === 229) return;
+    const matches = slashMatches();
+    if (matches.length && e.key === "ArrowDown") { e.preventDefault(); slashSel = (slashSel + 1) % Math.min(matches.length, 10); renderSlash(); return; }
+    if (matches.length && e.key === "ArrowUp") { e.preventDefault(); slashSel = (slashSel - 1 + Math.min(matches.length, 10)) % Math.min(matches.length, 10); renderSlash(); return; }
+    if (!matches.length && e.key === "ArrowUp" && moveHistory(-1)) { e.preventDefault(); return; }
+    if (!matches.length && e.key === "ArrowDown" && moveHistory(1)) { e.preventDefault(); return; }
+    if (matches.length && e.key === "Tab" && !e.shiftKey) { e.preventDefault(); acceptSlash(false); return; }
+    if (matches.length && e.key === "Enter" && !e.shiftKey) { e.preventDefault(); acceptSlash(true); return; }
+    if ($("slashmenu").classList.contains("open") && e.key === "Escape") { e.preventDefault(); closeSlash(true); return; }
+    if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); closeSlash(); $("f").requestSubmit(); return; }
+    if (e.key === "Escape" && hostWorking()) { e.preventDefault(); m.dataset.control = "interrupt"; $("f").requestSubmit(); return; }
+    if (e.key === "Tab" && e.shiftKey && paired() && currentHost() && !hostWorking()) {
+      e.preventDefault();
+      m.dataset.control = "cycle-mode";
+      $("f").requestSubmit();
+    }
+  });
+
+  // E2E (AES-256-GCM; key = PBKDF2(secret)) — wire-compatible with the Node host (relay-crypto.ts).
+  const b64 = (u) => btoa(String.fromCharCode(...u)), ub64 = (s) => Uint8Array.from(atob(s), (c) => c.charCodeAt(0));
+  let kp = null, kf = "";
+  function key() { const s = secret.value.trim(); if (!s) return null;
+    if (kf !== s) { kf = s; kp = crypto.subtle.importKey("raw", new TextEncoder().encode(s), "PBKDF2", false, ["deriveKey"])
+      .then((b) => crypto.subtle.deriveKey({ name:"PBKDF2", salt:new TextEncoder().encode("neko-relay-e2e-v1"), iterations:100000, hash:"SHA-256" }, b, { name:"AES-GCM", length:256 }, false, ["encrypt","decrypt"])); }
+    return kp; }
+  async function sealMsg(k, t) { const iv = crypto.getRandomValues(new Uint8Array(12)); const ct = new Uint8Array(await crypto.subtle.encrypt({ name:"AES-GCM", iv }, k, new TextEncoder().encode(t))); return { iv: b64(iv), ct: b64(ct) }; }
+  async function unseal(k, s) { return new TextDecoder().decode(await crypto.subtle.decrypt({ name:"AES-GCM", iv: ub64(s.iv) }, k, ub64(s.ct))); }
+
+  const esc = (t) => t.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+  function md(t) {
+    let s = esc(t);
+    // c is already HTML-escaped and MUST stay escaped (un-escaping into innerHTML would let hostile
+    // page content, relayed inside a reply's code fence, inject live HTML - XSS).
+    s = s.replace(/```(\w*)\n?([\s\S]*?)```/g, (_, __, c) => "<pre><code>" + c.replace(/\n$/, "") + "</code></pre>");
+    s = s.replace(/((?:^\|.*\|[ \t]*$\n?){2,})/gm, (x) => "<pre>" + x.replace(/\n$/, "") + "</pre>");
+    s = s.replace(/`([^`\n]+)`/g, "<code>$1</code>");
+    s = s.replace(/\*\*([^*\n]+)\*\*/g, "<b>$1</b>");
+    s = s.replace(/\[([^\]]+)\]\((https?:[^)\s]+)\)/g, '<a href="$2" target="_blank" rel="noopener">$1</a>');
+    s = s.replace(/(^|[\s(])(https?:\/\/[^\s<)]+)/g, '$1<a href="$2" target="_blank" rel="noopener">$2</a>');
+    s = s.replace(/^#{1,4} (.*)$/gm, "<b>$1</b>");
+    s = s.replace(/^[-*] /gm, "  • ");
+    return s;
+  }
+  // Process log = the terminal's `●  Tool(args)` lines, verbatim.
+  const SPIN = ["⠋","⠙","⠹","⠸","⠼","⠴","⠦","⠧","⠇","⠏"]; let spinI = 0;
+  setInterval(() => { spinI = (spinI + 1) % SPIN.length; for (const el of document.querySelectorAll(".proc .sp")) el.textContent = SPIN[spinI]; }, 90);
+  function procHtml(act, running) {
+    const lines = (act || []).map((l) => '<span class="b">●</span>  ' + esc(l));
+    if (running) lines.push('<span class="sp">' + SPIN[spinI] + "</span>  working…");
+    return lines.length ? '<div class="proc">' + lines.join("\n") + "</div>" : "";
+  }
+  function parseReply(raw, host = currentHost()) {
+    if (typeof raw === "string" && raw.startsWith("{")) {
+      try {
+        const o = JSON.parse(raw);
+        if (typeof o.text === "string") {
+          if (o.model && host === currentHost()) { hostModel = String(o.model).split("/").pop(); refresh(); } // background sessions never overwrite the active status bar
+          return { text: o.text, act: Array.isArray(o.act) ? o.act : [] };
+        }
+      } catch {}
+    }
+    return { text: String(raw ?? ""), act: [] };
+  }
+
+  // Stick to the bottom only when the reader IS at the bottom - streaming must not yank the page
+  // down while they scrolled up to read something (the terminal behaves the same way).
+  const nearBottom = () => {
+    return log.scrollHeight - log.clientHeight - log.scrollTop < 160;
+  };
+  const scrollEnd = (el, force) => {
+    if (!force && !nearBottom()) return;
+    requestAnimationFrame(() => { log.scrollTo({ top: log.scrollHeight, behavior: "smooth" }); });
+  };
+  function userTurn(text, host = currentHost()) {
+    const e = $("_empty"); if (e) e.remove();
+    const t = document.createElement("div"); t.className = "turn user";
+    t.dataset.host = host; t.hidden = host !== currentHost();
+    const mk = document.createElement("span"); mk.className = "mk"; mk.textContent = "> ";
+    t.appendChild(mk); t.appendChild(document.createTextNode(text));
+    log.appendChild(t); scrollEnd(t, true); // just sent -> always bring it into view
+  }
+  function nekoTurn(host = currentHost()) {
+    const t = document.createElement("div"); t.className = "turn neko";
+    t.dataset.host = host; t.hidden = host !== currentHost();
+    const proc = document.createElement("div"); const body = document.createElement("div"); body.className = "body";
+    t.appendChild(proc); t.appendChild(body); log.appendChild(t); scrollEnd(t, true);
+    return { t, proc, body };
+  }
+  function render(nk, state) {
+    nk.state = state;
+    nk.proc.outerHTML = procHtml(state.act, !state.done) || '<div></div>';
+    nk.proc = nk.t.firstElementChild;
+    nk.body.innerHTML = state.text ? md(state.text) : (!state.done && !state.act?.length ? '<span class="typing"><i></i><i></i><i></i></span>' : "");
+    if (!nk.t.hidden) scrollEnd(nk.t);
+  }
+  function nekoErr(nk, text) { nk.state = { text, act: [], done: true, error: true }; nk.t.classList.add("err"); nk.proc.innerHTML = ""; nk.body.textContent = text; }
+  async function copyFromBrowser(all) {
+    const host = currentHost();
+    const turns = [...log.querySelectorAll(".turn")].filter((turn) => turn.dataset.host === host && !turn.classList.contains("mirror-live") && !turn.classList.contains("local-note"));
+    const chosen = all ? turns : [...turns].reverse().filter((turn) => turn.classList.contains("neko")).slice(0, 1);
+    const text = (all ? chosen : chosen.reverse()).map((turn) => String(turn.textContent || "").trim()).filter(Boolean).join("\n\n");
+    const nk = nekoTurn(host); nk.t.classList.add("local-note");
+    if (!text) { nekoErr(nk, all ? "(nothing in the conversation to copy)" : "(no response to copy yet)"); return; }
+    try { await navigator.clipboard.writeText(text); render(nk, { text: all ? "copied the conversation to this device" : "copied the last response to this device", act: [], done: true }); }
+    catch { nekoErr(nk, "clipboard permission was blocked by the browser"); }
+  }
+
+  function clearMirrorHost(host) {
+    for (const turn of log.querySelectorAll(".turn")) if (turn.dataset.host === host) turn.remove();
+  }
+  function removeMirrorLive(host) {
+    for (const el of log.querySelectorAll(".mirror-live")) if (el.dataset.host === host) el.remove();
+  }
+  function appendMirrorLine(line, host) {
+    if (!line || line.kind === "welcome") return;
+    if (isRelaySetupLine(line)) return;
+    if ([...log.querySelectorAll(".mirror-line")].some((el) => el.dataset.host === host && el.dataset.lineId === String(line.id))) return;
+    removeMirrorLive(host);
+    const t = document.createElement("div");
+    t.className = "turn mirror-line" + (line.kind === "user" ? " user" : " neko") + (line.kind === "error" ? " err" : "");
+    t.dataset.host = host; t.dataset.lineId = String(line.id ?? ""); t.hidden = host !== currentHost();
+    if (line.kind === "user") {
+      const mk = document.createElement("span"); mk.className = "mk"; mk.textContent = "> ";
+      t.append(mk, document.createTextNode(String(line.text || "")));
+    } else if (line.kind === "assistant") {
+      const body = document.createElement("div"); body.className = "body"; body.innerHTML = md(String(line.text || "")); t.appendChild(body);
+    } else if (line.kind === "tool_call") {
+      const proc = document.createElement("div"); proc.className = "proc";
+      const dot = document.createElement("span"); dot.className = "b"; dot.textContent = "●";
+      proc.append(dot, document.createTextNode("  " + String(line.text || ""))); t.appendChild(proc);
+    } else {
+      const body = document.createElement("div"); body.className = line.kind === "tool_result" ? "proc" : "body";
+      body.textContent = (line.kind === "tool_result" ? "  └ " : "") + String(line.summary || line.text || ""); t.appendChild(body);
+    }
+    log.appendChild(t); if (!t.hidden) scrollEnd(t);
+  }
+  function isRelaySetupLine(line) {
+    if (line?.kind !== "info") return false;
+    const text = String(line.text || ""), rows = text.trim().split("\n");
+    return /^relay session [A-Z0-9-]+ (?:on\b|-\s*open:)/i.test(text)
+      || /^open this session:/i.test(text)
+      || (rows.length > 8 && rows.filter((row) => /^[ █▄▀]+$/.test(row.trim())).length >= rows.length - 1);
+  }
+  function applyMirrorEvent(event, host) {
+    if (!event || pending.has(host)) return;
+    if (event.type === "snapshot") {
+      clearMirrorHost(host);
+      for (const line of Array.isArray(event.lines) ? event.lines : []) appendMirrorLine(line, host);
+      return;
+    }
+    if (event.type === "line") { appendMirrorLine(event.line, host); return; }
+    if (event.type === "stream") {
+      removeMirrorLive(host);
+      if (!event.text) return;
+      const t = document.createElement("div"); t.className = "turn neko mirror-live"; t.dataset.host = host; t.hidden = host !== currentHost();
+      const body = document.createElement("div"); body.className = "body"; body.innerHTML = md(String(event.text)); t.appendChild(body); log.appendChild(t);
+      if (!t.hidden) scrollEnd(t); return;
+    }
+    if (event.type === "activity") {
+      removeMirrorLive(host);
+      const t = document.createElement("div"); t.className = "turn neko mirror-live"; t.dataset.host = host; t.hidden = host !== currentHost();
+      const proc = document.createElement("div"); proc.className = "proc"; proc.textContent = "●  " + String(event.text || ""); t.appendChild(proc); log.appendChild(t);
+      if (!t.hidden) scrollEnd(t);
+    }
+  }
+  function connectMirror(force = false) {
+    const host = currentHost();
+    if (!paired() || !host) return;
+    if (!force && mirrorSocket && mirrorHost === host && mirrorSocket.readyState < 2) return;
+    clearTimeout(mirrorRetry); mirrorRetry = null;
+    try { mirrorSocket?.close(); } catch {}
+    mirrorReady = false; mirrorHost = host;
+    mirrorChain = Promise.resolve();
+    const socket = new WebSocket(base().replace(/^http/, "ws") + "/client-ws?session=" + encodeURIComponent(session.value.trim()) + "&host=" + encodeURIComponent(host), ["neko-relay", "t." + token.value.trim()]);
+    mirrorSocket = socket;
+    socket.onopen = () => { mirrorFailures = 0; };
+    socket.onmessage = (ev) => { mirrorChain = mirrorChain.then(async () => {
+      let frame; try { frame = JSON.parse(String(ev.data)); } catch { return; }
+      if (frame.t === "presence" && frame.meta) {
+        const k = await key();
+        const raw = k && frame.meta.iv ? await unseal(k, frame.meta) : frame.meta;
+        const next = typeof raw === "string" ? JSON.parse(raw) : raw;
+        const row = hosts.find((h) => h.id === host);
+        if (row) { row.meta = { ...(row.meta || {}), ...next }; row.online = true; }
+        online = true; refresh(); return;
+      }
+      if (frame.t === "mirror_reset") { mirrorSeqByHost[host] = 0; clearMirrorHost(host); removeMirrorLive(host); return; }
+      if (frame.t === "mirror_ready") { mirrorSeqByHost[host] = Math.max(Number(mirrorSeqByHost[host] || 0), Number(frame.seq || 0)); mirrorReady = true; syncEmpty(); return; }
+      if (frame.t !== "event" || !frame.event) return;
+      if (Number(frame.seq) > 0) {
+        const previous = Number(mirrorSeqByHost[host] || 0);
+        if (Number(frame.seq) <= previous) return;
+        if (mirrorReady && previous && Number(frame.seq) > previous + 1) { socket.close(1012, "mirror gap"); return; }
+        mirrorSeqByHost[host] = Number(frame.seq);
+      }
+      const k = await key();
+      const raw = k && frame.event.iv ? await unseal(k, frame.event) : frame.event;
+      applyMirrorEvent(JSON.parse(raw), host);
+    }).catch(() => { kidMismatch = true; refresh(); }); };
+    socket.onclose = () => { if (mirrorSocket === socket) {
+      mirrorSocket = null; mirrorReady = false;
+      const delay = Math.min(1_000 * 2 ** mirrorFailures++, 25_000);
+      mirrorRetry = setTimeout(() => connectMirror(true), delay);
+    } };
+  }
+
+  function restoreHost(host) {
+    if (!host || loadedHosts.has(host)) return;
+    loadedHosts.add(host);
+    for (const item of Array.isArray(historyByHost[host]) ? historyByHost[host] : []) {
+      userTurn(String(item.user || ""), host);
+      const nk = nekoTurn(host);
+      if (item.state?.error) nekoErr(nk, String(item.state.text || "error"));
+      else render(nk, { text: String(item.state?.text || ""), act: Array.isArray(item.state?.act) ? item.state.act : [], done: true });
+    }
+  }
+  function rememberTurn(host, user, state) {
+    if (!host || !state) return;
+    const rows = Array.isArray(historyByHost[host]) ? historyByHost[host] : [];
+    rows.push({ user, state: { text: String(state.text || ""), act: Array.isArray(state.act) ? state.act.slice(-200) : [], error: !!state.error } });
+    historyByHost[host] = rows.slice(-50);
+    try {
+      const histories = JSON.parse(localStorage.nekoRelayHistories || "{}"); histories[session.value.trim()] = historyByHost;
+      localStorage.nekoRelayHistories = JSON.stringify(histories); localStorage.nekoRelayHistory = JSON.stringify(historyByHost);
+    } catch {}
+  }
+
+  const SEND = $("send").innerHTML;
+  const STOP = '<svg viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="6" width="12" height="12" rx="2.5"/></svg>';
+  function paintComposer() {
+    const on = hostWorking() && !m.value.trim();
+    const approval = !!selectedHost()?.meta?.ui?.approval;
+    const overlay = !!selectedHost()?.meta?.ui?.overlay;
+    $("send").disabled = approval || overlay || kidMismatch;
+    $("send").classList.toggle("stop", on && !approval && !overlay && !kidMismatch); $("send").innerHTML = on && !approval && !overlay && !kidMismatch ? STOP : SEND; $("send").setAttribute("aria-label", kidMismatch ? "pairing key changed" : approval ? "approval required" : overlay ? "selection required" : on ? "stop" : "send");
+  }
+  function setAwaiting(host, on) {
+    const count = Number(pending.get(host) || 0);
+    if (on) pending.set(host, count + 1);
+    else if (count <= 1) pending.delete(host);
+    else pending.set(host, count - 1);
+    renderSessions(); refresh();
+  }
+
+  $("f").onsubmit = async (e) => {
+    e.preventDefault();
+    const suggested = slashMatches();
+    if (suggested.length && !/\s/.test(m.value)) m.value = suggested[Math.min(slashSel, suggested.length - 1)].name;
+    closeSlash(); slashSel = 0; slashDismissed = "";
+    const host = currentHost();
+    const silentControl = m.dataset.control === "cycle-mode";
+    const interruptControl = m.dataset.control === "interrupt";
+    delete m.dataset.control;
+    if (interruptControl || (hostWorking(host) && !m.value.trim() && !silentControl)) { try { await fetch(base() + "/interrupt", { method: "POST", headers: { "content-type": "application/json", ...auth() }, body: JSON.stringify({ session: session.value.trim(), hostId: host || undefined }) }); } catch {} return; }
+    const msg = silentControl ? "\u0000neko:cycle-mode" : m.value.trim(); if (!msg) return;
+    if (!silentControl && /^\/copy(?:\s+all)?$/i.test(msg)) {
+      m.value = ""; drafts[host] = ""; grow(); await copyFromBrowser(/\s+all$/i.test(msg)); focusComposer(); return;
+    }
+    if (!paired()) {
+      // Guide, don't scold: the pairing card is right there - put the cursor in its paste box.
+      const p = $("_paste");
+      if (p) { p.focus(); p.placeholder = "pair first - paste the /relay link here"; }
+      else { $("cfg").classList.add("show"); $("gear").classList.add("open"); }
+      return;
+    }
+    if (kidMismatch) { $("cfg").classList.add("show"); $("gear").classList.add("open"); requestAnimationFrame(() => secret.focus()); return; }
+    if (!host) { const nk = nekoTurn(); nekoErr(nk, "No Neko session is registered yet. Run /relay in a local Neko terminal first."); return; }
+    if (!silentControl) { m.value = ""; drafts[host] = ""; historyPosByHost[host] = Infinity; grow(); userTurn(msg, host); }
+    const nk = nekoTurn(host);
+    if (silentControl) nk.t.style.display = "none";
+    render(nk, { text: "", act: [], done: false });
+    setAwaiting(host, true);
+    try {
+      const k = await key();
+      const payload = k ? await sealMsg(k, msg) : msg;
+      const r = await fetch(base() + "/send", { method: "POST", headers: { "content-type": "application/json", ...auth() }, body: JSON.stringify({ session: session.value.trim(), hostId: host, message: payload }) });
+      if (!r.ok) { nekoErr(nk, r.status === 401 ? "Not authorized — the pairing is stale. Re-scan the QR from /relay." : "send failed (HTTP " + r.status + ")"); return; }
+      const { id } = await r.json();
+      let seen = 0, done = false, warned = false, saw = false;
+      const t0 = Date.now();
+      while (!done && Date.now() - t0 < 60 * 60_000) {
+        let rr;
+        try {
+          rr = await fetch(base() + "/result?session=" + encodeURIComponent(session.value.trim()) + "&id=" + id + "&seen=" + seen, { headers: auth() });
+        } catch { // a mobile-network blip must not abandon the turn - Neko is still working
+          await new Promise((res) => setTimeout(res, 1500));
+          continue;
+        }
+        if (rr.status === 200) {
+          const g = await rr.json(); seen = g.seq || seen; done = !!g.done; saw = true;
+          let raw;
+          try { raw = k && g.reply && g.reply.iv ? await unseal(k, g.reply) : g.reply; }
+          catch { nekoErr(nk, "Can't decrypt the reply — the pairing secret doesn't match. Run /relay qr on your computer and re-scan."); checkAlive(); return; }
+          const state = parseReply(raw, host); state.done = done; render(nk, state);
+        } else if (rr.status === 401) {
+          nekoErr(nk, "Not authorized — this device was unpaired or the pairing rotated.");
+          return;
+        } else if (!warned) {
+          await checkAlive();
+          const target = hosts.find((h) => h.id === host);
+          if (target?.online === false) { render(nk, { text: "", act: ["Neko is offline — the task is queued and runs when /relay reconnects"], done: false }); warned = true; }
+        }
+      }
+      if (!done && !saw) nekoErr(nk, "No reply — is /relay running on your computer?");
+    } catch (err) { nekoErr(nk, "error: " + err.message); }
+    finally {
+      if (silentControl) nk.t.remove(); else rememberTurn(host, msg, nk.state);
+      setAwaiting(host, false); if (currentHost() === host) m.focus(); checkAlive();
+      if (silentControl) setTimeout(checkAlive, 1_200);
+      if (mirrorReady) setTimeout(() => connectMirror(true), 150); // replace optimistic UI with host-authoritative replay
+    }
+  };
+
+  refresh(); checkAlive(); requestAnimationFrame(focusComposer);
+  setInterval(renderLiveUi, 1_000);
+  setInterval(checkAlive, 25_000);
+  document.addEventListener("visibilitychange", () => { if (!document.hidden) { checkAlive(); requestAnimationFrame(focusComposer); } });
+</script>
+</body></html>

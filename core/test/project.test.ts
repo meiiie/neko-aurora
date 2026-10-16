@@ -1,0 +1,167 @@
+import { afterEach, expect, test } from "bun:test";
+import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+
+import { clearApiKey, initUser, patchUserConfig, setActiveProfile, setApiKey, setModel } from "../src/adapters/project.ts";
+import { loadConfig } from "../src/adapters/config.ts";
+
+// project.ts resolves the user config under homedir(); point that at a temp dir per test.
+const ORIG = { HOME: process.env.HOME, USERPROFILE: process.env.USERPROFILE };
+afterEach(() => {
+  for (const k of ["HOME", "USERPROFILE"] as const) {
+    if (ORIG[k] === undefined) delete process.env[k];
+    else process.env[k] = ORIG[k];
+  }
+});
+
+function withTempHome(configText: string): string {
+  const tmp = mkdtempSync(join(tmpdir(), "nk-home-"));
+  process.env.HOME = tmp;
+  process.env.USERPROFILE = tmp;
+  mkdirSync(join(tmp, ".neko-core"), { recursive: true });
+  const path = join(tmp, ".neko-core", "config.json");
+  writeFileSync(path, configText, "utf-8");
+  return path;
+}
+
+test("a malformed user config is NOT clobbered by setModel (no data loss)", () => {
+  const path = withTempHome('{ "api_key": "SECRET", "mcp_servers": { "x": {} } BROKEN');
+  expect(() => setModel("m")).toThrow(/invalid JSON/);
+  expect(readFileSync(path, "utf-8")).toContain("SECRET"); // api_key preserved, not overwritten
+});
+
+test("init-user creates Neko Core identity once and force never overwrites it", () => {
+  const configPath = withTempHome("{}");
+  const identityPath = join(process.env.USERPROFILE!, ".neko-core", "NEKO.md");
+  const first = initUser();
+  expect(first).toContain("Neko Core identity ready");
+  expect(first).toContain("Neko Core memory ready");
+  expect(readFileSync(identityPath, "utf-8")).toContain("## Life story");
+
+  writeFileSync(identityPath, "# User-owned identity\n", "utf-8");
+  const forced = initUser(true);
+  expect(forced).toContain("Neko Core identity kept");
+  expect(readFileSync(identityPath, "utf-8")).toBe("# User-owned identity\n");
+  expect(JSON.parse(readFileSync(configPath, "utf-8"))).toBeTruthy();
+});
+
+test("setModel with an ACTIVE profile writes into that profile and clears the shadowing top-level model", () => {
+  const path = withTempHome('{ "model": "old-shadow", "profiles": { "nvidia": { "model": "preset" } } }');
+  setModel("openai/gpt-oss-120b", "nvidia", 372_000, true);
+  const d = JSON.parse(readFileSync(path, "utf-8"));
+  expect(d.profiles.nvidia.model).toBe("openai/gpt-oss-120b"); // the model belongs to the profile...
+  expect(d.profiles.nvidia.model_context["openai/gpt-oss-120b"]).toBe(372_000); // live metadata survives restart
+  expect(d.profiles.nvidia.vision).toBe(true); // model capability survives restart too
+  expect(d.model).toBeUndefined(); // ...and the footgun top-level shadow is GONE (/model used to recreate it)
+  expect(loadConfig({ profile: "nvidia" }).contextWindow).toBe(372_000);
+});
+
+test("setModel without a profile keeps the simple top-level write", () => {
+  const path = withTempHome("{}");
+  setModel("solo-model");
+  expect(JSON.parse(readFileSync(path, "utf-8")).model).toBe("solo-model");
+});
+
+test("setApiKey reports a malformed config instead of crashing or wiping it", () => {
+  const path = withTempHome("{ broken");
+  expect(setApiKey("k")).toContain("invalid JSON");
+  expect(readFileSync(path, "utf-8")).toBe("{ broken"); // untouched
+});
+
+test("setModel updates a valid config without losing other keys", () => {
+  const path = withTempHome('{ "api_key": "SECRET" }');
+  setModel("kimi");
+  const after = JSON.parse(readFileSync(path, "utf-8"));
+  expect(after.model).toBe("kimi");
+  expect(after.api_key).toBe("SECRET");
+});
+
+test("setApiKey saves to the ACTIVE profile (not top-level); clearApiKey removes it + strays", () => {
+  const path = withTempHome(JSON.stringify({
+    active_profile: "zai",
+    api_key: "STRAY", // an old top-level key that used to shadow the profile (the 401 bug)
+    profiles: { zai: { provider: "anthropic", model: "glm-5.2" }, nvidia: { model: "gpt-oss" } },
+  }));
+  expect(setApiKey("ZKEY")).toContain('profile "zai"');
+  let cfg = JSON.parse(readFileSync(path, "utf-8"));
+  expect(cfg.profiles.zai.api_key).toBe("ZKEY");        // key lands on the active profile's endpoint
+  expect(cfg.profiles.nvidia.api_key).toBeUndefined();  // other profiles untouched
+  expect(cfg.api_key).toBe("STRAY");                    // setApiKey doesn't touch the stray...
+  expect(clearApiKey()).toContain("top-level");         // ...but clearApiKey cleans BOTH
+  cfg = JSON.parse(readFileSync(path, "utf-8"));
+  expect(cfg.profiles.zai.api_key).toBeUndefined();
+  expect(cfg.api_key).toBeUndefined();
+});
+
+test("setApiKey creates an override for an active built-in profile", () => {
+  const path = withTempHome(JSON.stringify({ active_profile: "nvidia" }));
+  expect(setApiKey("NKEY")).toContain('profile "nvidia"');
+  const cfg = JSON.parse(readFileSync(path, "utf-8"));
+  expect(cfg.profiles.nvidia.api_key).toBe("NKEY");
+  expect(cfg.api_key).toBeUndefined();
+});
+
+test("clearApiKey can remove one named profile without changing or clearing another", () => {
+  const path = withTempHome(JSON.stringify({
+    active_profile: "nvidia",
+    profiles: { nvidia: { api_key: "NKEY" }, openai: { api_key: "OKEY" } },
+  }));
+  expect(clearApiKey("openai")).toContain('profile "openai"');
+  const cfg = JSON.parse(readFileSync(path, "utf-8"));
+  expect(cfg.active_profile).toBe("nvidia");
+  expect(cfg.profiles.nvidia.api_key).toBe("NKEY");
+  expect(cfg.profiles.openai.api_key).toBeUndefined();
+});
+
+test("switching profiles preserves a legacy top-level key under the previous profile", () => {
+  const path = withTempHome(JSON.stringify({ active_profile: "nvidia", api_key: "OLD-NKEY", profiles: { nvidia: { api_key: "" } } }));
+  setActiveProfile("zai");
+  const cfg = JSON.parse(readFileSync(path, "utf-8"));
+  expect(cfg.active_profile).toBe("zai");
+  expect(cfg.profiles.nvidia.api_key).toBe("OLD-NKEY");
+  expect(cfg.api_key).toBeUndefined();
+});
+
+test("switching routes keeps a legacy endpoint and credential with their owning profile", () => {
+  const path = withTempHome(JSON.stringify({
+    active_profile: "zai-openai", base_url: "https://api.z.ai/api/paas/v4",
+    provider: "openai_compat", model: "glm-5.2", api_key: "OLD-PAID",
+    profiles: { zai: { api_key: "CODING-KEY" }, bai: { api_key: "BAI-KEY" } },
+  }));
+  const preview = loadConfig({ profile: "zai" });
+  expect(preview.baseUrl).toBe("https://api.z.ai/api/anthropic");
+  expect(preview.provider).toBe("anthropic");
+  expect(preview.apiKey).toBe("CODING-KEY");
+  setActiveProfile("bai");
+  setActiveProfile("zai");
+  const current = loadConfig();
+  expect(current.baseUrl).toBe(preview.baseUrl);
+  expect(current.provider).toBe("anthropic");
+  expect(current.apiKey).toBe("CODING-KEY");
+  const saved = JSON.parse(readFileSync(path, "utf8"));
+  expect(saved.base_url).toBeUndefined();
+  expect(saved.profiles["zai-openai"]).toMatchObject({ base_url: "https://api.z.ai/api/paas/v4", api_key: "OLD-PAID" });
+  setActiveProfile("zai-openai");
+  expect(loadConfig().baseUrl).toBe("https://api.z.ai/api/paas/v4");
+  expect(loadConfig().apiKey).toBe("OLD-PAID");
+});
+
+test("first login preserves an unscoped custom connection without overwriting an existing legacy profile", () => {
+  const path = withTempHome(JSON.stringify({ provider: "openai_compat", base_url: "https://private.example/v1", api_key: "OLD", profiles: { legacy: { model: "keep" } } }));
+  setActiveProfile("zai");
+  const saved = JSON.parse(readFileSync(path, "utf8"));
+  expect(saved.profiles.legacy).toEqual({ model: "keep" });
+  expect(saved.profiles["legacy-2"]).toMatchObject({ base_url: "https://private.example/v1", api_key: "OLD" });
+  expect(loadConfig().baseUrl).toBe("https://api.z.ai/api/anthropic");
+});
+
+test("patchUserConfig merges keys and preserves api_key (used by `neko setup web`)", () => {
+  const path = withTempHome('{ "api_key": "SECRET", "model": "m1" }');
+  patchUserConfig({ searxng_url: "http://localhost:8888", search_backend: "searxng" });
+  const after = JSON.parse(readFileSync(path, "utf-8"));
+  expect(after.searxng_url).toBe("http://localhost:8888");
+  expect(after.search_backend).toBe("searxng");
+  expect(after.api_key).toBe("SECRET"); // key untouched
+  expect(after.model).toBe("m1");
+});

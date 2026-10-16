@@ -1,0 +1,63 @@
+[
+  {
+    "name": "unicode",
+    "input": "{\"z\": \"<&>\", \"a\": \"Meiiie — tiếng Việt 😺 \", \"nested\": {\"null\": null, \"enabled\": true, \"list\": [0, -1, 9007199254740991]}}",
+    "canonical": "{\"a\":\"Meiiie — tiếng Việt 😺 \",\"nested\":{\"enabled\":true,\"list\":[0,-1,9007199254740991],\"null\":null},\"z\":\"<&>\"}",
+    "digest": "33cc75792b5dc124057b553e13b447d117cf351808aeafbbb64e0b9f3f787a5b",
+    "valid": true
+  },
+  {
+    "name": "escapes",
+    "input": "{\"control\": \"\\n\\r\\t\\b\\f\\u0001\", \"quote\": \"\\\"\\\\\", \"zero\": 0}",
+    "canonical": "{\"control\":\"\\n\\r\\t\\b\\f\\u0001\",\"quote\":\"\\\"\\\\\",\"zero\":0}",
+    "digest": "084a3598ee518a67001711664e408126f5c04658a394933bf85c05f7b42972f0",
+    "valid": true
+  },
+  {
+    "name": "ordering",
+    "input": "{\"😀\": 1, \"é\": 2, \"a\": 3}",
+    "canonical": "{\"a\":3,\"é\":2,\"😀\":1}",
+    "digest": "ba4a284bf4c4a58f3d0eb4155d97fd18d90e9da3aad886502deaa3ffdbbe742e",
+    "valid": true
+  },
+  {
+    "name": "duplicate",
+    "input": "{\"a\":1,\"a\":2}",
+    "valid": false
+  },
+  {
+    "name": "float",
+    "input": "{\"x\":1.5}",
+    "valid": false
+  },
+  {
+    "name": "exponent",
+    "input": "{\"x\":1e2}",
+    "valid": false
+  },
+  {
+    "name": "unsafe-integer",
+    "input": "{\"x\":9007199254740992}",
+    "valid": false
+  },
+  {
+    "name": "surrogate",
+    "input": "{\"x\":\"\\ud800\"}",
+    "valid": false
+  },
+  {
+    "name": "replacement",
+    "input": "{\"x\":\"\\ufffd\"}",
+    "valid": false
+  },
+  {
+    "name": "trailing",
+    "input": "{}{}",
+    "valid": false
+  },
+  {
+    "name": "negative-zero",
+    "input": "-0",
+    "valid": false
+  }
+]
