@@ -1,0 +1,29 @@
+{
+  "state": "untested WIP original Main script changes",
+  "baseline": {
+    "component": "app",
+    "commit": "7f80d55948d4e9847fdbe68a9557e29c88025014",
+    "tree": "5495a7aca00db1403f4f97147d7812b0df0556a5",
+    "trackedFiles": 722
+  },
+  "changes": [
+    {
+      "path": "app/scripts/e2e_core.py",
+      "sha256": "de0875fc54293e4b1bb10d843dd9cd07bb10c172cf098d2a253e8fed7fbfb7e9",
+      "bytes": 15385,
+      "origin": "tracked dirty working file, not committed in original"
+    },
+    {
+      "path": "app/scripts/e2e_projects.py",
+      "sha256": "b5ef945a736c56bd8a195adaa3588f422486bbbcf66286a295f2e96b2e9958e4",
+      "bytes": 9067,
+      "origin": "tracked dirty working file, not committed in original"
+    },
+    {
+      "path": "app/scripts/native_group_recovery_ui.mjs",
+      "sha256": "f3a8e088471824439b274f3a755e19ba33ebff2b434bacb7b2a2642c40cc198b",
+      "bytes": 14161,
+      "origin": "tracked dirty working file, not committed in original"
+    }
+  ]
+}

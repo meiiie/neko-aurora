@@ -33,20 +33,18 @@ type CoreProfileInspectionConsent struct {
 	ExpiresAtUnixMS int64                 `json:"expiresAtUnixMs"`
 }
 type CoreProfileConsentInput struct {
-	Purpose                 string                  `json:"purpose,omitempty"`
-	GroupIntent             *CoreProfileGroupIntent `json:"groupIntent,omitempty"`
-	SourceID                string                  `json:"sourceId"`
-	ExpectedSourceRevision  uint64                  `json:"expectedSourceRevision"`
-	ProfileID               string                  `json:"profileId"`
-	ProfileRevision         string                  `json:"profileRevision"`
-	Provider                string                  `json:"provider"`
-	Model                   string                  `json:"model"`
-	ProviderOrigin          string                  `json:"providerOrigin"`
-	ChannelID               string                  `json:"channelId"`
-	ExpectedChannelRevision uint64                  `json:"expectedChannelRevision"`
-	BotIDs                  []string                `json:"botIds"`
-	ProjectID               string                  `json:"projectId,omitempty"`
-	ExpectedProjectRevision uint64                  `json:"expectedProjectRevision,omitempty"`
+	SourceID                string   `json:"sourceId"`
+	ExpectedSourceRevision  uint64   `json:"expectedSourceRevision"`
+	ProfileID               string   `json:"profileId"`
+	ProfileRevision         string   `json:"profileRevision"`
+	Provider                string   `json:"provider"`
+	Model                   string   `json:"model"`
+	ProviderOrigin          string   `json:"providerOrigin"`
+	ChannelID               string   `json:"channelId"`
+	ExpectedChannelRevision uint64   `json:"expectedChannelRevision"`
+	BotIDs                  []string `json:"botIds"`
+	ProjectID               string   `json:"projectId,omitempty"`
+	ExpectedProjectRevision uint64   `json:"expectedProjectRevision,omitempty"`
 	CoreProfileLimits
 	TTLSeconds       int    `json:"ttlSeconds"`
 	ApproveExecution bool   `json:"approveExecution"`
@@ -59,25 +57,22 @@ type CoreProfileConsentControlInput struct {
 	ClientNonce      string `json:"clientNonce"`
 }
 type CoreProfileConsent struct {
-	Purpose             string                  `json:"purpose,omitempty"`
-	GroupIntent         *CoreProfileGroupIntent `json:"groupIntent,omitempty"`
-	GroupIntentSHA256   string                  `json:"groupIntentSha256,omitempty"`
-	Version             int                     `json:"version"`
-	ID                  string                  `json:"id"`
-	Revision            uint64                  `json:"revision"`
-	Status              string                  `json:"status"`
-	Source              CoreProfileSource       `json:"source"`
-	Profile             CoreProfileMetadata     `json:"profile"`
-	InspectionConsentID string                  `json:"inspectionConsentId"`
-	ActorScope          CoreProfileActorScope   `json:"actorScope"`
-	ChannelID           string                  `json:"channelId"`
-	AudienceRevision    uint64                  `json:"audienceRevision"`
-	BotIDs              []string                `json:"botIds"`
-	ProjectID           string                  `json:"projectId,omitempty"`
-	ProjectRevision     uint64                  `json:"projectRevision,omitempty"`
-	Limits              CoreProfileLimits       `json:"limits"`
-	CreatedAtUnixMS     int64                   `json:"createdAtUnixMs"`
-	ExpiresAtUnixMS     int64                   `json:"expiresAtUnixMs"`
+	Version             int                   `json:"version"`
+	ID                  string                `json:"id"`
+	Revision            uint64                `json:"revision"`
+	Status              string                `json:"status"`
+	Source              CoreProfileSource     `json:"source"`
+	Profile             CoreProfileMetadata   `json:"profile"`
+	InspectionConsentID string                `json:"inspectionConsentId"`
+	ActorScope          CoreProfileActorScope `json:"actorScope"`
+	ChannelID           string                `json:"channelId"`
+	AudienceRevision    uint64                `json:"audienceRevision"`
+	BotIDs              []string              `json:"botIds"`
+	ProjectID           string                `json:"projectId,omitempty"`
+	ProjectRevision     uint64                `json:"projectRevision,omitempty"`
+	Limits              CoreProfileLimits     `json:"limits"`
+	CreatedAtUnixMS     int64                 `json:"createdAtUnixMs"`
+	ExpiresAtUnixMS     int64                 `json:"expiresAtUnixMs"`
 }
 type CoreProfilesResult struct {
 	SourceSnapshot      *CoreProfileSourceSnapshot `json:"sourceSnapshot,omitempty"`
@@ -456,7 +451,6 @@ func copyProfileMetadata(r CoreProfilesResult) CoreProfilesResult {
 	return r
 }
 func copyCoreConsent(c CoreProfileConsent) CoreProfileConsent {
-	c.GroupIntent = copyGroupProfileIntent(c.GroupIntent)
 	c.BotIDs = append([]string{}, c.BotIDs...)
 	return c
 }
@@ -483,9 +477,6 @@ func (s *Store) profileMatching(in CoreProfileConsentInput) (CoreProfileInspecti
 	return CoreProfileInspectionConsent{}, CoreProfileMetadata{}, false
 }
 func (s *Store) validConsentScope(c CoreProfileConsent) bool {
-	if !s.validGroupConsentPurpose(c) {
-		return false
-	}
 	if conversation, exists := s.conversation(c.ChannelID); exists && conversation.Archived {
 		return false
 	}
@@ -512,7 +503,6 @@ func (s *Store) validConsentScope(c CoreProfileConsent) bool {
 func (s *Store) ApproveCoreProfile(in CoreProfileConsentInput) (CoreProfileConsent, bool, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	in = copyCoreProfileConsentInput(in)
 	if !s.coreProfilesEnabled() {
 		return CoreProfileConsent{}, false, ErrForbidden
 	}
@@ -522,7 +512,7 @@ func (s *Store) ApproveCoreProfile(in CoreProfileConsentInput) (CoreProfileConse
 		}
 		return copyCoreConsent(*old.CoreProfile.Consent), true, nil
 	}
-	if !s.validGroupConsentInput(in) || !in.ApproveExecution || in.TTLSeconds < 30 || in.TTLSeconds > 3600 || !validProfileLimits(in.CoreProfileLimits) || !validAccessNonce(in.ClientNonce) {
+	if !in.ApproveExecution || in.TTLSeconds < 30 || in.TTLSeconds > 3600 || !validProfileLimits(in.CoreProfileLimits) || !validAccessNonce(in.ClientNonce) {
 		return CoreProfileConsent{}, false, ErrInvalid
 	}
 	if s.profileNonceUsed(in.ClientNonce) || len(s.coreProfileNonces) >= 512 || len(s.coreProfileConsents) >= 128 {
@@ -542,11 +532,6 @@ func (s *Store) ApproveCoreProfile(in CoreProfileConsentInput) (CoreProfileConse
 		return CoreProfileConsent{}, false, ErrConflict
 	}
 	c := CoreProfileConsent{Version: 1, ID: id, Revision: 1, Status: "approved", Source: ic.Source, Profile: p, InspectionConsentID: ic.ID, ActorScope: localProfileActor(), ChannelID: in.ChannelID, AudienceRevision: in.ExpectedChannelRevision, BotIDs: append([]string{}, in.BotIDs...), ProjectID: in.ProjectID, ProjectRevision: in.ExpectedProjectRevision, Limits: in.CoreProfileLimits, CreatedAtUnixMS: now, ExpiresAtUnixMS: expires}
-	if in.Purpose != "" {
-		c.Version, c.Purpose = 2, in.Purpose
-		c.GroupIntent = copyGroupProfileIntent(in.GroupIntent)
-		c.GroupIntentSHA256 = groupProfileIntentHash(*c.GroupIntent)
-	}
 	if !s.validConsentScope(c) {
 		return CoreProfileConsent{}, false, ErrConflict
 	}
@@ -628,7 +613,7 @@ func (s *Store) CoreProfileReceipt(kind, nonce string) (CoreProfileReceipt, erro
 	if s.identity != nil {
 		return r, ErrForbidden
 	}
-	if !validAccessNonce(nonce) || (kind != "inspection" && kind != "execution" && kind != "group_execution" && kind != "revoke") {
+	if !validAccessNonce(nonce) || (kind != "inspection" && kind != "execution" && kind != "revoke") {
 		return r, ErrInvalid
 	}
 	e, ok := s.coreProfileNonces[nonce]
@@ -642,9 +627,10 @@ func (s *Store) CoreProfileReceipt(kind, nonce string) (CoreProfileReceipt, erro
 		r.Input = *p.InspectionInput
 		r.InspectionConsent = &c
 		r.Active = s.inspectionActive(c)
-	case (kind == "execution" && p.Consent != nil && p.Consent.Version == 1 || kind == "group_execution" && p.Consent != nil && p.Consent.Version == 2 && p.Consent.Purpose == finiteCoreProfilePurpose) && p.ConsentInput != nil:
+	case kind == "execution" && p.ConsentInput != nil:
 		c := copyCoreConsent(*p.Consent)
-		input := copyCoreProfileConsentInput(*p.ConsentInput)
+		input := *p.ConsentInput
+		input.BotIDs = append([]string{}, input.BotIDs...)
 		r.Input = input
 		r.Consent = &c
 		current := s.coreProfileConsents[c.ID]
@@ -711,7 +697,7 @@ func (s *Store) validCoreProfileEvent(e Event) bool {
 		ic, profile, ok := s.profileMatching(in)
 		_, exists := s.coreProfileConsents[c.ID]
 		expires, expiryOK := coreProfileConsentExpiry(c.CreatedAtUnixMS, in.TTLSeconds, profile)
-		return ok && !exists && len(s.coreProfileConsents) < 128 && resourceID(c.ID, "core-consent-") && s.validGroupConsentPurpose(c) && s.validGroupConsentInput(in) && c.Purpose == in.Purpose && reflect.DeepEqual(c.GroupIntent, in.GroupIntent) && c.Revision == 1 && c.Status == "approved" && c.Source == ic.Source && c.Profile == profile && c.InspectionConsentID == ic.ID && c.ActorScope == localProfileActor() && executableCoreProfile(profile) && validProfileOrigin(profile.ProviderOrigin, c.Source.FixtureOnly) && c.ChannelID == in.ChannelID && c.AudienceRevision == in.ExpectedChannelRevision && reflect.DeepEqual(c.BotIDs, in.BotIDs) && c.ProjectID == in.ProjectID && c.ProjectRevision == in.ExpectedProjectRevision && c.Limits == in.CoreProfileLimits && validProfileLimits(c.Limits) && s.validConsentScope(c) && c.CreatedAtUnixMS >= ic.CreatedAtUnixMS && c.CreatedAtUnixMS < ic.ExpiresAtUnixMS && c.ExpiresAtUnixMS > c.CreatedAtUnixMS && c.ExpiresAtUnixMS < 1<<53 && expiryOK && c.ExpiresAtUnixMS == expires && in.TTLSeconds >= 30 && in.TTLSeconds <= 3600 && in.ApproveExecution && e.Nonce == in.ClientNonce
+		return ok && !exists && len(s.coreProfileConsents) < 128 && resourceID(c.ID, "core-consent-") && c.Version == 1 && c.Revision == 1 && c.Status == "approved" && c.Source == ic.Source && c.Profile == profile && c.InspectionConsentID == ic.ID && c.ActorScope == localProfileActor() && executableCoreProfile(profile) && validProfileOrigin(profile.ProviderOrigin, c.Source.FixtureOnly) && c.ChannelID == in.ChannelID && c.AudienceRevision == in.ExpectedChannelRevision && reflect.DeepEqual(c.BotIDs, in.BotIDs) && c.ProjectID == in.ProjectID && c.ProjectRevision == in.ExpectedProjectRevision && c.Limits == in.CoreProfileLimits && validProfileLimits(c.Limits) && s.validConsentScope(c) && c.CreatedAtUnixMS >= ic.CreatedAtUnixMS && c.CreatedAtUnixMS < ic.ExpiresAtUnixMS && c.ExpiresAtUnixMS > c.CreatedAtUnixMS && c.ExpiresAtUnixMS < 1<<53 && expiryOK && c.ExpiresAtUnixMS == expires && in.TTLSeconds >= 30 && in.TTLSeconds <= 3600 && in.ApproveExecution && e.Nonce == in.ClientNonce
 	case "core_profile.execution_revoked":
 		if p.ControlInput == nil || p.Consent == nil || !reflect.DeepEqual(*p, CoreProfileEvent{ControlInput: p.ControlInput, Consent: p.Consent}) {
 			return false
@@ -766,7 +752,8 @@ func (s *Store) applyCoreProfile(e Event) {
 		s.coreProfileConsents[c.ID] = c
 	}
 	if p.ConsentInput != nil {
-		in := copyCoreProfileConsentInput(*p.ConsentInput)
+		in := *p.ConsentInput
+		in.BotIDs = append([]string{}, in.BotIDs...)
 		p.ConsentInput = &in
 	}
 	e.CoreProfile = &p
@@ -783,7 +770,7 @@ func (s *Store) pinCoreProfile(w *Work, selection *CoreProfileSelection) error {
 		return ErrForbidden
 	}
 	c, ok := s.coreProfileConsents[selection.ConsentID]
-	if !ok || c.Version != 1 || c.Revision != selection.ExpectedConsentRevision || !s.profileConsentActive(c) || w.Account != nil || w.Adapter != nil || w.Collaboration != nil || w.TaskLink != nil || w.UseBotDefaults || w.ConversationID != c.ChannelID || !profileContains(c.BotIDs, w.BotID) || (c.ProjectID == "" && w.Resources != nil) || (c.ProjectID != "" && (w.Resources == nil || w.Resources.Project.ID != c.ProjectID || w.Resources.Project.Revision != c.ProjectRevision)) {
+	if !ok || c.Revision != selection.ExpectedConsentRevision || !s.profileConsentActive(c) || w.Account != nil || w.Adapter != nil || w.Collaboration != nil || w.TaskLink != nil || w.UseBotDefaults || w.ConversationID != c.ChannelID || !profileContains(c.BotIDs, w.BotID) || (c.ProjectID == "" && w.Resources != nil) || (c.ProjectID != "" && (w.Resources == nil || w.Resources.Project.ID != c.ProjectID || w.Resources.Project.Revision != c.ProjectRevision)) {
 		return ErrConflict
 	}
 	p := profileConsentPin(c)
@@ -814,7 +801,7 @@ func (s *Store) verifyProfileSelection(scope SubmissionScope) error {
 	}
 	selection := scope.CoreProfileSelection
 	c, ok := s.coreProfileConsents[selection.ConsentID]
-	if !ok || c.Version != 1 || c.Revision != selection.ExpectedConsentRevision || !s.profileConsentActive(c) {
+	if !ok || c.Revision != selection.ExpectedConsentRevision || !s.profileConsentActive(c) {
 		return ErrConflict
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
@@ -832,13 +819,10 @@ func (s *Store) verifyProfileSelection(scope SubmissionScope) error {
 func (s *Store) validCoreProfileIntake(w Work) bool {
 	p := w.CoreProfilePin
 	if p == nil {
-		return w.CoreProfileSelection == nil && w.CoreProfileGroupBinding == nil
-	}
-	if w.CoreProfileGroupBinding != nil {
-		return s.validGroupProfileIntake(w)
+		return w.CoreProfileSelection == nil
 	}
 	c, ok := s.coreProfileConsents[p.ConsentID]
-	if !ok || c.Version != 1 || c.Status != "approved" || c.Revision != p.ConsentRevision || w.RequesterPin != nil || w.OwnerUserID != "local-owner" || w.SpaceID != "local-space" || w.Account != nil || w.Adapter != nil || w.Collaboration != nil || w.TaskLink != nil || w.UseBotDefaults || w.ConversationID != c.ChannelID || !profileContains(c.BotIDs, w.BotID) || w.Publication == nil || w.Publication.AudienceRevision != c.AudienceRevision || w.CoreProfileSelection == nil || w.CoreProfileSelection.ConsentID != c.ID || w.CoreProfileSelection.ExpectedConsentRevision != c.Revision {
+	if !ok || c.Status != "approved" || c.Revision != p.ConsentRevision || w.RequesterPin != nil || w.OwnerUserID != "local-owner" || w.SpaceID != "local-space" || w.Account != nil || w.Adapter != nil || w.Collaboration != nil || w.TaskLink != nil || w.UseBotDefaults || w.ConversationID != c.ChannelID || !profileContains(c.BotIDs, w.BotID) || w.Publication == nil || w.Publication.AudienceRevision != c.AudienceRevision || w.CoreProfileSelection == nil || w.CoreProfileSelection.ConsentID != c.ID || w.CoreProfileSelection.ExpectedConsentRevision != c.Revision {
 		return false
 	}
 	expected := profileConsentPin(c)
@@ -870,10 +854,7 @@ func profileInputBound(w Work) bool {
 func (s *Store) coreProfileCurrent(w Work) bool {
 	p := w.CoreProfilePin
 	if p == nil {
-		return w.CoreProfileGroupBinding == nil
-	}
-	if w.CoreProfileGroupBinding != nil || w.Collaboration != nil {
-		return s.groupWorkProfileCurrent(w)
+		return true
 	}
 	c, ok := s.coreProfileConsents[p.ConsentID]
 	base := profileConsentPin(c)
@@ -891,27 +872,12 @@ func (s *Store) coreProfileGuard(w Work) error {
 	defer cancel()
 	service := s.coreProfiles
 	old, exists := s.work[w.RequestID]
-	var groupBefore *Collaboration
-	if w.CoreProfileGroupBinding != nil && w.Collaboration != nil {
-		g, ok := s.collaborations[w.Collaboration.ID]
-		if !ok {
-			return ErrForbidden
-		}
-		copy := copyCollaboration(g)
-		groupBefore = &copy
-	}
 	s.mu.Unlock()
 	err := service.Verify(ctx, *w.CoreProfilePin)
 	s.mu.Lock()
 	if exists {
 		current, ok := s.work[w.RequestID]
 		if !ok || !reflect.DeepEqual(current, old) {
-			return ErrConflict
-		}
-	}
-	if groupBefore != nil {
-		current, ok := s.collaborations[groupBefore.ID]
-		if !ok || !reflect.DeepEqual(current, *groupBefore) {
 			return ErrConflict
 		}
 	}
@@ -955,9 +921,6 @@ func (s *Store) ReconcileCoreProfiles() error {
 	for _, old := range s.sortedWorkLocked() {
 		current, exists := s.work[old.RequestID]
 		if !exists || !reflect.DeepEqual(current, old) || old.CoreProfilePin == nil || !suspendible(old) {
-			continue
-		}
-		if s.groupProfilePendingStage(old) {
 			continue
 		}
 		err := s.coreProfileGuard(old)

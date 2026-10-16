@@ -338,9 +338,6 @@ func contextArchive(w Work) ContextAttempt {
 	return ContextAttempt{Core: w.Core, PinSHA256: hash, Reply: w.Reply, Epoch: w.Epoch, Reason: "explicit_context_refresh"}
 }
 func (s *Store) validContextRefresh(old, w Work, version int) bool {
-	if old.CoreProfileGroupBinding != nil {
-		return false
-	}
 	if !s.validNewRuntimeContext(w) || (version != 3 && old.ContextProtocolVersion != w.ContextProtocolVersion) || (version == 3 && w.ContextProtocolVersion != 1) {
 		return false
 	}
@@ -365,17 +362,7 @@ func (s *Store) validContextRefresh(old, w Work, version int) bool {
 	return refreshable(old) && s.pluginsAllowed(old) && (version == 0 || boundedRuntimePrompt(w)) && w.Status == "waiting_host" && w.DesiredState == "running" && w.Epoch == old.Epoch+1 && w.ContextRevision == old.ContextRevision+1 && reflect.DeepEqual(w.Context, s.captureContextVersion(source, pinVersion)) && reflect.DeepEqual(w.ContextAttempts, append(append([]ContextAttempt(nil), old.ContextAttempts...), contextArchive(old)))
 }
 func (s *Store) RefreshContext(input RefreshInput) (Work, error) {
-	current, err := s.Get(input.RequestID)
-	if err != nil {
-		return Work{}, err
-	}
-	if current.CoreProfileGroupBinding != nil {
-		return Work{}, ErrConflict
-	}
 	return s.update(input.RequestID, input.ExpectedEpoch, "work.context_refreshed", func(w *Work) error {
-		if w.CoreProfileGroupBinding != nil {
-			return ErrConflict
-		}
 		if !refreshable(*w) || !s.publicationAllowed(*w) || !s.pluginsAllowed(*w) || !s.continuityAllowed(*w) {
 			return ErrConflict
 		}

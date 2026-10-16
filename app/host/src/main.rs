@@ -1,4 +1,3 @@
-mod profile_permissions;
 use neko_host::acp::{self, Binding};
 use neko_host::context_admission::{AdmittedContext, LaunchContext};
 use neko_host::core_profile::{CoreProfileLaunch, PrivateProfileSource};
@@ -40,8 +39,6 @@ impl Drop for Process {
     }
 }
 struct Bridge {
-    profile_mode: bool,
-    profile_permission: Option<profile_permissions::Pending>,
     context: Option<AdmittedContext>,
     child: Process,
     core: Receiver<Result<Value>>,
@@ -165,15 +162,6 @@ impl Bridge {
     fn event(&mut self, kind: &str, data: Value) -> Result<Value> {
         host_event(&self.host, &mut self.seq, kind, data)
     }
-    fn approved_profile_call(&mut self, args: &Value) -> bool {
-        let pending = self.profile_permission.take();
-        match (pending, self.binding.as_ref(), self.context.as_ref()) {
-            (Some(pending), Some(binding), Some(context)) => {
-                pending.matches(args, binding, context)
-            }
-            _ => false,
-        }
-    }
     fn call(&mut self, method: &str, params: Value) -> Result<Value> {
         self.next += 1;
         let id = self.next;
@@ -242,37 +230,6 @@ impl Bridge {
             return Ok(());
         }
         let result = match v["method"].as_str().unwrap_or("") {
-            "session/request_permission" => {
-                if !self.profile_mode || self.profile_permission.is_some() {
-                    self.profile_permission = None;
-                    profile_permissions::cancelled()
-                } else {
-                    let request = match (self.binding.as_ref(), self.context.as_ref()) {
-                        (Some(binding), Some(context)) => {
-                            profile_permissions::parse(p, binding, context)
-                        }
-                        _ => None,
-                    };
-                    if let Some(request) = request {
-                        let decision =
-                            self.event("profile_tool_permission", request.data.clone())?;
-                        self.profile_permission =
-                            match (self.binding.as_ref(), self.context.as_ref()) {
-                                (Some(binding), Some(context)) => {
-                                    request.approved(&decision, binding, context)
-                                }
-                                _ => None,
-                            };
-                        if self.profile_permission.is_some() {
-                            profile_permissions::allowed_once()
-                        } else {
-                            profile_permissions::cancelled()
-                        }
-                    } else {
-                        profile_permissions::cancelled()
-                    }
-                }
-            }
             "mcp/connect" if p["serverId"] == "nekobot:local" => {
                 json!({"connectionId":"nekobot-local"})
             }
@@ -303,13 +260,7 @@ impl Bridge {
                             "capabilities" if args["arguments"] == json!({}) => {
                                 self.event("capabilities", args.clone())?
                             }
-                            "execute_tool" => {
-                                if self.profile_mode && !self.approved_profile_call(&args) {
-                                    json!({"isError":true,"content":[{"type":"text","text":"Exact single-use profile tool permission required"}]})
-                                } else {
-                                    self.event("tool", args.clone())?
-                                }
-                            }
+                            "execute_tool" => self.event("tool", args.clone())?,
                             _ => {
                                 json!({"isError":true,"content":[{"type":"text","text":"Action denied by host"}]})
                             }
@@ -661,8 +612,6 @@ fn run() -> Result<()> {
     }
     let core = lines(process.child.stdout.take().ok_or("core_pipe_missing")?);
     let mut bridge = Bridge {
-        profile_mode: profile.is_some(),
-        profile_permission: None,
         context: None,
         child: process,
         core,

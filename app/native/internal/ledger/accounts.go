@@ -213,14 +213,6 @@ func (s *Store) Dispatch(id string, epoch uint64, launch func() error) error {
 	if !ok || w.Epoch != epoch || w.Status != "starting" || w.DesiredState != "running" || !s.contextAllowed(w) {
 		return ErrConflict
 	}
-	if w.CoreProfileGroupBinding != nil {
-		if err := s.coreProfileGuard(w); err != nil {
-			return err
-		}
-		if !s.collaborationBudgetAllows(w) || !s.contextAllowed(w) {
-			return ErrConflict
-		}
-	}
 	release, err := s.accountGuard(w, true)
 	if err != nil {
 		return err

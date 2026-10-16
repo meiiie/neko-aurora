@@ -16,10 +16,9 @@ type CollaborationRecoveryInput struct {
 	ClientNonce          string `json:"clientNonce"`
 }
 type CollaborationRecoveryEvent struct {
-	CoreProfileReservationVersion int                        `json:"coreProfileReservationVersion,omitempty"`
-	NonceDomainVersion            int                        `json:"nonceDomainVersion,omitempty"`
-	Input                         CollaborationRecoveryInput `json:"input"`
-	IssuedAt                      string                     `json:"issuedAt"`
+	NonceDomainVersion int                        `json:"nonceDomainVersion,omitempty"`
+	Input              CollaborationRecoveryInput `json:"input"`
+	IssuedAt           string                     `json:"issuedAt"`
 }
 type CollaborationRecoveryResult struct {
 	Collaboration Collaboration `json:"collaboration"`
@@ -92,7 +91,7 @@ func collaborationRecoveryAccountAt(w Work, at time.Time) bool {
 	return e1 == nil && e2 == nil && expiry.After(issued) && !at.Before(issued) && at.Before(expiry)
 }
 func (s *Store) collaborationRecoveryReady(g Collaboration, w Work, at time.Time) bool {
-	if !s.validGroupProfileWork(w, g) || g.Status != "suspended" || g.Reason != "task_suspended" || !groupBudgetAt(g, at) || !collaborationRecoveryAccountAt(w, at) || len(g.RequestIDs) < 1 || len(g.RequestIDs) > g.MaxStages || w.Collaboration == nil || w.Collaboration.ID != g.ID || w.Collaboration.Stage != len(g.RequestIDs) || g.RequestIDs[len(g.RequestIDs)-1] != w.RequestID || !serviceRecoveryReady(w) || !equalNativeBinding(*w.Core, *w.RuntimeAttemptBinding) || w.Epoch >= executors.SafeInteger || w.TaskRevision >= executors.SafeInteger || g.Revision >= executors.SafeInteger || !reflect.DeepEqual(g.ExecutorPin, w.ExecutorPin) || !reflect.DeepEqual(g.Account, w.Account) || !reflect.DeepEqual(g.Resources, w.Resources) || g.ExecutorPolicyVersion != w.ExecutorPolicyVersion || g.ToolPolicyVersion != w.ToolPolicyVersion || !reflect.DeepEqual(g.PluginPins, w.PluginPins) || !reflect.DeepEqual(g.PluginSelection, w.PluginSelection) || w.BotID != stageBot(g, len(g.RequestIDs)) || w.ClientNonce != stageNonce(g, len(g.RequestIDs)) || w.Text != stageText(g, len(g.RequestIDs)) || w.ConversationID != g.ChannelID || w.OwnerUserID != g.OwnerUserID || w.SpaceID != g.SpaceID || !s.contextAllowedForGroupRecovery(w, g.ID) {
+	if g.Status != "suspended" || g.Reason != "task_suspended" || !groupBudgetAt(g, at) || !collaborationRecoveryAccountAt(w, at) || len(g.RequestIDs) < 1 || len(g.RequestIDs) > g.MaxStages || w.Collaboration == nil || w.Collaboration.ID != g.ID || w.Collaboration.Stage != len(g.RequestIDs) || g.RequestIDs[len(g.RequestIDs)-1] != w.RequestID || !serviceRecoveryReady(w) || !equalNativeBinding(*w.Core, *w.RuntimeAttemptBinding) || w.Epoch >= executors.SafeInteger || w.TaskRevision >= executors.SafeInteger || g.Revision >= executors.SafeInteger || !reflect.DeepEqual(g.ExecutorPin, w.ExecutorPin) || !reflect.DeepEqual(g.Account, w.Account) || !reflect.DeepEqual(g.Resources, w.Resources) || g.ExecutorPolicyVersion != w.ExecutorPolicyVersion || g.ToolPolicyVersion != w.ToolPolicyVersion || !reflect.DeepEqual(g.PluginPins, w.PluginPins) || !reflect.DeepEqual(g.PluginSelection, w.PluginSelection) || w.BotID != stageBot(g, len(g.RequestIDs)) || w.ClientNonce != stageNonce(g, len(g.RequestIDs)) || w.Text != stageText(g, len(g.RequestIDs)) || w.ConversationID != g.ChannelID || w.OwnerUserID != g.OwnerUserID || w.SpaceID != g.SpaceID || !s.contextAllowedForGroupRecovery(w, g.ID) {
 		return false
 	}
 	for i, id := range g.RequestIDs[:len(g.RequestIDs)-1] {
@@ -152,25 +151,12 @@ func (s *Store) RecoverCollaboration(id string, in CollaborationRecoveryInput) (
 	if !ok || g.Revision != in.ExpectedRevision || old.Epoch != in.ExpectedEpoch || old.TaskRevision != in.ExpectedTaskRevision || !s.collaborationRecoveryReady(g, old, now) || !s.collaborationAuthority(g) {
 		return CollaborationRecoveryResult{}, false, ErrConflict
 	}
-	if g.CoreProfileGroup != nil {
-		if err := s.groupProfileGuard(g); err != nil {
-			return CollaborationRecoveryResult{}, false, ErrConflict
-		}
-		current, exists := s.work[old.RequestID]
-		if !exists || !reflect.DeepEqual(current, old) || !s.collaborationRecoveryReady(g, current, s.clock()) || !s.collaborationAuthority(g) {
-			return CollaborationRecoveryResult{}, false, ErrConflict
-		}
-		now = s.clock()
-	}
 	release, err := s.controlAccountGuard(old)
 	if err != nil {
 		return CollaborationRecoveryResult{}, false, err
 	}
 	defer release()
 	g = copyCollaboration(g)
-	if !reserveGroupProfileRecovery(&g, old, in, now) {
-		return CollaborationRecoveryResult{}, false, ErrConflict
-	}
 	g.Status, g.Reason = "running", ""
 	g.Revision++
 	w := copyWork(old)
@@ -181,9 +167,6 @@ func (s *Store) RecoverCollaboration(id string, in CollaborationRecoveryInput) (
 		return CollaborationRecoveryResult{}, false, ErrInvalid
 	}
 	e := Event{Type: "collaboration.recovered", Collaboration: &g, Work: w, Nonce: in.ClientNonce, CollaborationRecovery: &CollaborationRecoveryEvent{NonceDomainVersion: 1, Input: in, IssuedAt: now.UTC().Format(time.RFC3339Nano)}}
-	if g.CoreProfileGroup != nil {
-		e.CollaborationRecovery.CoreProfileReservationVersion = 1
-	}
 	if !s.validCollaborationRecoveryEvent(e) {
 		return CollaborationRecoveryResult{}, false, ErrConflict
 	}
@@ -219,26 +202,12 @@ func (s *Store) validCollaborationRecoveryEvent(e Event) bool {
 	if !ok {
 		return false
 	}
-	if g.CoreProfileGroup == nil && c.CoreProfileReservationVersion != 0 || g.CoreProfileGroup != nil && c.CoreProfileReservationVersion != 1 {
-		return false
-	}
-	if g.CoreProfileGroup != nil {
-		p := g.CoreProfileGroup.OriginalPin
-		consent, exists := s.coreProfileConsents[p.ConsentID]
-		if !exists || consent.Status != "approved" || consent.Revision != p.ConsentRevision || s.coreProfileRetired[consent.ID] {
-			return false
-		}
-	}
 	old, ok := s.work[c.Input.RequestID]
 	if !ok {
 		return false
 	}
 	at, err := time.Parse(time.RFC3339Nano, c.IssuedAt)
 	if err != nil || at.UTC().Format(time.RFC3339Nano) != c.IssuedAt || g.Revision != c.Input.ExpectedRevision || old.Epoch != c.Input.ExpectedEpoch || old.TaskRevision != c.Input.ExpectedTaskRevision || !s.collaborationRecoveryReady(g, old, at) {
-		return false
-	}
-	g = copyCollaboration(g)
-	if !reserveGroupProfileRecovery(&g, old, c.Input, at) {
 		return false
 	}
 	g.Status, g.Reason = "running", ""

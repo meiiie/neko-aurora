@@ -383,8 +383,6 @@ func (m *Manager) execute(ctx context.Context, w ledger.Work) {
 			} else {
 				e = m.store.AppendText(w.RequestID, w.Epoch, v.Text)
 			}
-		case "profile_tool_permission":
-			result = m.store.PreflightCoreProfileTool(w.RequestID, w.Epoch, event.Data)
 		case "tool":
 			result, e = m.store.ExecuteTool(w.RequestID, w.Epoch, event.Data)
 		case "capabilities":

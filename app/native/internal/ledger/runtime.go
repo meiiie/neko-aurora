@@ -47,10 +47,6 @@ type Operation struct {
 }
 
 func copyWork(w Work) Work {
-	if w.CoreProfileGroupBinding != nil {
-		p := *w.CoreProfileGroupBinding
-		w.CoreProfileGroupBinding = &p
-	}
 	if w.CoreProfilePin != nil {
 		p := *w.CoreProfilePin
 		w.CoreProfilePin = &p
@@ -425,13 +421,7 @@ func (s *Store) Requeue(id string) (Work, error) {
 	if err != nil {
 		return Work{}, err
 	}
-	if w.CoreProfileGroupBinding != nil {
-		return Work{}, ErrConflict
-	}
 	return s.update(id, w.Epoch, "work.requeued", func(w *Work) error {
-		if w.CoreProfileGroupBinding != nil {
-			return ErrConflict
-		}
 		if w.ExecutorPolicyVersion == 1 && (!w.RuntimeStopped || w.RuntimeStopReceipt == nil || !validStoppedReceipt(*w, *w.RuntimeStopReceipt) || !operationsComplete(*w)) {
 			return ErrConflict
 		}
@@ -450,12 +440,6 @@ func validRuntimeReplay(s *Store, e Event) bool {
 		return false
 	}
 	w := e.Work
-	if (e.Type == "work.claimed" || e.Type == "work.admitted" || e.Type == "work.text" || e.Type == "work.operation_started" || e.Type == "work.completed" || e.Type == "work.requeued") && !s.groupProfileRecordAuthority(old) {
-		return false
-	}
-	if e.Type == "work.requeued" && old.CoreProfileGroupBinding != nil {
-		return false
-	}
 	if (e.Type == "work.claimed" || e.Type == "work.admitted" || e.Type == "work.text" || e.Type == "work.operation_started" || e.Type == "work.completed" || e.Type == "work.requeued") && (!s.contextAllowed(old) || (old.Collaboration != nil && (s.collaborations[old.Collaboration.ID].BudgetClosedAt != "" || s.collaborations[old.Collaboration.ID].BudgetClosedReason != ""))) {
 		return false
 	}

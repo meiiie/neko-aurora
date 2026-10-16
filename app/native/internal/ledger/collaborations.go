@@ -13,25 +13,23 @@ import (
 )
 
 type CollaborationInput struct {
-	CoreProfileSelection       *CoreProfileSelection `json:"coreProfileSelection,omitempty"`
-	ExpectedContinuityRevision *uint64               `json:"expectedContinuityRevision,omitempty"`
-	PluginSelection            *[]PluginSelection    `json:"pluginSelection,omitempty"`
-	ChannelID                  string                `json:"channelId"`
-	ExpectedChannelRevision    uint64                `json:"expectedChannelRevision"`
-	Participants               []string              `json:"participants"`
-	CoordinatorBotID           string                `json:"coordinatorBotId"`
-	Goal                       string                `json:"goal"`
-	MaxStages                  int                   `json:"maxStages"`
-	ClientNonce                string                `json:"clientNonce"`
-	AccountID                  string                `json:"accountId,omitempty"`
-	AccountRevision            uint64                `json:"accountRevision,omitempty"`
-	ProjectID                  string                `json:"projectId,omitempty"`
-	ProjectRevision            uint64                `json:"projectRevision,omitempty"`
-	FileIDs                    []string              `json:"fileIds,omitempty"`
+	ExpectedContinuityRevision *uint64            `json:"expectedContinuityRevision,omitempty"`
+	PluginSelection            *[]PluginSelection `json:"pluginSelection,omitempty"`
+	ChannelID                  string             `json:"channelId"`
+	ExpectedChannelRevision    uint64             `json:"expectedChannelRevision"`
+	Participants               []string           `json:"participants"`
+	CoordinatorBotID           string             `json:"coordinatorBotId"`
+	Goal                       string             `json:"goal"`
+	MaxStages                  int                `json:"maxStages"`
+	ClientNonce                string             `json:"clientNonce"`
+	AccountID                  string             `json:"accountId,omitempty"`
+	AccountRevision            uint64             `json:"accountRevision,omitempty"`
+	ProjectID                  string             `json:"projectId,omitempty"`
+	ProjectRevision            uint64             `json:"projectRevision,omitempty"`
+	FileIDs                    []string           `json:"fileIds,omitempty"`
 }
 
 type Collaboration struct {
-	CoreProfileGroup       *GroupCoreProfile       `json:"coreProfileGroup,omitempty"`
 	PublishedReportContext *PublishedReportContext `json:"publishedReportContext,omitempty"`
 	ExecutorPolicyVersion  int                     `json:"executorPolicyVersion,omitempty"`
 	ExecutorPin            *executors.InstallPin   `json:"executorPin,omitempty"`
@@ -65,11 +63,6 @@ type CollaborationCancelInput struct {
 }
 
 func copyCollaboration(g Collaboration) Collaboration {
-	g.CoreProfileGroup = copyGroupCoreProfile(g.CoreProfileGroup)
-	if g.CoreProfileSelection != nil {
-		p := *g.CoreProfileSelection
-		g.CoreProfileSelection = &p
-	}
 	g.PublishedReportContext = copyPublishedReportContext(g.PublishedReportContext)
 	if g.ExecutorPin != nil {
 		p := *g.ExecutorPin
@@ -93,10 +86,6 @@ func copyCollaboration(g Collaboration) Collaboration {
 }
 
 func normalizeCollaboration(in CollaborationInput) CollaborationInput {
-	if in.CoreProfileSelection != nil {
-		p := *in.CoreProfileSelection
-		in.CoreProfileSelection = &p
-	}
 	in.PluginSelection = copySelection(in.PluginSelection)
 	if in.ExpectedContinuityRevision != nil {
 		r := *in.ExpectedContinuityRevision
@@ -162,21 +151,6 @@ func (s *Store) CreateCollaboration(in CollaborationInput) (Collaboration, bool,
 			return Collaboration{}, false, ErrConflict
 		}
 	}
-	if in.CoreProfileSelection != nil {
-		if err := s.verifyGroupProfileSelection(in); err != nil {
-			return Collaboration{}, false, err
-		}
-		if id, ok := s.collaborationNonces[in.ClientNonce]; ok {
-			g := s.collaborations[id]
-			if !reflect.DeepEqual(g.CollaborationInput, in) {
-				return Collaboration{}, false, ErrConflict
-			}
-			return copyCollaboration(g), true, nil
-		}
-		if s.profileNonceUsed(in.ClientNonce) {
-			return Collaboration{}, false, ErrConflict
-		}
-	}
 	if len(s.collaborations) >= 128 {
 		return Collaboration{}, false, ErrInvalid
 	}
@@ -186,9 +160,6 @@ func (s *Store) CreateCollaboration(in CollaborationInput) (Collaboration, bool,
 	}
 	now := s.clock()
 	g := Collaboration{Version: 1, ID: id, OwnerUserID: "local-owner", SpaceID: "local-space", Revision: 1, CreatedAt: now.Format(time.RFC3339Nano), DeadlineAt: now.Add(5 * time.Minute).Format(time.RFC3339Nano), Status: "running", RequestIDs: []string{}, CollaborationInput: in}
-	if err := s.pinGroupCoreProfile(&g); err != nil {
-		return Collaboration{}, false, err
-	}
 	w := Work{BotID: in.CoordinatorBotID, OwnerUserID: g.OwnerUserID, SpaceID: g.SpaceID, ConversationID: in.ChannelID, Text: in.Goal}
 	g.Resources, err = s.pinResources(w, collaborationScope(in))
 	if err != nil {
@@ -294,7 +265,7 @@ func (s *Store) validCollaborationWork(w Work) bool {
 			return false
 		}
 	}
-	return s.validGroupProfileWork(w, g)
+	return true
 }
 
 func (s *Store) validCollaborationEvent(e Event) bool {
@@ -317,12 +288,12 @@ func (s *Store) validCollaborationEvent(e Event) bool {
 				return false
 			}
 		}
-		if e.Nonce != "" || !resourceID(g.ID, "collab-") || (g.Version != 1 && g.Version != 2) || g.OwnerUserID != "local-owner" || g.SpaceID != "local-space" || g.Revision != 1 || g.Status != "running" || g.Reason != "" || g.BudgetClosedAt != "" || g.BudgetClosedReason != "" || len(g.RequestIDs) != 0 || !s.validCollaborationInput(g.CollaborationInput) {
+		if e.Nonce != "" || !resourceID(g.ID, "collab-") || g.Version != 1 || g.OwnerUserID != "local-owner" || g.SpaceID != "local-space" || g.Revision != 1 || g.Status != "running" || g.Reason != "" || g.BudgetClosedAt != "" || g.BudgetClosedReason != "" || len(g.RequestIDs) != 0 || !s.validCollaborationInput(g.CollaborationInput) {
 			return false
 		}
 		created, e1 := time.Parse(time.RFC3339Nano, g.CreatedAt)
 		deadline, e2 := time.Parse(time.RFC3339Nano, g.DeadlineAt)
-		if e1 != nil || e2 != nil || !s.validGroupProfile(g) || g.Version == 1 && deadline.Sub(created) != 5*time.Minute || g.Version == 2 && (s.coreProfileRetired[g.CoreProfileSelection.ConsentID] || len(g.CoreProfileGroup.Budget.RecoveryReservations) != 0 || s.coreProfileConsents[g.CoreProfileSelection.ConsentID].Status != "approved" || s.coreProfileConsents[g.CoreProfileSelection.ConsentID].Revision != g.CoreProfileSelection.ExpectedConsentRevision) {
+		if e1 != nil || e2 != nil || deadline.Sub(created) != 5*time.Minute {
 			return false
 		}
 		if _, ok := s.collaborations[g.ID]; ok {
@@ -449,9 +420,6 @@ func collaborationTaskSettled(w Work) bool {
 }
 
 func (s *Store) collaborationAuthority(g Collaboration) bool {
-	if !s.groupProfileCurrent(g) {
-		return false
-	}
 	if g.PublishedReportContext != nil {
 		for _, bot := range g.Participants {
 			probe := Work{BotID: bot, OwnerUserID: g.OwnerUserID, SpaceID: g.SpaceID, ConversationID: g.ChannelID, ToolPolicyVersion: g.ToolPolicyVersion, PluginPins: g.PluginPins}
@@ -507,11 +475,7 @@ func (s *Store) stageWorkLocked(g Collaboration) (Work, error) {
 	if err != nil {
 		return Work{}, err
 	}
-	createdAt := time.Now().UTC().Format(time.RFC3339Nano)
-	if g.CoreProfileGroup != nil {
-		createdAt = s.clock().UTC().Format(time.RFC3339Nano)
-	}
-	w := Work{RequestID: req, SourceMessageID: msg, OwnerUserID: g.OwnerUserID, SpaceID: g.SpaceID, BotID: in.BotID, ConversationID: g.ChannelID, ClientNonce: in.ClientNonce, Text: in.Text, Lane: in.Lane, Status: "waiting_host", DesiredState: "running", Epoch: 1, BotConfigRevision: 1, CreatedAt: createdAt, CreatedSequence: uint64(len(s.events) + 1), Account: g.Account, Resources: copyResources(g.Resources), Collaboration: &CollaborationBinding{ID: g.ID, Stage: stage}}
+	w := Work{RequestID: req, SourceMessageID: msg, OwnerUserID: g.OwnerUserID, SpaceID: g.SpaceID, BotID: in.BotID, ConversationID: g.ChannelID, ClientNonce: in.ClientNonce, Text: in.Text, Lane: in.Lane, Status: "waiting_host", DesiredState: "running", Epoch: 1, BotConfigRevision: 1, CreatedAt: time.Now().UTC().Format(time.RFC3339Nano), CreatedSequence: uint64(len(s.events) + 1), Account: g.Account, Resources: copyResources(g.Resources), Collaboration: &CollaborationBinding{ID: g.ID, Stage: stage}}
 	w.Publication = &Publication{Version: 1, ActorID: g.OwnerUserID, Platform: "nekobot-local", SourceChannelID: g.ChannelID, SourceMessageID: msg, ReplyChannelID: g.ChannelID, ReplyThreadID: "thread-" + msg, AudienceRevision: g.ExpectedChannelRevision}
 	w.ToolPolicyVersion = g.ToolPolicyVersion
 	w.PluginSelection = copySelection(g.PluginSelection)
@@ -523,9 +487,6 @@ func (s *Store) stageWorkLocked(g Collaboration) (Work, error) {
 	}
 	s.pinBotProfile(&w)
 	w.Context = s.captureContext(w)
-	if err = s.pinGroupStageCoreProfile(g, &w); err != nil {
-		return Work{}, err
-	}
 	if err = s.attachRuntimeContext(&w); err != nil {
 		return Work{}, err
 	}
@@ -609,15 +570,6 @@ func (s *Store) AdvanceCollaborations() error {
 		}
 		if !groupBudgetAt(g, now) {
 			if err := s.stopCollaboration(g, "needs_owner", "stage_budget_expired"); err != nil {
-				return err
-			}
-			continue
-		}
-		if err := s.groupProfileGuard(g); err != nil {
-			if err == ErrConflict {
-				continue
-			}
-			if err = s.stopCollaboration(g, "suspended", "authority_changed"); err != nil {
 				return err
 			}
 			continue

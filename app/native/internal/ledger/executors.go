@@ -43,9 +43,6 @@ func ExecutorAuthorityHash(w Work) string {
 	if w.CoreProfilePin != nil {
 		payload["coreProfilePin"] = w.CoreProfilePin
 	}
-	if w.CoreProfileGroupBinding != nil {
-		payload["coreProfileGroupBinding"] = w.CoreProfileGroupBinding
-	}
 	if w.ContextProtocolVersion != 0 {
 		payload["contextProtocolVersion"] = w.ContextProtocolVersion
 		payload["runtimeContextSHA256"] = w.RuntimeContextSHA256

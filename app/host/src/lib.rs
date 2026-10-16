@@ -9,7 +9,6 @@ pub mod acp;
 pub mod context_admission;
 pub mod core_profile;
 pub mod vault;
-pub mod saved_key;
 
 pub const MAX_FRAME: usize = 65536;
 const SAFE: i64 = 9_007_199_254_740_991;

@@ -50,7 +50,6 @@ type Input struct {
 	Lane        string `json:"lane"`
 }
 type Work struct {
-	CoreProfileGroupBinding    *CoreProfileGroupBinding    `json:"coreProfileGroupBinding,omitempty"`
 	CoreProfileSelection       *CoreProfileSelection       `json:"coreProfileSelection,omitempty"`
 	CoreProfilePin             *CoreProfilePin             `json:"coreProfilePin,omitempty"`
 	RequesterPin               *identity.VerifiedPrincipal `json:"requesterPin,omitempty"`
@@ -1087,9 +1086,6 @@ func (s *Store) snapshotLocked() Snapshot {
 	out.Capabilities = append(out.Capabilities, "local_core_discovery_v1")
 	if s.coreProfilesEnabled() {
 		out.Capabilities = append(out.Capabilities, "local_core_profiles_v1")
-		if s.executorRequired && s.executor != nil && s.contextAdmissionRequired {
-			out.Capabilities = append(out.Capabilities, "local_core_profile_collaboration_v1")
-		}
 	}
 	out.Capabilities = append(out.Capabilities, "local_published_report_context_v1")
 	for _, d := range s.reportDeliveries {
