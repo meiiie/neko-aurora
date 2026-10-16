@@ -1775,9 +1775,6 @@ name = "neko-desktop"
 version = "0.1.0"
 dependencies = [
  "neko-host",
- "serde",
- "serde_json",
- "sha2",
  "tauri",
  "tauri-build",
 ]

@@ -8,37 +8,6 @@ import re
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 
-def admitted_fixture_context(messages):
-    for message in reversed(messages):
-        if message.get("role") != "assistant" or not isinstance(message.get("content"), str):
-            continue
-        try:
-            value = json.loads(message["content"])
-        except (ValueError, TypeError):
-            continue
-        if value.get("kind") == "host_context_manifest" and isinstance(value.get("manifest"), dict):
-            return value["manifest"]
-    return None
-
-
-def fixture_pin(prompt, manifest):
-    if manifest is None:
-        found = re.search(r'\n(\{"version":[123],.*\})\nCall capabilities', prompt)
-        return json.loads(found.group(1)) if found else {}
-    sources, files = [], []
-    for source in manifest.get("sources", []):
-        if source.get("kind") == "retrieved":
-            files.append({"id": source["id"], "excerpt": source["span"]["text"], "offset": source["span"]["offset"], "bytes": source["span"]["end"] - source["span"]["offset"]})
-        elif source.get("kind") == "derived":
-            try:
-                value = json.loads(source["span"]["text"])
-            except ValueError:
-                continue
-            if value.get("kind") == "pinned-prior-turn":
-                sources.append({"requestId": value["requestId"]})
-    return {"sha256": manifest["contextPinSHA256"], "sources": sources, "resources": {"files": files}}
-
-
 class Handler(BaseHTTPRequestHandler):
     def log_message(self, *_):
         pass
@@ -63,9 +32,6 @@ class Handler(BaseHTTPRequestHandler):
                 prompt = content
                 break
         user = prompt.split("\nCurrent user request:\n", 1)[-1]
-        manifest = admitted_fixture_context(messages)
-        if manifest is not None:
-            user = manifest["primaryMessage"]["text"]
         has_tool = any(m["role"] == "tool" for m in messages)
         slow = "[fixture:background]" in user
         artifact = "[fixture:artifact]" in user
@@ -80,28 +46,14 @@ class Handler(BaseHTTPRequestHandler):
                     time.sleep(3)
                     self.chunk({"content": "· "})
             if "[fixture:context-inspect]" in user:
-                pin = fixture_pin(prompt, manifest)
-                resources=pin.get("resources", {})
-                self.chunk({"role": "assistant", "content": "PIN_SHA="+pin.get("sha256", "missing")+"\nPIN_SOURCES="+json.dumps([s["requestId"] for s in pin.get("sources", [])])+"\nPIN_FILES="+json.dumps([s["id"] for s in resources.get("files", [])])+"\nPIN_EXCERPTS="+json.dumps([s["excerpt"] for s in resources.get("files", [])])})
+                found = re.search(r'\n(\{"version":[12],.*\})\nCall capabilities', prompt)
+                pin = json.loads(found.group(1)) if found else {}
+                self.chunk({"role": "assistant", "content": "PIN_SHA="+pin.get("sha256", "missing")+"\nPIN_SOURCES="+json.dumps([s["requestId"] for s in pin.get("sources", [])])})
                 self.chunk({}, "stop")
             elif artifact and not has_tool:
                 args = {"name": "artifact.write_text", "arguments": {"filename": "bao-cao-neko.md", "text": "# Báo cáo Neko Bot\n\nTệp UTF-8 được ghi qua host sau khi Core yêu cầu công cụ.\n"}}
                 self.chunk({"role": "assistant", "tool_calls": [{"index": 0, "id": "fixture-call", "type": "function", "function": {"name": "mcp__nekobot__execute_tool", "arguments": json.dumps(args, ensure_ascii=False)}}]})
                 self.chunk({}, "tool_calls")
-            elif "[fixture:file-read]" in user and not has_tool:
-                pin=fixture_pin(prompt, manifest)
-                files=pin.get("resources",{}).get("files",[])
-                source = files[0] if files else {}
-                args={"name":"project.read_file","arguments":{"fileId":source.get("id", "missing"),"offset":source.get("offset", 0),"bytes":source.get("bytes", 4000)}}
-                self.chunk({"role":"assistant","tool_calls":[{"index":0,"id":"fixture-read-call","type":"function","function":{"name":"mcp__nekobot__execute_tool","arguments":json.dumps(args)}}]})
-                self.chunk({},"tool_calls")
-            elif "[fixture:capabilities]" in user and not has_tool:
-                self.chunk({"role":"assistant","tool_calls":[{"index":0,"id":"fixture-capability-call","type":"function","function":{"name":"mcp__nekobot__capabilities","arguments":"{}"}}]})
-                self.chunk({},"tool_calls")
-            elif any(marker in user for marker in ["[fixture:file-read]","[fixture:capabilities]"]):
-                tool=next((m.get("content","") for m in reversed(messages) if m["role"]=="tool"),"")
-                self.chunk({"role":"assistant","content":"READ_RESULT="+str(tool)})
-                self.chunk({},"stop")
             else:
                 for text in ["Core đã nhận tin. ", "Công việc nền vẫn tiếp tục." if not slow else "Báo cáo đã hoàn thành."]:
                     self.chunk({"role": "assistant", "content": text})

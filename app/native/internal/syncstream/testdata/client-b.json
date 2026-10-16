@@ -1,1 +1,0 @@
-{"client":"client-b","steps":["snapshot","second-gap","resnapshot","resnapshot","third","third"],"expectedCursor":6}

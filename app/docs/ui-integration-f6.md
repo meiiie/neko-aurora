@@ -1,0 +1,15 @@
+# UI safety integration checkpoint
+
+The user rejected the d138 visual direction on 2026-10-11. This local branch validates interaction fixes and backend integration; it is not visual acceptance and is not promoted into the primary Windows repository. Further visual work follows the newly supplied image/video references in a separate UI branch.
+
+Runtime base: 33efa44902737f4db885a522dce099c664a62700. UI source: f6f30cb4707374ab1fe22600a09e5ced69d26b74, derived from the frozen 3cb9b6f baseline. Import only four authored assets, the worker's two UI runners and its UX document. Full d138 patch SHA256 0f085a6b2abe5e3a70f210ba00e154e5c9b8567c80b2ebde0d31224aa62beba8; d138-to-f6 delta SHA256 741acf87f2f06c1dd79eef6d6242e771a5b493d5f2de4d130b42bd9664592e46. Both hashes and git apply checks passed before import.
+
+The integration runner adds actual owned Windows Core and Tauri gates. Its context scenario uses the real UI, journal, trusted host and Core, with an owned loopback synthetic provider and no CDP API response stubs. Python retains a live kernel handle bound to the owned Core image before the UI revokes a source; the same handle must be signalled before accepting suspension. Regrant must not resume the old context. Explicit refresh must preserve the request/message obligation and archive, launch a fresh session with the new pin, keep modal focus and retain the user's draft.
+
+The worker's context fixture remains a separate client defensive test. Desktop browser emulation, typed store receipts and synthetic provider results do not prove phone behavior, model quality, cloud transport, cross-channel permission or live account grants. Current Core pin v1 still safely refuses automatic resume after a forced Core kill; the candidate writer-v2 has not passed its full release gate.
+
+Final native test commit: eafbe3dc8a4b66e41cdd6f0b6f0242bde104d330, clean before and after execution. `python scripts/test_ui_integrated.py --commit eafbe3dc8a4b66e41cdd6f0b6f0242bde104d330 --scenario context --tauri` passed all 5 checks; the same command with `--scenario redesign` passed all 38 checks. The real UI revocation test captured and later observed the same owned Core kernel handle become signalled. The reports record binary and asset SHA256 values. Headless integration on 44ede44 passed 61 checks separately. Its four application assets are unchanged in eafbe3d; later commits modify the native test harness only.
+
+The initial low-height native test measured a drawer that the application intentionally closed when the responsive breakpoint changed. The final harness reopens the panel through its visible control before measuring scroll reachability. The failed harness geometry and screenshot remain under `.build/failed-harness-9855bc1`; they are not reported as a production regression.
+
+Raw final reports are saved in `docs/evidence/2026-10-11-ui-safety`. This branch remains private and separate from the main repository's runtime promotion because its visual design was rejected. The next visual branch must retain the verified interaction guards and be reviewed against the supplied light interface image/video.

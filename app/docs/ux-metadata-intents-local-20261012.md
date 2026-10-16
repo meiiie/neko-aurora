@@ -1,9 +1,0 @@
-# Metadata changes after a lost acknowledgement
-
-The UI retains a bounded separate journal for bot creation, display name, profile, bot state/defaults, project save/state and conversation creation/archive. It preserves the original typed route, body, revision, nonce, view scope, creation/expiry time and SHA-256 before the first POST. Authorized metadata author text may be retained; recognized credentials, raw Work/context, account secrets and file bytes are rejected. Retention preview preferences have no advertised receipt kind and keep their existing page-lifetime flow.
-
-Reload performs receipt GETs only. A matching original typed receipt and a fresh matching snapshot retire the pending entry. Current receipt metadata is not a grant, a replacement input or a reason to modify the original body. An unknown receipt exposes an explicit “Thử lại lệnh gốc” action, with current scope/revision/account checks and a five-minute limit. Stale, expired, clock-backward, unverified or read-only intents do not POST. “Ngừng chờ trên máy” discards the local waiting marker only; a server change already received remains durable.
-
-The metadata list appears inside the existing work panel only when necessary. Controls use the established 44px targets and panel focus fallback. A late form ACK retains the original navigation/draft generation guards. The old task/group command journal, upload markers and message outbox namespaces are unchanged.
-
-Owned boundary and actual-browser checks are in `scripts/ui_metadata_intents_local.mjs`. The missing-behavior RED and harness dependency failure are retained under the owned E scratch root. Actual build/results include source commit, working-tree status, hashes, binary VCS identity, isolated state/profile paths and client cleanup. Working evidence must not be represented as a clean release or phone/native/Core/provider/cloud validation.

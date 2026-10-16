@@ -1,7 +1,0 @@
-# Scoped continuity draft clear
-
-Base:0188e2b2be3d9bcfe1f5637da7885251d738d70b, existing light UI and local_project_continuity_v1 backend unchanged. Root owns only app.js/index.html, the actual-source VM runner and this doc. Parser worker owns a separate E branch.
-
-The project/channel note editor has an explicit Xóa bản nháp button. It clears instructions, decisions and references only from the current loaded editor. Scope/revision/capability/pending-command/storage guards match Save; an invalid or changed scope cannot clear a fresh editor. The action bumps editor/read generations, leaves loaded CAS versions intact, creates no nonce/command/POST and focuses the instruction field. A pending GET disables clear and cannot overwrite a subsequently edited draft. Focus falls back inside the dialog when a focused Save/Clear becomes disabled. Only the existing explicit Save commits an empty note with its ordinary new save nonce. No source history, retained command, original receipt, file or journal is deleted; no semantic forgetting or purge is implemented.
-
-Baseline RED records the missing clear control/handler in exact0188 source. New VM checks evaluate actual clear/render/read/submit functions with authored DOM and retention/network interfaces; they are not native/phone/AT or real user-note mutation evidence. Clear does not create a new endpoint or broaden authority. Existing durable policy command and empty-continuity ledger checks remain separate support. New control visual/native/physical keyboard/AT review stays a gate.

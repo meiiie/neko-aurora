@@ -1,47 +1,27 @@
 # Neko Bot
 
-Local multi-bot application: Tauri shell and adaptive UI, Rust trusted host, Go durable control plane, Neko Core as the semantic runtime. Wiii is a separate optional ADE. Original ZIPs and recovered checkpoints are preserved; reconstruction history is in [baseline](docs/baseline.md).
+Native reconstruction of the multi-bot product, following the direction dated 2026-10-11.
 
-The [product gap matrix](docs/product-gap-matrix-20261011.md) distinguishes local features, missing code and acceptance gates. Cloud/device sync, real provider evaluation and deployment remain deferred. Responsive viewport tests do not establish physical-phone acceptance.
+Target boundaries: Tauri desktop and adaptive web UI; Rust trusted host; Go durable control plane; Neko Core as the only agent runtime. Wiii remains a separate ADE.
 
-## Run the verified local build
+This repository starts from an empty Windows directory. It does not pretend to contain the lost App history or the newer Tauri/Rust/Go changes. See [baseline](docs/baseline.md) and [architecture decision](docs/adr-001-local-foundation.md).
 
-From PowerShell in this repository, after the release receipt and binaries have been materialized:
+Cloud deployment and real-provider evaluation remain deferred. Original ZIPs and other local repositories are preserved.
 
-```powershell
-.\scripts\run-prebuilt-local.ps1 -Manifest .checkpoints\local-backup-release\launch.json -CheckOnly
-.\scripts\run-prebuilt-local.ps1 -Manifest .checkpoints\local-backup-release\launch.json
-```
+## Run locally
 
-Open http://127.0.0.1:8765. The first command verifies binaries against `.checkpoints/local-backup-release/launch.json` without starting a service. The second starts Go in the foreground. Port8765 must be free. Ctrl+C stops the service; `.state` retains history. No runtime is configured by default: new messages are saved as **waiting for runtime**, with no provider calls.
+Prerequisites: Go 1.27+; Rust/Cargo and Windows build tools for the optional Tauri shell. The Go service has no third-party dependencies.
 
-For the Tauri window, add `-Desktop`. It starts an owned service and stops that service after its window exits. Interrupted tasks may require explicit recovery when a configured runtime starts next. This shell is not a signed installer. [Run, backup and rollback](docs/run-local-current.md).
+From PowerShell in this repo:
 
-## Local behavior
+    .\\scripts\\run-local.ps1 -GoExe <path-to-go.exe>
 
-Create bots with stable IDs and `@alias`, rename display names without changing accepted tasks, create shared local channels/projects, save per-bot instructions and history selection for new requests, upload bounded UTF-8/DOCX sources and preview scoped text/result files. Runtime selects relevant ready text automatically. New profile changes keep accepted work pinned to its original configuration. A GET-only two-client local replica is a simulation; cloud/device pairing is still missing. Account inputs use Rust/DPAPI; stored accounts remain **unverified**, and external plugin descriptors remain disabled.
+Open http://127.0.0.1:8765. For the desktop shell, add -Desktop. Port 8765 must be free. The shell loads this loopback UI with no native IPC capabilities. It is an experimental local shell, not an installer or signed release. State lives in .state and is excluded from Git; keep it for history, and stop the service before copying it for a local backup.
 
-Foreground requests coexist with background jobs. Supplement/replace, queued pause/resume, cancellation, durable intents and original-context recovery have separate typed contracts. Default Go saves obligations; execution requires an explicitly configured reviewed runtime. Controlled loopback fixtures prove Core/host/journal/process behavior, not real-model quality. Create separate private conversations, archive/restore them without stopping accepted work, export narrow JSON/text history, and inspect disabled retention previews. See [conversation evidence](docs/delivery-conversations-retention-20261012.md), [previous evidence](docs/product-local-current-20261011.md) and [display-name contract](docs/bot-display-names-local.md).
+Validation: cd native; go test -count=1 ./... and go vet ./...; cd ../host; cargo test --locked. Build the control service with go build -o ../.build/neko-control.exe ./cmd/neko-control; run scripts/e2e_local.py with --binary and the exact --commit to exercise two clients and hard kill/restart.
 
-## Development
+Current scope: two named bot identities, durable foreground/background work, nonce and canonical tool deduplication, event replay, actual Core ACP admission, streamed replies, immutable report artifacts, cancellation fences and supervised process recovery. The default launch holds requests until an explicitly configured runtime is available. The controlled development fixture uses the pinned Linux Core through WSL and calls no real provider. See [Core adapter](docs/next-core-adapter.md).
 
-Go1.27+ and Rust/Cargo/MSVC/Windows SDK are needed to rebuild Windows components. Go has no third-party dependencies. `scripts/run-local.ps1` is the older development launcher; it recompiles components. Prefer the prebuilt launcher for review.
+For the archived Linux process test, restore with `python scripts/restore_core_runtime.py reference/archive/original .build/core-runtime` (existing Ubuntu WSL/Python required). For native Windows Core, `python scripts/build_core_windows.py reference/extracted/core-3d5725f/package/core` verifies all pinned sources, installs frozen dependencies without lifecycle scripts and compiles a private AGPL runtime. Binary hashes must match the reviewed runtime pin manifest; a different rebuild is not admitted silently.
 
-Keep build caches and temporary files on E on this machine:
-
-```powershell
-$env:GOCACHE = 'E:\CodexScratch\neko-dev\gocache'
-$env:GOTMPDIR = 'E:\CodexScratch\neko-dev\tmp'
-$env:CARGO_TARGET_DIR = 'E:\CodexScratch\neko-dev\cargo-target'
-$env:TEMP = 'E:\CodexScratch\neko-dev\tmp'
-$env:TMP = $env:TEMP
-New-Item -ItemType Directory -Force $env:GOCACHE,$env:GOTMPDIR,$env:CARGO_TARGET_DIR | Out-Null
-```
-
-From `native`: `go test -count=1 ./...`, `go vet ./...`, then `go build -o ../.build/neko-control.exe ./cmd/neko-control`. Keep old hash/backup and issue a fresh receipt before replacing the reviewed executable. From `host`: `cargo test --locked --offline`. Pin-compatible Core/helper binaries have separate manifests; arbitrary rebuilds are not admitted silently.
-
-Old `e2e_core.py`/`test_ui_fixture.py` commands use historical pins/configuration. Current evidence packets identify exact source/driver/config/binary combinations. `scripts/ui_bot_names_local.mjs` accepts `--control`, `--host`, `--output` and optional clean `--commit` for the new actual-Go/browser gate.
-
-No credentials, production state, public push or final ZIP belong in a checkpoint. Final packaging waits for user review of current images/video and release gates.
-
-Offline encrypted service-state backup and verified restore into a new read-only directory are available. Current-user Windows DPAPI protects payloads and private manifest names; restored jobs never auto-resume. See [usage, exact checks and limits](docs/delivery-local-backup-20261012.md). This excludes browser drafts and portable/offsite recovery. No backups are uploaded.
+Build `host` with `cargo build --locked`, build Go, then run `python scripts/e2e_core.py --native-core --commit <clean-code-commit> --output .build/e2e-core.json`. `--serve` starts an owned fixture preview until Enter. Secure accounts/plugin declarations and durable browser outbox are documented in [local connections](docs/connections-local.md); `scripts/e2e_connections.py` verifies real DPAPI and `scripts/test_ui_fixture.py --core --native-core --tauri` verifies the owned native window. Real provider/cloud, signed distribution and real-phone acceptance remain separate gates.

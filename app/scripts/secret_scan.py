@@ -1,4 +1,3 @@
-import hashlib
 import pathlib
 import re
 import subprocess
@@ -13,31 +12,12 @@ rules = [
 ]
 findings = []
 count = 0
-reviewed_fonts = {
-    "native/internal/web/assets/fonts/geist-latin-wght-normal.woff2": "19f9c92546aa300c312235e3125af1b81394d8db9a4bc4a425cd5b641d2d54e1",
-    "native/internal/web/assets/fonts/geist-latin-ext-wght-normal.woff2": "824f485b5d26e2f2da3c2b236132ece1bc8e4e43373452950bb0e40548b4313f",
-    "native/internal/web/assets/fonts/geist-vietnamese-wght-normal.woff2": "8fa40e5d248247735eb97a0bd593b8852440430600d6ba01364c31fe0abc1fe1",
-}
-reviewed_synthetic_probes = {
-    "native/internal/ledger/review_source_export_probe_test.go": "b214b0a94bc41a97210f0d59f45aea2cf7204d1ad072a16a8f77e75f6f44589f",
-    "native/internal/ledger/review_metadata_receipts_probe_test.go": "7d2b4759de4b32f8bccdab3cc07121cdecf6ff762b286457193c4c672fb85a1d",
-}
 git_files = subprocess.run(["git", "-C", str(root), "ls-files", "--cached", "--others", "--exclude-standard", "-z"], capture_output=True)
 candidates = [root / name for name in git_files.stdout.decode("utf-8").split("\0") if name] if git_files.returncode == 0 else list(root.rglob("*"))
 for path in sorted(candidates):
     if not path.is_file() or any(part in excluded for part in path.relative_to(root).parts):
         continue
     rel = path.relative_to(root)
-    probe_hash = reviewed_synthetic_probes.get(rel.as_posix())
-    if probe_hash:
-        if hashlib.sha256(path.read_bytes().replace(b"\r\n", b"\n")).hexdigest() != probe_hash:
-            findings.append((str(rel), 0, "reviewed-synthetic-probe-hash-mismatch"))
-        continue
-    font_hash = reviewed_fonts.get(rel.as_posix())
-    if font_hash:
-        if hashlib.sha256(path.read_bytes()).hexdigest() != font_hash:
-            findings.append((str(rel), 0, "reviewed-font-hash-mismatch"))
-        continue
     if path.name == ".env" or (path.name.startswith(".env.") and path.name != ".env.example") or path.suffix.lower() in {".pem", ".key", ".p12", ".pfx"}:
         findings.append((str(rel), 0, "credential-file"))
         continue

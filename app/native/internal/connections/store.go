@@ -22,15 +22,14 @@ var ErrConflict = errors.New("connection_revision_conflict")
 var ErrUnavailable = errors.New("connection_unavailable")
 
 type Account struct {
-	ID                   string `json:"id"`
-	Name                 string `json:"name"`
-	Provider             string `json:"provider"`
-	Endpoint             string `json:"endpoint"`
-	Model                string `json:"model"`
-	Revision             uint64 `json:"revision"`
-	CredentialGeneration uint64 `json:"credentialGeneration"`
-	HasSecret            bool   `json:"hasSecret"`
-	Status               string `json:"status"`
+	ID        string `json:"id"`
+	Name      string `json:"name"`
+	Provider  string `json:"provider"`
+	Endpoint  string `json:"endpoint"`
+	Model     string `json:"model"`
+	Revision  uint64 `json:"revision"`
+	HasSecret bool   `json:"hasSecret"`
+	Status    string `json:"status"`
 }
 type storedAccount struct {
 	Account
@@ -74,14 +73,12 @@ type Snapshot struct {
 	Accounts          []Account `json:"accounts"`
 	Plugins           []Plugin  `json:"plugins"`
 	ProviderExecution string    `json:"providerExecution"`
-	Capabilities      []string  `json:"capabilities"`
 }
 type disk struct {
-	Version    int             `json:"version"`
-	Revision   uint64          `json:"revision"`
-	Accounts   []storedAccount `json:"accounts"`
-	Plugins    []Plugin        `json:"plugins"`
-	UsedNonces []string        `json:"usedNonces,omitempty"`
+	Version  int             `json:"version"`
+	Revision uint64          `json:"revision"`
+	Accounts []storedAccount `json:"accounts"`
+	Plugins  []Plugin        `json:"plugins"`
 }
 type Sealer interface {
 	Seal(accountID, reference string, secret []byte) error
@@ -96,7 +93,6 @@ type Store struct {
 
 var identifier = regexp.MustCompile(`^[a-z][a-z0-9_-]{2,63}$`)
 var version = regexp.MustCompile(`^[0-9]+\.[0-9]+\.[0-9]+(?:-[a-zA-Z0-9.-]+)?$`)
-var accountSecretPattern = regexp.MustCompile(`-----BEGIN (?:RSA |EC |OPENSSH )?PRIVATE KEY-----|\b(?:sk-(?:proj-)?[A-Za-z0-9_-]{24,}|gh[pousr]_[A-Za-z0-9]{30,}|AKIA[A-Z0-9]{16}|xox[baprs]-[A-Za-z0-9-]{20,})\b|(?i:(?:api[_-]?key|access[_-]?token|password|client[_-]?secret)\s*[:=]\s*["'][^"'\r\n]{12,}["'])`)
 
 func Open(dir string, sealer Sealer) (*Store, error) {
 	if err := os.MkdirAll(dir, 0700); err != nil {
@@ -119,30 +115,7 @@ func Open(dir string, sealer Sealer) (*Store, error) {
 	if d.Decode(&s.data) != nil || s.data.Version != 1 || s.data.Revision == 0 || len(s.data.Accounts) > 32 || len(s.data.Plugins) > 16 {
 		return nil, ErrUnavailable
 	}
-	if len(s.data.UsedNonces) > 512 {
-		return nil, ErrUnavailable
-	}
-	for i := range s.data.Accounts {
-		a := &s.data.Accounts[i]
-		if a.HasSecret && a.CredentialGeneration == 0 {
-			a.CredentialGeneration = 1
-		}
-		if !containsNonce(s.data.UsedNonces, a.Nonce) {
-			s.data.UsedNonces = append(s.data.UsedNonces, a.Nonce)
-		}
-	}
-	if len(s.data.UsedNonces) > 512 {
-		return nil, ErrUnavailable
-	}
 	return s, nil
-}
-func containsNonce(nonces []string, nonce string) bool {
-	for _, value := range nonces {
-		if value == nonce {
-			return true
-		}
-	}
-	return false
 }
 func randomID(prefix string) (string, error) {
 	var b [16]byte
@@ -187,7 +160,7 @@ func (s *Store) save(next disk) error {
 func (s *Store) Snapshot() Snapshot {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	out := Snapshot{Revision: s.data.Revision, Accounts: []Account{}, Plugins: []Plugin{builtinPlugin()}, ProviderExecution: "deferred", Capabilities: []string{"account_save_receipts_v1"}}
+	out := Snapshot{Revision: s.data.Revision, Accounts: []Account{}, Plugins: []Plugin{builtinPlugin()}, ProviderExecution: "deferred"}
 	for _, a := range s.data.Accounts {
 		out.Accounts = append(out.Accounts, a.Account)
 	}
@@ -200,14 +173,11 @@ func text(value string, limit int) bool {
 func (s *Store) SaveAccount(in AccountInput) (Account, bool, error) {
 	in.Name = strings.TrimSpace(in.Name)
 	in.Model = strings.TrimSpace(in.Model)
-	if sensitiveAccountMetadata(Account{Name: in.Name, Model: in.Model, Endpoint: in.Endpoint}) || accountSecretPattern.MatchString(in.ClientNonce) {
-		return Account{}, false, ErrInvalid
-	}
 	endpoint, err := url.Parse(in.Endpoint)
 	if err != nil || endpoint.Scheme != "https" || endpoint.Host == "" || endpoint.User != nil || endpoint.RawQuery != "" || endpoint.Fragment != "" || len(in.Endpoint) > 512 || !text(in.Name, 80) || !text(in.Model, 120) || (in.Provider != "openai-compatible" && in.Provider != "anthropic") || len(in.Secret) > 4096 || !utf8.ValidString(in.Secret) || !text(in.ClientNonce, 128) {
 		return Account{}, false, ErrInvalid
 	}
-	canonical, _ := accountInputMetadata(in)
+	canonical, _ := json.Marshal(map[string]any{"id": in.ID, "revision": in.ExpectedRevision, "name": in.Name, "provider": in.Provider, "endpoint": in.Endpoint, "model": in.Model, "hasSubmittedSecret": in.Secret != ""})
 	hash := sha256.Sum256(canonical)
 	fingerprint := hex.EncodeToString(hash[:])
 	s.mu.Lock()
@@ -236,14 +206,7 @@ func (s *Store) SaveAccount(in AccountInput) (Account, bool, error) {
 			return a.Account, true, nil
 		}
 	}
-	if containsNonce(s.data.UsedNonces, in.ClientNonce) {
-		return Account{}, false, ErrConflict
-	}
-	if len(s.data.UsedNonces) >= 512 {
-		return Account{}, false, ErrUnavailable
-	}
 	next := s.data
-	next.UsedNonces = append(append([]string{}, next.UsedNonces...), in.ClientNonce)
 	next.Accounts = append([]storedAccount{}, next.Accounts...)
 	index := -1
 	for i, a := range next.Accounts {
@@ -269,9 +232,6 @@ func (s *Store) SaveAccount(in AccountInput) (Account, bool, error) {
 			return Account{}, false, ErrConflict
 		}
 		a = next.Accounts[index]
-		if a.Revision == ^uint64(0) {
-			return Account{}, false, ErrUnavailable
-		}
 		if a.Provider != in.Provider || a.Endpoint != in.Endpoint {
 			return Account{}, false, ErrConflict
 		}
@@ -303,10 +263,6 @@ func (s *Store) SaveAccount(in AccountInput) (Account, bool, error) {
 		}
 		a.HasSecret = true
 		a.SecretRef = reference
-		if a.CredentialGeneration == ^uint64(0) {
-			return Account{}, false, ErrUnavailable
-		}
-		a.CredentialGeneration++
 	}
 	if index < 0 {
 		next.Accounts = append(next.Accounts, a)

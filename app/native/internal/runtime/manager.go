@@ -5,7 +5,6 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"nekobot.local/native/internal/executors"
 	"nekobot.local/native/internal/ledger"
 	"nekobot.local/native/internal/protocol"
 	"os"
@@ -17,11 +16,10 @@ import (
 )
 
 type Config struct {
-	HostExecutable  string        `json:"hostExecutable"`
-	CoreExecutable  string        `json:"coreExecutable"`
-	Supervisor      string        `json:"supervisor"`
-	FixtureEndpoint string        `json:"fixtureEndpoint"`
-	CoreProfiles    *CoreProfiles `json:"-"`
+	HostExecutable  string `json:"hostExecutable"`
+	CoreExecutable  string `json:"coreExecutable"`
+	Supervisor      string `json:"supervisor"`
+	FixtureEndpoint string `json:"fixtureEndpoint"`
 }
 type diagnostics struct{ bytes []byte }
 
@@ -50,7 +48,7 @@ func (d *diagnostics) Code() string {
 			return ""
 		}
 	}
-	for _, prefix := range []string{"executor_", "context_", "core_", "host_", "runtime_", "admission_", "resume_", "receipt_", "operation_", "session_", "supervisor_", "task_", "frame_", "mcp_"} {
+	for _, prefix := range []string{"core_", "host_", "runtime_", "admission_", "resume_", "receipt_", "operation_", "session_", "supervisor_", "task_", "frame_", "mcp_"} {
 		if strings.HasPrefix(code, prefix) {
 			return code
 		}
@@ -89,101 +87,39 @@ func Load(path string) (Config, error) {
 }
 
 type Manager struct {
-	state             string
-	executor          *executors.Registry
-	descriptor        executors.Descriptor
-	lastProbe         time.Time
-	store             *ledger.Store
-	config            Config
-	tasks             string
-	mu                sync.Mutex
-	active            map[string]bool
-	stopIssues        map[string]string
-	lastStopReconcile time.Time
-	wg                sync.WaitGroup
+	store  *ledger.Store
+	config Config
+	tasks  string
+	mu     sync.Mutex
+	active map[string]bool
+	wg     sync.WaitGroup
 }
 
 func New(store *ledger.Store, c Config, state string) (*Manager, error) {
-	if store.ReadOnly() {
-		return nil, ledger.ErrReadOnly
+	tasks, err := filepath.Abs(filepath.Join(state, "tasks"))
+	if err != nil {
+		return nil, err
 	}
-	absolute, e := filepath.Abs(state)
-	if e != nil {
-		return nil, e
+	if err = os.MkdirAll(tasks, 0700); err != nil {
+		return nil, err
 	}
-	if e = os.MkdirAll(absolute, 0700); e != nil {
-		return nil, e
+	if err = store.RecoverInterrupted(); err != nil {
+		return nil, err
 	}
-	tasks := filepath.Join(absolute, "tasks")
-	if e = os.MkdirAll(tasks, 0700); e != nil {
-		return nil, e
-	}
-	m := &Manager{store: store, config: c, state: absolute, tasks: tasks, active: map[string]bool{}, stopIssues: map[string]string{}}
-	store.ConfigureExecutor(nil)
-	d, e := configuredDescriptor(c, absolute)
-	if e == nil {
-		m.descriptor = d
-		m.executor, e = executors.Open(filepath.Join(absolute, "executors"), d)
-	}
-	store.ConfigureExecutor(m.executor)
-	store.ConfigureContextAdmission(protocol.CoreContextAdmission(m.descriptor.CoreSHA256))
-	if e = store.RecoverInterrupted(); e != nil {
-		if m.executor != nil {
-			m.executor.Close()
-		}
-		return nil, e
-	}
-	m.reconcileNativeStops()
-	if e = store.ReconcileExecutors(); e != nil {
-		if m.executor != nil {
-			m.executor.Close()
-		}
-		return nil, e
-	}
-	m.healthExecutor()
-	return m, nil
+	store.Runtime("core_fixture_ready")
+	return &Manager{store: store, config: c, tasks: tasks, active: map[string]bool{}}, nil
 }
 func (m *Manager) Run(ctx context.Context) {
 	tick := time.NewTicker(100 * time.Millisecond)
 	defer tick.Stop()
-	defer func() {
-		m.wg.Wait()
-		if m.executor != nil {
-			snap := m.executor.Snapshot()
-			_ = m.executor.MarkUnavailable(snap.Pin, snap.BootID, "shutdown")
-			_ = m.executor.Close()
-		}
-	}()
+	defer m.wg.Wait()
 	for {
 		select {
 		case <-ctx.Done():
 			return
 		case <-tick.C:
-			m.healthExecutor()
-			if err := m.store.ReconcilePrincipals(); err != nil {
-				continue
-			}
-			if err := m.store.ReconcileCoreProfiles(); err != nil {
-				continue
-			}
-			if err := m.store.ReconcileExecutors(); err != nil {
-				continue
-			}
-			m.reconcileNativeStops()
-			if err := m.store.ReconcileAccounts(); err != nil {
-				continue
-			}
-			if err := m.store.ReconcileTaskControls(); err != nil {
-				continue
-			}
-			if err := m.store.AdvanceCollaborations(); err != nil {
-				continue
-			}
 			for _, w := range m.store.Snapshot().Work {
 				if w.Status != "waiting_host" || w.DesiredState != "running" {
-					continue
-				}
-				if w.CoreProfilePin == nil && m.config.FixtureEndpoint == "" {
 					continue
 				}
 				slot := w.BotID + ":" + w.Lane
@@ -205,11 +141,6 @@ func (m *Manager) Run(ctx context.Context) {
 				}
 				claimed, err := m.store.Claim(w.RequestID, w.Epoch)
 				if err != nil {
-					if errors.Is(err, ledger.ErrInvalid) {
-						if e := m.store.BlockContextAdmission(w.RequestID, w.Epoch); e != nil {
-							_ = m.store.BlockRuntimeEnvelope(w.RequestID, w.Epoch)
-						}
-					}
 					m.mu.Lock()
 					delete(m.active, slot)
 					m.mu.Unlock()
@@ -226,24 +157,14 @@ func (m *Manager) Run(ctx context.Context) {
 	}
 }
 func (m *Manager) execute(ctx context.Context, w ledger.Work) {
-	mode, selection := "--fixture-endpoint", m.config.FixtureEndpoint
-	privateEnvironment := []string{}
-	if w.CoreProfilePin != nil {
-		if m.config.CoreProfiles == nil || m.config.CoreProfiles.Verify(ctx, *w.CoreProfilePin) != nil {
-			m.failed(w, "core_profile_unavailable")
-			return
-		}
-		var err error
-		privateEnvironment, err = m.config.CoreProfiles.launchEnvironment(*w.CoreProfilePin)
-		if err != nil {
-			m.failed(w, "core_profile_unavailable")
-			return
-		}
-		mode, selection = "--core-profile", w.CoreProfilePin.ProfileID
-	}
-	cmd := exec.Command(m.config.HostExecutable, "--runtime", m.config.CoreExecutable, "--supervisor", m.config.Supervisor, "--state-root", m.tasks, mode, selection, "--install-state-root", m.state)
+	cmd := exec.Command(m.config.HostExecutable, "--runtime", m.config.CoreExecutable, "--supervisor", m.config.Supervisor, "--state-root", m.tasks, "--fixture-endpoint", m.config.FixtureEndpoint)
 	hideWindow(cmd)
-	cmd.Env = append(hostEnvironment(), privateEnvironment...)
+	cmd.Env = []string{}
+	for _, key := range []string{"SystemRoot", "WINDIR", "TEMP", "TMP", "USERPROFILE"} {
+		if value := os.Getenv(key); value != "" {
+			cmd.Env = append(cmd.Env, key+"="+value)
+		}
+	}
 	input, err := cmd.StdinPipe()
 	if err != nil {
 		m.failed(w, "host_pipe_failed")
@@ -257,36 +178,23 @@ func (m *Manager) execute(ctx context.Context, w ledger.Work) {
 	}
 	var diagnostic diagnostics
 	cmd.Stderr = &diagnostic
-	specBytes, err := ledger.MarshalRuntimeLaunch(w, nil)
-	if err != nil {
+	if err = cmd.Start(); err != nil {
 		input.Close()
-		m.failed(w, "frame_bound")
-		return
-	}
-	var spec json.RawMessage = specBytes
-	encoder := json.NewEncoder(hostFrameWriter{input})
-	startAttempted := false
-	if err = m.store.Dispatch(w.RequestID, w.Epoch, func() error {
-		bytes, e := os.ReadFile(m.config.HostExecutable)
-		if e != nil || w.ExecutorPin == nil || hashBytes(bytes) != w.ExecutorPin.HostSHA256 {
-			return executors.ErrUnavailable
-		}
-		startAttempted = true
-		return cmd.Start()
-	}); err != nil {
-		input.Close()
-		if startAttempted && cmd.Process == nil && w.CurrentAttemptLease != nil {
-			proof, _ := executors.ProofFor(*w.CurrentAttemptLease)
-			_ = m.store.MarkRuntimeStopped(w.RequestID, w.AttemptID, ledger.StoppedReceipt{Version: 2, Kind: "never_launched", ExecutorProof: &proof})
-		}
-		if cmd.Process != nil {
-			_ = cmd.Process.Kill()
-			_ = cmd.Wait()
-		}
-		m.failed(w, "host_dispatch_failed")
+		m.failed(w, "host_launch_failed")
 		return
 	}
 	defer input.Close()
+	spec := map[string]any{"requestId": w.RequestID, "text": m.prompt(w), "botId": w.BotID}
+	if w.Core != nil {
+		spec["resume"] = w.Core
+	}
+	encoder := json.NewEncoder(input)
+	if encoder.Encode(spec) != nil {
+		_ = cmd.Process.Kill()
+		_ = cmd.Wait()
+		m.failed(w, "host_transport_failed")
+		return
+	}
 	done := make(chan struct{})
 	defer close(done)
 	go func() {
@@ -308,16 +216,6 @@ func (m *Manager) execute(ctx context.Context, w ledger.Work) {
 			}
 		}
 	}()
-	startupTimeout := time.AfterFunc(5*time.Second, func() { _ = cmd.Process.Kill() })
-	err = encoder.Encode(spec)
-	startupTimeout.Stop()
-	if err != nil {
-		input.Close()
-		_ = cmd.Process.Kill()
-		_ = cmd.Wait()
-		m.failed(w, "host_dispatch_failed")
-		return
-	}
 	scanner := bufio.NewScanner(output)
 	scanner.Buffer(make([]byte, 4096), 65536)
 	var sequence uint64
@@ -343,7 +241,7 @@ func (m *Manager) execute(ctx context.Context, w ledger.Work) {
 			var receipt ledger.StoppedReceipt
 			decoder := json.NewDecoder(strings.NewReader(string(event.Data)))
 			decoder.DisallowUnknownFields()
-			if decoder.Decode(&receipt) == nil && strictProof(event.Data) == nil {
+			if decoder.Decode(&receipt) == nil {
 				_ = m.store.MarkRuntimeStopped(w.RequestID, w.AttemptID, receipt)
 			}
 			break
@@ -353,25 +251,16 @@ func (m *Manager) execute(ctx context.Context, w ledger.Work) {
 		}
 		var result json.RawMessage = json.RawMessage(`{}`)
 		switch event.Kind {
-		case "launch_ready", "prompt_ready":
-			proof, decodeErr := executors.ParseRuntimeProof(event.Data)
-			if decodeErr != nil || w.CurrentAttemptLease == nil || !executors.MatchRuntimeProof(*w.CurrentAttemptLease, proof) || !m.store.RuntimeAllowed(w.RequestID, w.Epoch) {
-				e = ledger.ErrConflict
-			}
 		case "admitted":
 			var b ledger.CoreBinding
-			if decodeStrictProofFrame(event.Data, &b) != nil || (w.ExecutorPolicyVersion == 1 && !ledger.ValidProcessGeneration(b.NativeProcessGeneration)) {
+			if json.Unmarshal(event.Data, &b) != nil {
 				e = ledger.ErrInvalid
 			} else {
-				admissionHTTPFixtureObserve("pre-bind", w, b, sequence)
 				if b.NativeProcessID != 0 {
 					e = m.store.BindRuntimeAttempt(w.RequestID, w.AttemptID, b)
 				}
 				if e == nil {
 					e = m.store.Admit(w.RequestID, w.Epoch, b)
-				}
-				if e == nil {
-					admissionHTTPFixtureObserve("post-durable-pre-ack", w, b, sequence)
 				}
 			}
 		case "text":
@@ -383,11 +272,7 @@ func (m *Manager) execute(ctx context.Context, w ledger.Work) {
 			} else {
 				e = m.store.AppendText(w.RequestID, w.Epoch, v.Text)
 			}
-		case "profile_tool_permission":
-			result = m.store.PreflightCoreProfileTool(w.RequestID, w.Epoch, event.Data)
 		case "tool":
-			result, e = m.store.ExecuteTool(w.RequestID, w.Epoch, event.Data)
-		case "capabilities":
 			result, e = m.store.ExecuteTool(w.RequestID, w.Epoch, event.Data)
 		case "completed":
 			e = m.store.Finish(w.RequestID, w.Epoch, "completed", "")
@@ -423,16 +308,8 @@ func (m *Manager) failed(w ledger.Work, code string) {
 		return
 	}
 	if current.Status == "suspending" {
-		if current.Failure == "executor_lease_unavailable" {
-			_ = m.store.ReconcileExecutors()
-			return
-		}
 		if current.RuntimeStopped {
-			reason := current.Failure
-			if reason == "" {
-				reason = "context_permission_changed"
-			}
-			_ = m.store.Finish(current.RequestID, current.Epoch, "suspended", reason)
+			_ = m.store.Finish(current.RequestID, current.Epoch, "suspended", "context_permission_changed")
 		}
 		return
 	}

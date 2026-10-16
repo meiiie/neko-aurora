@@ -3,7 +3,7 @@
  "productName":"Neko Bot",
  "version":"0.1.0",
  "identifier":"local.nekobot.desktop",
- "build":{"frontendDist":"../native/internal/web/assets"},
+ "build":{"frontendDist":"../native/internal/web/assets","devUrl":"http://127.0.0.1:8765"},
  "app":{"windows":[],"security":{"capabilities":[]}},
  "bundle":{"active":false}
 }

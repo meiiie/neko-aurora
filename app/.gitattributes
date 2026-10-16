@@ -1,9 +1,5 @@
 * text=auto
 /docs/evidence/** -text
-/docs/reviews/permission-runtime-audit-33efa44-20261011.md -text
-/docs/reviews/acceptance-independent-round2-20261011.md -text
-/docs/reviews/core-writer-v2-blocked-20261011.md -text
-/native/internal/web/assets/fonts/* -text
 *.rs text eol=lf
 *.go text eol=lf
 *.py text eol=lf
@@ -11,7 +7,3 @@
 *.js text eol=lf
 *.css text eol=lf
 *.html text eol=lf
-/docs/reviews/** -text whitespace=cr-at-eol
-/docs/evidence/** -text whitespace=cr-at-eol
-/tests/mobile-audit-20261011/** -text whitespace=cr-at-eol
-/docs/evidence/local-release-a656/*.log -text whitespace=-blank-at-eof,cr-at-eol

@@ -41,25 +41,6 @@ pub struct Binding {
     pub execution: Value,
 }
 impl Binding {
-    pub fn valid_resume(&self, saved: &Value, admission: &Value, prior_retry: bool) -> bool {
-        let Some(epoch) = saved["task"]["activationEpoch"].as_u64() else {
-            return false;
-        };
-        let recovery = admission["_meta"].get("neko.taskRecovery");
-        let step = match recovery {
-            None => 1,
-            Some(proof)
-                if prior_retry && *proof == json!({"version":1,"kind":"prior_receipt_retry"}) =>
-            {
-                2
-            }
-            _ => return false,
-        };
-        epoch
-            .checked_add(step)
-            .is_some_and(|n| self.task["activationEpoch"].as_u64() == Some(n))
-            && self.task["activationId"] != saved["task"]["activationId"]
-    }
     pub fn admit(value: &Value, root: &str) -> Result<Self, Rejection> {
         let task = &value["_meta"]["neko.task"];
         let exec = &value["_meta"]["neko.execution"];
@@ -162,25 +143,5 @@ mod tests {
         assert!(b.operation(&op).is_err());
         assert!(b.echo(&json!({"_meta":b.meta()})).is_ok());
         assert!(b.echo(&json!({"_meta":{}})).is_err());
-    }
-    #[test]
-    fn prior_receipt_retry_requires_exact_proof_and_bounded_step() {
-        let saved = json!({"task":{"activationEpoch":1,"activationId":"c".repeat(32)}});
-        let mut v = admission();
-        v["_meta"]["neko.task"]["activationId"] = json!("d".repeat(32));
-        v["_meta"]["neko.task"]["activationEpoch"] = json!(3);
-        v["_meta"]["neko.execution"]["activationId"] = json!("d".repeat(32));
-        v["_meta"]["neko.execution"]["activationEpoch"] = json!(3);
-        let b = Binding::admit(&v, "/task").unwrap();
-        assert!(!b.valid_resume(&saved, &v, true));
-        v["_meta"]["neko.taskRecovery"] = json!({"version":1,"kind":"prior_receipt_retry"});
-        assert!(b.valid_resume(&saved, &v, true));
-        assert!(!b.valid_resume(&saved, &v, false));
-        v["_meta"]["neko.taskRecovery"]["unrelated"] = json!(true);
-        assert!(!b.valid_resume(&saved, &v, true));
-        v["_meta"]["neko.taskRecovery"] = json!({"version":1,"kind":"prior_receipt_retry"});
-        let mut wrong = b.clone();
-        wrong.task["activationEpoch"] = json!(4);
-        assert!(!wrong.valid_resume(&saved, &v, true));
     }
 }

@@ -2,7 +2,6 @@ package ledger
 
 import (
 	"encoding/json"
-	"nekobot.local/native/internal/executors"
 	"nekobot.local/native/internal/protocol"
 	"reflect"
 	"sort"
@@ -32,12 +31,9 @@ type RefreshInput struct {
 	ExpectedEpoch uint64 `json:"expectedEpoch"`
 }
 type StoppedReceipt struct {
-	NativeProcessGeneration string                  `json:"nativeProcessGeneration,omitempty"`
-	Kind                    string                  `json:"kind,omitempty"`
-	ExecutorProof           *executors.RuntimeProof `json:"executorProof,omitempty"`
-	Version                 int                     `json:"version"`
-	NativeProcessID         uint32                  `json:"nativeProcessId"`
-	SessionID               string                  `json:"sessionId"`
+	Version         int    `json:"version"`
+	NativeProcessID uint32 `json:"nativeProcessId"`
+	SessionID       string `json:"sessionId"`
 }
 
 func accessRevision(w Work) uint64 {
@@ -63,11 +59,7 @@ func validAccessNonce(nonce string) bool {
 		return !((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c == '-' || c == '_')
 	}) == -1
 }
-func (s *Store) contextAllowed(w Work) bool { return s.contextAllowedUnderGroup(w, "") }
-func (s *Store) contextAllowedForGroupRecovery(w Work, id string) bool {
-	return s.contextAllowedUnderGroup(w, id)
-}
-func (s *Store) contextAllowedUnderGroup(w Work, recoveryID string) bool {
+func (s *Store) contextAllowed(w Work) bool {
 	checked := map[string]bool{}
 	visiting := map[string]bool{}
 	var allowed func(Work) bool
@@ -75,31 +67,15 @@ func (s *Store) contextAllowedUnderGroup(w Work, recoveryID string) bool {
 		if result, found := checked[work.RequestID]; found {
 			return result
 		}
-		groupAllowed := s.collaborationAllowed(work)
-		if recoveryID != "" && work.Collaboration != nil && work.Collaboration.ID == recoveryID {
-			g, found := s.collaborations[recoveryID]
-			stage := work.Collaboration.Stage
-			groupAllowed = found && stage > 0 && stage <= len(g.RequestIDs) && g.RequestIDs[stage-1] == work.RequestID
-		}
-		if visiting[work.RequestID] || !accessGranted(work) || !s.publicationAllowed(work) || !s.resourceAllowed(work) || !groupAllowed || !s.pluginsAllowed(work) {
+		if visiting[work.RequestID] || !accessGranted(work) {
 			return false
 		}
 		visiting[work.RequestID] = true
 		result := true
 		if work.Context != nil {
-			if work.Context.Version < 5 && len(work.Context.PublishedReports) > 0 {
-				result = false
-			}
-			for _, pin := range work.Context.PublishedReports {
-				if !s.publishedReportAllowed(work, pin, work.Context.AtSequence) {
-					result = false
-					break
-				}
-			}
 			for _, pin := range work.Context.Sources {
 				source, found := s.work[pin.RequestID]
-				sameBot := source.BotID == work.BotID || (work.Context.Version >= 3 && validChannelID(work.ConversationID) && pin.BotID == source.BotID)
-				if !found || source.RequestID == work.RequestID || source.SourceMessageID != pin.MessageID || source.CreatedSequence != pin.Sequence || source.CreatedSequence > work.Context.AtSequence || source.OwnerUserID != work.OwnerUserID || source.SpaceID != work.SpaceID || !sameBot || source.ConversationID != work.ConversationID || accessRevision(source) != pin.AccessRevision || !allowed(source) {
+				if !found || source.RequestID == work.RequestID || source.SourceMessageID != pin.MessageID || source.CreatedSequence != pin.Sequence || source.CreatedSequence > work.Context.AtSequence || source.OwnerUserID != work.OwnerUserID || source.SpaceID != work.SpaceID || source.BotID != work.BotID || source.ConversationID != work.ConversationID || accessRevision(source) != pin.AccessRevision || !allowed(source) {
 					result = false
 					break
 				}
@@ -115,7 +91,7 @@ func (s *Store) RuntimeAllowed(id string, epoch uint64) bool {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	w, ok := s.work[id]
-	return ok && w.Epoch == epoch && w.DesiredState == "running" && s.activeExecutionAllowed(w) && (w.Core != nil || boundedRuntimePrompt(w)) && s.collaborationBudgetAllows(w) && s.contextAllowed(w) && s.accountAllowed(w) && s.executorAllowed(w)
+	return ok && w.Epoch == epoch && w.DesiredState == "running" && (w.Core != nil || boundedRuntimePrompt(w)) && s.contextAllowed(w)
 }
 func (s *Store) SetSourceAccess(input AccessInput) (Work, bool, error) {
 	s.mu.Lock()
@@ -208,51 +184,20 @@ func (s *Store) MarkRuntimeStopped(id, attempt string, receipt StoppedReceipt) e
 	w = copyWork(w)
 	w.RuntimeStopped = true
 	w.RuntimeStopReceipt = &receipt
-	typ := "work.runtime_stopped"
-	if receipt.Version == 2 {
-		typ = "work.runtime_never_launched"
-	}
-	return s.commit(Event{Type: typ, Work: w})
+	return s.commit(Event{Type: "work.runtime_stopped", Work: w})
 }
 func validStoppedReceipt(w Work, receipt StoppedReceipt) bool {
-	if receipt.NativeProcessGeneration != "" && !ValidProcessGeneration(receipt.NativeProcessGeneration) {
-		return false
-	}
-	if !executorProofMatches(w, receipt.ExecutorProof) {
-		return false
-	}
-	if receipt.Version == 2 {
-		return receipt.Kind == "never_launched" && receipt.NativeProcessID == 0 && receipt.NativeProcessGeneration == "" && receipt.SessionID == "" && w.ExecutorPolicyVersion == 1 && w.Core == nil && w.RuntimeAttemptBinding == nil && len(w.Operations) == 0
-	}
-	if receipt.Kind != "" {
-		return false
-	}
 	if receipt.Version != 1 || receipt.NativeProcessID == 0 || (receipt.SessionID != "" && !lowerHex(receipt.SessionID, 32)) {
 		return false
 	}
 	binding := w.RuntimeAttemptBinding
 	if binding == nil {
 		binding = w.Core
-		if w.ExecutorPolicyVersion == 1 && binding != nil && !executorProofMatches(w, binding.ExecutorProof) {
-			binding = nil
-		}
 	}
-	return binding == nil || (binding.NativeProcessID == receipt.NativeProcessID && binding.SessionID == receipt.SessionID && binding.NativeProcessGeneration == receipt.NativeProcessGeneration)
+	return binding == nil || (binding.NativeProcessID == receipt.NativeProcessID && binding.SessionID == receipt.SessionID)
 }
 
 func validAttemptBinding(w Work, b CoreBinding) bool {
-	if w.CoreProfilePin != nil && b.CoreSHA256 != w.CoreProfilePin.RuntimeSHA256 {
-		return false
-	}
-	if b.NativeProcessGeneration != "" && !ValidProcessGeneration(b.NativeProcessGeneration) {
-		return false
-	}
-	if !validContextBinding(w, b) {
-		return false
-	}
-	if !executorProofMatches(w, b.ExecutorProof) || (w.ExecutorPin != nil && b.CoreSHA256 != w.ExecutorPin.CoreSHA256) {
-		return false
-	}
 	if (w.Status != "starting" && w.Status != "suspending" && w.Status != "cancelling") || b.NativeProcessID == 0 || !lowerHex(b.SessionID, 32) || !protocol.CoreRuntimeAllowed(b.CoreSHA256) {
 		return false
 	}
@@ -272,22 +217,14 @@ func validAttemptBinding(w Work, b CoreBinding) bool {
 		return false
 	}
 	if w.Core == nil {
-		return b.TaskRecovery == nil
+		return true
 	}
 	var savedTask struct {
 		ID              string `json:"id"`
 		Root            string `json:"root"`
 		ActivationEpoch uint64 `json:"activationEpoch"`
-		ActivationID    string `json:"activationId"`
 	}
-	step := uint64(1)
-	if b.TaskRecovery != nil {
-		if b.TaskRecovery.Version != 1 || b.TaskRecovery.Kind != "prior_receipt_retry" || !protocol.CorePriorReceiptRetry(b.CoreSHA256) {
-			return false
-		}
-		step = 2
-	}
-	return json.Unmarshal(w.Core.Task, &savedTask) == nil && json.Unmarshal(w.Core.Execution, &savedExecution) == nil && b.CoreSHA256 == w.Core.CoreSHA256 && b.SessionID == w.Core.SessionID && task.ID == savedTask.ID && task.Root == savedTask.Root && savedTask.ActivationEpoch <= 9007199254740991-step && task.ActivationEpoch == savedTask.ActivationEpoch+step && task.ActivationID != savedTask.ActivationID && currentExecution.AuthorityID == savedExecution.AuthorityID
+	return json.Unmarshal(w.Core.Task, &savedTask) == nil && json.Unmarshal(w.Core.Execution, &savedExecution) == nil && b.CoreSHA256 == w.Core.CoreSHA256 && b.SessionID == w.Core.SessionID && task.ID == savedTask.ID && task.Root == savedTask.Root && savedTask.ActivationEpoch < 9007199254740991 && task.ActivationEpoch == savedTask.ActivationEpoch+1 && currentExecution.AuthorityID == savedExecution.AuthorityID
 }
 
 func (s *Store) BindRuntimeAttempt(id, attempt string, binding CoreBinding) error {
@@ -297,14 +234,6 @@ func (s *Store) BindRuntimeAttempt(id, attempt string, binding CoreBinding) erro
 	if !found {
 		return ErrNotFound
 	}
-	if w.CoreProfilePin != nil && !protocol.CoreProfileBridgeAllowed(binding.CoreSHA256) {
-		return ErrForbidden
-	}
-	principalRelease, principalErr := s.executionPrincipalGuard(w)
-	if principalErr != nil {
-		return principalErr
-	}
-	defer principalRelease()
 	if attempt == "" || w.AttemptID != attempt || w.RuntimeStopped || !validAttemptBinding(w, binding) {
 		return ErrConflict
 	}
@@ -320,7 +249,7 @@ func (s *Store) BindRuntimeAttempt(id, attempt string, binding CoreBinding) erro
 }
 
 func boundedRuntimePrompt(w Work) bool {
-	frame, err := MarshalRuntimeLaunch(w, nil)
+	frame, err := json.Marshal(map[string]string{"requestId": w.RequestID, "botId": w.BotID, "text": w.RuntimePrompt()})
 	return err == nil && len(frame) <= 64000
 }
 func (s *Store) freshContext(w Work) *ContextPin {
@@ -338,45 +267,11 @@ func contextArchive(w Work) ContextAttempt {
 	return ContextAttempt{Core: w.Core, PinSHA256: hash, Reply: w.Reply, Epoch: w.Epoch, Reason: "explicit_context_refresh"}
 }
 func (s *Store) validContextRefresh(old, w Work, version int) bool {
-	if old.CoreProfileGroupBinding != nil {
-		return false
-	}
-	if !s.validNewRuntimeContext(w) || (version != 3 && old.ContextProtocolVersion != w.ContextProtocolVersion) || (version == 3 && w.ContextProtocolVersion != 1) {
-		return false
-	}
-	source := old
-	source.CreatedSequence = uint64(len(s.events) + 1)
-	pinVersion := 3
-	if version < 2 {
-		pinVersion = 2
-	}
-	if version == 3 {
-		pinVersion = s.captureContext(source).Version
-	}
-	if version == 4 {
-		pinVersion = 4
-		if old.BotProfile == nil {
-			return false
-		}
-	}
-	if version == 5 {
-		pinVersion = 5
-	}
-	return refreshable(old) && s.pluginsAllowed(old) && (version == 0 || boundedRuntimePrompt(w)) && w.Status == "waiting_host" && w.DesiredState == "running" && w.Epoch == old.Epoch+1 && w.ContextRevision == old.ContextRevision+1 && reflect.DeepEqual(w.Context, s.captureContextVersion(source, pinVersion)) && reflect.DeepEqual(w.ContextAttempts, append(append([]ContextAttempt(nil), old.ContextAttempts...), contextArchive(old)))
+	return refreshable(old) && (version == 0 || boundedRuntimePrompt(w)) && w.Status == "waiting_host" && w.DesiredState == "running" && w.Epoch == old.Epoch+1 && w.ContextRevision == old.ContextRevision+1 && reflect.DeepEqual(w.Context, s.freshContext(old)) && reflect.DeepEqual(w.ContextAttempts, append(append([]ContextAttempt(nil), old.ContextAttempts...), contextArchive(old)))
 }
 func (s *Store) RefreshContext(input RefreshInput) (Work, error) {
-	current, err := s.Get(input.RequestID)
-	if err != nil {
-		return Work{}, err
-	}
-	if current.CoreProfileGroupBinding != nil {
-		return Work{}, ErrConflict
-	}
 	return s.update(input.RequestID, input.ExpectedEpoch, "work.context_refreshed", func(w *Work) error {
-		if w.CoreProfileGroupBinding != nil {
-			return ErrConflict
-		}
-		if !refreshable(*w) || !s.publicationAllowed(*w) || !s.pluginsAllowed(*w) || !s.continuityAllowed(*w) {
+		if !refreshable(*w) {
 			return ErrConflict
 		}
 		w.ContextAttempts = append(w.ContextAttempts, contextArchive(*w))
@@ -386,9 +281,6 @@ func (s *Store) RefreshContext(input RefreshInput) (Work, error) {
 		w.Status = "waiting_host"
 		w.DesiredState = "running"
 		w.Core = nil
-		if err := s.attachRuntimeContext(w); err != nil {
-			return err
-		}
 		w.Reply = ""
 		w.Failure = ""
 		if !boundedRuntimePrompt(*w) {

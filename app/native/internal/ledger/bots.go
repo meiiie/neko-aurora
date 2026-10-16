@@ -34,19 +34,10 @@ func validBotInput(in BotInput) bool {
 	return in.Name == strings.TrimSpace(in.Name) && in.Name != "" && botText(in.Name, 80) && aliasPattern.MatchString(in.Alias) && botText(in.Description, 240) && regexp.MustCompile(`^[a-zA-Z0-9_-]{8,128}$`).MatchString(in.ClientNonce)
 }
 func (s *Store) validBotEvent(e Event) bool {
-	if e.Bot == nil || !reflect.DeepEqual(e.Work, Work{}) || !validBotInput(BotInput{e.Bot.Name, e.Bot.Alias, e.Bot.Description, e.Nonce}) || !botIDPattern.MatchString(e.Bot.ID) || e.Bot.Revision != 1 || e.Bot.DisplayRevision != 0 || e.Bot.Color != "#7384d8" || len(s.bots) >= 32 {
+	if e.Bot == nil || !reflect.DeepEqual(e.Work, Work{}) || !validBotInput(BotInput{e.Bot.Name, e.Bot.Alias, e.Bot.Description, e.Nonce}) || !botIDPattern.MatchString(e.Bot.ID) || e.Bot.Revision != 1 || e.Bot.Color != "#7384d8" || len(s.bots) >= 32 {
 		return false
 	}
 	if _, exists := s.botNonces[e.Nonce]; exists {
-		return false
-	}
-	if _, exists := s.botNameNonces[e.Nonce]; exists {
-		return false
-	}
-	if _, exists := s.botProfileNonces[e.Nonce]; exists {
-		return false
-	}
-	if _, state := s.botStateNonces[e.Nonce]; state {
 		return false
 	}
 	for _, bot := range s.bots {
@@ -57,33 +48,21 @@ func (s *Store) validBotEvent(e Event) bool {
 	return true
 }
 func (s *Store) CreateBot(in BotInput) (Bot, bool, error) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	return s.createBotLocked(in)
-}
-func (s *Store) createBotLocked(in BotInput) (Bot, bool, error) {
 	in.Name = strings.TrimSpace(in.Name)
 	in.Alias = strings.ToLower(strings.TrimSpace(in.Alias))
 	in.Description = strings.TrimSpace(in.Description)
 	if !validBotInput(in) {
 		return Bot{}, false, ErrInvalid
 	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	if s.closed || s.poisoned {
 		return Bot{}, false, ErrUnavailable
-	}
-	if _, state := s.botStateNonces[in.ClientNonce]; state {
-		return Bot{}, false, ErrConflict
-	}
-	if _, used := s.botNameNonces[in.ClientNonce]; used {
-		return Bot{}, false, ErrConflict
-	}
-	if _, used := s.botProfileNonces[in.ClientNonce]; used {
-		return Bot{}, false, ErrConflict
 	}
 	if id, exists := s.botNonces[in.ClientNonce]; exists {
 		for _, bot := range s.bots {
 			if bot.ID == id {
-				if !reflect.DeepEqual(s.botCreationInputs[in.ClientNonce], in) {
+				if bot.Name != in.Name || bot.Alias != in.Alias || bot.Description != in.Description {
 					return Bot{}, false, ErrConflict
 				}
 				return bot, true, nil
@@ -105,15 +84,9 @@ func (s *Store) createBotLocked(in BotInput) (Bot, bool, error) {
 	return bot, false, nil
 }
 func workNonceKey(w Work) string {
-	if w.RequesterPin != nil {
-		return scopeNonceKey(Input{ClientNonce: w.ClientNonce}, w.ConversationID, w.RequesterPin)
-	}
 	bot := w.BotID
 	if w.SourceBotID != "" {
 		bot = w.SourceBotID
-	}
-	if w.Publication != nil && (validChannelID(w.Publication.SourceChannelID) || privateConversationID(w.Publication.SourceChannelID)) {
-		return nonceKey(w.Publication.SourceChannelID+"|"+bot, w.ClientNonce)
 	}
 	return nonceKey(bot, w.ClientNonce)
 }

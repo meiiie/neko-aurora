@@ -55,7 +55,7 @@ func TestResumeRevokedBeforeAdmissionKeepsCurrentAttemptStopProof(t *testing.T) 
 	if _, _, err = s.SetSourceAccess(AccessInput{source.RequestID, 0, false, "resume-race-revoke"}); err != nil {
 		t.Fatal(err)
 	}
-	if err = s.MarkRuntimeStopped(w.RequestID, w.AttemptID, StoppedReceipt{Version: 1, NativeProcessID: b.NativeProcessID, SessionID: b.SessionID}); !errors.Is(err, ErrConflict) {
+	if err = s.MarkRuntimeStopped(w.RequestID, w.AttemptID, StoppedReceipt{1, b.NativeProcessID, b.SessionID}); !errors.Is(err, ErrConflict) {
 		t.Fatal("unbound child must not prove saved Core stopped", err)
 	}
 	wrong := b
@@ -74,10 +74,10 @@ func TestResumeRevokedBeforeAdmissionKeepsCurrentAttemptStopProof(t *testing.T) 
 	if err = s.Admit(w.RequestID, w.Epoch, b); !errors.Is(err, ErrConflict) {
 		t.Fatal("revoked admission", err)
 	}
-	if err = s.MarkRuntimeStopped(w.RequestID, w.AttemptID, StoppedReceipt{Version: 1, NativeProcessID: 401, SessionID: b.SessionID}); !errors.Is(err, ErrConflict) {
+	if err = s.MarkRuntimeStopped(w.RequestID, w.AttemptID, StoppedReceipt{1, 401, b.SessionID}); !errors.Is(err, ErrConflict) {
 		t.Fatal("old child stop receipt", err)
 	}
-	if err = s.MarkRuntimeStopped(w.RequestID, w.AttemptID, StoppedReceipt{Version: 1, NativeProcessID: 402, SessionID: b.SessionID}); err != nil {
+	if err = s.MarkRuntimeStopped(w.RequestID, w.AttemptID, StoppedReceipt{1, 402, b.SessionID}); err != nil {
 		t.Fatal(err)
 	}
 	s.Close()
@@ -163,7 +163,7 @@ func TestLegacyOversizeRefreshReplaysAndBlocksOnlyItsObligation(t *testing.T) {
 			}
 			if mode == "native-stopped" {
 				current, _ := s.Get(w.RequestID)
-				if err = s.MarkRuntimeStopped(w.RequestID, w.AttemptID, StoppedReceipt{Version: 1, NativeProcessID: 401, SessionID: w.Core.SessionID}); err != nil {
+				if err = s.MarkRuntimeStopped(w.RequestID, w.AttemptID, StoppedReceipt{1, 401, w.Core.SessionID}); err != nil {
 					t.Fatal(err)
 				}
 				if err = s.Finish(w.RequestID, current.Epoch, "suspended", "context_permission_changed"); err != nil {
@@ -329,10 +329,10 @@ func TestTransitiveRevokeFencesEffectsUntilNativeQuiescenceReceipt(t *testing.T)
 	if _, err = s.RefreshContext(RefreshInput{active.RequestID, current.Epoch}); !errors.Is(err, ErrConflict) {
 		t.Fatal("refresh without stopped proof")
 	}
-	if err = s.MarkRuntimeStopped(active.RequestID, active.AttemptID, StoppedReceipt{Version: 1, NativeProcessID: 402, SessionID: active.Core.SessionID}); !errors.Is(err, ErrConflict) {
+	if err = s.MarkRuntimeStopped(active.RequestID, active.AttemptID, StoppedReceipt{1, 402, active.Core.SessionID}); !errors.Is(err, ErrConflict) {
 		t.Fatal("other child receipt accepted")
 	}
-	if err = s.MarkRuntimeStopped(active.RequestID, active.AttemptID, StoppedReceipt{Version: 1, NativeProcessID: 401, SessionID: active.Core.SessionID}); err != nil {
+	if err = s.MarkRuntimeStopped(active.RequestID, active.AttemptID, StoppedReceipt{1, 401, active.Core.SessionID}); err != nil {
 		t.Fatal(err)
 	}
 	if err = s.Finish(current.RequestID, current.Epoch, "suspended", "context_permission_changed"); err != nil {
@@ -357,7 +357,7 @@ func TestTransitiveRevokeFencesEffectsUntilNativeQuiescenceReceipt(t *testing.T)
 	if err != nil || claimed.RuntimeStopped || claimed.RuntimeStopReceipt != nil {
 		t.Fatal(err)
 	}
-	if err = s.MarkRuntimeStopped(stored.RequestID, active.AttemptID, StoppedReceipt{Version: 1, NativeProcessID: 401, SessionID: active.Core.SessionID}); !errors.Is(err, ErrConflict) {
+	if err = s.MarkRuntimeStopped(stored.RequestID, active.AttemptID, StoppedReceipt{1, 401, active.Core.SessionID}); !errors.Is(err, ErrConflict) {
 		t.Fatal("old attempt stop receipt accepted")
 	}
 	s.Close()
@@ -416,7 +416,7 @@ func TestSuspendedUnresolvedEffectReconcilesWithoutAllowingRefresh(t *testing.T)
 	if _, _, err := s.SetSourceAccess(AccessInput{source.RequestID, 0, false, "permission-effect-revoke"}); err != nil {
 		t.Fatal(err)
 	}
-	if err := s.MarkRuntimeStopped(active.RequestID, active.AttemptID, StoppedReceipt{Version: 1, NativeProcessID: 401, SessionID: active.Core.SessionID}); err != nil {
+	if err := s.MarkRuntimeStopped(active.RequestID, active.AttemptID, StoppedReceipt{1, 401, active.Core.SessionID}); err != nil {
 		t.Fatal(err)
 	}
 	s.Close()
