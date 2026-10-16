@@ -2,7 +2,7 @@
   "version": 1,
   "createdUtc": "2026-10-16T16:55:28.415906+00:00",
   "host": "DESKTOP-PLLO4HG",
-  "scope": "private source migration snapshot; no original history imported",
+  "scope": "unfinished saved-account witness overlay on integration source; not accepted provider runtime",
   "sources": [
     {
       "component": "app",
@@ -17799,6 +17799,66 @@
       "size": 11108,
       "included": true,
       "exportPath": "wiii/wiii-desktop/src/stores/settings-store.ts"
+    },
+    {
+      "component": "app",
+      "sourcePath": "native/internal/providerexec/saved_task_binding.go",
+      "sourceCommit": "7bfa841da9eae256e2f8f45115a571f4b14f18dd",
+      "sourceBlob": null,
+      "mode": "100644",
+      "sha256": "b27dea430f5a5d8c96eb3f047a442d803102e737f439317ba9b40df79d569ae9",
+      "size": 4272,
+      "included": true,
+      "exportPath": "app/native/internal/providerexec/saved_task_binding.go",
+      "workingTreeOverride": true
+    },
+    {
+      "component": "app",
+      "sourcePath": "native/internal/providerexec/saved_task_witness.go",
+      "sourceCommit": "7bfa841da9eae256e2f8f45115a571f4b14f18dd",
+      "sourceBlob": null,
+      "mode": "100644",
+      "sha256": "1ff664f918a547cfaf10db7f9d47c50580469a0bcafd3efdcb234c9d5e90bcd9",
+      "size": 7993,
+      "included": true,
+      "exportPath": "app/native/internal/providerexec/saved_task_witness.go",
+      "workingTreeOverride": true
+    },
+    {
+      "component": "app",
+      "sourcePath": "native/internal/providerexec/saved_task_witness_other.go",
+      "sourceCommit": "7bfa841da9eae256e2f8f45115a571f4b14f18dd",
+      "sourceBlob": null,
+      "mode": "100644",
+      "sha256": "46ce275f21af59eec008c3b101a057e65212f1bf97927bdd91a919ff508a2726",
+      "size": 1038,
+      "included": true,
+      "exportPath": "app/native/internal/providerexec/saved_task_witness_other.go",
+      "workingTreeOverride": true
+    },
+    {
+      "component": "app",
+      "sourcePath": "native/internal/providerexec/saved_task_witness_test.go",
+      "sourceCommit": "7bfa841da9eae256e2f8f45115a571f4b14f18dd",
+      "sourceBlob": null,
+      "mode": "100644",
+      "sha256": "7eba84800a60ac22871bf1711b85e6a41f31a6e669092bfcee5d1dffa22075a8",
+      "size": 4848,
+      "included": true,
+      "exportPath": "app/native/internal/providerexec/saved_task_witness_test.go",
+      "workingTreeOverride": true
+    },
+    {
+      "component": "app",
+      "sourcePath": "native/internal/providerexec/saved_task_witness_windows.go",
+      "sourceCommit": "7bfa841da9eae256e2f8f45115a571f4b14f18dd",
+      "sourceBlob": null,
+      "mode": "100644",
+      "sha256": "ba52400d39710ea132923fda31c8b815970eb705ac67c0dc6d395353ff2d62c4",
+      "size": 2065,
+      "included": true,
+      "exportPath": "app/native/internal/providerexec/saved_task_witness_windows.go",
+      "workingTreeOverride": true
     }
   ]
 }

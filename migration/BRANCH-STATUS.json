@@ -1,0 +1,37 @@
+{
+  "originalBase": "7bfa841da9eae256e2f8f45115a571f4b14f18dd",
+  "integratedSnapshot": "90bdcefcc21908144d4c390810724876a1a4319b",
+  "state": "unfinished; valid Windows Issue test historically FAIL; Core bootstrap/CLI wiring absent",
+  "changes": [
+    {
+      "path": "app/native/internal/providerexec/saved_task_binding.go",
+      "sha256": "b27dea430f5a5d8c96eb3f047a442d803102e737f439317ba9b40df79d569ae9",
+      "bytes": 4272,
+      "origin": "untracked original WIP"
+    },
+    {
+      "path": "app/native/internal/providerexec/saved_task_witness.go",
+      "sha256": "1ff664f918a547cfaf10db7f9d47c50580469a0bcafd3efdcb234c9d5e90bcd9",
+      "bytes": 7993,
+      "origin": "untracked original WIP"
+    },
+    {
+      "path": "app/native/internal/providerexec/saved_task_witness_other.go",
+      "sha256": "46ce275f21af59eec008c3b101a057e65212f1bf97927bdd91a919ff508a2726",
+      "bytes": 1038,
+      "origin": "untracked original WIP"
+    },
+    {
+      "path": "app/native/internal/providerexec/saved_task_witness_test.go",
+      "sha256": "7eba84800a60ac22871bf1711b85e6a41f31a6e669092bfcee5d1dffa22075a8",
+      "bytes": 4848,
+      "origin": "untracked original WIP"
+    },
+    {
+      "path": "app/native/internal/providerexec/saved_task_witness_windows.go",
+      "sha256": "ba52400d39710ea132923fda31c8b815970eb705ac67c0dc6d395353ff2d62c4",
+      "bytes": 2065,
+      "origin": "untracked original WIP"
+    }
+  ]
+}
