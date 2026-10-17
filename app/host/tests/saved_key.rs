@@ -268,7 +268,11 @@ fn private_native_metadata_reaches_prepare_and_provider_secret_stays_out_of_acp(
         &witness,
         &task,
         images,
-        |frame| {
+        |protected, frame| {
+            assert_eq!(
+                protected.core_path(),
+                fs::canonicalize(&executable).unwrap().as_path()
+            );
             let value: Value = serde_json::from_slice(frame).unwrap();
             assert_eq!(value["witnessPath"], json!(witness.path));
             assert_eq!(value["serviceGeneration"], witness.service_generation);

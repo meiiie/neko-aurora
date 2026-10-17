@@ -1,6 +1,6 @@
 //! Private preparation/envelope seam, not a process launcher or execution grant.
-//! The broker callback is the existing saved_key contract. Production pipe/job
-//! teardown and native acceptance are still required before run() may select it.
+//! The broker borrows retained executable guards within preparation. Native
+//! transport acceptance is still required before run() may select it.
 use crate::{
     executable_guard::ExecutableGuard,
     executor::Descriptor,
@@ -165,10 +165,10 @@ pub fn prepare<F>(
     witness: &WitnessMetadata,
     root: &Path,
     images: ProtectedExecutables,
-    broker: F,
+    mut broker: F,
 ) -> Result<PreparedBootstrap>
 where
-    F: FnMut(&mut [u8]) -> Result<Vec<u8>>,
+    F: FnMut(&ProtectedExecutables, &mut [u8]) -> Result<Vec<u8>>,
 {
     if private_request.len() > MAX_FRAME || !safe_path(root) {
         return Err(ERROR);
@@ -200,7 +200,10 @@ where
     }
     let meta = metadata(witness, images.native_descriptor()?)?;
     // saved_key owns catalog/DPAPI/live-authority/receipt/deadline validation.
-    let receipt = saved_key::prepare_internal(private_request, now, authorize, Some(&meta), broker)
+    let receipt =
+        saved_key::prepare_internal(private_request, now, authorize, Some(&meta), |frame| {
+            broker(&images, frame)
+        })
         .map_err(|_| ERROR)?;
     // Match the existing native host's physical_root wire convention; Core
     // canonicalizes it again before admitting the single ACP session.

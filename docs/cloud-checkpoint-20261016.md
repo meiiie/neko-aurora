@@ -156,3 +156,20 @@ whitespace and redacted candidate secret checks passed. Independent source revie
 cleared both reported fixes. This is internal-flow verification, not provider or
 Windows acceptance. Host durable admitted/prompt-ready acknowledgments, production
 private-pipe transport and native gates remain necessary for product activation.
+
+### Job-contained private broker transport
+
+The internal Windows broker transport now launches the pinned Core image suspended,
+whitelists inherited stdio handles and assigns a private kill-on-close Job before
+resuming it or sending input. Owned scoped workers bound private input and receipt
+output. Failure revokes authority before cleanup; cleanup waits for process exit,
+zero active job processes and worker completion before releasing guarded images.
+The two-second limit rejects late acceptance; it is not a promise of a hard OS
+teardown deadline. Embedding callbacks must be trusted, nonblocking and nonpanicking.
+The single trusted launch contract excludes unrelated concurrent inherit-all spawns
+inside the same host process. No new dependency or public activation was added.
+
+Eight portable saved-account host tests passed; Windows test targets compiled.
+Five new native process/pipe/cancellation scenarios were NOT RUN. Two independent
+source reviews cleared fixes for early-failure revocation ordering and final
+acceptance rechecks. Native lifecycle/handle inheritance evidence is still needed.
