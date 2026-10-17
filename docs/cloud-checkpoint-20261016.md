@@ -191,3 +191,56 @@ account/executor fences; eight saved-account library tests and Windows test-targ
 compilation passed. Independent paired source review and candidate secret scans
 passed. Manager.Run/main.go/public Core CLI selection remain unchanged: this proves
 internal assembly, not native end-to-end activation or real provider operation.
+
+### Cloud UI interruption fixes — 2026-10-17
+
+These checks ran on Linux with Node v24.19.0 against the actual UI handlers in
+isolated VMs. DOM, network and receipt boundaries are synthetic; they are not
+browser, physical-phone, provider or Windows acceptance.
+
+- `c94fc83559dbc129e69d8015c790b6ef10e3c87a`: create-bot command/view ownership
+  preserves edited drafts, retry nonces and newer navigation under delayed replies.
+  `node app/scripts/ui_bot_creation_races.mjs`: 10 PASS; the prior source had
+  six failing schedules. Both UI asset syntax checks and `git diff --check` passed.
+- `33a5aed24a907dd5a20cc9fead8eb0373505ed9c`: discovery loading belongs to its
+  request rather than account-editor navigation; old responses cannot clear or
+  overwrite newer discovery. `node app/scripts/ui_discovery_loading_races.mjs`:
+  9 PASS. Existing saved-account status checks: 6 PASS; create-bot regression
+  remained 10 PASS.
+- `1a8b250fbf450e056d763692ae6df4ecbcbc85af`: reselected upload preparation
+  rechecks session, dialog generation and original command after receipt lookup.
+  Closing/reopening or choosing another file cannot dispatch the stale retry.
+  `node app/scripts/ui_upload_retry_ownership.mjs`: 27 PASS; unchanged source
+  had 20 FAIL and 7 PASS. Asset syntax and whitespace checks passed.
+
+The attempted Chromium interaction launch was BLOCKED by socket permissions,
+including escalation; it was not retried through another route. The existing
+`ui_durable_upload_regression.mjs --journal-boundary true` harness failed all
+19 cases with `window is not defined` during VM setup, identically on the unchanged
+source and upload-fix delta. That initial gate was recorded as failed; the fixture-only correction below
+subsequently restored it without weakening assertions.
+
+Candidate secret scans passed. History scanning identified one reviewed synthetic
+fixture opaque catalog locator in `saved-account-launch-v1.json`; its exact
+fingerprint was excluded for the subsequent scan, with no broad rule suppression.
+These local commits do not prove GitHub publication. The private backup patch is
+incremental from `8748743844f82b919c6c1c0c74453464a7ba840a`, not an installer.
+
+- `d9776f154a6443ed6da085fe0e566fae9d0fa449`: confirmed group creation returns
+  independently of subsequent snapshot refresh. Refresh failure uses the existing
+  reconnect path rather than making an acknowledged group retryable as a new one.
+  `node app/scripts/ui_group_confirmed_refresh.mjs`: 7 PASS; previous source had
+  five failing schedules. Checks include failed/hanging refresh, duplicate Send,
+  original retry nonce and newer-draft/navigation ownership. The older tag harness
+  had 14 baseline fixture setup failures (`sessionState`/`window` missing); its
+  failures were not attributed to this one-expression product fix.
+
+- `9c501a3c6d21607351de559d05063ab63c0354e6`: restored missing VM setup in
+  the two existing gates, using extracted production session/cache/validation
+  helpers, a local-owner fixture and minimal window/render boundaries. No product
+  logic or behavioral assertions changed. On final source:
+  - `node app/scripts/ui_durable_upload_regression.mjs --journal-boundary true --output /tmp/neko-final-journal.json`: 19 PASS, 0 FAIL.
+  - `node app/scripts/ui_tag_collaboration_local.mjs`: 23 PASS, 0 FAIL.
+  - Both harness syntax checks and `git diff --check`: PASS.
+  This resolves the earlier missing-global failures for these VM gates only;
+  rendered browser/native/provider acceptance remains unverified.
