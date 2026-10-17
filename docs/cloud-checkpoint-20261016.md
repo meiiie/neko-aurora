@@ -244,3 +244,13 @@ incremental from `8748743844f82b919c6c1c0c74453464a7ba840a`, not an installer.
   - Both harness syntax checks and `git diff --check`: PASS.
   This resolves the earlier missing-global failures for these VM gates only;
   rendered browser/native/provider acceptance remains unverified.
+
+- `75d39a732d0e86483adf8602cace4b0943fa732c`: confirmed task controls no longer
+  become orphaned retries when optional refresh fails or hangs. Storage-retirement
+  failure retains its blocked reconciliation warning. On Linux / Node v24.19.0,
+  `node app/scripts/ui_task_confirmed_refresh.mjs` passed 13 scenarios (all six
+  actions, invalid acknowledgements, nonce/duplicate handling and dialog ownership).
+  The portable journal-boundary gate passed 19 scenarios; neighboring group/upload
+  VM regressions passed 7/27 respectively. Native host/provider/browser gates were
+  not run. Official Go 1.27.2 was restored from the vendor archive and verified
+  against its published SHA-256; that alone is not a new Go acceptance result.
