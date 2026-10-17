@@ -1,0 +1,16 @@
+import assert from 'node:assert/strict';
+import {readFileSync} from 'node:fs';
+import vm from 'node:vm';
+const source=readFileSync(new URL('../native/internal/web/assets/app.js',import.meta.url),'utf8');
+const selected=source.split('\n').filter(line=>line.startsWith('const labels=')||line.startsWith('function workStatusLabel(')||line.startsWith('function authorityDescription(')).join('\n');
+const context=vm.createContext({state:{bots:[]}});
+vm.runInContext(selected,context);
+const label=w=>vm.runInContext(`workStatusLabel(${JSON.stringify(w)})`,context);
+const detail=w=>vm.runInContext(`authorityDescription(${JSON.stringify(w)})`,context);
+assert.equal(label({status:'recovery_required',failure:'saved_account_runtime_unavailable'}),'Chưa thể chạy bằng tài khoản đã lưu');
+assert.match(detail({status:'recovery_required',failure:'saved_account_runtime_unavailable'}),/Nhập lại API key không giải quyết/);
+assert.equal(label({status:'completed',failure:'saved_account_runtime_unavailable'}),'Hoàn thành');
+assert.equal(label({status:'recovery_required',failure:'transport_interrupted'}),'Bị gián đoạn · Cần phục hồi');
+assert.equal(label({status:'suspended',failure:'executor_lease_unavailable',runtimeStopped:true}),'Dịch vụ bị gián đoạn · Việc đã dừng');
+assert.doesNotMatch(detail({status:'completed',failure:'saved_account_runtime_unavailable'}),/Nhập lại API key/);
+console.log('Saved-account status copy: 6 checks PASS (no rendered UI claim)');

@@ -226,6 +226,12 @@ func (m *Manager) Run(ctx context.Context) {
 	}
 }
 func (m *Manager) execute(ctx context.Context, w ledger.Work) {
+	// Saved-account admission is not permission to use the fixture or profile
+	// transport. Keep this fail-closed until private Rust/Core bootstrap exists.
+	if w.SavedAccountPolicy != nil {
+		m.failed(w, "saved_account_runtime_unavailable")
+		return
+	}
 	mode, selection := "--fixture-endpoint", m.config.FixtureEndpoint
 	privateEnvironment := []string{}
 	if w.CoreProfilePin != nil {

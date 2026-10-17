@@ -58,3 +58,28 @@ and signing remain open in the [roadmap](ROADMAP.md).
 Do not rerun this entire baseline without a source change or a new risk. Subsequent
 slices should prove their user-visible outcome with the smallest relevant regression
 and integration checks, then save and verify a source checkpoint.
+
+## Subsequent saved-account slices
+
+- `d6f45ef382813f633778207fd94a3245f028aaf9`: Core read-only witness consumption,
+  including nonblocking FIFO substitution rejection. Focused checks: 22 passed,
+  one Windows-only skip; Core typecheck/lint passed.
+- `f770240d5dd3cca95111ecb761ff951de49399b5`: bounded private
+  `saved-account prepare --json --broker-stdin` entry point, with a public receipt
+  and no provider call. Final CLI checks: seven passed, one Windows-only skip;
+  adjacent checks: 43 passed, two skipped; typecheck/lint passed.
+- `8748743844f82b919c6c1c0c74453464a7ba840a`: optional loopback terminal helper.
+  Its presence is not evidence of a working owner handoff, authenticated provider,
+  encrypted vault or permanent secret storage. No key was entered in this cloud run.
+- `e60e8cf8ecb33a9243b32558bb3623f20ecfccf8`: policy-bound saved-account ledger
+  admission. The original Send request supplies the consent identity; no extra
+  user approval dialog is introduced. Account revision, context and executor
+  authority are checked live; fixture leases cannot be promoted. The ledger
+  package passed on Linux, and the combined diff received independent review.
+  This commit was local-only when recorded; publication was interrupted.
+
+The last slice is deliberately not an enabled execution path. The existing v1
+request/step/time bounds describe its narrow development contract, not the final
+long-running assistant experience. Runtime lifecycle, trusted-host launch and
+native Windows consumption must be connected before claiming saved-account
+execution. Real GLM inference remains untested; the owner postponed key entry.
