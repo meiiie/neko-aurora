@@ -81,7 +81,7 @@ func validAccountLease(w Work) bool {
 	if l.AccountID != w.Account.AccountID || l.AccountRevision != w.Account.Revision || l.CredentialGeneration != w.Account.CredentialGeneration || l.ContextSHA256 != contextHash(w) {
 		return false
 	}
-	return e1 == nil && e2 == nil && expiry.After(issued) && expiry.Sub(issued) <= 10*time.Minute && l.Version == 1 && strings.HasPrefix(l.ID, "lease-") && lowerHex(strings.TrimPrefix(l.ID, "lease-"), 32) && l.RequestID == w.RequestID && l.BotID == w.BotID && l.OwnerUserID == w.OwnerUserID && l.SpaceID == w.SpaceID && l.Audience == w.ConversationID && l.AttemptID == w.AttemptID && l.Epoch == w.Epoch && l.Fence > 0 && l.Scope == "local-controlled-fixture"
+	return e1 == nil && e2 == nil && expiry.After(issued) && expiry.Sub(issued) <= 10*time.Minute && l.Version == 1 && strings.HasPrefix(l.ID, "lease-") && lowerHex(strings.TrimPrefix(l.ID, "lease-"), 32) && l.RequestID == w.RequestID && l.BotID == w.BotID && l.OwnerUserID == w.OwnerUserID && l.SpaceID == w.SpaceID && l.Audience == w.ConversationID && l.AttemptID == w.AttemptID && l.Epoch == w.Epoch && l.Fence > 0 && ((l.Scope == "local-controlled-fixture" && w.SavedAccountPolicy == nil) || (l.Scope == savedAccountLeaseScope && validSavedAccountPolicy(w.SavedAccountPolicy) && expiry.Sub(issued) == time.Duration(w.SavedAccountPolicy.Limits.MaxSeconds)*time.Second))
 }
 func (s *Store) accountGuard(w Work, lease bool) (func(), error) {
 	if s.closed || s.poisoned {

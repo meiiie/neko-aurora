@@ -47,6 +47,10 @@ type Operation struct {
 }
 
 func copyWork(w Work) Work {
+	if w.SavedAccountPolicy != nil {
+		p := *w.SavedAccountPolicy
+		w.SavedAccountPolicy = &p
+	}
 	if w.CoreProfileGroupBinding != nil {
 		p := *w.CoreProfileGroupBinding
 		w.CoreProfileGroupBinding = &p
@@ -266,7 +270,8 @@ func (s *Store) update(id string, epoch uint64, typ string, change func(*Work) e
 	}
 	return w, err
 }
-func (s *Store) Claim(id string, epoch uint64) (Work, error) {
+func (s *Store) Claim(id string, epoch uint64) (Work, error) { return s.claim(id, epoch, nil) }
+func (s *Store) claim(id string, epoch uint64, policy *SavedAccountPolicy) (Work, error) {
 	attempt, err := newID("attempt-")
 	if err != nil {
 		return Work{}, err
@@ -279,6 +284,15 @@ func (s *Store) Claim(id string, epoch uint64) (Work, error) {
 			return ErrInvalid
 		}
 		old := copyWork(*w)
+		if policy != nil {
+			if !validSavedAccountPolicy(policy) || !neverLaunched(old) || old.AccountLease != nil || old.SavedAccountPolicy != nil || old.Account == nil || !s.executorRequired || !s.contextAdmissionRequired {
+				return ErrConflict
+			}
+			p := *policy
+			w.SavedAccountPolicy = &p
+		} else if w.SavedAccountPolicy != nil {
+			return ErrConflict
+		}
 		if s.contextAdmissionRequired && w.ContextProtocolVersion == 0 {
 			if !neverLaunched(old) || len(old.Operations) != 0 {
 				return ErrConflict
@@ -303,6 +317,10 @@ func (s *Store) Claim(id string, epoch uint64) (Work, error) {
 			}
 			now := s.clock()
 			w.AccountLease = &AccountLease{Version: 1, ID: id, RequestID: w.RequestID, BotID: w.BotID, OwnerUserID: w.OwnerUserID, SpaceID: w.SpaceID, Audience: w.ConversationID, AttemptID: attempt, Epoch: w.Epoch, Fence: fence, IssuedAt: now.Format(time.RFC3339Nano), ExpiresAt: now.Add(10 * time.Minute).Format(time.RFC3339Nano), Scope: "local-controlled-fixture"}
+			if policy != nil {
+				w.AccountLease.Scope = savedAccountLeaseScope
+				w.AccountLease.ExpiresAt = now.Add(time.Duration(policy.Limits.MaxSeconds) * time.Second).Format(time.RFC3339Nano)
+			}
 			w.AccountLease.AccountID = w.Account.AccountID
 			w.AccountLease.AccountRevision = w.Account.Revision
 			w.AccountLease.CredentialGeneration = w.Account.CredentialGeneration
@@ -312,7 +330,14 @@ func (s *Store) Claim(id string, epoch uint64) (Work, error) {
 		w.RuntimeStopReceipt = nil
 		w.RuntimeAttemptBinding = nil
 		w.Failure = ""
-		return s.claimExecutor(old, w)
+		if err := s.claimExecutor(old, w); err != nil {
+			return err
+		}
+		if policy != nil {
+			_, err := savedAccountBinding(*w)
+			return err
+		}
+		return nil
 	})
 }
 func (s *Store) Admit(id string, epoch uint64, b CoreBinding) error {
@@ -468,6 +493,15 @@ func validRuntimeReplay(s *Store, e Event) bool {
 	}
 	switch e.Type {
 	case "work.claimed":
+		if w.SavedAccountPolicy != nil {
+			if old.SavedAccountPolicy != nil || old.AccountLease != nil || !neverLaunched(old) {
+				return false
+			}
+			if _, err := savedAccountBinding(w); err != nil {
+				return false
+			}
+			expected.SavedAccountPolicy = w.SavedAccountPolicy
+		}
 		if e.ContextClaimVersion == 1 {
 			if old.ContextProtocolVersion != 0 || !neverLaunched(old) || len(old.Operations) != 0 || w.ContextProtocolVersion != 1 || !s.validNewRuntimeContext(w) {
 				return false

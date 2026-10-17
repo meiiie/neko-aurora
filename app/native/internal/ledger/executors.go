@@ -40,6 +40,9 @@ func ExecutorAuthorityHash(w Work) string {
 	// Only immutable authority. Epoch and attempt have their own lease fields;
 	// live status, reply, control revisions and old Core provenance are excluded.
 	payload := map[string]any{"domain": "nekobot-task-authority-v1", "requestId": w.RequestID, "sourceMessageId": w.SourceMessageID, "owner": w.OwnerUserID, "space": w.SpaceID, "bot": w.BotID, "botConfigRevision": w.BotConfigRevision, "audience": w.ConversationID, "text": w.Text, "lane": w.Lane, "publication": w.Publication, "account": w.Account, "resources": w.Resources, "adapter": w.Adapter, "context": w.Context, "toolPolicyVersion": w.ToolPolicyVersion, "pluginPins": w.PluginPins, "collaboration": w.Collaboration, "taskLink": w.TaskLink, "executorPin": w.ExecutorPin}
+	if w.SavedAccountPolicy != nil {
+		payload["savedAccountPolicy"] = w.SavedAccountPolicy
+	}
 	if w.CoreProfilePin != nil {
 		payload["coreProfilePin"] = w.CoreProfilePin
 	}

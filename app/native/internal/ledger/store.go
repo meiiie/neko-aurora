@@ -50,6 +50,7 @@ type Input struct {
 	Lane        string `json:"lane"`
 }
 type Work struct {
+	SavedAccountPolicy         *SavedAccountPolicy         `json:"savedAccountPolicy,omitempty"`
 	CoreProfileGroupBinding    *CoreProfileGroupBinding    `json:"coreProfileGroupBinding,omitempty"`
 	CoreProfileSelection       *CoreProfileSelection       `json:"coreProfileSelection,omitempty"`
 	CoreProfilePin             *CoreProfilePin             `json:"coreProfilePin,omitempty"`
