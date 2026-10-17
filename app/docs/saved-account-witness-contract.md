@@ -130,3 +130,42 @@ it by creating a fresh state directory or resetting consumed limits.
 Linux x64 / Bun 1.4.0 acceptance is scoped to the isolated reader and existing
 saved-account bridge tests. Windows native execution, private Rust/Core execution bootstrap,
 restart/tombstone provenance and provider/account readiness remain open gates.
+
+## Native acceptance handoff for the staged path
+
+The internal host/Core implementation has progressed beyond the earlier reader
+checkpoint; see [cloud evidence](../../docs/cloud-checkpoint-20261016.md) and the
+[private ACP contract](../../core/docs/process/SAVED-ACCOUNT-ACP.md). Its public
+activation is still off. Run the following from the repository root on actual
+Windows, using installed Rust/Cargo, Go and Bun. Do not enter a real API key:
+these cases use authored synthetic values and temporary DPAPI data.
+
+PowerShell preparation for the existing DPAPI-to-Core fixture:
+
+```powershell
+if ($env:OS -ne 'Windows_NT') { throw 'Native Windows is required.' }
+$env:FIXTURE_BUN_EXE = (Get-Command bun -ErrorAction Stop).Source
+$env:FIXTURE_SAVED_CORE_MODULE = (Resolve-Path 'core/src/adapters/saved-account-bridge.ts').Path
+cargo test --locked --manifest-path app/host/Cargo.toml --test executable_guard --test saved_task_witness --test saved_key
+if ($LASTEXITCODE -ne 0) { throw 'Native host acceptance failed.' }
+cargo test --locked --manifest-path app/host/Cargo.toml --lib saved_account_process::native_tests
+if ($LASTEXITCODE -ne 0) { throw 'Native broker acceptance failed.' }
+Push-Location app/native
+try {
+    go test -count=1 ./internal/providerexec ./internal/runtime ./internal/ledger
+    if ($LASTEXITCODE -ne 0) { throw 'Native authority acceptance failed.' }
+} finally { Pop-Location }
+```
+
+Use a fresh terminal for these fixture environment variables; close it afterward.
+Record the exact source commit, tool versions and complete outcomes. A zero-test
+result, skipped platform case or cross-compilation does not satisfy this handoff.
+The expected broker scenarios include descendants holding pipes, blocked input,
+cancellation, oversized receipts and nonzero exit; verify they actually execute.
+
+These tests are necessary, not a complete release gate. A separate end-to-end
+launch must prove the validated Go envelope, durable admission acknowledgments,
+private Rust preparation and the same Core ACP session cooperate under cancel,
+account rotation and restart denial. Only then should the existing public gate be
+considered for activation. Real provider/account acceptance remains separate and
+requires the owner's secure handoff; fixture success never proves GLM access.
