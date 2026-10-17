@@ -125,3 +125,18 @@ Portable guard tests (two) and existing executor tests (four) passed with Rust
 Windows sharing/rename/junction/process tests and WSL/direct runtime acceptance
 were NOT RUN. Independent source review found no blocker; native verification
 remains required before saved-account activation.
+
+### Private saved-account host envelope
+
+The host now has a closed-schema preparation/envelope seam that reuses the existing
+saved-key broker callback and retains protected Core/host images. Catalog storage
+must be canonically disjoint from the task root; capsule and witness paths cannot
+enter the task-visible tree. The ACP envelope excludes the provider key, secret
+reference and catalog path, but contains the revision key: it remains private
+secret-bearing material and must never enter transcripts or public diagnostics.
+
+Six portable metadata/layout regressions passed; Windows test code compiled,
+including a synthetic DPAPI preparation case that has NOT RUN. Independent review
+caught and verified the catalog-root separation fix. This slice does not implement
+or claim a bounded native subprocess pump. Pipe cancellation, descendant-held
+handles and teardown still require a verified transport before launcher activation.

@@ -40,15 +40,21 @@ pub struct Binding {
 }
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
-struct Request {
-    version: u32,
-    purpose: String,
-    binding: Binding,
-    secret_ref: String,
-    connections_root: String,
-    capsule_path: String,
-    state_home: String,
-    revision_key: String,
+pub(crate) struct Request {
+    pub(crate) version: u32,
+    pub(crate) purpose: String,
+    pub(crate) binding: Binding,
+    pub(crate) secret_ref: String,
+    pub(crate) connections_root: String,
+    pub(crate) capsule_path: String,
+    pub(crate) state_home: String,
+    pub(crate) revision_key: String,
+}
+impl Drop for Request {
+    fn drop(&mut self) {
+        let mut key = std::mem::take(&mut self.revision_key).into_bytes();
+        key.fill(0);
+    }
 }
 #[derive(Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
@@ -219,14 +225,27 @@ pub fn prepare<F>(
     private_request: &[u8],
     now: u64,
     authorize: Option<&dyn Fn(&Binding) -> bool>,
+    broker: F,
+) -> Result<BrokerReceipt>
+where
+    F: FnMut(&mut [u8]) -> Result<Vec<u8>>,
+{
+    prepare_internal(private_request, now, authorize, None, broker)
+}
+pub(crate) fn prepare_internal<F>(
+    private_request: &[u8],
+    now: u64,
+    authorize: Option<&dyn Fn(&Binding) -> bool>,
+    metadata: Option<&Value>,
     mut broker: F,
 ) -> Result<BrokerReceipt>
 where
     F: FnMut(&mut [u8]) -> Result<Vec<u8>>,
 {
     let started = std::time::Instant::now();
-    let raw = crate::canonical(private_request).map_err(|_| "saved_key_input_invalid")?;
-    let request: Request = serde_json::from_slice(&raw).map_err(|_| "saved_key_input_invalid")?;
+    let raw =
+        PrivateFrame(crate::canonical(private_request).map_err(|_| "saved_key_input_invalid")?);
+    let request: Request = serde_json::from_slice(&raw.0).map_err(|_| "saved_key_input_invalid")?;
     let b = &request.binding;
     if request.version != 1
         || request.purpose != "saved_account_task_v1"
@@ -287,12 +306,24 @@ where
                 return Err("saved_key_material_invalid");
             }
             let mut payload = json!({"version":1,"purpose":"saved_account_task_v1","binding":b,"secret":material,"capsulePath":request.capsule_path,"stateHome":request.state_home,"revisionKey":request.revision_key});
+            if let Some(metadata) = metadata {
+                for key in [
+                    "witnessPath",
+                    "serviceGeneration",
+                    "authoritySHA256",
+                    "nativeWitness",
+                ] {
+                    payload[key] = metadata[key].clone();
+                }
+            }
             let frame = serde_json::to_vec(&payload).map_err(|_| "saved_key_input_invalid");
-            if let Some(Value::String(secret)) =
-                payload.as_object_mut().and_then(|o| o.remove("secret"))
-            {
-                let mut bytes = secret.into_bytes();
-                bytes.fill(0);
+            for key in ["secret", "revisionKey"] {
+                if let Some(Value::String(material)) =
+                    payload.as_object_mut().and_then(|o| o.remove(key))
+                {
+                    let mut bytes = material.into_bytes();
+                    bytes.fill(0);
+                }
             }
             let mut frame = PrivateFrame(frame?);
             if frame.0.len() > 16384 {

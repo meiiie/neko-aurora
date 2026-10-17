@@ -238,3 +238,54 @@ fn terminal_authority_check_cannot_extend_original_deadline() {
     .is_err());
     assert_eq!(checks.load(Ordering::SeqCst), 3);
 }
+
+#[test]
+fn private_native_metadata_reaches_prepare_and_provider_secret_stays_out_of_acp() {
+    use neko_host::{
+        executable_guard::ExecutableGuard,
+        executor,
+        saved_account_bootstrap::{self, ProtectedExecutables, WitnessMetadata},
+    };
+    let (root, mut input) = fixture();
+    let task = root.join("execution");
+    let home = task.join(".core-home");
+    fs::create_dir_all(&home).unwrap();
+    input["stateHome"] = json!(home);
+    let executable = std::env::current_exe().unwrap();
+    let image = ExecutableGuard::open(&executable).unwrap();
+    let descriptor = executor::descriptor(image.sha256().to_owned(), &root).unwrap();
+    drop(image);
+    let images = ProtectedExecutables::open(&executable, &descriptor).unwrap();
+    let witness = WitnessMetadata {
+        path: root.join("private/witness.json"),
+        service_generation: format!("executor-boot-{}", "e".repeat(32)),
+        authority_sha256: "f".repeat(64),
+    };
+    let prepared = saved_account_bootstrap::prepare(
+        &serde_json::to_vec(&input).unwrap(),
+        now(),
+        Some(&|_| true),
+        &witness,
+        &task,
+        images,
+        |frame| {
+            let value: Value = serde_json::from_slice(frame).unwrap();
+            assert_eq!(value["witnessPath"], json!(witness.path));
+            assert_eq!(value["serviceGeneration"], witness.service_generation);
+            assert_eq!(value["authoritySHA256"], witness.authority_sha256);
+            assert_eq!(
+                value["nativeWitness"]["executableSHA256"],
+                descriptor.host_sha256
+            );
+            Ok(serde_json::to_vec(&response(frame)).unwrap())
+        },
+    )
+    .unwrap();
+    let private_text = std::str::from_utf8(prepared.frame()).unwrap();
+    assert!(!private_text.contains("fixture-saved-account-private-material"));
+    assert!(!private_text.contains("secretRef"));
+    assert!(!private_text.contains("connectionsRoot"));
+    assert!(private_text.ends_with('\n'));
+    drop(prepared);
+    fs::remove_dir_all(root).unwrap();
+}
