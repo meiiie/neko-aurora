@@ -89,11 +89,19 @@ async function journalBoundaryGate(){
  const source=await readFile(path.join(root,'native/internal/web/assets/app.js'),'utf8');
  const code=source.slice(source.indexOf('const commandJournalKey='));
  if(!code.startsWith('const commandJournalKey='))throw Error('Journal boundary missing');
+ // These dependencies are single-line production helpers, without adjacent UI initializers.
+ const extract=name=>{const line=source.split('\n').find(line=>line.startsWith('function '+name+'('));if(!line||!line.endsWith('}'))throw Error('Missing actual UI helper '+name);return line};
  const checks=[];
  const test=async(name,operation)=>{try{if(!(await operation()))throw Error('assertion');checks.push({name,status:'PASS'})}catch{checks.push({name,status:'FAIL'})}};
  const make=()=>{
   const storage=new Map(),element={addEventListener(){}};let chain=Promise.resolve();
   const context=vm.createContext({crypto:webcrypto,TextEncoder,URLSearchParams,Date,Map,Set,console,localStorage:{getItem:key=>storage.get(key)??null,setItem:(key,value)=>storage.set(key,value)},navigator:{locks:{request:(name,operation)=>{const next=chain.then(operation);chain=next.catch(()=>{});return next}}},controlLabels:{pause:'pause',resume:'resume',cancel:'cancel',supplement:'supplement',replace:'replace'},taskCommands:new Map(),groupCommands:new Map(),groupCancels:new Map(),state:{botId:'bot-one',work:new Map(),bots:[],channels:[],accounts:[],projects:[],files:[],capabilities:[]},$:()=>element,inputView:input=>'conversation-'+input.botId,viewKey:()=> 'conversation-bot-one'});
+  // Model a verified local-owner session; keep session/cache checks from production.
+  context.sessionState={ready:true,generation:1,metadata:{mode:'local_owner'}};
+  context.window={addEventListener(){}};
+  context.groupRecovers=new Map();
+  context.render=()=>{};
+  vm.runInContext(['cacheKey','cacheGet','cacheSet','savedSelection','sessionCurrent','requireSession','groupProfileRetryIssue','groupRecoveryBlocksCancel'].map(extract).join('\n'),context);
   vm.runInContext(code,context);
   const evaluate=expression=>vm.runInContext(expression,context);
   evaluate('work={requestId:"request-one",botId:"bot-one",conversationId:"conversation-bot-one",epoch:1,taskRevision:0};command={body:{version:1,requestId:work.requestId,expectedEpoch:1,expectedRevision:0,action:"pause",clientNonce:"nonce-original"}}');
