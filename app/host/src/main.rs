@@ -834,7 +834,13 @@ fn executor_probe() -> Result<()> {
     Ok(())
 }
 fn main() {
-    let result = if env::args().nth(1).as_deref() == Some("--executor-probe") {
+    let result = if env::args().nth(1).as_deref() == Some("--saved-witness-reader") {
+        if env::args().count() != 2 {
+            Err("witness_reader_arguments")
+        } else {
+            neko_host::saved_task_witness::serve(&mut io::stdin().lock(), &mut io::stdout().lock())
+        }
+    } else if env::args().nth(1).as_deref() == Some("--executor-probe") {
         executor_probe()
     } else if matches!(
         env::args().nth(1).as_deref(),

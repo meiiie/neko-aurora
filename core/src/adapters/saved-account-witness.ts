@@ -4,7 +4,7 @@ import { dirname, isAbsolute, normalize } from "node:path";
 import { isJsonObject, isText, type JsonValue } from "../shared/wire.ts";
 import { parseSavedAccountBinding, type SavedAccountAuthority, type SavedAccountBinding } from "./saved-account-bridge.ts";
 
-interface Options {
+export interface SavedAccountWitnessOptions {
  binding:SavedAccountBinding; witnessPath:string; serviceGeneration:string; authoritySHA256:string; revisionKey:string;
 }
 const HEX=/^[a-f0-9]{64}$/;
@@ -47,12 +47,21 @@ function readWitness(path:string):string {
  * One live reader per task. No whole-state rollback or restart/tombstone guarantee.
  * Windows is deliberately denied until native handle/reparse identity is verified.
  */
-export function createSavedAccountWitnessAuthority(options:Options):SavedAccountAuthority {
+export function createSavedAccountWitnessAuthority(options:SavedAccountWitnessOptions):SavedAccountAuthority {
+ try {
+  const path=options.witnessPath;
+  if(process.platform==="win32"||!isAbsolute(path)||normalize(path)!==path||Buffer.byteLength(path)>4096||/[\x00-\x1f\x7f]/.test(path))fail();
+  return createSavedAccountWitnessVerifier(options,()=>readWitness(path));
+ }catch{return fail();}
+}
+
+/** Shared signed-record verifier. Only trusted readers supply original bounded bytes;
+ * callbacks do not select or broaden the binding, boot, key or proof deadlines. */
+export function createSavedAccountWitnessVerifier(options:SavedAccountWitnessOptions,read:()=>string):SavedAccountAuthority {
  try {
   const binding=parseSavedAccountBinding(options.binding),bindingHash=digest(binding);
-  const {witnessPath:path,serviceGeneration:boot,authoritySHA256:authority,revisionKey}=options;
-  if(process.platform==="win32"||!isAbsolute(path)||normalize(path)!==path||Buffer.byteLength(path)>4096||/[\x00-\x1f\x7f]/.test(path)
-   ||!/^executor-boot-[a-f0-9]{32}$/.test(boot)||!HEX.test(authority)||!HEX.test(revisionKey))fail();
+  const {serviceGeneration:boot,authoritySHA256:authority,revisionKey}=options;
+  if(!/^executor-boot-[a-f0-9]{32}$/.test(boot)||!HEX.test(authority)||!HEX.test(revisionKey))fail();
   const material=Buffer.from(revisionKey,"hex");
   const key=createHmac("sha256",material).update("neko-saved-key-v1/authority-witness").digest();material.fill(0);
   const openedWall=Date.now(),openedMono=performance.now(),taskDeadline=openedMono+binding.expiresAtUnixMS-openedWall;
@@ -66,7 +75,8 @@ export function createSavedAccountWitnessAuthority(options:Options):SavedAccount
    if(terminal)return false;
    try {
     if(digest(parseSavedAccountBinding(candidate))!==bindingHash)fail();clock();
-    const raw=readWitness(path);
+    const raw=read();
+    if(Buffer.byteLength(raw)>4096)fail();
     // SAFETY: JSON parsing yields the JSON domain; exact schema and field types follow.
     const record=JSON.parse(raw) as JsonValue;
     if(!isJsonObject(record)||Object.keys(record).sort().join()!==KEYS||canonical(record)!==raw

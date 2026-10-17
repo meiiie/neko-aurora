@@ -83,3 +83,29 @@ request/step/time bounds describe its narrow development contract, not the final
 long-running assistant experience. Runtime lifecycle, trusted-host launch and
 native Windows consumption must be connected before claiming saved-account
 execution. Real GLM inference remains untested; the owner postponed key entry.
+
+### Runtime and native-reader continuation
+
+`c0de4f7` adds runtime-owned witness lifetime and rejects saved-account attempts
+before fixture dispatch. A review reproduced two owners from simultaneous starts;
+an atomic retained owner-directory reservation now rejects the loser without
+retiring another session. This is cooperative same-path ownership, not protection
+against an adversarial filesystem owner. Runtime package race checks and vet passed
+on Go 1.27.2/Linux; the concurrent-start regression passed ten race-enabled runs.
+The UI now explains this unavailable runtime path without asking the owner to
+re-enter their key (six source-function checks, not rendered-device acceptance).
+
+The subsequent Rust/Core native-reader slice uses one private helper session, not
+one process per polling interval. Rust bounds frames and checks Windows file and
+ancestor identity; Core verifies the original signed bytes and retains proof TTLs.
+Observation freshness is explicitly bounded to 100 ms from request send, sampled
+at 50 ms; stale/failed transport permanently closes authority. This changes native
+observation to bounded sampling, not an instantaneous filesystem revocation claim.
+
+Rust Linux protocol/command checks passed (six plus two); Windows-target test code
+compiled but was not executed. Core focused witness/bridge/prepare checks passed
+(34 passed, two Windows-only skips), plus typecheck/lint. Independent source review
+found no blocker within the stated trusted-launcher assumptions. Helper checksum
+verification is a preflight pathname check, not atomic executable identity.
+Protected installation and actual Windows tests are activation prerequisites.
+The adapter remains absent from CLI/ACP/UI activation; no provider was called.
