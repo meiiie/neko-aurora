@@ -1,6 +1,6 @@
 import { isJsonObject, isText, type JsonValue } from "../shared/wire.ts";
 import { parseSavedAccountBinding, prepareSavedAccountCapsule, type SavedAccountReceipt } from "./saved-account-bridge.ts";
-import { createSavedAccountWitnessAuthority } from "./saved-account-witness.ts";
+import { openSavedAccountWitness, parseNativeWitnessDescriptor, type NativeWitnessDescriptor } from "./saved-account-witness.ts";
 
 const KEYS=["version","purpose","binding","secret","capsulePath","stateHome","revisionKey","witnessPath","serviceGeneration","authoritySHA256"].sort().join();
 function fail():never {throw new Error("Saved account preparation unavailable");}
@@ -33,11 +33,24 @@ export async function prepareSavedAccountFromStdin(argv:string[]):Promise<SavedA
   const raw=await privateInput(),body=raw.endsWith("\n")?raw.slice(0,-1):raw;
   // SAFETY: JSON syntax enters the JSON domain; exact canonical schema follows.
   const input=JSON.parse(body) as JsonValue;
-  if(!isJsonObject(input)||Object.keys(input).sort().join()!==KEYS||canonical(input)!==body
+  // Native activation stays unavailable through the current CLI until its gate.
+  if(!isJsonObject(input)||Object.hasOwn(input,"nativeWitness")||canonical(input)!==body)fail();
+  return await prepareSavedAccountEnvelope(input);
+ }catch{return fail();}
+}
+
+/** Internal trusted host envelope flow; no argv/env activation or fallback. */
+export async function prepareSavedAccountEnvelope(input:JsonValue):Promise<SavedAccountReceipt> {
+ try {
+  if(!isJsonObject(input))fail();
+  const expected=input.nativeWitness===undefined?KEYS:[...KEYS.split(","),"nativeWitness"].sort().join();
+  if(Object.keys(input).sort().join()!==expected
    ||!input.binding||!isText(input.witnessPath)||!isText(input.serviceGeneration)||!isText(input.authoritySHA256)||!isText(input.revisionKey))fail();
-  const {witnessPath,serviceGeneration,authoritySHA256,...capsule}=input;
+  const {witnessPath,serviceGeneration,authoritySHA256,nativeWitness,...capsule}=input;
   const binding=parseSavedAccountBinding(input.binding);
-  const authority=createSavedAccountWitnessAuthority({binding,witnessPath,serviceGeneration,authoritySHA256,revisionKey:input.revisionKey});
-  return prepareSavedAccountCapsule(capsule,authority);
+  const options: Parameters<typeof openSavedAccountWitness>[0] & {nativeWitness?:NativeWitnessDescriptor}={binding,witnessPath,serviceGeneration,authoritySHA256,revisionKey:input.revisionKey};
+  if(nativeWitness!==undefined)options.nativeWitness=parseNativeWitnessDescriptor(nativeWitness);
+  const session=await openSavedAccountWitness(options);
+  try{return prepareSavedAccountCapsule(capsule,session.authority);}finally{await session.close();}
  }catch{return fail();}
 }

@@ -23,7 +23,7 @@ const posix=test.skipIf(process.platform==="win32");
 posix("native session awaits verified proof, renews, and close poisons authority and reaps helper",async()=>{
  const f=fixture(),session=await openNativeSavedAccountWitness(f.options);const pid=f.pid();
  try{expect(session.authority(f.pins.binding)).toBe(true);f.write(3);await Bun.sleep(70);expect(session.authority(f.pins.binding)).toBe(true);}finally{await session.close();}
- expect(session.authority(f.pins.binding)).toBe(false);expect(()=>process.kill(pid,0)).toThrow();await session.close();
+ expect(session.authority(f.pins.binding)).toBe(false);expect(session.signal.aborted).toBe(true);expect(()=>process.kill(pid,0)).toThrow();await session.close();
 });
 posix("native reader requires matching executable checksum and signed authority",async()=>{
  const f=fixture();await expect(openNativeSavedAccountWitness({...f.options,executableSHA256:"0".repeat(64)})).rejects.toThrow("Saved account authority unavailable");

@@ -103,3 +103,26 @@ export function createSavedAccountWitnessVerifier(options:SavedAccountWitnessOpt
   return check;
  }catch{return fail();}
 }
+
+export interface NativeWitnessDescriptor {executable:string;executableSHA256:string}
+export function parseNativeWitnessDescriptor(value:JsonValue):NativeWitnessDescriptor {
+ if(!isJsonObject(value)||Object.keys(value).sort().join()!=="executable,executableSHA256"
+  ||!isText(value.executable)||!isText(value.executableSHA256)||!HEX.test(value.executableSHA256))fail();
+ return Object.freeze({executable:value.executable,executableSHA256:value.executableSHA256});
+}
+
+/** Shared private prepare/consume lifetime. Native metadata comes only from the
+ * retained trusted host guard; the ordinary CLI does not enable it yet. */
+export async function openSavedAccountWitness(options:SavedAccountWitnessOptions & {nativeWitness?:NativeWitnessDescriptor}) {
+ if(options.nativeWitness) {
+  const {openNativeSavedAccountWitness}=await import("./saved-account-native-witness.ts");
+  return openNativeSavedAccountWitness({...options,...options.nativeWitness});
+ }
+ const current=createSavedAccountWitnessAuthority(options),lifetime=new AbortController();
+ const authority:SavedAccountAuthority=binding=>{
+  if(lifetime.signal.aborted)return false;
+  if(current(binding))return true;lifetime.abort();clearInterval(timer);return false;
+ };
+ const timer=setInterval(()=>authority(options.binding),50);
+ return {authority,signal:lifetime.signal,close:async()=>{clearInterval(timer);lifetime.abort();}};
+}

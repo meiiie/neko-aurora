@@ -140,3 +140,19 @@ including a synthetic DPAPI preparation case that has NOT RUN. Independent revie
 caught and verified the catalog-root separation fix. This slice does not implement
 or claim a bounded native subprocess pump. Pipe cancellation, descendant-held
 handles and teardown still require a verified transport before launcher activation.
+
+### Internal ACP startup integration
+
+The Core adapter now reuses the existing ACP agent loop with private bootstrap
+framing, one canonical root/session/primary prompt and the complete context-manifest
+digest. Coalesced ACP bytes after the initial line are preserved. Revocation waits
+for in-flight session construction and closes late runtimes; a review regression
+also covers whitespace-prefixed command denial. The existing public CLI still
+rejects native metadata and does not dispatch this staged adapter.
+
+On final code, `bun test test/acp*.test.ts test/saved-account*.test.ts` passed
+136 tests with two Windows-only skips across 16 files; typecheck/lint, documentation,
+whitespace and redacted candidate secret checks passed. Independent source review
+cleared both reported fixes. This is internal-flow verification, not provider or
+Windows acceptance. Host durable admitted/prompt-ready acknowledgments, production
+private-pipe transport and native gates remain necessary for product activation.

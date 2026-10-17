@@ -205,6 +205,10 @@ export interface AcpRuntimeFactoryOptions {
   hostProfile?: HostCapabilityProfile;
   /** Trusted launcher opt-in; never selected by ACP input or model content. */
   contextProtocol?: 1;
+  /** Private launcher pin, never selected by ACP metadata. Fresh one-turn launches only. */
+  savedAccountLaunch?: Readonly<{root:string;contextSHA256:string}>;
+  /** Launcher-owned lifetime: revocation closes the connection and its runtime. */
+  signal?: AbortSignal;
 }
 
 function modeState(mode: PermissionMode, profile?: HostCapabilityProfile): acp.SessionModeState {
@@ -406,6 +410,15 @@ export function createNekoAcpAgent(options: AcpRuntimeFactoryOptions = {}): acp.
   const buildRuntime = options.buildRuntime ?? buildAgentRuntime;
   const baseConfig = options.config;
   const hostProfile = options.hostProfile;
+  const savedLaunch = options.savedAccountLaunch ? Object.freeze({...options.savedAccountLaunch}) : undefined;
+  const savedDenied = () => new acp.RequestError(-32002, "Saved account launch unavailable");
+  if (savedLaunch && (hostProfile?.id !== "nekobot" || options.contextProtocol !== 1
+    || !/^[a-f0-9]{64}$/.test(savedLaunch.contextSHA256) || !isAbsolute(savedLaunch.root))) throw savedDenied();
+  const savedRoot = savedLaunch ? sessionRoot(savedLaunch.root) : undefined;
+  let savedSessionClaimed = false, savedPromptClaimed = false, savedPrimaryText: string | undefined;
+  let savedClosed = false;
+  const savedAdmissions = new Set<Promise<acp.NewSessionResponse>>();
+
   if (options.contextProtocol !== undefined && (options.contextProtocol !== 1
     || hostProfile?.id !== "nekobot" || hostProfile.operationProtocol !== 1)) {
     throw new Error("Context admission requires the trusted NekoBot host profile and protocol v1");
@@ -1165,10 +1178,20 @@ export function createNekoAcpAgent(options: AcpRuntimeFactoryOptions = {}): acp.
     }
     const hostServer = sessionHostServer(params);
     const root = sessionRoot(params.cwd);
+    if (savedLaunch) {
+      if (savedClosed || options.signal?.aborted || savedSessionClaimed || !sameRoot(root, savedRoot!) || taskProtocol?.hostEffectVersion !== 1) throw savedDenied();
+      let manifest: ContextManifest;
+      try { manifest = parseContextManifest(params._meta?.["neko.contextManifest"]); }
+      catch { throw savedDenied(); }
+      if (contextManifestDigest(manifest) !== savedLaunch.contextSHA256) throw savedDenied();
+      // Burn admission before any asynchronous construction. Failure cannot open a second session.
+      savedSessionClaimed = true; savedPrimaryText = manifest.primaryMessage.text;
+    }
     const cfg = configForSession(root);
     const context = contextInput(params._meta, cfg, false);
     if (taskLabel !== undefined) {
       if (!isText(taskLabel)) throw new acp.RequestError(-32602, "neko.taskLabel must be a task label string.");
+      const admit = async () => {
       const coordinator = await createTaskSession({
         home: cfg.resolvedHome, root, label: taskLabel, ...context,
         authorityId: taskAuthorityId, configId: taskConfigId(cfg), contextMode: taskSessionContextMode(cfg),
@@ -1176,8 +1199,17 @@ export function createNekoAcpAgent(options: AcpRuntimeFactoryOptions = {}): acp.
         ...(taskProtocol ? { taskProtocol } : undefined),
         runtimeFactory: taskRuntimeFactory(root, cfg, client, hostServer),
       });
+      if (savedLaunch && (savedClosed || options.signal?.aborted)) {
+        await coordinator.close();
+        throw savedDenied();
+      }
       const { response } = await attachTaskSession(coordinator, client, false);
       return { sessionId: coordinator.id, ...response };
+      };
+      const admission = admit();
+      if (!savedLaunch) return admission;
+      savedAdmissions.add(admission);
+      try { return await admission; } finally { savedAdmissions.delete(admission); }
     }
     const now = new Date().toISOString();
     const record: Session = {
@@ -1208,6 +1240,7 @@ export function createNekoAcpAgent(options: AcpRuntimeFactoryOptions = {}): acp.
   });
 
   app.onRequest("session/list", ({ params }) => {
+    if (savedLaunch) throw savedDenied();
     const filter = params.cwd ? sessionRoot(params.cwd) : null;
     const offset = decodeCursor(params.cursor);
     const pageSize = 50;
@@ -1240,6 +1273,7 @@ export function createNekoAcpAgent(options: AcpRuntimeFactoryOptions = {}): acp.
     client: acp.AgentContext,
     replay: boolean,
   ) => {
+    if (savedLaunch) throw savedDenied();
     const taskProtocol = taskProtocolFromMeta(params._meta);
     if (taskProtocol?.hostEffectVersion && hostProfile?.id !== "nekobot") {
       throw new acp.RequestError(-32602, "Host effects require the restricted NekoBot launch profile.");
@@ -1354,6 +1388,7 @@ export function createNekoAcpAgent(options: AcpRuntimeFactoryOptions = {}): acp.
   });
 
   app.onRequest("session/set_mode", async ({ params, client }) => {
+    if (savedLaunch) throw savedDenied();
     const session = sessions.get(params.sessionId);
     if (!session) throw new acp.RequestError(-32002, "ACP session not found.");
     if (session.taskMode) throw new acp.RequestError(-32000,
@@ -1372,6 +1407,7 @@ export function createNekoAcpAgent(options: AcpRuntimeFactoryOptions = {}): acp.
   });
 
   app.onRequest("session/set_config_option", async ({ params, client }) => {
+    if (savedLaunch) throw savedDenied();
     const session = sessions.get(params.sessionId);
     if (!session) throw new acp.RequestError(-32002, "ACP session not found.");
     if (session.taskMode) throw new acp.RequestError(-32000,
@@ -1433,6 +1469,12 @@ export function createNekoAcpAgent(options: AcpRuntimeFactoryOptions = {}): acp.
     if (session.pending) throw new acp.RequestError(-32000, "An ACP prompt is already active for this session.");
     try { session.runtime.agent.assertHostEffectsReady(); }
     catch (error) { throw new acp.RequestError(-32002, error instanceof Error ? error.message : "Host effect is blocked"); }
+    if (savedLaunch) {
+      const block = params.prompt[0];
+      if (savedPromptClaimed || params.prompt.length !== 1 || block?.type !== "text" || block.text !== savedPrimaryText
+        || !block.text.trim() || /^\/(?:task|help|cost|sessions|tools|compact)(?:\s|$)/.test(block.text.trim())) throw savedDenied();
+      savedPromptClaimed = true;
+    }
     const input = promptText(params.prompt);
     if (params.prompt.some((block) => block.type === "image" || block.type === "audio")) {
       throw new acp.RequestError(-32602, "Neko ACP v1 does not advertise image or audio prompt support.");
@@ -1675,8 +1717,16 @@ export function createNekoAcpAgent(options: AcpRuntimeFactoryOptions = {}): acp.
   });
 
   app.onConnect((connection) => {
+    const stop = () => connection.close();
+    options.signal?.addEventListener("abort", stop, {once:true});
+    if (options.signal?.aborted) stop();
     const key = connectionKey(connection.client);
     const cleanup = connection.closed.finally(async () => {
+      options.signal?.removeEventListener("abort", stop);
+      if (savedLaunch) {
+        savedClosed = true;
+        await Promise.allSettled([...savedAdmissions]);
+      }
       computerCapabilities.delete(key);
       await Promise.allSettled([...taskTransitions.values()]);
       const open = [...sessions.values()].filter((session) => !session.taskMode);
@@ -1700,17 +1750,17 @@ export function createNekoAcpAgent(options: AcpRuntimeFactoryOptions = {}): acp.
 }
 
 /** Serve ACP v1 over stdio. Stdout is protocol-only; diagnostics belong on stderr. */
-export async function runAcpServer(options: AcpRuntimeFactoryOptions = {}): Promise<void> {
+export async function runAcpServer(options: AcpRuntimeFactoryOptions = {}, transport: {input:Readable;output:Writable} = {input:process.stdin,output:process.stdout}): Promise<void> {
   const stderrLog = console.error.bind(console);
   const previousLog = console.log;
   const previousWarn = console.warn;
   console.log = (...values: unknown[]) => stderrLog(...values);
   console.warn = (...values: unknown[]) => stderrLog(...values);
   try {
-    const output = Writable.toWeb(process.stdout);
+    const output = Writable.toWeb(transport.output);
     // SAFETY: Node's toWeb stream and the SDK's web ReadableStream are the same runtime object;
     // their generic variance differs only in type-argument defaults.
-    const input = webReadable(Readable.toWeb(process.stdin));
+    const input = webReadable(Readable.toWeb(transport.input));
     const cleanupTasks: Promise<void>[] = [];
     const connection = createNekoAcpAgent({
       ...options,

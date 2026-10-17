@@ -48,3 +48,7 @@ The focused subprocess tests use a checksum-checked synthetic executable on POSI
 to exercise this real transport and cleanup. They do not verify Windows native
 file identity, provider operation or runtime activation. Rust's real helper
 rejects non-Windows execution; there is no production fixture switch.
+
+The session also exposes a terminal abort signal for the internal ACP lifecycle.
+Witness failure closes ACP and awaits in-flight admission/runtime cleanup before
+helper reaping. [Internal startup](SAVED-ACCOUNT-ACP.md) remains unwired publicly.

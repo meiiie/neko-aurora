@@ -72,3 +72,8 @@ wrong key, mixed flags/environment, and input without EOF. Windows behavior is a
 explicit denial test, skipped on POSIX. Adjacent bridge, witness and profile-auth
 suites protect the reused boundaries. Synthetic local fixtures are not live
 provider, desktop-host integration or Windows native verification.
+
+The exported internal envelope function also accepts an optional exact
+`nativeWitness: {executable, executableSHA256}` descriptor and uses the shared
+native witness factory with awaited cleanup. The current CLI deliberately rejects
+this property until native acceptance. See [internal ACP startup](SAVED-ACCOUNT-ACP.md).

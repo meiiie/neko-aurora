@@ -9,7 +9,7 @@ import { createSavedAccountWitnessVerifier, type SavedAccountWitnessOptions } fr
 // Trusted launcher must establish a protected installation first. A hash/stat
 // check cannot prevent a writable pathname/ancestor being swapped before spawn.
 interface NativeOptions extends SavedAccountWitnessOptions {executable:string;executableSHA256:string}
-export interface NativeSavedAccountWitness {authority:SavedAccountAuthority;close():Promise<void>}
+export interface NativeSavedAccountWitness {authority:SavedAccountAuthority;signal:AbortSignal;close():Promise<void>}
 function unavailable():Error {return new Error("Saved account authority unavailable");}
 async function verifyTrustedExecutable(path:string,expected:string):Promise<void> {
  if(!isAbsolute(path)||normalize(path)!==path||/[\x00-\x1f\x7f]/.test(path)||!/^([a-f0-9]{64})$/.test(expected)||realpathSync.native(path)!==path)throw unavailable();
@@ -30,13 +30,14 @@ export async function openNativeSavedAccountWitness(options:NativeOptions):Promi
   await verifyTrustedExecutable(options.executable,options.executableSHA256);
   const child=spawn(options.executable,["--saved-witness-reader"],{windowsHide:true,stdio:["pipe","pipe","pipe"],env:process.platform==="win32"?{SystemRoot:process.env.SystemRoot??"C:\\Windows"}:{}});
   const exited=new Promise<void>(resolve=>child.once("close",()=>resolve()));
+  const lifetime=new AbortController();
   let terminal=false,sequence=0,buffer=Buffer.alloc(0),latest="",observedAt=-Infinity;
   let verifier:SavedAccountAuthority|undefined,sample:ReturnType<typeof setTimeout>|undefined,observationExpiry:ReturnType<typeof setTimeout>|undefined;
   let pending:{sequence:number;sent:number;resolve:()=>void;reject:(error:Error)=>void;timer:ReturnType<typeof setTimeout>}|undefined;
   const poison=()=>{
    if(terminal)return;terminal=true;clearTimeout(sample);clearTimeout(observationExpiry);buffer.fill(0);buffer=Buffer.alloc(0);latest="";
    if(pending){const wait=pending;pending=undefined;clearTimeout(wait.timer);wait.reject(unavailable());}
-   verifier?.(binding);child.stdin.destroy();child.kill("SIGKILL");
+   verifier?.(binding);child.stdin.destroy();child.kill("SIGKILL");lifetime.abort();
   };
   const read=()=>{if(terminal||performance.now()-observedAt>=100||performance.now()<observedAt){poison();throw unavailable();}return latest;};
   const authority:SavedAccountAuthority=candidate=>{if(terminal||!verifier)return false;const current=verifier(candidate);if(!current)poison();return current;};
@@ -72,7 +73,7 @@ export async function openNativeSavedAccountWitness(options:NativeOptions):Promi
   try {
    child.stdin.write(init);await request();
    verifier=createSavedAccountWitnessVerifier(options,read);if(!authority(binding))throw unavailable();poll();
-   return {authority,close};
+   return {authority,signal:lifetime.signal,close};
   }catch{await close();throw unavailable();}
  }catch{throw unavailable();}
 }
