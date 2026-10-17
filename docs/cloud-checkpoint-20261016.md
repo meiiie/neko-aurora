@@ -109,3 +109,19 @@ found no blocker within the stated trusted-launcher assumptions. Helper checksum
 verification is a preflight pathname check, not atomic executable identity.
 Protected installation and actual Windows tests are activation prerequisites.
 The adapter remains absent from CLI/ACP/UI activation; no provider was called.
+
+### Retained Windows executable guards
+
+The next host slice retains read-sharing-only handles for the canonical
+host/Core/writer executable leaves and their ancestors. Hashes come from the held
+leaf handles; guards outlive child teardown. This addresses the launcher's prior
+hash-to-spawn replacement window without changing ACLs or adding a configuration
+switch. POSIX retains its prior preflight semantics. The separate WSL supervisor
+script check is unchanged; direct native-reader factory callers are not protected
+unless they use this guarded host lifecycle.
+
+Portable guard tests (two) and existing executor tests (four) passed with Rust
+1.99.1, offline/locked dependencies. Windows test targets compiled. Three native
+Windows sharing/rename/junction/process tests and WSL/direct runtime acceptance
+were NOT RUN. Independent source review found no blocker; native verification
+remains required before saved-account activation.

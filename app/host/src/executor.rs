@@ -97,8 +97,16 @@ pub fn root_hash(path: &Path) -> Result<String> {
 pub fn descriptor(core_sha: String, state: &Path) -> Result<Descriptor> {
     let own = std::env::current_exe().map_err(|_| "executor_host_missing")?;
     let bytes = fs::read(own).map_err(|_| "executor_host_missing")?;
+    descriptor_with_host_digest(core_sha, format!("{:x}", Sha256::digest(bytes)), state)
+}
+pub fn descriptor_with_host_digest(core_sha: String, host_sha: String, state: &Path) -> Result<Descriptor> {
+    if ![&core_sha, &host_sha].iter().all(|s| {
+        s.len() == 64 && s.bytes().all(|c| c.is_ascii_digit() || (b'a'..=b'f').contains(&c))
+    }) {
+        return Err("executor_descriptor_invalid");
+    }
     Ok(Descriptor {
-        host_sha256: format!("{:x}", Sha256::digest(bytes)),
+        host_sha256: host_sha,
         core_sha256: core_sha,
         root_sha256: root_hash(state)?,
         capabilities_sha256: format!("{:x}", Sha256::digest(CAPABILITIES.as_bytes())),

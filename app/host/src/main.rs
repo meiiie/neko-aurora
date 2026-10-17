@@ -3,6 +3,7 @@ use neko_host::acp::{self, Binding};
 use neko_host::context_admission::{AdmittedContext, LaunchContext};
 use neko_host::core_profile::{CoreProfileLaunch, PrivateProfileSource};
 use neko_host::executor::{self, Companion};
+use neko_host::executable_guard::ExecutableGuard;
 use neko_host::runtime_stop::{self, StopOutbox};
 use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
@@ -339,7 +340,12 @@ fn wsl_path(path: &Path) -> Result<String> {
         &path[3..]
     ))
 }
-fn native_writer_descriptor(binary: &Path, pin: &Value) -> Result<Option<(PathBuf, String)>> {
+struct WriterDescriptor {
+    path: PathBuf,
+    digest: String,
+    _guard: ExecutableGuard,
+}
+fn native_writer_descriptor(binary: &Path, pin: &Value) -> Result<Option<WriterDescriptor>> {
     let Some(descriptor) = pin.get("writerHelper") else {
         return Ok(None);
     };
@@ -366,11 +372,15 @@ fn native_writer_descriptor(binary: &Path, pin: &Value) -> Result<Option<(PathBu
         return Err("writer_helper_missing");
     }
     let helper = fs::canonicalize(&path).map_err(|_| "writer_helper_missing")?;
-    let bytes = fs::read(&helper).map_err(|_| "writer_helper_missing")?;
-    if format!("{:x}", Sha256::digest(&bytes)) != digest {
+    let guard = ExecutableGuard::open(&helper).map_err(|_| "writer_helper_missing")?;
+    if guard.sha256() != digest {
         return Err("writer_helper_digest_mismatch");
     }
-    Ok(Some((helper, digest.to_owned())))
+    Ok(Some(WriterDescriptor {
+        path: helper,
+        digest: digest.to_owned(),
+        _guard: guard,
+    }))
 }
 fn run() -> Result<()> {
     let args: Vec<_> = env::args().skip(1).collect();
@@ -406,10 +416,15 @@ fn run() -> Result<()> {
         .filter(|s| !s.trim().is_empty() && s.len() <= 64000)
         .ok_or("request_invalid")?;
     let binary = fs::canonicalize(&args[1]).map_err(|_| "runtime_missing")?;
-    let bytes = fs::read(&binary).map_err(|_| "runtime_missing")?;
-    let core_sha = format!("{:x}", Sha256::digest(&bytes));
+    // These guards outlive Bridge/Process below, including error-path teardown.
+    // A future native witness reader must use this same protected host image.
+    let core_guard = ExecutableGuard::open(&binary).map_err(|_| "runtime_missing")?;
+    let core_sha = core_guard.sha256().to_owned();
+    #[cfg(windows)]
+    let host_guard = ExecutableGuard::open(&env::current_exe().map_err(|_| "executor_host_missing")?)
+        .map_err(|_| "executor_host_missing")?;
     let pins: Value = serde_json::from_str(CORE_PINS).map_err(|_| "runtime_pin_invalid")?;
-    let native = bytes.starts_with(b"MZ");
+    let native = core_guard.native();
     let platform = if native { "windows_x64" } else { "linux_x64" };
     if pins[platform]["sha256"] != core_sha {
         return Err("runtime_digest_mismatch");
@@ -504,6 +519,11 @@ fn run() -> Result<()> {
         if base != install.join("tasks") {
             return Err("executor_task_base_mismatch");
         }
+        #[cfg(windows)]
+        let actual = executor::descriptor_with_host_digest(
+            core_sha.clone(), host_guard.sha256().to_owned(), &install,
+        )?;
+        #[cfg(not(windows))]
         let actual = executor::descriptor(core_sha.clone(), &install)?;
         Some(Companion::validate(
             &spec["executorPin"],
@@ -596,15 +616,16 @@ fn run() -> Result<()> {
         }
     }
     if native {
-        if let Some((helper, digest)) = writer_helper {
+        if let Some(writer) = &writer_helper {
             child.env(
                 "NEKO_TASK_WRITER_HELPER",
-                helper
+                writer
+                    .path
                     .to_str()
                     .ok_or("path_invalid")?
                     .trim_start_matches("\\\\?\\"),
             );
-            child.env("NEKO_TASK_WRITER_HELPER_SHA256", digest);
+            child.env("NEKO_TASK_WRITER_HELPER_SHA256", &writer.digest);
         }
         child.current_dir(&root).env(
             "USERPROFILE",
