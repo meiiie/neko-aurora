@@ -38,7 +38,7 @@ pub struct Binding {
     pub expires_at_unix_ms: u64,
     pub limits: Limits,
 }
-#[derive(Deserialize)]
+#[derive(Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub(crate) struct Request {
     pub(crate) version: u32,
@@ -127,6 +127,21 @@ fn valid(b: &Binding, now: u64) -> bool {
         && (1..=8).contains(&b.limits.max_requests)
         && (1..=6).contains(&b.limits.max_steps)
         && (1..=600).contains(&b.limits.max_seconds)
+}
+pub(crate) fn validate_request(request: &Request, now: u64) -> Result<()> {
+    let b = &request.binding;
+    if request.version != 1
+        || request.purpose != "saved_account_task_v1"
+        || !valid(b, now)
+        || !hex(&request.revision_key, 64)
+        || !request
+            .secret_ref
+            .strip_prefix("secret-")
+            .is_some_and(|s| hex(s, 32))
+    {
+        return Err("saved_key_input_invalid");
+    }
+    Ok(())
 }
 fn no_alias(path: &Path) -> Result<()> {
     for component in path.ancestors() {
@@ -247,17 +262,7 @@ where
         PrivateFrame(crate::canonical(private_request).map_err(|_| "saved_key_input_invalid")?);
     let request: Request = serde_json::from_slice(&raw.0).map_err(|_| "saved_key_input_invalid")?;
     let b = &request.binding;
-    if request.version != 1
-        || request.purpose != "saved_account_task_v1"
-        || !valid(b, now)
-        || !hex(&request.revision_key, 64)
-        || !request
-            .secret_ref
-            .strip_prefix("secret-")
-            .is_some_and(|s| hex(s, 32))
-    {
-        return Err("saved_key_input_invalid");
-    }
+    validate_request(&request, now)?;
     deadline_current(b, now, &started)?;
     let authorize = authorize.ok_or("saved_key_authority_denied")?;
     deadline_current(b, now, &started)?;

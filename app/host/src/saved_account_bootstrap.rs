@@ -66,9 +66,12 @@ impl ProtectedExecutables {
     }
 }
 
+#[derive(serde::Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct WitnessMetadata {
     pub path: PathBuf,
     pub service_generation: String,
+    #[serde(rename = "authoritySHA256")]
     pub authority_sha256: String,
 }
 fn hex(s: &str, n: usize) -> bool {

@@ -2,6 +2,9 @@ package connections
 
 import (
 	"encoding/json"
+	"nekobot.local/native/internal/protocol"
+	"nekobot.local/native/internal/providerexec"
+	"path/filepath"
 	"regexp"
 )
 
@@ -46,4 +49,61 @@ func (s *Store) SelectConsumer(pin Pin) (ConsumerSelection, error) {
 func (s *Store) ConsumerCurrent(selection ConsumerSelection) bool {
 	current, e := s.SelectConsumer(selection.pin)
 	return e == nil && current.reference == selection.reference
+}
+
+// PrivateSavedTaskFrame is an explicit private transport encoder. Normal selection
+// marshaling remains public-safe; no provider material is read from the vault.
+func (s *Store) PrivateSavedTaskFrame(selection ConsumerSelection, binding providerexec.SavedTaskBinding, connectionsRoot, capsulePath, stateHome, revisionKey string) ([]byte, error) {
+	if !s.ConsumerCurrent(selection) {
+		return nil, ErrConflict
+	}
+	pin := selection.AccountPin()
+	if binding.FixtureOnly || binding.AccountID != pin.AccountID || binding.AccountRevision != int64(pin.Revision) || binding.CredentialGeneration != int64(pin.CredentialGeneration) || binding.Provider != pin.Provider || binding.Endpoint != pin.Endpoint || binding.Model != pin.Model {
+		return nil, ErrInvalid
+	}
+	if _, e := providerexec.SavedTaskBindingHash(binding); e != nil {
+		return nil, ErrInvalid
+	}
+	actual, e := filepath.Abs(s.dir)
+	if e != nil {
+		return nil, ErrInvalid
+	}
+	if connectionsRoot != actual || !privateConsumerPath(connectionsRoot) || !privateConsumerPath(capsulePath) || !privateConsumerPath(stateHome) || !regexp.MustCompile(`^[a-f0-9]{64}$`).MatchString(revisionKey) {
+		return nil, ErrInvalid
+	}
+	raw, e := json.Marshal(struct {
+		Version         int                           `json:"version"`
+		Purpose         string                        `json:"purpose"`
+		Binding         providerexec.SavedTaskBinding `json:"binding"`
+		SecretRef       string                        `json:"secretRef"`
+		ConnectionsRoot string                        `json:"connectionsRoot"`
+		CapsulePath     string                        `json:"capsulePath"`
+		StateHome       string                        `json:"stateHome"`
+		RevisionKey     string                        `json:"revisionKey"`
+	}{1, "saved_account_task_v1", binding, selection.reference, connectionsRoot, capsulePath, stateHome, revisionKey})
+	if e != nil {
+		return nil, ErrInvalid
+	}
+	defer clear(raw)
+	canonical, e := protocol.Canonical(raw)
+	if e != nil || len(raw) > 16384 || len(canonical) > 16384 {
+		clear(canonical)
+		return nil, ErrInvalid
+	}
+	if !s.ConsumerCurrent(selection) {
+		clear(canonical)
+		return nil, ErrConflict
+	}
+	return canonical, nil
+}
+func privateConsumerPath(path string) bool {
+	if !filepath.IsAbs(path) || filepath.Clean(path) != path || len(path) > 4096 {
+		return false
+	}
+	for _, c := range path {
+		if c < 32 || c == 127 {
+			return false
+		}
+	}
+	return true
 }

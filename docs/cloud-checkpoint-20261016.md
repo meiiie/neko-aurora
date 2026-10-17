@@ -173,3 +173,21 @@ Eight portable saved-account host tests passed; Windows test targets compiled.
 Five new native process/pipe/cancellation scenarios were NOT RUN. Two independent
 source reviews cleared fixes for early-failure revocation ordering and final
 acceptance rechecks. Native lifecycle/handle inheritance evidence is still needed.
+
+### Typed Go-to-Rust launch assembly
+
+The next paired slice reuses the current catalog selection and authoritative ledger
+Work to assemble a bounded private envelope. It keeps the opaque reference and
+per-attempt revision key out of public serialization, rechecks account/lease
+currency around a single-use transport, and retires authority on cancellation or
+failure. Rust validates the typed envelope against the trusted actual executor
+descriptor, full manifest digest, root/layout and task identity before composing
+the existing protected preparation path. Account and executor fences remain
+separate values; no new account store or picker was introduced.
+
+Affected Go connections/runtime race tests and vet passed. Five Rust parser tests
+consume the actual Go-generated synthetic 4499-byte fixture, including different
+account/executor fences; eight saved-account library tests and Windows test-target
+compilation passed. Independent paired source review and candidate secret scans
+passed. Manager.Run/main.go/public Core CLI selection remain unchanged: this proves
+internal assembly, not native end-to-end activation or real provider operation.
