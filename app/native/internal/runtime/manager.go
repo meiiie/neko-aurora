@@ -319,7 +319,7 @@ func (m *Manager) execute(ctx context.Context, w ledger.Work) {
 		return
 	}
 	scanner := bufio.NewScanner(output)
-	scanner.Buffer(make([]byte, 4096), 65536)
+	scanner.Buffer(make([]byte, 65536), 8<<20)
 	var sequence uint64
 	completed := false
 	rejected := false

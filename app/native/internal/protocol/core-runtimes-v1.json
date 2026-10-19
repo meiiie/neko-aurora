@@ -17,7 +17,7 @@
       1,
       2
     ],
-    "sha256": "dbf7764a3d76ffd23bee9cc25fa830c5ab224335c2c6bb27b30eefccbc464f08",
+    "sha256": "66c64d393a71bcc2b053a8d8e4d132969dc5b1d9cfd0710ca21b5271a4bd5789",
     "sourceRevision": "7ff2110f459e30033b1643d09c4d5615f3798c89",
     "parentRevision": "0aa0771ba47e6803018297a01d51427c9e61283f",
     "sourceTree": "neko-bot-monorepo-bundled-core",
@@ -191,6 +191,28 @@
     "profileBridgeVersion": 1,
     "sourceTree": "ccb624bd331991f190a86c9b19f47530cbd83f51",
     "buildReceiptSha256": "aa94b2bab82633811df1545ec456d4042532a97cf5926a4a76b2e9f09a4bcec8",
+    "historicalReplayOnly": true
+  },
+  "windows_x64_previous_local_bridge_1_8_0": {
+    "priorReceiptRetry": true,
+    "version": "1.8.0",
+    "baseRevision": "3d5725f222815e15b12a212e372cf17057a459c0",
+    "writerHelper": {
+      "filename": "neko-writer-lease.exe",
+      "sha256": "b9698fbece2801ed6cb5ae461ce19f670d24a59e4225ca67acc0e48cda23e5cf"
+    },
+    "contextProtocol": 1,
+    "manifestVersions": [
+      1,
+      2
+    ],
+    "sha256": "dbf7764a3d76ffd23bee9cc25fa830c5ab224335c2c6bb27b30eefccbc464f08",
+    "sourceRevision": "7ff2110f459e30033b1643d09c4d5615f3798c89",
+    "parentRevision": "0aa0771ba47e6803018297a01d51427c9e61283f",
+    "sourceTree": "neko-bot-monorepo-bundled-core",
+    "bunVersion": "1.4.3",
+    "profileBridgeVersion": 2,
+    "scope": "Historical receipts of the first local maintainer bridge build (pre profile-fallback fix); replay only.",
     "historicalReplayOnly": true
   }
 }

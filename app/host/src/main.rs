@@ -646,10 +646,11 @@ fn run() -> Result<()> {
         use std::os::windows::process::CommandExt;
         child.creation_flags(0x08000000);
     }
+    let core_stderr = fs::File::create(root.join(".core-stderr.log")).map(|f| Stdio::from(f)).unwrap_or(Stdio::null());
     child
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
-        .stderr(Stdio::null());
+        .stderr(core_stderr);
     let child = child.spawn().map_err(|_| "core_launch_failed")?;
     let mut process = Process {
         child,
