@@ -10,6 +10,27 @@
     "baseRevision": "3d5725f222815e15b12a212e372cf17057a459c0",
     "writerHelper": {
       "filename": "neko-writer-lease.exe",
+      "sha256": "b9698fbece2801ed6cb5ae461ce19f670d24a59e4225ca67acc0e48cda23e5cf"
+    },
+    "contextProtocol": 1,
+    "manifestVersions": [
+      1,
+      2
+    ],
+    "sha256": "dbf7764a3d76ffd23bee9cc25fa830c5ab224335c2c6bb27b30eefccbc464f08",
+    "sourceRevision": "7ff2110f459e30033b1643d09c4d5615f3798c89",
+    "parentRevision": "0aa0771ba47e6803018297a01d51427c9e61283f",
+    "sourceTree": "neko-bot-monorepo-bundled-core",
+    "bunVersion": "1.4.3",
+    "profileBridgeVersion": 2,
+    "scope": "Maintainer local build of the bundled Core tree (bun 1.4.3 scripts/build.ts) and cargo --release writer-lease; fresh auth-v2 profile tasks, original writer/context/principal scopes retained."
+  },
+  "windows_x64_previous_private_1_8_0": {
+    "priorReceiptRetry": true,
+    "version": "1.8.0",
+    "baseRevision": "3d5725f222815e15b12a212e372cf17057a459c0",
+    "writerHelper": {
+      "filename": "neko-writer-lease.exe",
       "sha256": "f9f404a07a7fe1aa56a2b7d3c073a2330366de5ee26d572b37421338e2b99a3a"
     },
     "contextProtocol": 1,
@@ -23,7 +44,8 @@
     "sourceTree": "e2eef04bd3781f922fdc203033f83e095e5585b7",
     "buildReceiptSha256": "32f6dd8055fed5703db0ea141be14cede4ff97cf901accd94053194e0a77e357",
     "profileBridgeVersion": 2,
-    "scope": "Fresh local auth-v2 profile tasks: Core-owned encrypted env snapshots and cached Kimi token without refresh, original writer/context/principal scopes retained."
+    "scope": "Historical receipts of the maintainer's private auth-v2 build; fresh tasks use the current windows_x64 entry.",
+    "historicalReplayOnly": true
   },
   "windows_x64_previous_writer_v2": {
     "version": "1.8.0",
