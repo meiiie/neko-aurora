@@ -24,9 +24,21 @@ UI: dialog "Hướng dẫn cho bot" thêm ô avatar (text ≤16) và color picke
 
 ## Gate chưa chạy
 
-- Kiểm tra interaction/focus/viewport trên trình duyệt cho dialog mới: CHƯA CHẠY trong môi trường này (chỉ `node --check`). Cần lần chạy Chrome headless/fixture theo quy trình hiện có trước khi tính là PASS UI.
 - Fixture provider / model thật: không liên quan slice này và không chạy.
 - Secret scan diff: chỉ chứa nonce test không nhạy cảm và mã màu; không có giá trị bí mật.
+
+## Gate browser interaction — ĐÃ CHẠY và PASS (cùng ngày, sau khi sửa 2 lỗi tích hợp)
+
+Môi trường: trình duyệt thật điều khiển qua automation tới `http://127.0.0.1:8766` (service local, state riêng), viewport 1280×800, session owner thường (không fixture).
+
+Kịch bản đã chạy: mở sidebar → menu "Loại yêu cầu và tệp đính kèm" → "Hướng dẫn & lịch sử của bot" → dialog hiện đủ ô Hình đại diện / Màu nhận diện / nút về màu mặc định → điền `🎯`, `#22c55e`, hướng dẫn mới → "Lưu cho yêu cầu mới" → dialog tự đóng, sidebar avatar cập nhật live (`🎯`, nền `rgb(34,197,94)`), metadata journal sạch ("0 thay đổi metadata chờ xác nhận"), không thông báo lỗi.
+
+Gate này bắt được 2 lỗi tích hợp mà test Go/`node --check` không phát hiện, đã sửa trong cùng slice:
+
+1. `metadataInput` (app.js) dùng `strictKeys` không cho `avatar`/`color` → body gửi qua đường durable metadata journal bị từ chối normalize. Sửa: cho phép + validate đúng ràng buộc (≤16 byte, không ký tự điều khiển, màu `#RRGGBB` hoặc rỗng).
+2. Receipt `bot_profile` trả appearance dưới con trỏ nil (`"avatar":null`) trong khi bản chờ phía UI luôn mang chuỗi tường minh → `canonicalJSON` đối soát lệch. Sửa: receipt echo appearance **đã resolve** dưới dạng chuỗi tường minh; hai test hợp đồng (`metadata_receipts_test.go`, `review_metadata_receipts_probe_test.go`) cập nhật kỳ vọng sang biến thể resolved — hợp đồng mới vẫn khóa "original typed input" cho mọi trường cũ.
+
+Sau sửa: `go vet ./...` PASS, `go test -count=1 ./...` 15/15 PASS, `node --check app.js` PASS, tái build `neko-control.exe` và chạy lại toàn bộ kịch bản trên = PASS.
 
 ## Ghi chú hợp đồng
 

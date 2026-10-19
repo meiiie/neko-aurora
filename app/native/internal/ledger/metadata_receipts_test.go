@@ -22,6 +22,9 @@ func TestMetadataReceiptsOriginalTypedInputsCopiesAndRestart(t *testing.T) {
 		t.Fatal(err)
 	}
 	profile := BotProfileInput{Instructions: "Owner authorized instruction", IncludeHistory: false, ClientNonce: "meta-profile-first"}
+	resolvedAvatar, resolvedColor := "", ""
+	resolvedProfile := profile
+	resolvedProfile.Avatar, resolvedProfile.Color = &resolvedAvatar, &resolvedColor
 	if _, _, err = s.SetBotProfile(bot.ID, profile); err != nil {
 		t.Fatal(err)
 	}
@@ -51,7 +54,7 @@ func TestMetadataReceiptsOriginalTypedInputsCopiesAndRestart(t *testing.T) {
 	cases := []struct {
 		kind, nonce string
 		input       any
-	}{{"bot_create", create.ClientNonce, create}, {"bot_name", name.ClientNonce, BotNameReceiptInput{bot.ID, name}}, {"bot_profile", profile.ClientNonce, BotProfileReceiptInput{bot.ID, profile}}, {"project_save", project.ClientNonce, project}, {"conversation_create", conversation.ClientNonce, conversation}, {"conversation_archive", archive.ClientNonce, ConversationArchiveReceiptInput{conv.ID, archive}}}
+	}{{"bot_create", create.ClientNonce, create}, {"bot_name", name.ClientNonce, BotNameReceiptInput{bot.ID, name}}, {"bot_profile", profile.ClientNonce, BotProfileReceiptInput{bot.ID, resolvedProfile}}, {"project_save", project.ClientNonce, project}, {"conversation_create", conversation.ClientNonce, conversation}, {"conversation_archive", archive.ClientNonce, ConversationArchiveReceiptInput{conv.ID, archive}}}
 	for round := 0; round < 3; round++ {
 		before := s.Snapshot().Sequence
 		for _, test := range cases {

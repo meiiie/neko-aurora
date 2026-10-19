@@ -44,7 +44,8 @@ func (s *Store) fillMetadataReceipt(out *CommandReceipt) error {
 		if e, ok := s.botProfileNonces[nonce]; ok {
 			p := *e.BotProfile
 			current, _ := s.profile(p.BotID)
-			out.Found, out.Input, out.BotProfile = true, BotProfileReceiptInput{p.BotID, BotProfileInput{Instructions: p.Instructions, IncludeHistory: p.IncludeHistory, ExpectedRevision: p.Revision - 1, ClientNonce: nonce}}, &current
+			avatar, color := p.Avatar, p.Color
+			out.Found, out.Input, out.BotProfile = true, BotProfileReceiptInput{p.BotID, BotProfileInput{Instructions: p.Instructions, IncludeHistory: p.IncludeHistory, Avatar: &avatar, Color: &color, ExpectedRevision: p.Revision - 1, ClientNonce: nonce}}, &current
 		}
 	case "project_save":
 		if e, ok := s.productNonces[nonce]; ok && (e.Type == "project.created" || e.Type == "project.updated") {
