@@ -577,6 +577,8 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		var in struct {
 			Instructions     *string `json:"instructions"`
 			IncludeHistory   *bool   `json:"includeHistory"`
+			Avatar           *string `json:"avatar"`
+			Color            *string `json:"color"`
 			ExpectedRevision *uint64 `json:"expectedRevision"`
 			ClientNonce      string  `json:"clientNonce"`
 		}
@@ -584,7 +586,7 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			sendError(w, ledger.ErrInvalid)
 			return
 		}
-		input := ledger.BotProfileInput{Instructions: *in.Instructions, IncludeHistory: *in.IncludeHistory, ExpectedRevision: *in.ExpectedRevision, ClientNonce: in.ClientNonce}
+		input := ledger.BotProfileInput{Instructions: *in.Instructions, IncludeHistory: *in.IncludeHistory, Avatar: in.Avatar, Color: in.Color, ExpectedRevision: *in.ExpectedRevision, ClientNonce: in.ClientNonce}
 		var profile ledger.BotProfile
 		var duplicate bool
 		var err error
