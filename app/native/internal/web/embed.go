@@ -38,6 +38,9 @@ func Serve(w http.ResponseWriter, r *http.Request) {
 		http.NotFound(w, r)
 		return
 	}
+	// Assets are embedded in the binary; browsers must not serve a stale copy
+	// from heuristic cache after a control restart shipped new code.
+	w.Header().Set("Cache-Control", "no-cache")
 	w.Header().Set("Content-Type", contentType)
 	_, _ = w.Write(body)
 }

@@ -292,17 +292,23 @@ func (m *Manager) execute(ctx context.Context, w ledger.Work) {
 	go func() {
 		tick := time.NewTicker(100 * time.Millisecond)
 		defer tick.Stop()
+		reap := func() {
+			input.Close()
+			// A host that ignores stdin EOF would hold the bot slot forever;
+			// force it down after a short grace period.
+			time.AfterFunc(5*time.Second, func() { _ = cmd.Process.Kill() })
+		}
 		for {
 			select {
 			case <-done:
 				return
 			case <-ctx.Done():
-				input.Close()
+				reap()
 				return
 			case <-tick.C:
 				current, e := m.store.Get(w.RequestID)
 				if e != nil || current.Epoch != w.Epoch || current.DesiredState != "running" || !m.store.RuntimeAllowed(w.RequestID, w.Epoch) {
-					input.Close()
+					reap()
 					return
 				}
 			}
@@ -319,7 +325,7 @@ func (m *Manager) execute(ctx context.Context, w ledger.Work) {
 		return
 	}
 	scanner := bufio.NewScanner(output)
-	scanner.Buffer(make([]byte, 4096), 65536)
+	scanner.Buffer(make([]byte, 65536), 8<<20)
 	var sequence uint64
 	completed := false
 	rejected := false

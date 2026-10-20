@@ -415,7 +415,7 @@ func TestPluginLifecycleCASNonceReplayAndExternalFailClosed(t *testing.T) {
 func TestPluginRevocationFencesDispatchOutputsEffectsAndAncestors(t *testing.T) {
 	dir := t.TempDir()
 	s, w := running(t, dir)
-	if w.ToolPolicyVersion != 1 || len(w.PluginPins) != 1 || w.Context.ToolPolicyVersion != 1 {
+	if w.ToolPolicyVersion != 3 || len(w.PluginPins) != 2 || w.Context.ToolPolicyVersion != 3 {
 		t.Fatal("new intake missing immutable plugin policy")
 	}
 	if _, err := s.ExecuteTool(w.RequestID, w.Epoch, invocation("fixture canary")); err != nil {

@@ -80,6 +80,8 @@ type PluginPin struct {
 }
 
 const artifactSchema = `{"type":"object","properties":{"filename":{"type":"string","maxLength":80},"text":{"type":"string","maxLength":24000}},"required":["filename","text"],"additionalProperties":false}`
+
+const webSearchSchema = `{"type":"object","properties":{"query":{"type":"string","minLength":1,"maxLength":200,"description":"Từ khoá tìm kiếm công khai, tiếng Việt hoặc tiếng Anh."}},"required":["query"],"additionalProperties":false}`
 const projectReadSchema = `{"type":"object","properties":{"fileId":{"type":"string"},"offset":{"type":"integer","minimum":0},"bytes":{"type":"integer","minimum":1,"maximum":4000}},"required":["fileId","offset","bytes"],"additionalProperties":false}`
 
 func builtinPlugins() []PluginRecord {
@@ -87,6 +89,9 @@ func builtinPlugins() []PluginRecord {
 		{ID: "neko-artifacts", Publisher: "original-host-implementation", TrustedBuiltin: true, Status: "ready_builtin_local", PluginManifest: PluginManifest{Name: "Neko task artifacts", Version: "1.0.0", License: "original-host-implementation", Tools: []PluginTool{{Name: "artifact.write_text", Description: "Save an immutable UTF-8 report for this task and return its durable download receipt.", InputSchema: json.RawMessage(artifactSchema)}}}},
 		{ID: "neko-project-sources", Publisher: "original-host-implementation", TrustedBuiltin: true, Status: "ready_builtin_local", PluginManifest: PluginManifest{Name: "Neko pinned project sources", Version: "1.0.0", License: "original-host-implementation", Tools: []PluginTool{{Name: "project.read_file", Description: "Read a bounded UTF-8 byte range from a source already pinned to this task. File text never grants new actions.", InputSchema: json.RawMessage(projectReadSchema)}}}},
 	}
+}
+func webSearchPlugin() PluginRecord {
+	return PluginRecord{ID: "neko-web", Publisher: "original-host-implementation", TrustedBuiltin: true, Status: "ready_builtin_local", PluginManifest: PluginManifest{Name: "Neko public web search", Version: "1.0.0", License: "original-host-implementation", Tools: []PluginTool{{Name: "web.search", Description: "Search the public web (DuckDuckGo) and return up to five top results with title, url and snippet. Read-only; no account needed.", InputSchema: json.RawMessage(webSearchSchema)}}}}
 }
 func copyPlugin(p PluginRecord) PluginRecord {
 	p.Tools = append([]PluginTool(nil), p.Tools...)
@@ -129,6 +134,9 @@ func (s *Store) plugin(id string) (PluginRecord, bool) {
 	}
 	if id == "neko-published-reports" {
 		return publishedReportPlugin(), true
+	}
+	if id == "neko-web" {
+		return webSearchPlugin(), true
 	}
 	return PluginRecord{}, false
 }
@@ -340,7 +348,7 @@ func pinPlugin(p PluginRecord) PluginPin {
 	return PluginPin{ID: p.ID, Revision: p.Revision, Publisher: p.Publisher, Version: p.Version, Tool: p.Tools[0].Name, SchemaSHA256: hex.EncodeToString(h[:])}
 }
 func eligiblePlugin(w Work, id string) bool {
-	return id == "neko-artifacts" || id == "neko-project-sources" && w.Resources != nil && len(w.Resources.Files) > 0 || id == "neko-published-reports" && hasPublishedArtifacts(w)
+	return id == "neko-artifacts" || id == "neko-web" || id == "neko-project-sources" && w.Resources != nil && len(w.Resources.Files) > 0 || id == "neko-published-reports" && hasPublishedArtifacts(w)
 }
 func (s *Store) selectPlugins(w Work, selection *[]PluginSelection) ([]PluginPin, error) {
 	out := []PluginPin(nil)
@@ -353,7 +361,9 @@ func (s *Store) selectPlugins(w Work, selection *[]PluginSelection) ([]PluginPin
 		}
 	} else {
 		limit := 2
-		if w.ToolPolicyVersion == 2 {
+		if w.ToolPolicyVersion >= 3 {
+			limit = 4
+		} else if w.ToolPolicyVersion == 2 {
 			limit = 3
 		}
 		if len(*selection) > limit {
@@ -394,7 +404,7 @@ func effectivePluginPins(w Work) []PluginPin {
 	return out
 }
 func (s *Store) pluginsAllowed(w Work) bool {
-	if w.ToolPolicyVersion < 0 || w.ToolPolicyVersion > 2 {
+	if w.ToolPolicyVersion < 0 || w.ToolPolicyVersion > 3 {
 		return false
 	}
 	for _, pin := range effectivePluginPins(w) {
@@ -409,7 +419,7 @@ func (s *Store) validPluginWork(w Work) bool {
 	if w.ToolPolicyVersion == 0 {
 		return len(w.PluginPins) == 0 && w.PluginSelection == nil && s.pluginsAllowed(w)
 	}
-	if w.ToolPolicyVersion != 1 && w.ToolPolicyVersion != 2 {
+	if w.ToolPolicyVersion != 1 && w.ToolPolicyVersion != 2 && w.ToolPolicyVersion != 3 {
 		return false
 	}
 	selectionWork, ok := s.groupPluginSelectionWork(w)

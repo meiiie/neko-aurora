@@ -11,13 +11,17 @@ type BotProfile struct {
 	Revision       uint64 `json:"revision"`
 	Instructions   string `json:"instructions"`
 	IncludeHistory bool   `json:"includeHistory"`
+	Avatar         string `json:"avatar,omitempty"`
+	Color          string `json:"color,omitempty"`
 }
 
 type BotProfileInput struct {
-	Instructions     string `json:"instructions"`
-	IncludeHistory   bool   `json:"includeHistory"`
-	ExpectedRevision uint64 `json:"expectedRevision"`
-	ClientNonce      string `json:"clientNonce"`
+	Instructions     string  `json:"instructions"`
+	IncludeHistory   bool    `json:"includeHistory"`
+	Avatar           *string `json:"avatar"`
+	Color            *string `json:"color"`
+	ExpectedRevision uint64  `json:"expectedRevision"`
+	ClientNonce      string  `json:"clientNonce"`
 }
 
 func validProfileText(text string) bool {
@@ -26,6 +30,34 @@ func validProfileText(text string) bool {
 	}
 	for _, r := range text {
 		if unicode.IsControl(r) && r != '\n' && r != '\t' {
+			return false
+		}
+	}
+	return true
+}
+
+func validProfileAvatar(avatar string) bool {
+	if !utf8.ValidString(avatar) || len(avatar) > 16 {
+		return false
+	}
+	for _, r := range avatar {
+		if unicode.IsControl(r) {
+			return false
+		}
+	}
+	return true
+}
+
+func validProfileColor(color string) bool {
+	if color == "" {
+		return true
+	}
+	if len(color) != 7 || color[0] != '#' {
+		return false
+	}
+	for i := 1; i < len(color); i++ {
+		c := color[i]
+		if !(c >= '0' && c <= '9' || c >= 'a' && c <= 'f' || c >= 'A' && c <= 'F') {
 			return false
 		}
 	}
@@ -81,11 +113,11 @@ func (s *Store) validProfileIntake(w Work) bool {
 
 func (s *Store) validBotProfileEvent(e Event) bool {
 	p := e.BotProfile
-	if p == nil || !reflect.DeepEqual(e, Event{Sequence: e.Sequence, Type: "bot.profile_updated", BotProfile: p, Nonce: e.Nonce}) || !validAccessNonce(e.Nonce) || !validProfileText(p.Instructions) {
+	if p == nil || !reflect.DeepEqual(e, Event{Sequence: e.Sequence, Type: "bot.profile_updated", BotProfile: p, Nonce: e.Nonce}) || !validAccessNonce(e.Nonce) || !validProfileText(p.Instructions) || !validProfileAvatar(p.Avatar) || !validProfileColor(p.Color) {
 		return false
 	}
 	old, ok := s.profile(p.BotID)
-	if !ok || old.Revision >= 1<<53-1 || p.Revision != old.Revision+1 || old.Instructions == p.Instructions && old.IncludeHistory == p.IncludeHistory {
+	if !ok || old.Revision >= 1<<53-1 || p.Revision != old.Revision+1 || old.Instructions == p.Instructions && old.IncludeHistory == p.IncludeHistory && old.Avatar == p.Avatar && old.Color == p.Color {
 		return false
 	}
 	_, created := s.botNonces[e.Nonce]
@@ -104,6 +136,12 @@ func (s *Store) setBotProfileLocked(id string, in BotProfileInput) (BotProfile, 
 	if !validAccessNonce(in.ClientNonce) || !validProfileText(in.Instructions) || in.ExpectedRevision >= 1<<53-1 {
 		return BotProfile{}, false, ErrInvalid
 	}
+	if in.Avatar != nil && !validProfileAvatar(*in.Avatar) {
+		return BotProfile{}, false, ErrInvalid
+	}
+	if in.Color != nil && !validProfileColor(*in.Color) {
+		return BotProfile{}, false, ErrInvalid
+	}
 	if s.closed || s.poisoned {
 		return BotProfile{}, false, ErrUnavailable
 	}
@@ -118,7 +156,8 @@ func (s *Store) setBotProfileLocked(id string, in BotProfileInput) (BotProfile, 
 	}
 	if e, ok := s.botProfileNonces[in.ClientNonce]; ok {
 		p := e.BotProfile
-		if p.BotID != id || p.Revision-1 != in.ExpectedRevision || p.Instructions != in.Instructions || p.IncludeHistory != in.IncludeHistory {
+		avatar, color := resolveAppearanceLocked(p, in)
+		if p.BotID != id || p.Revision-1 != in.ExpectedRevision || p.Instructions != in.Instructions || p.IncludeHistory != in.IncludeHistory || p.Avatar != avatar || p.Color != color {
 			return BotProfile{}, false, ErrConflict
 		}
 		current, found := s.profile(id)
@@ -136,6 +175,7 @@ func (s *Store) setBotProfileLocked(id string, in BotProfileInput) (BotProfile, 
 	}
 	p.Revision++
 	p.Instructions, p.IncludeHistory = in.Instructions, in.IncludeHistory
+	p.Avatar, p.Color = resolveAppearanceLocked(&p, in)
 	e := Event{Type: "bot.profile_updated", BotProfile: &p, Nonce: in.ClientNonce}
 	if !s.validBotProfileEvent(e) {
 		return BotProfile{}, false, ErrConflict
@@ -144,4 +184,18 @@ func (s *Store) setBotProfileLocked(id string, in BotProfileInput) (BotProfile, 
 		return BotProfile{}, false, err
 	}
 	return p, false, nil
+}
+
+// resolveAppearanceLocked applies optional avatar/color pointers onto the
+// stored appearance. A nil pointer keeps the current value so pre-appearance
+// writers never clear appearance fields they do not know about.
+func resolveAppearanceLocked(current *BotProfile, in BotProfileInput) (string, string) {
+	avatar, color := current.Avatar, current.Color
+	if in.Avatar != nil {
+		avatar = *in.Avatar
+	}
+	if in.Color != nil {
+		color = *in.Color
+	}
+	return avatar, color
 }

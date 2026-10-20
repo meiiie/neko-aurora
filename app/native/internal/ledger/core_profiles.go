@@ -267,7 +267,7 @@ func executableCoreProfile(p CoreProfileMetadata) bool {
 	return p.ConfigurationStatus == "configured" && p.BridgeTransport == "supported" && auth && CoreProfileCredentialPolicyValid(p) && profileContains([]string{"openai_compat", "responses", "anthropic", "kimi"}, p.Provider)
 }
 func validProfileLimits(l CoreProfileLimits) bool {
-	return l.MaxInputBytes >= 1 && l.MaxInputBytes <= 64000 && l.MaxOutputTokens >= 1 && l.MaxOutputTokens <= 4096 && l.MaxRequests >= 1 && l.MaxRequests <= 8 && l.MaxSteps >= 1 && l.MaxSteps <= 6 && l.MaxSeconds >= 1 && l.MaxSeconds <= 600
+	return l.MaxInputBytes >= 1 && l.MaxInputBytes <= 64000 && l.MaxOutputTokens >= 1 && l.MaxOutputTokens <= 16384 && l.MaxRequests >= 1 && l.MaxRequests <= 8 && l.MaxSteps >= 1 && l.MaxSteps <= 6 && l.MaxSeconds >= 1 && l.MaxSeconds <= 600
 }
 func profileNow(s *Store) int64 {
 	now := time.Now().UnixMilli()
@@ -751,6 +751,9 @@ func (s *Store) applyCoreProfile(e Event) {
 		p.InspectionConsent = &c
 		if e.Type == "core_profile.expired" {
 			s.coreProfileRetired[c.ID] = true
+			// The retired flag already blocks reuse; keeping the record in the
+			// inspections map would fill the 128-slot grant ceiling forever.
+			delete(s.coreProfileInspections, c.ID)
 		} else {
 			s.coreProfileInspections[c.ID] = c
 		}

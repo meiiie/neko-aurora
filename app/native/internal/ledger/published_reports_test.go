@@ -76,7 +76,7 @@ func TestPublishedReportReaderExactRawBytesAdmissionAndScope(t *testing.T) {
 	}
 	s.ConfigureContextAdmission(true)
 	w := publishedWork(t, s, c, "published-file-consumer")
-	if w.Context.Version != 5 || w.ToolPolicyVersion != 2 || len(w.Context.PublishedReports) != 1 || len(w.Context.Sources) != 0 || !pinnedTool(w, "report.read_artifact") {
+	if w.Context.Version != 5 || w.ToolPolicyVersion != 3 || len(w.Context.PublishedReports) != 1 || len(w.Context.Sources) != 0 || !pinnedTool(w, "report.read_artifact") {
 		t.Fatal("published intake/policy")
 	}
 	if len(w.Context.PublishedReports[0].Files) != 1 || w.Context.PublishedReports[0].Source.Artifacts != nil {

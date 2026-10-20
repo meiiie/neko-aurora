@@ -32,6 +32,9 @@ func TestIndependentL05MetadataReceiptsNormalizedCurrentCopiesAndReopen(t *testi
 		t.Fatal(err)
 	}
 	profile := BotProfileInput{Instructions: "Original bounded profile", IncludeHistory: false, ClientNonce: "independent-meta-profile"}
+	resolvedAvatar, resolvedColor := "", ""
+	resolvedProfile := profile
+	resolvedProfile.Avatar, resolvedProfile.Color = &resolvedAvatar, &resolvedColor
 	if _, _, err = s.SetBotProfile(bot.ID, profile); err != nil {
 		t.Fatal(err)
 	}
@@ -67,7 +70,7 @@ func TestIndependentL05MetadataReceiptsNormalizedCurrentCopiesAndReopen(t *testi
 		kind, nonce string
 		want        any
 	}{
-		{"bot_create", create.ClientNonce, create}, {"bot_name", name.ClientNonce, BotNameReceiptInput{bot.ID, name}}, {"bot_profile", profile.ClientNonce, BotProfileReceiptInput{bot.ID, profile}},
+		{"bot_create", create.ClientNonce, create}, {"bot_name", name.ClientNonce, BotNameReceiptInput{bot.ID, name}}, {"bot_profile", profile.ClientNonce, BotProfileReceiptInput{bot.ID, resolvedProfile}},
 		{"project_save", project.ClientNonce, project}, {"conversation_create", convCreate.ClientNonce, convCreate}, {"conversation_archive", archive.ClientNonce, ConversationArchiveReceiptInput{conv.ID, archive}},
 	}
 	for round := 0; round < 3; round++ {

@@ -29,6 +29,8 @@ type Server struct {
 	connections *connections.Store
 	fixture     *identity.Authority
 	desktop     *desktopLaunchReceipt
+	web         *webConnectionRegistry
+	zalo        *zaloBridge
 }
 
 func (s *Server) EnableConnections(c *connections.Store) {
@@ -577,6 +579,8 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		var in struct {
 			Instructions     *string `json:"instructions"`
 			IncludeHistory   *bool   `json:"includeHistory"`
+			Avatar           *string `json:"avatar"`
+			Color            *string `json:"color"`
 			ExpectedRevision *uint64 `json:"expectedRevision"`
 			ClientNonce      string  `json:"clientNonce"`
 		}
@@ -584,7 +588,7 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			sendError(w, ledger.ErrInvalid)
 			return
 		}
-		input := ledger.BotProfileInput{Instructions: *in.Instructions, IncludeHistory: *in.IncludeHistory, ExpectedRevision: *in.ExpectedRevision, ClientNonce: in.ClientNonce}
+		input := ledger.BotProfileInput{Instructions: *in.Instructions, IncludeHistory: *in.IncludeHistory, Avatar: in.Avatar, Color: in.Color, ExpectedRevision: *in.ExpectedRevision, ClientNonce: in.ClientNonce}
 		var profile ledger.BotProfile
 		var duplicate bool
 		var err error
@@ -648,6 +652,10 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		send(w, http.StatusCreated, map[string]any{"bot": bot, "duplicate": duplicate})
 	case s.connections != nil && r.Method == "GET" && r.URL.Path == "/v1/connections":
 		send(w, http.StatusOK, s.connections.Snapshot())
+	case strings.HasPrefix(r.URL.Path, "/v1/web-connections"):
+		s.webConnections(w, r)
+	case strings.HasPrefix(r.URL.Path, "/v1/zalo-bridge"):
+		s.zaloBridgeControl(w, r)
 	case s.connections != nil && r.Method == "POST" && r.URL.Path == "/v1/accounts":
 		var input connections.AccountInput
 		if decode(w, r, &input) != nil {

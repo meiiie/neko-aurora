@@ -185,6 +185,10 @@ export function isolatedStateHome(source: string, home: string): string {
 }
 
 export function loadProfileBridge(options: ProfileBridgeOptions): NekoConfig {
+  // The trusted launcher (NekoBot host) selects the profile via NEKO_PROFILE;
+  // fall back to it when no saved session profile or CLI --profile exists.
+  const envProfile = options.profile ?? (process.env.NEKO_PROFILE?.trim() || undefined);
+  if (envProfile !== options.profile) options = { ...options, profile: envProfile };
   if ((options.expectedRevision ?? process.env.NEKO_PROFILE_REVISION ?? "").startsWith("pr2_")) return loadProfileBridgeV2(options);
   const source = credentialHomeDir(options.credentialHome);
   const stateHome = isolatedStateHome(source, options.home ?? homeDir());
