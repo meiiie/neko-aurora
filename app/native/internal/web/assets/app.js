@@ -894,3 +894,66 @@ function renderProjectLifecycle(){const project=selectedProject(),enabled=state.
 async function runProjectLifecycle(command){if(state.readOnly||command.pending||command.rejected||!state.capabilities.includes("local_project_states_v1"))return;command.pending=true;command.message="Đang lưu trạng thái cho dự án gốc; việc đã nhận tiếp tục.";render();try{const result=await request("/v1/projects/"+encodeURIComponent(command.id)+"/state",command.body);if(result.projectState?.projectId!==command.id||!acceptProjectState(result.projectState))await sync();projectStateCommands.delete(command.id)}catch(error){const code=Number(error.message);command.rejected=[400,404,409].includes(code);command.message=command.rejected?"Dự án đã đổi bản lưu. Đọc lại trước khi chọn trạng thái mới.":"Chưa nhận xác nhận. Thử lại giữ đúng dự án, trạng thái, phiên bản và mã lệnh gốc.";if(code===409)try{await sync()}catch{}}finally{command.pending=false;render()}}
 $("project-state-toggle").addEventListener("click",async()=>{const project=selectedProject(),value=project?projectState(project.id):null;if(!value||$("project-state-toggle").disabled)return;const command={id:project.id,body:{action:value.archived?"restore":"archive",expectedRevision:value.revision,clientNonce:crypto.randomUUID()}};projectStateCommands.set(project.id,command);await runProjectLifecycle(command)});
 $("project-state-review").addEventListener("click",async()=>{const project=selectedProject(),command=project?projectStateCommands.get(project.id):null;if(!command||command.pending)return;command.pending=true;renderProjectFiles();try{const receipt=await request("/v1/command-receipts?kind=project_control&clientNonce="+encodeURIComponent(command.body.clientNonce));if(validProjectControlReceipt(receipt,command)){if(!acceptProjectState(receipt.projectState))await sync();projectStateCommands.delete(command.id)}else if(receipt?.version===1&&receipt.kind==="project_control"&&receipt.clientNonce===command.body.clientNonce&&receipt.found===false){if(command.rejected)projectStateCommands.delete(command.id);else command.message="Chưa có biên nhận gốc. Không tự gửi lại; retry giữ nguyên dự án, trạng thái và nonce."}else throw Error("invalid_project_receipt");await sync()}catch{command.message="Chưa đối soát được trạng thái gốc. Giữ lệnh chờ và không tự gửi."}finally{command.pending=false;render()}});
+
+// ═══ Theme toggle (dark/light) ═══
+(function(){
+ const html=document.documentElement,KEY="neko.theme";
+ const saved=localStorage.getItem(KEY);
+ if(saved==="dark")html.dataset.theme="dark";
+ window.toggleTheme=()=>{
+  const next=html.dataset.theme==="dark"?"light":"dark";
+  if(next==="dark")html.dataset.theme="dark";else delete html.dataset.theme;
+  localStorage.setItem(KEY,next);
+  const meta=document.querySelector('meta[name="theme-color"]');
+  if(meta)meta.content=next==="dark"?"#181a1c":"#f4f3ee";
+ };
+})();
+
+// ═══ Composer char counter (64KB limit) ═══
+(function(){
+ const prompt=document.getElementById("prompt");
+ if(!prompt)return;
+ const counter=document.createElement("span");
+ counter.className="char-counter";
+ counter.setAttribute("aria-label","Số ký tự đã nhập");
+ const footer=document.querySelector(".composer-footer");
+ if(footer)footer.prepend(counter);
+ const update=()=>{
+  const len=new TextEncoder().encode(prompt.value).length;
+  counter.textContent=len>0?new Intl.NumberFormat("vi-VN").format(len)+" / 64K":"";counter.dataset.nearLimit=String(len>50000);counter.dataset.overLimit=String(len>64000);
+ };
+ prompt.addEventListener("input",update);update();
+})();
+
+// ═══ Voice input (Web Speech API) ═══
+(function(){
+ if(!("webkitSpeechRecognition" in window)&&!("SpeechRecognition" in window))return;
+ const Recognition=window.SpeechRecognition||window.webkitSpeechRecognition;
+ const btn=document.createElement("button");
+ btn.className="voice-input";btn.type="button";btn.title="Nhập bằng giọng nói";btn.setAttribute("aria-label","Nhập bằng giọng nói");
+ btn.innerHTML='<svg viewBox="0 0 24 24"><path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><line x1="12" y1="19" x2="12" y2="22"/></svg>';
+ const footer=document.querySelector(".composer-footer");
+ if(footer)footer.prepend(btn);
+ let recog=null;
+ btn.addEventListener("click",()=>{
+  if(recog){recog.stop();return}
+  recog=new Recognition();
+  recog.lang="vi-VN";recog.continuous=true;recog.interimResults=true;
+  btn.dataset.listening="true";
+  const prompt=document.getElementById("prompt");
+  const startLen=prompt.value.length;
+  recog.onresult=(e)=>{
+   let final="",interim="";
+   for(let i=e.resultIndex;i<e.results.length;i++){
+    if(e.results[i].isFinal)final+=e.results[i][0].transcript;
+    else interim+=e.results[i][0].transcript;
+   }
+   if(final)prompt.value=prompt.value.slice(0,startLen)+final;
+   else prompt.value=prompt.value.slice(0,startLen)+interim;
+   prompt.dispatchEvent(new Event("input",{bubbles:true}));
+  };
+  recog.onend=()=>{btn.dataset.listening="false";recog=null};
+  recog.onerror=()=>{btn.dataset.listening="false";recog=null};
+  recog.start();
+ });
+})();
