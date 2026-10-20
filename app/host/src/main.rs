@@ -742,6 +742,15 @@ fn run() -> Result<()> {
         .effects_clear(&admission)
         .map_err(|_| "core_effects_unresolved")?;
     bridge.binding = Some(binding.clone());
+    if profile.is_some() {
+        // Chat turns don't need max reasoning: an unlimited thinking budget
+        // burns the whole output budget before the reply and the turn dies
+        // mid-stream. Best-effort; cores without the option are unaffected.
+        let _ = bridge.call(
+            "session/set_config_option",
+            json!({"sessionId":binding.session,"configId":"reasoning_effort","value":"low"}),
+        );
+    }
     if let Some(c) = &context {
         bridge.context = Some(
             c.admit(&admission, &binding)
