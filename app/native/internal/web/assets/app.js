@@ -47,13 +47,14 @@ const MD_ESCAPE=s=>s.replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&g
 function renderMarkdown(el,raw){
  el.textContent="";
  const lines=String(raw).split(/\r?\n/);let inCode=false,codeLines=[],para=[];
- const flush=()=>{if(para.length){const p=node("p","",para.join(" "));el.append(p);para=[]}};
+ const flush=()=>{if(para.length){const p=node("p");p.append(inlineMd(para.join(" ")));el.append(p);para=[]}};
  for(const line of lines){
   if(/^```/.test(line)){if(inCode){const pre=node("pre");pre.append(node("code","",codeLines.join("\n")));el.append(pre);codeLines=[];inCode=false}else{flush();inCode=true}continue}
   if(inCode){codeLines.push(line);continue}
   if(!line.trim()){flush();continue}
-  const heading=line.match(/^(#{1,3})\s+(.+)/);if(heading){flush();el.append(node("h"+(heading[1].length+2),"",heading[2]));continue}
-  const bullet=line.match(/^\s*[-*]\s+(.+)/);if(bullet){flush();const li=node("li","",inlineMd(bullet[1]));if(!(el.lastElementChild instanceof HTMLUListElement))el.append(node("ul"));el.lastElementChild.append(li);continue}
+  const heading=line.match(/^(#{1,3})\s+(.+)/);if(heading){flush();const h=node("h"+(heading[1].length+2));h.append(inlineMd(heading[2]));el.append(h);continue}
+  const bullet=line.match(/^\s*[-*]\s+(.+)/);if(bullet){flush();const li=node("li");li.append(inlineMd(bullet[1]));if(!(el.lastElementChild instanceof HTMLUListElement))el.append(node("ul"));el.lastElementChild.append(li);continue}
+  const quote=line.match(/^>\s?(.*)/);if(quote){flush();if(!(el.lastElementChild instanceof HTMLQuoteElement))el.append(node("blockquote"));const p=node("p");p.append(inlineMd(quote[1]));el.lastElementChild.append(p);continue}
   para.push(line);
  }
  flush();
@@ -168,7 +169,7 @@ function makeTurn(w){
  const text=node("p","",w.text),status=node("div","message-status");user.append(meta,text,status);
  const recover=node("button","recover","Phục hồi phiên đã lưu");recover.type="button";recover.addEventListener("click",()=>recoverWork(w.requestId));const cancel=node("button","turn-cancel","Dừng yêu cầu");cancel.type="button";cancel.addEventListener("click",()=>cancelWork(w.requestId));const controls=node("div","turn-controls");controls.append(cancel,recover);user.append(controls);
  const assistant=node("article","message assistant");assistant.dataset.replyTo=w.requestId;
- const replyMeta=node("div","message-meta"),avatar=node("span","avatar"),name=node("strong",""),body=node("p",""),files=node("div","artifact-list"),actions=node("div","reply-actions"),copy=node("button","text-button","Sao chép");copy.type="button";
+ const replyMeta=node("div","message-meta"),avatar=node("span","avatar"),name=node("strong",""),body=node("div","reply-body"),files=node("div","artifact-list"),actions=node("div","reply-actions"),copy=node("button","text-button","Sao chép");copy.type="button";
  copy.addEventListener("click",async()=>{try{await navigator.clipboard.writeText(state.work.get(w.requestId)?.reply??"");copy.textContent="Đã sao chép";setTimeout(()=>{copy.textContent="Sao chép"},1800)}catch{$("hint").textContent="Chưa truy cập được clipboard. Bạn có thể chọn văn bản để sao chép."}});
  replyMeta.append(avatar,name);actions.append(copy);assistant.append(replyMeta,body,files,actions);turn.append(user,assistant);
  return {el:turn,user,userName,meta,status,recover,cancel,assistant,avatar,name,body,files,signature:""};

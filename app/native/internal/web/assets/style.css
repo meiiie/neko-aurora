@@ -215,3 +215,22 @@ dialog{background:#fafaf8;border-color:#d6d6d2;box-shadow:0 16px 60px #0003}.con
 .core-reconsent{display:block;margin:2px auto 6px;min-height:34px;font-size:12px;color:var(--warning)}
 .core-reconsent:hover{color:var(--text)}
 .core-reconsent[hidden]{display:none}
+.assistant .reply-body{display:inline-block;padding:12px 18px;border-radius:20px;background:#f0f0ed;max-width:min(88%,calc(100% - 128px));animation:msg-in .3s ease-out}
+.assistant .reply-body:empty{display:none}
+.message .reply-body p{margin:0 0 10px;white-space:normal}
+.message .reply-body p:last-child{margin-bottom:0}
+.reply-body ul{margin:0 0 10px;padding-left:22px}
+.reply-body li{font-size:15.5px;line-height:1.5}
+.reply-body blockquote{margin:8px 0;padding:2px 0 2px 14px;border-left:3px solid #d6d6cf;color:#555;font-style:italic}
+.reply-body blockquote p{margin:0}
+.reply-body pre{margin:8px 0;padding:12px 14px;border:1px solid #e2e2dc;border-radius:14px;background:#fff;overflow:auto;font-size:13px}
+.reply-body pre code{white-space:pre}
+.reply-body :is(h3,h4,h5){margin:12px 0 6px;font-size:15.5px;font-weight:600}
+.reply-body code{font-family:ui-monospace,Consolas,monospace;font-size:.92em;background:#ffffffb8;border-radius:5px;padding:1px 5px}
+.message.assistant[data-unanswered] .reply-body{background:#f6f1e6;border:1px dashed #d6c7aa;color:var(--warning);font-style:italic;font-size:13px}
+[data-theme="dark"] .assistant .reply-body{background:#1f2224}
+[data-theme="dark"] .reply-body blockquote{border-color:#3a3f42;color:#a6afab}
+[data-theme="dark"] .reply-body pre{background:#141517;border-color:#ffffff10}
+[data-theme="dark"] .reply-body code{background:#ffffff12}
+[data-theme="dark"] .message.assistant[data-unanswered] .reply-body{background:#2a2419;border-color:#796749}
+@media(max-width:700px){.assistant .reply-body{max-width:100%}}

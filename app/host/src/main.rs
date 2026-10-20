@@ -647,8 +647,10 @@ fn run() -> Result<()> {
             ("NEKO_AUTO_UPDATE", "0"),
             ("NEKO_AUTO_UPDATE_CHECK", "false"),
             ("NEKO_MODE", "auto"),
-            ("NEKO_MAX_RETRIES", "0"),
-            ("NEKO_OFFLINE_RETRY_SECONDS", "0"),
+            // z.ai/GLM streams occasionally stall mid-generation; without wire
+            // retries every hiccup kills the whole turn.
+            ("NEKO_MAX_RETRIES", "2"),
+            ("NEKO_OFFLINE_RETRY_SECONDS", "5"),
             ("NEKO_COMPLETION_SOUND", "false"),
         ] {
             child.env(key, value);
@@ -742,15 +744,6 @@ fn run() -> Result<()> {
         .effects_clear(&admission)
         .map_err(|_| "core_effects_unresolved")?;
     bridge.binding = Some(binding.clone());
-    if profile.is_some() {
-        // Chat turns don't need max reasoning: an unlimited thinking budget
-        // burns the whole output budget before the reply and the turn dies
-        // mid-stream. Best-effort; cores without the option are unaffected.
-        let _ = bridge.call(
-            "session/set_config_option",
-            json!({"sessionId":binding.session,"configId":"reasoning_effort","value":"low"}),
-        );
-    }
     if let Some(c) = &context {
         bridge.context = Some(
             c.admit(&admission, &binding)
