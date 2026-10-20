@@ -219,7 +219,8 @@ dialog{background:#fafaf8;border-color:#d6d6d2;box-shadow:0 16px 60px #0003}.con
 .assistant .reply-body:empty{display:none}
 .message .reply-body p{margin:0 0 10px;white-space:normal}
 .message .reply-body p:last-child{margin-bottom:0}
-.reply-body ul{margin:0 0 10px;padding-left:22px}
+.reply-body :is(ul,ol){margin:0 0 10px;padding-left:22px}
+.reply-body hr{border:0;border-top:1px solid var(--line);margin:14px 0}
 .reply-body li{font-size:15.5px;line-height:1.5}
 .reply-body blockquote{margin:8px 0;padding:2px 0 2px 14px;border-left:3px solid #d6d6cf;color:#555;font-style:italic}
 .reply-body blockquote p{margin:0}

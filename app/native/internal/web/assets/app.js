@@ -52,8 +52,10 @@ function renderMarkdown(el,raw){
   if(/^```/.test(line)){if(inCode){const pre=node("pre");pre.append(node("code","",codeLines.join("\n")));el.append(pre);codeLines=[];inCode=false}else{flush();inCode=true}continue}
   if(inCode){codeLines.push(line);continue}
   if(!line.trim()){flush();continue}
+  const hr=line.match(/^(-{3,}|\*{3,}|_{3,})\s*$/);if(hr){flush();el.append(node("hr"));continue}
   const heading=line.match(/^(#{1,3})\s+(.+)/);if(heading){flush();const h=node("h"+(heading[1].length+2));h.append(inlineMd(heading[2]));el.append(h);continue}
   const bullet=line.match(/^\s*[-*]\s+(.+)/);if(bullet){flush();const li=node("li");li.append(inlineMd(bullet[1]));if(!(el.lastElementChild instanceof HTMLUListElement))el.append(node("ul"));el.lastElementChild.append(li);continue}
+  const numbered=line.match(/^\s*\d+[.)]\s+(.+)/);if(numbered){flush();const li=node("li");li.append(inlineMd(numbered[1]));if(!(el.lastElementChild instanceof HTMLOListElement))el.append(node("ol"));el.lastElementChild.append(li);continue}
   const quote=line.match(/^>\s?(.*)/);if(quote){flush();if(!(el.lastElementChild instanceof HTMLQuoteElement))el.append(node("blockquote"));const p=node("p");p.append(inlineMd(quote[1]));el.lastElementChild.append(p);continue}
   para.push(line);
  }
