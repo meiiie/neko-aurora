@@ -42,6 +42,28 @@ const storedAccount=savedSelection("neko.selected-account",null),storedChannel=s
 const state={botId:selectedBot(),channelId:typeof storedChannel==="string"?storedChannel:"",accountChoice:storedAccount?.mode==="bot-defaults"?{mode:"bot-defaults"}:storedAccount&&typeof storedAccount.id==="string"&&Number.isSafeInteger(storedAccount.revision)&&storedAccount.revision>0?{id:storedAccount.id,revision:storedAccount.revision}:null,bots:[],botStates:[],channels:[],conversations:[],retentionPreferences:[],projects:[],projectStates:[],files:[],collaborations:new Map(),reportDeliveries:new Map(),projectChoices:{},accounts:[],accountCatalogRevision:-1,accountsLoaded:false,accountsError:false,readOnly:false,work:new Map(),sequence:0,source:null,pending:null,runtime:"core_unavailable",executor:null,capabilities:[]};
 const $=id=>document.getElementById(id);
 const node=(tag,className,text)=>{const el=document.createElement(tag);if(className)el.className=className;if(text!==undefined)el.textContent=text;return el};
+const MD_ESCAPE=s=>s.replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;");
+function renderMarkdown(el,raw){
+ el.textContent="";
+ const lines=String(raw).split(/\r?\n/);let inCode=false,codeLines=[],para=[];
+ const flush=()=>{if(para.length){const p=node("p","",para.join(" "));el.append(p);para=[]}};
+ for(const line of lines){
+  if(/^```/.test(line)){if(inCode){const pre=node("pre");pre.append(node("code","",codeLines.join("\n")));el.append(pre);codeLines=[];inCode=false}else{flush();inCode=true}continue}
+  if(inCode){codeLines.push(line);continue}
+  if(!line.trim()){flush();continue}
+  const heading=line.match(/^(#{1,3})\s+(.+)/);if(heading){flush();el.append(node("h"+(heading[1].length+2),"",heading[2]));continue}
+  const bullet=line.match(/^\s*[-*]\s+(.+)/);if(bullet){flush();const li=node("li","",inlineMd(bullet[1]));if(!(el.lastElementChild instanceof HTMLUListElement))el.append(node("ul"));el.lastElementChild.append(li);continue}
+  para.push(line);
+ }
+ flush();
+}
+function inlineMd(text){
+ let html=MD_ESCAPE(text);
+ html=html.replace(/`([^`\n]+)`/g,"<code>$1</code>");
+ html=html.replace(/\*\*([^*\n]+)\*\*/g,"<strong>$1</strong>");
+ html=html.replace(/\*([^*\n]+)\*/g,"<em>$1</em>");
+ const span=node("span");span.innerHTML=html;return span;
+}
 function laneKey(botId=state.botId,channelId=state.channelId){return channelId||"conversation-"+botId}
 function projectChoice(channelId=state.channelId){return state.projectChoices?.[channelId]??null}
 function viewKey(botId=state.botId,channelId=state.channelId,projectId=projectChoice(channelId)?.id??""){return laneKey(botId,channelId)+(projectId?"/project/"+projectId:"")}
@@ -156,7 +178,7 @@ function renderTurn(w,bot){
  view.user.dataset.status=w.status;view.user.dataset.linkKind=w.taskLink?.kind??"";view.status.textContent=(w.taskLink?taskLinkDescription(w)+" · ":"")+(w.routedAlias?"Gửi tới @"+w.routedAlias+" · ":"")+(workStatusLabel(w));view.status.dataset.status=w.status;
  view.cancel.hidden=!activeStatuses.includes(w.status)||w.status==="cancelling";view.cancel.disabled=Boolean(w.cancelPending||taskCommands.get(w.requestId)?.pending||taskCommands.get(w.requestId)?.retry);view.recover.disabled=Boolean(w.recoverPending);view.recover.hidden=w.status!=="recovery_required";view.recover.textContent=w.core?"Phục hồi phiên đã lưu":"Thử mở lại phiên";
  const botTyping=["running","starting"].includes(w.status)&&!w.reply;view.assistant.hidden=!w.reply&&!w.artifacts?.length&&!botTyping;if(botTyping)view.body.innerHTML="<span class=typing-dots><span></span><span></span><span></span></span>";view.name.textContent=bot?.name??"Neko Bot";view.avatar.textContent=bot?.name[0]??"N";view.avatar.style.backgroundColor=bot?.color??"#4b6259";view.avatar.style.color=bot?.color??"#4b6259";view.name.style.color=bot?.color??"#4b6259";
- if(view.body.textContent!==(w.reply??""))view.body.textContent=w.reply??"";
+ if(!botTyping&&view.body.dataset.sourceText!==(w.reply??"")){view.body.dataset.sourceText=w.reply??"";renderMarkdown(view.body,w.reply??"")}
  const files=[];for(const artifact of w.artifacts??[]){let link=view.files.querySelector('[data-artifact-id="'+artifact.id+'"]');if(!link){link=node("a","artifact");link.dataset.artifactId=artifact.id;link.href=artifactPath(w,artifact);link.download=artifact.filename;link.title="SHA-256: "+artifact.sha256;const detail=node("span","");detail.append(node("span","",artifact.filename),node("small","",new Intl.NumberFormat("vi-VN").format(artifact.bytes)+" byte · Đã lưu"));link.append(node("span","artifact-icon","FILE"),detail,node("span","artifact-arrow","↓"))}files.push(link)}reconcile(view.files,files);return view.el;
 }
 function authorityDescription(w){const bot=state.bots.find(value=>value.id===w.botId),parts=["Bot thực thi: "+(bot?.name??"Neko Bot")];if(w.accountPin)parts.push("Cấu hình gốc: "+w.accountPin.model+" · revision "+w.accountPin.revision+" · Provider chưa xác minh");if(w.accountExpiredAt||w.failure==="account_lease_expired")parts.push("Quyền tài khoản đã hết hạn. Chọn cấu hình hiện tại và gửi yêu cầu mới.");else if(w.failure==="account_authority_changed")parts.push("Quyền tài khoản gốc đã thay đổi. Lựa chọn mới chỉ áp dụng cho yêu cầu mới.");else if(w.failure==="publication_audience_changed")parts.push("Thành viên nhóm đã thay đổi. Quyền cũ không tự được cấp lại.");if(w.resources){parts.push("Dự án gốc: "+w.resources.project.name+" · phiên bản "+w.resources.project.revision);parts.push((w.resources.files??[]).length?"Nguồn runtime đã chọn: "+(w.resources.files??[]).map(file=>file.filename+(file.truncated?" (trích đoạn giới hạn)":"")).join(", "):"Runtime chưa chọn tài liệu phù hợp cho yêu cầu này.");if(!resourcePinAvailable(w))parts.push("Dự án hoặc quyền tài liệu gốc đã thay đổi. Gửi yêu cầu mới để dùng quyền hiện tại.")}return parts.join(". ")}
