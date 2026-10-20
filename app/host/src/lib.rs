@@ -11,7 +11,7 @@ pub mod core_profile;
 pub mod vault;
 pub mod saved_key;
 
-pub const MAX_FRAME: usize = 65536;
+pub const MAX_FRAME: usize = 8 << 20;
 const SAFE: i64 = 9_007_199_254_740_991;
 
 #[derive(Debug, PartialEq, Eq)]

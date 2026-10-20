@@ -114,16 +114,31 @@ impl Drop for Bridge {
     }
 }
 
+static CORE_IO_LOG: std::sync::OnceLock<std::sync::Mutex<fs::File>> = std::sync::OnceLock::new();
+fn core_io_init(root: &Path) {
+    if let Ok(f) = fs::File::create(root.join(".host-core-io.log")) {
+        let _ = CORE_IO_LOG.set(std::sync::Mutex::new(f));
+    }
+}
+fn core_io(direction: &str, v: &Value) {
+    if let Some(m) = CORE_IO_LOG.get() {
+        if let Ok(mut f) = m.lock() {
+            use std::io::Write as _;
+            let _ = writeln!(f, "{} {}", direction, v);
+            let _ = f.flush();
+        }
+    }
+}
 fn lines(reader: impl Read + Send + 'static) -> Receiver<Result<Value>> {
     let (tx, rx) = mpsc::sync_channel(16);
     thread::spawn(move || {
         let mut reader = BufReader::new(reader);
         loop {
             let mut bytes = vec![];
-            match (&mut reader).take(65537).read_until(b'\n', &mut bytes) {
+            match (&mut reader).take((8 << 20) + 1).read_until(b'\n', &mut bytes) {
                 Ok(0) | Err(_) => break,
                 Ok(_) => {
-                    let v = if bytes.len() > 65536 || bytes.last() != Some(&b'\n') {
+                    let v = if bytes.len() > (8 << 20) || bytes.last() != Some(&b'\n') {
                         Err("frame_bound")
                     } else {
                         acp::frame(&bytes).map_err(|_| "frame_invalid")
@@ -157,6 +172,7 @@ fn host_event(
 }
 impl Bridge {
     fn send(&mut self, value: Value) -> Result<()> {
+        core_io("HOST>TO>CORE", &value);
         let input = self.child.child.stdin.as_mut().ok_or("core_closed")?;
         writeln!(input, "{value}")
             .and_then(|_| input.flush())
@@ -194,6 +210,7 @@ impl Bridge {
                 Err(mpsc::RecvTimeoutError::Timeout) => continue,
                 Err(_) => return Err("core_closed"),
             };
+            core_io("CORE>TO>HOST", &v);
             if v["jsonrpc"] != "2.0" {
                 return Err("core_frame_invalid");
             }
@@ -548,6 +565,7 @@ fn run() -> Result<()> {
     launch_guard.armed = false;
     fs::create_dir_all(&root).map_err(|_| "task_root_unavailable")?;
     let root = fs::canonicalize(root).map_err(|_| "task_root_unavailable")?;
+    core_io_init(&root);
     if root.parent() != Some(base.as_path()) {
         return Err("task_root_escape");
     }
