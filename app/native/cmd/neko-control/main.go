@@ -225,6 +225,11 @@ func main() {
 	if profiles != nil {
 		handler.EnableCoreProfiles(profiles)
 	}
+	if err := handler.EnableWebConnections(*state); err != nil {
+		listener.Close()
+		fmt.Fprintln(os.Stderr, "web_connections_unavailable")
+		return
+	}
 	if principals != nil {
 		handler.EnableFixtureIdentity(principals)
 		if err = writeFixtureTickets(*sessionOutput, principals, principalConfig); err != nil {

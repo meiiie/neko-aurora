@@ -29,6 +29,7 @@ type Server struct {
 	connections *connections.Store
 	fixture     *identity.Authority
 	desktop     *desktopLaunchReceipt
+	web         *webConnectionRegistry
 }
 
 func (s *Server) EnableConnections(c *connections.Store) {
@@ -650,6 +651,8 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		send(w, http.StatusCreated, map[string]any{"bot": bot, "duplicate": duplicate})
 	case s.connections != nil && r.Method == "GET" && r.URL.Path == "/v1/connections":
 		send(w, http.StatusOK, s.connections.Snapshot())
+	case strings.HasPrefix(r.URL.Path, "/v1/web-connections"):
+		s.webConnections(w, r)
 	case s.connections != nil && r.Method == "POST" && r.URL.Path == "/v1/accounts":
 		var input connections.AccountInput
 		if decode(w, r, &input) != nil {
