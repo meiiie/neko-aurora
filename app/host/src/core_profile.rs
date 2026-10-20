@@ -267,7 +267,7 @@ impl CoreProfileLaunch {
         }
         let limits = &pin.limits;
         if !(1..=64000).contains(&limits.max_input_bytes)
-            || !(1..=4096).contains(&limits.max_output_tokens)
+            || !(1..=16384).contains(&limits.max_output_tokens)
             || !(1..=8).contains(&limits.max_requests)
             || !(1..=6).contains(&limits.max_steps)
             || !(1..=600).contains(&limits.max_seconds)

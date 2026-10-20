@@ -58,6 +58,8 @@ type coreProfileSource struct {
 	verifyMu          sync.Mutex
 	verifyGeneration  uint64
 	verification      *profileCatalogVerification
+	cachedVerify      *profileCatalogVerification
+	cachedVerifyUntil time.Time
 }
 
 type profileCatalogVerification struct {
@@ -82,6 +84,23 @@ func (source *coreProfileSource) verificationCatalog(ctx context.Context, collec
 	if ctx.Err() != nil {
 		return ledger.CoreProfileMetadataReport{}, errCoreProfile
 	}
+	// A recent successful verification is reused instead of respawning the core
+	// binary on every 100ms reconcile tick; a live probe racing a running turn
+	// could exceed the guard's 3s budget and suspend healthy work mid-stream.
+	source.verifyMu.Lock()
+	cached := source.cachedVerify
+	cachedValid := cached != nil && cached.generation == source.verifyGeneration && time.Now().Before(source.cachedVerifyUntil)
+	var cachedReport ledger.CoreProfileMetadataReport
+	if cachedValid {
+		cachedReport = cached.report
+	}
+	source.verifyMu.Unlock()
+	if cachedValid {
+		brokerFresh := !source.environmentBroker || cachedReport.SourceSnapshot != nil && cachedReport.SourceSnapshot.ID == source.snapshotID && cachedReport.SourceSnapshot.ExpiresAtUnixMS == source.snapshotExpiry
+		if brokerFresh {
+			return cachedReport, nil
+		}
+	}
 	source.verifyMu.Lock()
 	flight := source.verification
 	if flight != nil && flight.generation != source.verifyGeneration {
@@ -104,6 +123,10 @@ func (source *coreProfileSource) verificationCatalog(ctx context.Context, collec
 			flight.report, flight.err = copyProfileCatalog(report), err
 			if source.verification == flight {
 				source.verification = nil
+			}
+			if err == nil {
+				source.cachedVerify = flight
+				source.cachedVerifyUntil = time.Now().Add(30 * time.Second)
 			}
 			close(flight.done)
 			source.verifyMu.Unlock()

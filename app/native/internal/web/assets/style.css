@@ -132,6 +132,9 @@ dialog{background:#fafaf8;border-color:#d6d6d2;box-shadow:0 16px 60px #0003}.con
 .typing-dots span{width:7px;height:7px;border-radius:50%;background:var(--muted);animation:typing-bounce 1.4s ease-in-out infinite}
 .typing-dots span:nth-child(2){animation-delay:.18s}
 .typing-dots span:nth-child(3){animation-delay:.36s}
+.message.assistant[data-unanswered]>p{font-style:italic;font-size:13px;line-height:1.6;color:var(--warning)}
+.message.assistant[data-unanswered] .reply-actions{display:none}
+.message.assistant[data-unanswered] .avatar{opacity:.55}
 .message-status[data-status=running]::after,
 .message-status[data-status=starting]::after{content:"···";margin-left:2px;letter-spacing:2px}
 @keyframes composer-focus{from{box-shadow:0 0 0 0 #b6e2cb00}to{box-shadow:0 0 0 3px #b6e2cb30}}
