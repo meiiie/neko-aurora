@@ -210,3 +210,11 @@ func clearSecret(value *string) {
 	*value = strings.Repeat("\x00", len(*value))
 	*value = ""
 }
+
+// EnableZaloBridge wires the Zalo web bridge controls when the script
+// exists next to the workspace toolchain.
+func (s *Server) EnableZaloBridge() {
+	if bridge := resolveZaloBridge(); bridge != nil {
+		s.zalo = bridge
+	}
+}

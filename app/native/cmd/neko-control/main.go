@@ -225,6 +225,7 @@ func main() {
 	if profiles != nil {
 		handler.EnableCoreProfiles(profiles)
 	}
+	handler.EnableZaloBridge()
 	if err := handler.EnableWebConnections(*state); err != nil {
 		listener.Close()
 		fmt.Fprintln(os.Stderr, "web_connections_unavailable")

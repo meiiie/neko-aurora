@@ -30,6 +30,7 @@ type Server struct {
 	fixture     *identity.Authority
 	desktop     *desktopLaunchReceipt
 	web         *webConnectionRegistry
+	zalo        *zaloBridge
 }
 
 func (s *Server) EnableConnections(c *connections.Store) {
@@ -653,6 +654,8 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		send(w, http.StatusOK, s.connections.Snapshot())
 	case strings.HasPrefix(r.URL.Path, "/v1/web-connections"):
 		s.webConnections(w, r)
+	case strings.HasPrefix(r.URL.Path, "/v1/zalo-bridge"):
+		s.zaloBridgeControl(w, r)
 	case s.connections != nil && r.Method == "POST" && r.URL.Path == "/v1/accounts":
 		var input connections.AccountInput
 		if decode(w, r, &input) != nil {
