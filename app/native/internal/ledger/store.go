@@ -989,10 +989,9 @@ func (s *Store) acceptLocked(in Input, account *connections.Pin, channelID strin
 	if err != nil {
 		return Work{}, false, err
 	}
-	w.ToolPolicyVersion = 1
+	w.ToolPolicyVersion = 3
 	s.pinBotProfile(&w)
 	if validChannelID(w.ConversationID) {
-		w.ToolPolicyVersion = 2
 		w.Context = &ContextPin{Version: 5, PublishedReports: copyPublishedReports(s.capturePublishedReports(w, uint64(len(s.events))).Pins)}
 	}
 	w.PluginSelection = copySelection(scope.PluginSelection)

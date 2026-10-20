@@ -751,6 +751,9 @@ func (s *Store) applyCoreProfile(e Event) {
 		p.InspectionConsent = &c
 		if e.Type == "core_profile.expired" {
 			s.coreProfileRetired[c.ID] = true
+			// The retired flag already blocks reuse; keeping the record in the
+			// inspections map would fill the 128-slot grant ceiling forever.
+			delete(s.coreProfileInspections, c.ID)
 		} else {
 			s.coreProfileInspections[c.ID] = c
 		}

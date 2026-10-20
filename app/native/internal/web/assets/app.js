@@ -56,6 +56,19 @@ function renderMarkdown(el,raw){
   const heading=line.match(/^(#{1,3})\s+(.+)/);if(heading){flush();const h=node("h"+(heading[1].length+2));h.append(inlineMd(heading[2]));el.append(h);continue}
   const bullet=line.match(/^\s*[-*]\s+(.+)/);if(bullet){flush();const li=node("li");li.append(inlineMd(bullet[1]));if(!(el.lastElementChild instanceof HTMLUListElement))el.append(node("ul"));el.lastElementChild.append(li);continue}
   const numbered=line.match(/^\s*\d+[.)]\s+(.+)/);if(numbered){flush();const li=node("li");li.append(inlineMd(numbered[1]));if(!(el.lastElementChild instanceof HTMLOListElement))el.append(node("ol"));el.lastElementChild.append(li);continue}
+  if(/^\s*\|.*\|\s*$/.test(line)){flush();const rows=[line];
+   while(lines.length&&/^\s*\|.*\|\s*$/.test(lines[0])){rows.push(lines.shift())}
+   const cellsOf=r=>r.trim().replace(/^\|/,'').replace(/\|$/,'').split('|').map(c=>c.trim());
+   const table=node("table"),head=cellsOf(rows[0]),trh=node("tr");
+   for(const c of head){const th=node("th");th.append(inlineMd(c));trh.append(th)}
+   const thead=node("thead");thead.append(trh);table.append(thead);
+   const tbody=node("tbody");
+   for(const r of rows.slice(1)){
+    if(/^\s*\|?[\s:|-]+\|?\s*$/.test(r))continue;
+    const tr=node("tr");for(const c of cellsOf(r)){const td=node("td");td.append(inlineMd(c));tr.append(td)}tbody.append(tr)
+   }
+   table.append(tbody);el.append(table);continue
+  }
   const quote=line.match(/^>\s?(.*)/);if(quote){flush();if(!(el.lastElementChild instanceof HTMLQuoteElement))el.append(node("blockquote"));const p=node("p");p.append(inlineMd(quote[1]));el.lastElementChild.append(p);continue}
   para.push(line);
  }

@@ -130,13 +130,16 @@ $("core-use-installed").addEventListener("click",()=>{if(!allowed())return;opene
  $("core-profile-execution").addEventListener("input",renderBudget);$("core-profile-execution").addEventListener("invalid",event=>{if($("core-profile-limits").contains(event.target))$("core-profile-limits").open=true},true);
  $("core-profile-execution").addEventListener("submit",event=>{event.preventDefault();if($("core-profile-approve").disabled)return;const p=profiles.find(p=>p.id===$("core-profile-choice").value),s=scope(),limits=Object.fromEntries(Object.keys(coreProfileLimitBounds).map(k=>[k,Number($("core-profile-"+k).value)]));if(!p||!s||!coreProfileLimits(limits)||!inspection||!coreProfileExecutable(p,inspection.source)){render();return}start("execution",{sourceId:inspection.source.id,expectedSourceRevision:inspection.source.revision,profileId:p.id,profileRevision:p.profileRevision,provider:p.provider,model:p.model,providerOrigin:p.providerOrigin,...s,...limits,ttlSeconds:Number($("core-profile-ttlSeconds").value),approveExecution:true,clientNonce:crypto.randomUUID()})});
  $("core-profile-revoke").addEventListener("click",()=>{if(chosen&&!busy){selectionActive=false;renderRouting();start("revoke",{consentId:chosen.id,expectedRevision:chosen.revision,action:"revoke",clientNonce:crypto.randomUUID()})}});dialog.addEventListener("close",()=>{generation++;busy=false;loading=false});$("plugins-tab").addEventListener("click",()=>{generation++;busy=false;loading=false});
- setInterval(()=>{if(allowed()&&!busy&&chosen?.status!=="revoked"&&!validChoice()&&lastUsed())reconsent()},20000);
+ let renewFailures=0,renewRetryAfter=0;
+ setInterval(()=>{if(!(allowed()&&!busy&&chosen?.status!=="revoked"&&!validChoice()&&lastUsed()))return;if(renewFailures>=3&&Date.now()<renewRetryAfter)return;reconsent().then(ok=>{renewFailures=ok?0:renewFailures+1;if(!ok&&renewFailures>=3)renewRetryAfter=Date.now()+300000}).catch(()=>{renewFailures++})},20000);
  async function reconsent(){
   if(!allowed()||busy)return false;
   const last=lastUsed();if(!last)return false;
   busy=true;render();
   let ok=false;
   try{
+   await loadRecords();
+   for(const op of records.values()){if(op.status==="unknown"&&!op.checking){try{await reconcile(op,false)}catch{}}}
    const r=await requestRaw("/v1/core-profile-sources");
    if(!r||r.version!==1||!Array.isArray(r.sources)||!r.sources.every(coreProfileSource))return false;
    sources=r.sources;

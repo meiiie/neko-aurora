@@ -183,7 +183,7 @@ func (s *Store) publishedReportAllowed(w Work, p PublishedReportPin, at uint64) 
 }
 
 func hasPublishedArtifacts(w Work) bool {
-	if w.ToolPolicyVersion != 2 || w.Context == nil || w.Context.Version != 5 {
+	if w.ToolPolicyVersion != 2 && w.ToolPolicyVersion != 3 || w.Context == nil || w.Context.Version != 5 {
 		return false
 	}
 	for _, p := range w.Context.PublishedReports {
@@ -202,8 +202,11 @@ func publishedReportPlugin() PluginRecord {
 
 func policyBuiltinPlugins(version int) []PluginRecord {
 	out := builtinPlugins()
-	if version == 2 {
+	if version >= 2 {
 		out = append(out, publishedReportPlugin())
+	}
+	if version >= 3 {
+		out = append(out, webSearchPlugin())
 	}
 	return out
 }

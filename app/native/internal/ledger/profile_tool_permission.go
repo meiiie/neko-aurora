@@ -119,6 +119,17 @@ func (s *Store) profilePermissionArgumentsAllowed(w Work, a coreProfilePermissio
 				return true
 			}
 		}
+	case "web.search":
+		if !permissionExactFields(a.Arguments, "query") {
+			return false
+		}
+		var in struct {
+			Query string `json:"query"`
+		}
+		if decoder.Decode(&in) != nil || strings.TrimSpace(in.Query) == "" || len(in.Query) > 200 || strings.ContainsAny(in.Query, "\x00\r\n\x1f") || !utf8.ValidString(in.Query) {
+			return false
+		}
+		return true
 	case "report.read_artifact":
 		if !permissionExactFields(a.Arguments, "deliveryId", "artifactId", "offset", "bytes") {
 			return false

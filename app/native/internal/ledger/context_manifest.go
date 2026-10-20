@@ -272,7 +272,7 @@ func manifestHash(text string) string {
 	return hex.EncodeToString(hash[:])
 }
 func manifestReaderMatches(w Work, reader *PluginRecord) bool {
-	if (w.ToolPolicyVersion != 1 && w.ToolPolicyVersion != 2) || reader == nil || !reader.TrustedBuiltin || reader.ID != "neko-project-sources" || reader.Publisher != "original-host-implementation" || reader.Status != "ready_builtin_local" || reader.Version != "1.0.0" || len(reader.Tools) != 1 || reader.Tools[0].Name != "project.read_file" {
+	if (w.ToolPolicyVersion != 1 && w.ToolPolicyVersion != 2 && w.ToolPolicyVersion != 3) || reader == nil || !reader.TrustedBuiltin || reader.ID != "neko-project-sources" || reader.Publisher != "original-host-implementation" || reader.Status != "ready_builtin_local" || reader.Version != "1.0.0" || len(reader.Tools) != 1 || reader.Tools[0].Name != "project.read_file" {
 		return false
 	}
 	current := pinPlugin(*reader)

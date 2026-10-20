@@ -753,6 +753,9 @@ func (s *Store) ExecuteTool(id string, epoch uint64, frame json.RawMessage) (jso
 		Offset int    `json:"offset"`
 		Bytes  int    `json:"bytes"`
 	}
+	var webQuery struct {
+		Query string `json:"query"`
+	}
 	var publishedRead struct {
 		DeliveryID string `json:"deliveryId"`
 		ArtifactID string `json:"artifactId"`
@@ -774,6 +777,12 @@ func (s *Store) ExecuteTool(id string, epoch uint64, frame json.RawMessage) (jso
 		}
 		if len(report.Filename) == 0 || len(report.Filename) > 80 || filepath.Base(report.Filename) != report.Filename || strings.ContainsAny(report.Filename, "/\\:\x00\r\n") || (!strings.HasSuffix(report.Filename, ".md") && !strings.HasSuffix(report.Filename, ".txt")) || len(report.Text) == 0 || len(report.Text) > 24000 || !utf8.ValidString(report.Text) || hasSecret([]byte(report.Text)) {
 			return toolError("Invalid report filename or content"), nil
+		}
+	case call.Arguments.Name == "web.search":
+		d := json.NewDecoder(bytes.NewReader(call.Arguments.Arguments))
+		d.DisallowUnknownFields()
+		if d.Decode(&webQuery) != nil || strings.TrimSpace(webQuery.Query) == "" || len(webQuery.Query) > 200 || strings.ContainsAny(webQuery.Query, "\x00\r\n\x1f") || !utf8.ValidString(webQuery.Query) {
+			return toolError("Invalid web search query"), nil
 		}
 	case call.Arguments.Name == "project.read_file":
 		d := json.NewDecoder(bytes.NewReader(call.Arguments.Arguments))
@@ -809,6 +818,11 @@ func (s *Store) ExecuteTool(id string, epoch uint64, frame json.RawMessage) (jso
 	var preparedError error
 	if call.Name == "execute_tool" && call.Arguments.Name == "project.read_file" {
 		preparedSource, preparedText, preparedError = s.preparePinnedFileText(id, epoch, read.FileID)
+	}
+	// The public search runs outside the store lock; the turn only reads it back.
+	var searchedWeb json.RawMessage
+	if call.Name == "execute_tool" && call.Arguments.Name == "web.search" {
+		searchedWeb = webSearchResults(strings.TrimSpace(webQuery.Query))
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -848,6 +862,9 @@ func (s *Store) ExecuteTool(id string, epoch uint64, frame json.RawMessage) (jso
 			}
 			if !pinnedTool(w, call.Arguments.Name) {
 				return toolError("Tool is outside the immutable task plugin policy"), nil
+			}
+			if call.Arguments.Name == "web.search" {
+				return searchedWeb, nil
 			}
 			if call.Arguments.Name == "report.read_artifact" {
 				a, content, err := s.readPublishedArtifactLocked(w, publishedRead.DeliveryID, publishedRead.ArtifactID)
