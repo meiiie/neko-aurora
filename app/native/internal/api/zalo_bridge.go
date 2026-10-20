@@ -1,6 +1,8 @@
 package api
 
 import (
+	"encoding/json"
+	"fmt"
 	"net/http"
 	"os"
 	"os/exec"
@@ -12,11 +14,12 @@ import (
 // (QR). It lives as a Node script next to the toolchain; the control only
 // starts/stops it and reports status.
 type zaloBridge struct {
-	mu       sync.Mutex
-	listen   *exec.Cmd
-	nodePath string
-	script   string
-	dir      string
+	mu         sync.Mutex
+	listen     *exec.Cmd
+	nodePath   string
+	script     string
+	dir        string
+	statusPath string
 }
 
 func resolveZaloBridge() *zaloBridge {
@@ -28,10 +31,11 @@ func resolveZaloBridge() *zaloBridge {
 	for i := 0; i < 2 && filepath.Base(root) != "app"; i++ {
 		root = filepath.Dir(root)
 	}
-	workspace := filepath.Dir(root)
+	workspace := filepath.Dir(filepath.Dir(root))
 	dir := filepath.Join(workspace, "tools", "autorec")
 	script := filepath.Join(dir, "zalo-bridge.mjs")
 	if _, err := os.Stat(script); err != nil {
+		fmt.Fprintln(os.Stderr, "zalo bridge script missing:", script, "workspace:", workspace)
 		return nil
 	}
 	node := os.Getenv("NEKOBOT_NODE")
@@ -49,7 +53,7 @@ func resolveZaloBridge() *zaloBridge {
 	if node == "" {
 		node = "node"
 	}
-	return &zaloBridge{nodePath: node, script: script, dir: dir}
+	return &zaloBridge{nodePath: node, script: script, dir: dir, statusPath: filepath.Join(workspace, "neko-bot", "app", ".state", "local", "zalo-status.json")}
 }
 
 func (s *Server) zaloBridgeControl(w http.ResponseWriter, r *http.Request) {
@@ -62,7 +66,16 @@ func (s *Server) zaloBridgeControl(w http.ResponseWriter, r *http.Request) {
 		s.zalo.mu.Lock()
 		listening := s.zalo.listen != nil && s.zalo.listen.Process != nil
 		s.zalo.mu.Unlock()
-		send(w, http.StatusOK, map[string]any{"version": 1, "listening": listening})
+		loggedIn := false
+		if raw, err := os.ReadFile(s.zalo.statusPath); err == nil {
+			var parsed struct {
+				LoggedIn bool `json:"loggedIn"`
+			}
+			if json.Unmarshal(raw, &parsed) == nil {
+				loggedIn = parsed.LoggedIn
+			}
+		}
+		send(w, http.StatusOK, map[string]any{"version": 1, "listening": listening, "loggedIn": loggedIn})
 	case r.Method == http.MethodPost && r.URL.Path == "/v1/zalo-bridge":
 		var input struct {
 			Action string `json:"action"`
@@ -99,12 +112,20 @@ func (s *Server) zaloBridgeControl(w http.ResponseWriter, r *http.Request) {
 			send(w, http.StatusOK, map[string]any{"version": 1, "listening": true})
 			return
 		}
-		// login: fire and forget; the Chrome window speaks for itself.
+		// login: open the window, then watch for the QR scan so the UI can
+		// report "logged in" and auto-start listening.
 		if err := command.Start(); err != nil {
 			sendError(w, errWebConnectionInvalid)
 			return
 		}
 		go command.Wait()
+		watcher := exec.Command(s.zalo.nodePath, s.zalo.script, "wait-login")
+		watcher.Dir = s.zalo.dir
+		watcher.Stdout = os.Stdout
+		watcher.Stderr = os.Stderr
+		if watcher.Start() == nil {
+			go watcher.Wait()
+		}
 		send(w, http.StatusOK, map[string]any{"version": 1, "login_window": true})
 	default:
 		http.NotFound(w, r)
