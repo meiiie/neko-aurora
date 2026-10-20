@@ -131,13 +131,15 @@ func (s *Server) webConnections(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		if !validWebConnectionText(input.Name, 80) || !validWebConnectionURL(input.SiteURL) ||
-			!validWebConnectionText(input.Username, 128) || len(input.Secret) == 0 || len(input.Secret) > 1024 {
+			len(input.Username) > 128 || len(input.Secret) == 0 || len(input.Secret) > 65536 {
 			sendError(w, errWebConnectionInvalid)
 			return
 		}
 		kind := input.Kind
-		if kind != "login" && kind != "secret" {
-			kind = "login"
+		switch kind {
+		case "login", "secret", "ssh_key", "json", "token", "text":
+		default:
+			kind = "text"
 		}
 		identity := make([]byte, 16)
 		if _, err := rand.Read(identity); err != nil {
