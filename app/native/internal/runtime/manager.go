@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"nekoaurora.local/native/internal/executors"
 	"nekoaurora.local/native/internal/ledger"
 	"nekoaurora.local/native/internal/protocol"
@@ -120,10 +121,14 @@ func New(store *ledger.Store, c Config, state string) (*Manager, error) {
 	}
 	m := &Manager{store: store, config: c, state: absolute, tasks: tasks, active: map[string]bool{}, stopIssues: map[string]string{}}
 	store.ConfigureExecutor(nil)
-	d, e := configuredDescriptor(c, absolute)
-	if e == nil {
+	// A missing descriptor means no attested executor is configured. A
+	// configured descriptor whose registry cannot be opened must fail closed
+	// instead of silently running without the executor boundary.
+	if d, de := configuredDescriptor(c, absolute); de == nil {
 		m.descriptor = d
-		m.executor, e = executors.Open(filepath.Join(absolute, "executors"), d)
+		if m.executor, e = executors.Open(filepath.Join(absolute, "executors"), d); e != nil {
+			return nil, fmt.Errorf("executor registry: %w", e)
+		}
 	}
 	store.ConfigureExecutor(m.executor)
 	store.ConfigureContextAdmission(protocol.CoreContextAdmission(m.descriptor.CoreSHA256))
