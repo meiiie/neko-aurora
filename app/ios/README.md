@@ -31,7 +31,7 @@ npm run open        # Xcode 26+: pick Team, then Product → Archive
 | Export compliance `ITSAppUsesNonExemptEncryption=false` (only HTTPS/standard crypto) | ✅ (re-check when filing) |
 | Account deletion (5.1.1(v)) | ℹ️ No account signup (owner code on a self-hosted server). If multi-user signup is added, an in-app delete flow is required |
 | Sign in for review: demo host + owner code for App Review notes | ⏳ needs a deploy host |
-| Icon 1024 opaque, no alpha | ✅ generated (upscaled from 512; replace with a 1024 master before release) |
+| Icon 1024 opaque, no alpha | ✅ from the 1254 px Wiii mascot master (downscaled, `brand/make-icon-1024.py`) |
 | Screenshots 6.9" + 6.5" | ⏳ take from the simulator after deploy |
 | Apple Developer Program ($99/yr), bundle id `online.holilihu.nekoaurora`, signing | ⏳ Darren |
 | Age rating, category Productivity, support URL | ⏳ in App Store Connect |
