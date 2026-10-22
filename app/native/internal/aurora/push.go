@@ -21,6 +21,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"regexp"
 	"time"
 )
 
@@ -150,3 +151,6 @@ func (p *Pusher) Send(sub PushSub, payload []byte) (gone bool, err error) {
 	}
 	return false, nil
 }
+
+// apnsToken is an APNs device token as hex (64 chars today; Apple allows growth).
+var apnsToken = regexp.MustCompile(`^[0-9a-fA-F]{64,200}$`)

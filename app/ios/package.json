@@ -1,0 +1,21 @@
+{
+  "name": "neko-aurora-ios",
+  "private": true,
+  "version": "0.1.0",
+  "description": "Capacitor iOS shell for Neko Aurora (wraps the /app/ PWA, adds APNs push + native haptics).",
+  "scripts": {
+    "assets": "node scripts/assets.mjs",
+    "sync": "node scripts/set-url.mjs && cap sync ios",
+    "open": "cap open ios"
+  },
+  "license": "UNLICENSED",
+  "dependencies": {
+    "@capacitor/core": "^8.5.3",
+    "@capacitor/haptics": "^8.0.0",
+    "@capacitor/ios": "^8.5.3",
+    "@capacitor/push-notifications": "^8.0.0",
+    "@capacitor/splash-screen": "^8.0.0",
+    "@capacitor/status-bar": "^8.0.0"
+  },
+  "devDependencies": { "@capacitor/cli": "^8.5.3" }
+}

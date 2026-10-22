@@ -25,6 +25,9 @@ var contentTypes = map[string]string{
 	"/app/icon-maskable-512.png": "image/png",
 	"/app/favicon.ico":           "image/x-icon",
 	"/app/manifest.webmanifest":  "application/manifest+json",
+	"/app/privacy.html":          "text/html; charset=utf-8",
+	"/app/terms.html":            "text/html; charset=utf-8",
+	"/app/legal.css":             "text/css; charset=utf-8",
 }
 
 // The Neko Aurora design system (tokens, fonts, icons) is shared by the

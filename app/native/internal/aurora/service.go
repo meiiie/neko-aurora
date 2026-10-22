@@ -795,6 +795,26 @@ func (s *Service) routes() {
 		}
 		writeJSON(w, 200, map[string]bool{"ok": true})
 	})
+	// iOS shell (Capacitor) registers its APNs device token here. It is kept in the
+	// encrypted vault; delivery needs an Apple .p8 key (AURORA_APNS_*), see app/ios/README.md.
+	m.HandleFunc("POST /app/api/push/apns", func(w http.ResponseWriter, r *http.Request) {
+		var in struct {
+			Token string `json:"token"`
+		}
+		if err := decode(r, &in); err != nil {
+			fail(w, err)
+			return
+		}
+		if !apnsToken.MatchString(in.Token) {
+			fail(w, ErrInvalid)
+			return
+		}
+		if _, err := s.V.Set(vault.Meta{Name: "APNS_DEVICE_TOKEN", Label: "Thiết bị iOS (APNs)", Kind: "device"}, in.Token); err != nil {
+			fail(w, err)
+			return
+		}
+		writeJSON(w, 200, map[string]any{"ok": true, "delivery": Env("APNS_KEY_ID") != ""})
+	})
 	m.HandleFunc("POST /app/api/push/test", func(w http.ResponseWriter, r *http.Request) {
 		s.notify("Neko Aurora", "Thông báo thử: kênh thông báo đang hoạt động.", "/app/")
 		writeJSON(w, 200, map[string]int{"subscriptions": len(s.Prefs.PushSubs())})

@@ -7,6 +7,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -50,5 +51,24 @@ func TestHybridFallsBackToCoreOnlyBeforeText(t *testing.T) {
 	out, err := h.Stream(context.Background(), []ChatMsg{{"user", "hi"}}, func(string) {})
 	if err != nil || out != "Từ Core." || h.Runtime() != "direct-http" {
 		t.Fatalf("%v %q", err, out)
+	}
+}
+
+func TestAPNsTokenStoredInVaultOnly(t *testing.T) {
+	svc, _ := newSvc(t)
+	srv := httptest.NewServer(svc)
+	defer srv.Close()
+	tok := strings.Repeat("ab", 32)
+	for _, c := range []struct {
+		body string
+		code int
+	}{{`{"token":"nothex!"}`, 400}, {`{"token":"` + tok + `"}`, 200}} {
+		res, err := http.Post(srv.URL+"/app/api/push/apns", "application/json", strings.NewReader(c.body))
+		if err != nil || res.StatusCode != c.code {
+			t.Fatalf("%s → %v %v", c.body, res.StatusCode, err)
+		}
+	}
+	if v, ok := svc.V.Get("APNS_DEVICE_TOKEN"); !ok || v != tok {
+		t.Fatal("token not in vault")
 	}
 }
