@@ -5,9 +5,11 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log"
 	"regexp"
 	"strings"
 	"time"
+	"unicode"
 
 	"nekoaurora.local/native/internal/ledger"
 	"nekoaurora.local/native/internal/outbound"
@@ -22,7 +24,7 @@ import (
 
 const systemPrompt = `Bạn là "%s", một agent trong Neko Aurora làm việc cho Darren (HoLiLiHu). Vai trò: %s
 Quy tắc:
-- Trả lời bằng tiếng Việt, ngắn gọn, cụ thể, như một đồng nghiệp đáng tin. Không dùng markdown nặng.
+- Trả lời bằng tiếng Việt, ngắn gọn, cụ thể, như một đồng nghiệp đáng tin. Chỉ dùng chữ Latin tiếng Việt: tuyệt đối không chèn chữ Hán/Nhật/Hàn. Markdown gọn (tiêu đề ngắn, gạch đầu dòng, bảng) chỉ khi giúp dễ đọc.
 - Bạn KHÔNG tự gửi, đăng, thanh toán hay liên hệ ai bên ngoài. Không bao giờ nói là đã gửi.
 - Cuối câu trả lời, bạn có thể thêm các dòng chỉ thị (mỗi loại tối đa một dòng, đúng JSON):
 PLAN: ["bước 1","bước 2"]   ← chỉ khi việc cần 2-4 bước rõ ràng; khi đó phần trả lời chỉ cần 1 câu nêu cách làm.
@@ -426,6 +428,7 @@ func (s *Service) runTurn(ctx context.Context, w ledger.Work) (*Approval, []stri
 	if err != nil {
 		return nil, nil, err
 	}
+	s.fixScript(ctx, w, &d)
 	if d.Tool != nil { // tools exhausted or disabled: never leave a bare TOOL line
 		d.Text = strings.TrimSpace(d.Text + "\n(Mình chưa lấy thêm được dữ liệu, nên không đưa số liệu chưa kiểm chứng.)")
 	}
@@ -483,4 +486,48 @@ func (s *Service) runTurn(ctx context.Context, w ledger.Work) (*Approval, []stri
 		s.endDraft(w)
 	}
 	return nil, nil, nil
+}
+
+// hasHan reports CJK ideographs/kana/hangul: GLM occasionally drifts into
+// Chinese mid-sentence ("báo mình找个 khung"), which must never reach a draft.
+func hasHan(t string) bool {
+	for _, r := range t {
+		if unicode.Is(unicode.Han, r) || unicode.Is(unicode.Hiragana, r) || unicode.Is(unicode.Katakana, r) || unicode.Is(unicode.Hangul, r) {
+			return true
+		}
+	}
+	return false
+}
+
+func stripHan(t string) string {
+	return strings.Map(func(r rune) rune {
+		if unicode.Is(unicode.Han, r) || unicode.Is(unicode.Hiragana, r) || unicode.Is(unicode.Katakana, r) || unicode.Is(unicode.Hangul, r) {
+			return -1
+		}
+		return r
+	}, t)
+}
+
+// fixScript repairs script drift in the reply and approval draft with one quick
+// rewrite call (unless Darren himself wrote CJK); falls back to stripping.
+func (s *Service) fixScript(ctx context.Context, w ledger.Work, d *directives) {
+	h := s.history(w.BotID, w.RequestID)
+	if len(h) > 0 && hasHan(h[len(h)-1].Content) {
+		return
+	}
+	fix := func(t string) string {
+		if !hasHan(t) {
+			return t
+		}
+		out, err := s.AI.Stream(ctx, []ChatMsg{{"system", "Bạn là biên tập viên tiếng Việt. Viết lại nguyên văn đoạn sau, chỉ thay các cụm chữ Hán/Nhật/Hàn bằng tiếng Việt tự nhiên đúng nghĩa. Giữ nguyên mọi thứ khác (xuống dòng, số liệu, [n]). Chỉ trả về đoạn đã sửa."}, {"user", t}}, func(string) {})
+		if out = strings.TrimSpace(out); err != nil || out == "" || hasHan(out) {
+			out = stripHan(t)
+		}
+		log.Printf("aurora repaired script drift (%d→%d chars)", len(t), len(out))
+		return out
+	}
+	d.Text = fix(d.Text)
+	if d.Approval != nil {
+		d.Approval.Body, d.Approval.Subject, d.Approval.Title = fix(d.Approval.Body), fix(d.Approval.Subject), fix(d.Approval.Title)
+	}
 }

@@ -38,6 +38,15 @@ func (c *toolCtx) inject(msgs []ChatMsg) []ChatMsg {
 
 func (c *toolCtx) note(s string) { c.blocks = append(c.blocks, s) }
 
+// found lists source URLs already surfaced this turn (e.g. by web_search).
+func (c *toolCtx) found() []string {
+	out := make([]string, 0, len(c.sources))
+	for _, s := range c.sources {
+		out = append(out, s.URL)
+	}
+	return out
+}
+
 type toolCall struct{ name, arg string }
 
 // autoTools prefetches clear data intents (gold prices) and owner-typed
@@ -89,7 +98,13 @@ func (s *Service) runTool(ctx context.Context, w ledger.Work, tc *toolCtx, name,
 	s.agui(AGUIEvent{Type: STEP_STARTED, ThreadID: w.BotID, RunID: w.RequestID, StepName: "tool:" + name})
 	t0 := time.Now()
 	tctx, cancel := context.WithTimeout(ctx, 25*time.Second)
-	res, err := s.Tools.Run(tctx, name, arg)
+	var res tools.Result
+	var err error
+	if name == "web_fetch" {
+		res, err = s.Tools.FetchFound(tctx, arg, tc.found())
+	} else {
+		res, err = s.Tools.Run(tctx, name, arg)
+	}
 	cancel()
 	ms := int(time.Since(t0) / time.Millisecond)
 	st, sum := "done", res.Summary

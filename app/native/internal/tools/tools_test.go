@@ -2,6 +2,7 @@ package tools
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net"
 	"net/http"
@@ -110,5 +111,23 @@ func TestFakeIPEgressOnlyRelaxesBenchmarkRange(t *testing.T) {
 	fakeIPEgress = true
 	if blockPrivate("tcp", "198.18.0.1:443", nil) != nil || blockPrivate("tcp", "127.0.0.1:443", nil) == nil || blockPrivate("tcp", "10.0.0.1:443", nil) == nil {
 		t.Fatal("opt-in relaxed more than 198.18/15")
+	}
+}
+
+func TestFetchFoundOnlyExactSearchHits(t *testing.T) {
+	k := New()
+	ctx := context.Background()
+	hit := "https://docs.ag-ui.com/introduction"
+	for _, c := range []struct {
+		raw   string
+		found []string
+	}{{hit, nil}, {hit + "?x=1", []string{hit}}, {"http://docs.ag-ui.com/introduction", []string{"http://docs.ag-ui.com/introduction"}}} {
+		if _, err := k.FetchFound(ctx, c.raw, c.found); !errors.Is(err, ErrDenied) {
+			t.Fatalf("%s %v → %v", c.raw, c.found, err)
+		}
+	}
+	// a search hit passes the host check (then the dial guard still refuses private targets)
+	if _, err := k.FetchFound(ctx, "https://127.0.0.1/x", []string{"https://127.0.0.1/x"}); err == nil {
+		t.Fatal("private address must not be fetched")
 	}
 }

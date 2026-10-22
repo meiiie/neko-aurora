@@ -72,3 +72,25 @@ func TestAPNsTokenStoredInVaultOnly(t *testing.T) {
 		t.Fatal("token not in vault")
 	}
 }
+
+func TestScriptDriftIsRepairedBeforeApproval(t *testing.T) {
+	fa := scriptedAI(t, "Đã soạn.\nAPPROVAL: {\"title\":\"Hẹn họp\",\"kind\":\"email\",\"to\":\"e@example.com\",\"subject\":\"Họp\",\"body\":\"Nếu cần dời, báo mình找个 khung khác.\"}", "Nếu cần dời, báo mình một khung khác.")
+	defer fa.Close()
+	t.Setenv("ZAI_API_KEY", "k")
+	t.Setenv("AURORA_AI_BASE_URL", fa.URL)
+	svc, _ := newSvc(t)
+	srv := httptest.NewServer(svc)
+	defer srv.Close()
+	bot := firstBot(svc)
+	post(t, srv.URL+"/app/api/agents/"+bot+"/messages", `{"text":"Soạn thư hẹn họp"}`)
+	waitTask(t, svc, bot)
+	for _, m := range svc.view().messages(bot, 0) {
+		if m.Approval != nil {
+			if m.Approval.Body != "Nếu cần dời, báo mình một khung khác." || m.Approval.State != "pending" {
+				t.Fatalf("%+v", m.Approval)
+			}
+			return
+		}
+	}
+	t.Fatal("no approval")
+}

@@ -216,9 +216,23 @@ func cut(s string, n int) string {
 	return s[:n] + "…"
 }
 
-func (k *Kit) Fetch(ctx context.Context, raw string) (Result, error) {
+func (k *Kit) Fetch(ctx context.Context, raw string) (Result, error) { return k.FetchFound(ctx, raw, nil) }
+
+// FetchFound also reads a page that a web_search in the same turn returned
+// (exact URL match), so research isn't stuck on the static allowlist. The
+// HTTPS-only rule and the public-address dial guard still apply.
+func (k *Kit) FetchFound(ctx context.Context, raw string, found []string) (Result, error) {
 	u, err := url.Parse(strings.TrimSpace(raw))
-	if err != nil || !k.Allowed(u) {
+	ok := err == nil && k.Allowed(u)
+	if !ok && err == nil && u.Scheme == "https" && u.User == nil && (u.Port() == "" || u.Port() == "443") {
+		for _, f := range found {
+			if f == u.String() {
+				ok = true
+				break
+			}
+		}
+	}
+	if !ok {
 		return Result{Name: "web_fetch", Arg: raw}, ErrDenied
 	}
 	b, err := k.get(ctx, "GET", u.String(), "")
