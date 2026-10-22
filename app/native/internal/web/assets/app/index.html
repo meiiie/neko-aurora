@@ -19,6 +19,7 @@
 <link rel="stylesheet" href="/app/style.css">
 <script src="/app/theme.js"></script>
 <script src="/app/aurora/icons.js" defer></script>
+<script src="/app/aurora/brands.js" defer></script>
 <script src="/app/app.js" defer></script>
 </head>
 <body>
@@ -113,12 +114,14 @@
     <div class="scroll grouped" id="settingsBody"></div>
   </section>
 
-  <section class="sheet hidden" id="connectors" role="dialog" aria-label="Kết nối">
-    <div class="grip"></div>
-    <header class="sheet-top"><button class="icon-btn close" id="closeConnectors" aria-label="Đóng"></button><b>Kết nối</b><span class="count" id="connCount"></span></header>
-    <label class="searchbar inset"><span class="mi" data-i="search"></span><input id="connSearch" type="search" placeholder="Tìm kết nối" aria-label="Tìm kết nối"></label>
-    <div class="cats" id="connCats"></div>
-    <ul class="scroll conns" id="connList"></ul>
+  <section class="sheet full hidden" id="connectors" role="dialog" aria-label="Kết nối">
+    <header class="sheet-top"><button class="icon-btn close frost" id="closeConnectors" aria-label="Đóng"></button><b class="ttl">Kết nối</b><span class="conn-pill" id="connCount"></span></header>
+    <div class="scroll conn-body" id="connBody"></div>
+  </section>
+
+  <section class="sheet full hidden" id="connSetup" role="dialog" aria-label="Thiết lập kết nối">
+    <header class="sheet-top"><button class="icon-btn close frost" id="closeSetup" aria-label="Quay lại"></button><b class="ttl" id="setupTitle"></b><span class="w44"></span></header>
+    <div class="scroll setup-body" id="setupBody"></div>
   </section>
 
   <aside class="sheet activity hidden" id="activity" aria-label="Hoạt động"><div class="grip"></div><header class="sheet-top"><span class="w44"></span><b>Đang làm gì</b><button class="text-btn" id="closeActivity">Xong</button></header><ol class="scroll" id="log"></ol></aside>

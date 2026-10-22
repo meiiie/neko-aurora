@@ -28,15 +28,17 @@ Quy tắc:
 PLAN: ["bước 1","bước 2"]   ← chỉ khi việc cần 2-4 bước rõ ràng; khi đó phần trả lời chỉ cần 1 câu nêu cách làm.
 CHOICES: ["lựa chọn A","lựa chọn B"]   ← khi cần Darren chọn nhanh (2-4 lựa chọn ngắn).
 APPROVAL: {"title":"<việc cần duyệt>","kind":"email|send|post|pay|other","to":"<email nếu là email>","subject":"<tiêu đề nếu là email>","body":"<toàn bộ nội dung đã soạn>"}   ← bắt buộc cho mọi hành động ra bên ngoài.
+SECRET: {"name":"TEN_IN_HOA","label":"<tên hiển thị>","desc":"<vì sao cần, lấy ở đâu>"}   ← khi cần Darren cung cấp mật khẩu/khoá API. Darren nhập vào thẻ ẩn, giá trị vào kho bí mật, bạn không bao giờ thấy. Không bao giờ xin Darren dán bí mật vào chat. Mật khẩu ứng dụng Gmail dùng tên GMAIL_APP_PASSWORD.
 - Với email: kind là "email", dùng đúng địa chỉ Darren đưa; không lặp lại toàn văn thư ở phần trả lời.`
 
-var directiveRe = regexp.MustCompile(`(?m)^\s*(PLAN|CHOICES|APPROVAL):\s*(.+?)\s*$`)
+var directiveRe = regexp.MustCompile(`(?m)^\s*(PLAN|CHOICES|APPROVAL|SECRET):\s*(.+?)\s*$`)
 
 type directives struct {
 	Text     string
 	Plan     []string
 	Choices  []string
 	Approval *Approval
+	Secret   *ledger.DirectSecret
 }
 
 // ParseDirectives strips trailing PLAN/CHOICES/APPROVAL lines from model text.
@@ -45,6 +47,19 @@ func ParseDirectives(text string) directives {
 	// APPROVAL bodies may span lines; handle it first with the dedicated parser.
 	text, d.Approval = SplitApproval(text)
 	for _, m := range directiveRe.FindAllStringSubmatch(text, -1) {
+		if m[1] == "SECRET" {
+			var x ledger.DirectSecret
+			if json.Unmarshal([]byte(m[2]), &x) == nil {
+				x.Name, x.Label, x.Desc = strings.ToUpper(strings.TrimSpace(x.Name)), clean(x.Label, 80), clean(x.Desc, 300)
+				if x.Label == "" {
+					x.Label = x.Name
+				}
+				if ledger.ValidDirectSecret(&x) {
+					d.Secret = &x
+				}
+			}
+			continue
+		}
 		var list []string
 		if json.Unmarshal([]byte(m[2]), &list) != nil {
 			continue
@@ -341,7 +356,7 @@ func (s *Service) appendText(id, text string) error {
 		text = text[:max(0, 60000-len(cur.Reply))]
 		text = strings.ToValidUTF8(text, "")
 	}
-	return s.L.AppendText(id, cur.Epoch, text)
+	return s.L.AppendText(id, cur.Epoch, s.V.Redact(text))
 }
 
 func (s *Service) update(id string, fn func(*ledger.DirectRun)) {
@@ -355,6 +370,11 @@ func (s *Service) runTurn(ctx context.Context, w ledger.Work) (*Approval, []stri
 	d, err := s.call(ctx, w, s.history(w.BotID, w.RequestID))
 	if err != nil {
 		return nil, nil, err
+	}
+	if d.Secret != nil {
+		sec := *d.Secret
+		s.update(w.RequestID, func(r *ledger.DirectRun) { r.Secret = &sec })
+		s.record(w.BotID, w.RequestID, "secret", "Xin bí mật "+sec.Name)
 	}
 	if len(d.Plan) < 2 || d.Approval != nil {
 		return d.Approval, d.Choices, s.appendText(w.RequestID, d.Text)

@@ -2,7 +2,8 @@
 // npm i puppeteer-core ; AURORA_URL=http://127.0.0.1:8765/app/ OUT=./aurora-shots/ node mobile-touch.mjs
 import puppeteer from 'puppeteer-core';
 const U=process.env.AURORA_URL||'http://127.0.0.1:8765/app/',O=process.env.OUT||'./aurora-shots/';
-const REAL=!!process.env.REAL_AI; // stricter timeouts off for a real model
+const REAL=!!process.env.REAL_AI;
+const SMTP=process.env.FAKE_SMTP||''; // e.g. http://127.0.0.1:8926 (fake-smtp.mjs); enables the Gmail delivery flow // stricter timeouts off for a real model
 const sleep=ms=>new Promise(r=>setTimeout(r,ms));
 const b=await puppeteer.launch({executablePath:process.env.CHROME||'/usr/bin/google-chrome',args:['--no-sandbox','--hide-scrollbars']});
 const results=[];let fail=0;
@@ -33,10 +34,15 @@ for(const w of (process.env.WIDTHS||'360,390,430').split(',').map(Number)){let p
  await p.$eval('#openConnectors',e=>e.scrollIntoView({block:'center'}));await sleep(80);await tap('#openConnectors');await sleep(700);
  ok(w,'settings → connectors sheet',await p.$eval('#connectors',e=>!e.classList.contains('hidden')&&!e.classList.contains('closed'))&&await p.$eval('#settings',e=>e.classList.contains('hidden')));
  const conn=await p.$$eval('.conn',l=>l.map(x=>[x.dataset.id,x.querySelector('.conn-btn').textContent,x.querySelector('.conn-btn').disabled]));
- ok(w,'connectors: email+push real, others "Sắp có" disabled',conn.find(c=>c[0]==='email')[1]!=='Sắp có'&&conn.find(c=>c[0]==='push')[1]!=='Sắp có'&&conn.filter(c=>!['email','push'].includes(c[0])).every(c=>c[1]==='Sắp có'&&c[2]),conn.map(c=>c[0]+':'+c[1]).join(','));
+ const REALC=['gmail','push','smtp'];
+ ok(w,'connectors: Gmail+Push+SMTP real, others "Sắp có" disabled',REALC.every(id=>conn.find(c=>c[0]===id)&&conn.find(c=>c[0]===id)[1]!=='Sắp có')&&conn.filter(c=>!REALC.includes(c[0])).every(c=>c[1]==='Sắp có'&&c[2]),conn.map(c=>c[0]+':'+c[1]).join(','));
+ const look2=await p.evaluate(()=>{const s=document.querySelector('#connectors').getBoundingClientRect();const h=[...document.querySelectorAll('.conn-h span')].map(e=>e.textContent);const ic=document.querySelector('.conn[data-id=gmail] .conn-ic').getBoundingClientRect();const d=document.querySelector('.conn[data-id=smtp] .pt small');const lh=parseFloat(getComputedStyle(d).lineHeight);return{top:s.top,h,ic:[ic.width,ic.height,getComputedStyle(document.querySelector('.conn-ic')).borderRadius],lines:Math.round(d.getBoundingClientRect().height/lh),pill:document.querySelector('#connCount').textContent,brand:!!document.querySelector('.conn[data-id=gmail] .conn-ic path'),close:getComputedStyle(document.querySelector('#closeConnectors')).borderRadius}});
+ ok(w,'connectors sheet: full height, sections Nổi bật/Năng suất, round X, "N đã kết nối" pill',look2.top<=30&&look2.h[0]==='Nổi bật'&&look2.h[1]==='Năng suất'&&/đã kết nối$/.test(look2.pill)&&look2.close==='50%',JSON.stringify(look2));
+ ok(w,'rows: rounded-square brand tile + 2-line gray description',look2.brand&&look2.ic[0]===44&&look2.ic[2]==='12px'&&look2.lines===2,JSON.stringify(look2.ic)+' lines='+look2.lines);
  sm=await small();ok(w,'touch>=44 connectors',!sm.length,sm.join(','));
- await tap('.cat:nth-child(2)');await sleep(150);ok(w,'category chip filters connectors',(await p.$$('.conn')).length<conn.length);
- await p.screenshot({path:`${O}${w}-2b-connectors.png`});await tap('#closeConnectors');await sleep(450);
+ await p.screenshot({path:`${O}${w}-2b-connectors.png`});
+ const nRows=(await p.$$('.conn')).length;await p.$eval('.conn-sec[data-id=chat] .conn-h',e=>e.scrollIntoView({block:'center'}));await sleep(80);await tap('.conn-sec[data-id=chat] .conn-h');await sleep(150);ok(w,'chevron header collapses a section',(await p.$$('.conn')).length<nRows&&await p.$eval('.conn-sec[data-id=chat] .conn-h',e=>e.getAttribute('aria-expanded')==='false'));await tap('.conn-sec[data-id=chat] .conn-h');await sleep(100);
+ await tap('#closeConnectors');await sleep(450);
  // "+" popover → Create Bot sheet
  await tap('#newBtn');await sleep(300);ok(w,'+ opens frosted popover',await p.$eval('#newMenu',e=>!e.classList.contains('hidden')&&getComputedStyle(e).backdropFilter.includes('blur')));
  await p.screenshot({path:`${O}${w}-2c-popover.png`});
@@ -173,6 +179,47 @@ for(const w of (process.env.WIDTHS||'360,390,430').split(',').map(Number)){let p
  await p.screenshot({path:`${O}${w}-8-after-stress.png`});
  // SSE reconnect: reload keeps server state
  await p.reload({waitUntil:'domcontentloaded'});await p.waitForFunction('window.__AURORA&&__AURORA.state().agents.length>0');ok(w,'state survives reload (server-side)',await p.evaluate(n=>__AURORA.state().agents.some(a=>a.name===n),name));
+ // Gmail setup → vault (masked) → "Gửi thử" → approval → fake SMTP captures delivery
+ if(SMTP){const post=(q,b)=>p.evaluate(async([q,b])=>(await fetch('/app/api'+q,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(b)})).status,[q,b]);
+  await post('/connectors/gmail/disconnect',{});await fetch(SMTP+'/reset');await p.evaluate(()=>__AURORA.reload());
+  await tap('#appsBtn');await sleep(600);await p.$eval('.conn[data-id=gmail]',e=>e.scrollIntoView({block:'center'}));
+  ok(w,'Gmail row offers Kết nối',await p.$eval('.conn[data-id=gmail] .conn-btn',e=>e.textContent==='Kết nối'));
+  await tap('.conn[data-id=gmail] .conn-btn');await sleep(700);
+  ok(w,'Kết nối opens Gmail setup sheet',await p.$eval('#connSetup',e=>!e.classList.contains('hidden')&&!e.classList.contains('closed'))&&await p.$eval('#connectors',e=>e.classList.contains('hidden')));
+  ok(w,'setup: masked app-password field + Google app-passwords link',await p.$eval('#gmailPass',e=>e.type==='password'&&e.autocomplete==='new-password')&&await p.$eval('.secret a',e=>e.href==='https://myaccount.google.com/apppasswords'&&e.rel.includes('noopener')));
+  sm=await small();ok(w,'touch>=44 Gmail setup',!sm.length,sm.join(','));ok(w,'no-h-overflow Gmail setup',!(await overflow()));
+  const addr=`darren.${w}@gmail.com`,PW='abcd efgh ijkl mnop'; // test-only fake app password
+  await tap('#gmailAddr');await p.keyboard.type(addr);await tap('#gmailPass');await p.keyboard.type(PW);
+  await p.screenshot({path:`${O}${w}-9a-gmail-setup.png`});
+  await tap('#gmailSave');let tb=null;for(let i=0;i<40&&!tb;i++){tb=await p.$('#gmailTest');await sleep(100)}
+  const sec=await p.evaluate(async()=>await (await fetch('/app/api/secrets')).text());const st2=await p.evaluate(async()=>await (await fetch('/app/api/state')).text());
+  ok(w,'Lưu stores Gmail in vault; API lists names only',!!tb&&sec.includes('GMAIL_APP_PASSWORD')&&!/abcd/.test(sec)&&!/abcd/.test(st2)&&await p.$eval('#gmailPass',e=>e.value===''));
+  await p.screenshot({path:`${O}${w}-9b-gmail-connected.png`});
+  const to=`friend.${w}.${RUN}@example.org`;await p.$eval('#gmailTestTo',e=>{e.value='';e.scrollIntoView({block:'center'})});await sleep(80);await tap('#gmailTestTo');await p.keyboard.type(to);await p.$eval('#gmailTest',e=>e.scrollIntoView({block:'center'}));await sleep(80);await tap('#gmailTest');
+  let ga=null;for(let i=0;i<(REAL?900:120);i++){ga=await p.$('.approval:not(.done) .go');if(ga&&await p.evaluate(t=>[...document.querySelectorAll('.approval:not(.done) .ap-meta b')].some(b=>b.textContent===t),to))break;ga=null;await sleep(100)}
+  ok(w,'Gửi thử → bot drafts test email behind approval card',!!ga);await sleep(200);await p.screenshot({path:`${O}${w}-9c-gmail-test-approval.png`});
+  const before=await (await fetch(SMTP+'/mails')).json();ok(w,'nothing delivered before Duyệt',before.length===0);
+  if(ga){await tap('.approval:not(.done) .go');let m=[];for(let i=0;i<80&&!m.length;i++){await sleep(100);m=await (await fetch(SMTP+'/mails')).json()}
+   const {createHash}=await import('node:crypto');const want=createHash('sha256').update(PW.replace(/ /g,'')).digest('hex');
+   ok(w,'after Duyệt: fake SMTP got 1 mail from Gmail address via STARTTLS+AUTH with vault password',m.length===1&&m[0].from===addr&&m[0].to===to&&m[0].user===addr&&m[0].pwSha===want&&/Subject: /.test(m[0].data),m.length?`from=${m[0].from} to=${m[0].to}`:'none');
+   let sent=false;for(let i=0;i<40&&!sent;i++){sent=await p.evaluate(()=>[...document.querySelectorAll('.approval.done small')].some(s=>/đã gửi từ/.test(s.textContent)));if(!sent)await sleep(100)}
+   ok(w,'card shows "đã gửi từ <gmail>"',sent);await p.screenshot({path:`${O}${w}-9d-gmail-sent.png`})}
+  // in-chat secret request card
+  await tap('#input');await p.keyboard.type('Bạn cần khoá API gì thì xin mình nhé');await p.keyboard.press('Enter');
+  let si=null;for(let i=0;i<(REAL?600:100)&&!si;i++){si=await p.$('#messages .secret:not(.saved) input[data-secret]');if(!si)await sleep(100)}
+  ok(w,'bot SECRET request renders masked card (label, name, Lưu)',!!si&&await p.$eval('#messages .secret:not(.saved) input[data-secret]',e=>e.type==='password')&&await p.$eval('#messages .secret:not(.saved) code',e=>/^[A-Z][A-Z0-9_]+$/.test(e.textContent)));
+  sm=await small();ok(w,'touch>=44 secret card',!sm.length,sm.join(','));
+  await p.$eval('#messages .secret:not(.saved)',e=>e.scrollIntoView({block:'center'}));await p.screenshot({path:`${O}${w}-9e-secret-card.png`});
+  for(let i=0;i<50;i++){if(await p.evaluate(()=>{const a=__AURORA.state().agents.find(x=>x.id===__AURORA.current());return a&&a.status!=='working'}))break;await sleep(100)}await sleep(300);
+  if(si){await p.$eval('#messages .secret:not(.saved) input[data-secret]',e=>e.scrollIntoView({block:'center'}));await sleep(100);const nm=await p.$eval('#messages .secret:not(.saved)',e=>e.dataset.name);const SV='tok-'+RUN+'-zzq';await tap('#messages .secret:not(.saved) input[data-secret]');await p.keyboard.type(SV);await tap('#messages .secret:not(.saved) .sec-save');
+   let done=false;for(let i=0;i<30&&!done;i++){done=!!(await p.$(`#messages .secret.saved[data-name="${nm}"]`));if(!done)await sleep(100)}
+   const msgs=JSON.stringify(await srv('/agents/'+(await p.evaluate(()=>__AURORA.current()))+'/messages'))+JSON.stringify(await srv('/activity?limit=200'));
+   const listed=(await p.evaluate(async()=>await (await fetch('/app/api/secrets')).text())).includes(nm);
+   ok(w,'Lưu → card shows "Đã lưu"; value absent from messages/activity',done&&listed&&!msgs.includes(SV)&&(await p.evaluate(async()=>await (await fetch('/app/api/secrets')).text())).includes(nm),`done=${done} listed=${listed} toast=${await p.$eval('#toast',e=>e.textContent)}`);
+   await p.screenshot({path:`${O}${w}-9f-secret-saved.png`});await post('/secrets/'+nm+'/delete',{})}
+  await p.goto(U,{waitUntil:'domcontentloaded'});await p.waitForFunction('window.__AURORA&&__AURORA.state().agents.length>0');await sleep(300);
+  await tap('#appsBtn');await sleep(600);ok(w,'Gmail row: disabled-look "Đã kết nối" + 1 tài khoản',await p.$eval('.conn[data-id=gmail]',e=>e.querySelector('.conn-btn').textContent==='Đã kết nối'&&e.querySelector('.conn-btn').classList.contains('on')&&/1 tài khoản/.test(e.querySelector('small').textContent)));
+  await p.screenshot({path:`${O}${w}-9g-connectors-connected.png`});await tap('#closeConnectors');await sleep(400)}
  ok(w,'no page errors',!errs.length,errs.join('|').slice(0,200));
  await ctx.close();
 }catch(e){ok(w,'EXC',false,e.message.slice(0,160));try{await p.screenshot({path:O+w+'-exc.png'})}catch{}}}

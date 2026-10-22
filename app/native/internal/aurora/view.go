@@ -55,17 +55,18 @@ type Plan struct {
 type Approval = ledger.DirectApproval
 
 type Message struct {
-	ID       string    `json:"id"`
-	TaskID   string    `json:"taskId"`
-	AgentID  string    `json:"agentId"`
-	Role     string    `json:"role"` // user|agent|system
-	Text     string    `json:"text"`
-	Approval *Approval `json:"approval,omitempty"`
-	Plan     *Plan     `json:"plan,omitempty"`
-	Choices  []string  `json:"choices,omitempty"`
-	Queued   bool      `json:"queued,omitempty"`
-	From     string    `json:"from,omitempty"` // speaking bot, in group threads
-	Created  time.Time `json:"t"`
+	ID       string               `json:"id"`
+	TaskID   string               `json:"taskId"`
+	AgentID  string               `json:"agentId"`
+	Role     string               `json:"role"` // user|agent|system
+	Text     string               `json:"text"`
+	Approval *Approval            `json:"approval,omitempty"`
+	Plan     *Plan                `json:"plan,omitempty"`
+	Choices  []string             `json:"choices,omitempty"`
+	Secret   *ledger.DirectSecret `json:"secret,omitempty"`
+	Queued   bool                 `json:"queued,omitempty"`
+	From     string               `json:"from,omitempty"` // speaking bot, in group threads
+	Created  time.Time            `json:"t"`
 }
 
 type Brief struct {
@@ -307,11 +308,15 @@ func workMessages(w ledger.Work, botRunning bool) []*Message {
 		out = append(out, &Message{ID: w.RequestID + ":plan", TaskID: w.RequestID, AgentID: w.BotID, Role: "agent", Text: d.PlanIntro, Plan: &Plan{Steps: append([]Step(nil), d.Plan...)}, Created: at})
 	}
 	reply := visibleText(w.Reply)
-	if reply != "" || d.Approval != nil || len(d.Choices) > 0 {
+	if reply != "" || d.Approval != nil || len(d.Choices) > 0 || d.Secret != nil {
 		m := &Message{ID: w.RequestID, TaskID: w.RequestID, AgentID: w.BotID, Role: "agent", Text: reply, Choices: append([]string(nil), d.Choices...), Created: at}
 		if d.Approval != nil {
 			a := *d.Approval
 			m.Approval = &a
+		}
+		if d.Secret != nil {
+			x := *d.Secret
+			m.Secret = &x
 		}
 		out = append(out, m)
 	}

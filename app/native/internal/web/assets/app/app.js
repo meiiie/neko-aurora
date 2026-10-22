@@ -25,7 +25,7 @@ function face(f,sz,cls){f=f||{};const s=SHAPES[f.shape|0]||SHAPES[0],c=COLORS[f.
  const v=document.createElementNS(SVGNS,"svg");v.setAttribute("viewBox","0 0 100 100");v.setAttribute("width",sz);v.setAttribute("height",sz);v.setAttribute("aria-hidden","true");v.setAttribute("class","face"+(cls?" "+cls:""));
  v.innerHTML=`<g fill="${c}">${s[0].replace(/"C"/g,`"${c}"`)}</g><rect x="35" y="${y-11}" width="10" height="22" rx="5" fill="#fff"/><rect x="55" y="${y-11}" width="10" height="22" rx="5" fill="#fff"/>`;return v}
 // ---------- server state (real Go control plane at /app/api) ----------
-const S={agents:[],pending:[],brief:null,ai:{},vapid:"",outbound:[],msgs:{},drafts:{}};
+const S={agents:[],pending:[],brief:null,ai:{},vapid:"",outbound:{},secrets:[],msgs:{},drafts:{}};
 const API="/app/api";
 async function api(path,body){const r=await fetch(API+path,{method:body===undefined?"GET":"POST",credentials:"same-origin",cache:"no-store",headers:body===undefined?{}:{"Content-Type":"application/json"},body:body===undefined?undefined:JSON.stringify(body)});
  if(!r.ok){const e=new Error(String(r.status));e.status=r.status;throw e}return r.json()}
@@ -39,7 +39,7 @@ const el=(t,c,x)=>{const e=document.createElement(t);if(c)e.className=c;if(x!=nu
 let toastT;const toast=m=>{const t=$("#toast");t.textContent=m;t.classList.add("show");clearTimeout(toastT);toastT=setTimeout(()=>t.classList.remove("show"),2200)};
 const upsert=a=>{const i=S.agents.findIndex(x=>x.id===a.id);if(i<0)S.agents.push(a);else S.agents[i]=a};
 let listQueued=false;const renderListSoon=()=>{if(listQueued)return;listQueued=true;requestAnimationFrame(()=>{listQueued=false;renderList()})};
-async function loadState(){const st=await api("/state");S.agents=st.agents;S.pending=st.pending;S.brief=st.brief;S.ai=st.ai;S.vapid=st.vapidPublicKey;S.outbound=st.outbound||[];S.pushSubs=st.pushSubscriptions|0;seedSeen();renderList();if(cur){const a=byId(cur.id);if(a){cur=a;await loadMsgs(a.id)}}}
+async function loadState(){const st=await api("/state");S.agents=st.agents;S.pending=st.pending;S.brief=st.brief;S.ai=st.ai;S.vapid=st.vapidPublicKey;S.outbound=st.outbound||{};S.secrets=st.secrets||[];S.pushSubs=st.pushSubscriptions|0;seedSeen();renderList();if(cur){const a=byId(cur.id);if(a){cur=a;await loadMsgs(a.id)}}}
 async function loadMsgs(id){S.msgs[id]=await api(`/agents/${id}/messages`);if(cur&&cur.id===id)renderThread()}
 // ---------- unread (device-local: last time each conversation was seen) ----------
 const store={get(k,d){try{const v=localStorage.getItem(k);return v==null?d:JSON.parse(v)}catch{return d}},set(k,v){try{localStorage.setItem(k,JSON.stringify(v))}catch{}}};
@@ -141,12 +141,14 @@ function approvalCard(m){const ap=m.approval,c=el("div","approval"+(ap.state!=="
  return c}
 function speaker(box,m,last){if(!isGroup(cur)||m.role!=="agent"||!m.from)return;if(last.v===m.from)return;last.v=m.from;const b=byId(m.from);const h=el("div","speaker");h.append(face(b&&b.av,20),el("span",0,b?b.name:"Bot"));box.append(h)}
 function renderThread(){const a=cur;if(!a)return;$("#threadState").textContent=stateLine(a);const box=$("#messages");
+ const keepSec=[...box.querySelectorAll(".secret input[data-secret]")].map(i=>[i.closest(".secret").dataset.id,i.value]);
  const keepEdit=[...box.querySelectorAll(".ap-body")].map(t=>[t.closest(".approval").dataset.id,t.value,t.closest(".approval").querySelector(".ap-subject")?.value]);
  box.innerHTML="";const L=S.msgs[a.id]||[];const last={v:null};
  L.forEach((m,idx)=>{if(m.role!=="agent")last.v=null;if(m.text){speaker(box,m,last);const b=el("div","msg"+(m.role==="user"?" mine":m.role==="system"?" sys":""),m.text);if(m.queued){b.append(el("span","chip","Đang chờ lượt"))}box.append(b)}
   if(m.plan)box.append(planCard(m));
   if(m.choices&&m.choices.length){const wrap=el("div","choices");const later=L.slice(idx+1).some(x=>x.role==="user");m.choices.forEach(ch=>{const b=el("button","choice",ch);b.disabled=later||usedChoice.has(m.id);b.onclick=async()=>{if(usedChoice.has(m.id))return;usedChoice.add(m.id);renderThread();if(!(await sendMsg(ch)))usedChoice.delete(m.id)};wrap.append(b)});box.append(wrap)}
-  if(m.approval)box.append(approvalCard(m))});
+  if(m.approval)box.append(approvalCard(m));if(m.secret)box.append(secretCard(m))});
+ keepSec.forEach(([id,v])=>{const i=box.querySelector(`.secret[data-id="${id}"] input[data-secret]`);if(i)i.value=v});
  keepEdit.forEach(([id,v,sj])=>{const c=box.querySelector(`.approval[data-id="${id}"]`);if(c){const t=c.querySelector(".ap-body");if(t)t.value=v;const s2=c.querySelector(".ap-subject");if(s2&&sj!=null)s2.value=sj}});
  Object.entries(S.drafts).forEach(([id,d])=>{if(d.agentId===a.id){speaker(box,{role:"agent",from:d.from},last);const b=el("div","msg draft",visible(d.text));b.id="d_"+id;box.append(b)}});
  if(a.status==="working"&&!Object.values(S.drafts).some(d=>d.agentId===a.id))box.append(el("div","msg typing dots","Đang nghĩ"));
@@ -228,7 +230,6 @@ function cell(icon,label,opt={}){const b=el(opt.toggle!=null||opt.static?"div":"
  else if(!opt.static&&!opt.danger){const c=el("span","chev");c.append(I(opt.ext?"arrow-up-right":"chevron-right",16));b.append(c)}
  if(opt.onClick)b.onclick=opt.onClick;return b}
 const card=(title,...cells)=>{const w=el("section","card-group");if(title)w.append(el("h3",0,title));const c=el("div","card");cells.forEach(x=>c.append(x));w.append(c);return w};
-function connectedCount(){return S.outbound.filter(o=>o.configured&&(o.id!=="push"||pushOn)).length}
 function renderSettings(){const B=$("#settingsBody");B.innerHTML="";
  const acc=el("div","account");const m=el("img");m.src="/app/icon.svg";m.alt="";m.width=m.height=52;const at=el("div");at.append(el("b",0,"Chủ sở hữu"),el("small",0,location.host));acc.append(m,at);B.append(card(null,acc));
  B.append(card("Mức dùng",cell("sparkles","Mô hình AI",{static:1,value:S.ai.configured?(S.ai.model||"đã cấu hình"):"chưa cấu hình"}),cell("activity","Lõi chạy",{static:1,value:S.ai.runtime||"Neko Core"}),cell("users","Bot & nhóm",{static:1,value:`${bots().length} bot · ${S.agents.length-bots().length} nhóm`})));
@@ -243,23 +244,85 @@ function renderSettings(){const B=$("#settingsBody");B.innerHTML="";
  const ft=el("footer","about");const lg=el("img");lg.src="/app/icon.svg";lg.alt="";lg.width=lg.height=36;ft.append(lg,el("b",0,"Neko Aurora"),el("small",0,"Phiên bản "+VERSION));B.append(ft)}
 async function logout(){try{await fetch("/app/logout",{method:"POST",credentials:"same-origin",headers:{"Content-Type":"application/json"},body:"{}"})}catch{}closeSheet(true);if(es){es.close();es=null}const r=await fetch(API+"/state",{credentials:"same-origin",cache:"no-store"}).catch(()=>null);if(r&&r.status===401)$("#login").classList.remove("hidden");else toast("Máy chủ cục bộ: phiên luôn mở trên máy này")}
 $("#meBtn").onclick=()=>{if(sheetOpen)return;renderSettings();openSheet($("#settings"))};$("#closeSettings").onclick=()=>closeSheet(true);
-// ---------- connectors ----------
-const CATS=[["all","Tất cả"],["send","Gửi đi"],["notify","Thông báo"],["work","Lịch & việc"],["chat","Nhắn tin"],["code","Mã nguồn"]];
-const CONNS=[{id:"email",name:"Email (SMTP)",desc:"Gửi email đã duyệt từ địa chỉ của bạn",icon:"mail",cat:"send",real:1},{id:"push",name:"Thông báo đẩy",desc:"Báo trên máy khi bot cần bạn duyệt",icon:"bell",cat:"notify",real:1},
- {id:"telegram",name:"Telegram",desc:"Nhắn bot qua Telegram",icon:"send",cat:"chat"},{id:"zalo",name:"Zalo",desc:"Nhận và trả lời tin Zalo",icon:"message-circle",cat:"chat"},{id:"slack",name:"Slack",desc:"Đăng tin vào kênh làm việc",icon:"hash",cat:"chat"},
- {id:"calendar",name:"Lịch",desc:"Đọc lịch, đề xuất giờ họp",icon:"calendar",cat:"work"},{id:"x",name:"X",desc:"Soạn bài đăng để bạn duyệt",icon:"at-sign",cat:"send"},{id:"github",name:"GitHub",desc:"Theo dõi issue và pull request",icon:"git-branch",cat:"code"}];
-let connCat="all";
-function connState(c){if(!c.real)return{label:"Sắp có",soon:1};const o=S.outbound.find(x=>x.id===c.id)||{};
- if(c.id==="email")return o.configured?{label:"Đã kết nối",on:1,sub:o.from?"Gửi từ "+o.from:""}:{label:"Thiết lập",act:()=>toast("Đặt AURORA_SMTP_HOST, _USER, _PASSWORD, _FROM trên máy chủ rồi khởi động lại")};
- if(c.id==="push")return pushOn?{label:"Đã bật",on:1}:o.configured?{label:"Kết nối",act:()=>enableNotify().then(renderConnectors)}:{label:"Thiết lập",act:()=>toast("Máy chủ chưa có khoá VAPID")};return{label:"Sắp có",soon:1}}
-function renderConnectors(){const q=$("#connSearch").value.trim().toLowerCase();$("#connCount").textContent=connectedCount()+" đã kết nối";
- const cs=$("#connCats");cs.innerHTML="";CATS.forEach(([id,n])=>{const b=el("button","cat",n);b.setAttribute("aria-pressed",connCat===id);b.onclick=()=>{connCat=id;buzz("tap");renderConnectors()};cs.append(b)});
- const ul=$("#connList");ul.innerHTML="";CONNS.filter(c=>(connCat==="all"||c.cat===connCat)&&(!q||c.name.toLowerCase().includes(q)||c.desc.toLowerCase().includes(q))).forEach(c=>{const st=connState(c);const li=el("li","conn");li.dataset.id=c.id;
-  const ic=el("span","conn-ic");ic.append(I(c.icon,22));const t=el("span","pt");t.append(el("b",0,c.name),el("small",0,st.sub||c.desc));
-  const b=el("button","conn-btn"+(st.on?" on":"")+(st.soon?" soon":""),st.label);if(st.soon||st.on)b.disabled=true;if(st.act)b.onclick=()=>{buzz("tap");st.act()};li.append(ic,t,b);ul.append(li)});
- if(!ul.children.length)ul.append(el("li","note","Không có kết nối phù hợp."))}
-$("#connSearch").oninput=renderConnectors;$("#closeConnectors").onclick=()=>closeSheet(true);
+// ---------- connectors (sheet + setup; credentials live in the server vault) ----------
+// Layout follows the iOS connectors sheet pattern; brand marks: Simple Icons (CC0), else Lucide glyphs.
+const OB=()=>S.outbound||{};
+const CONN_GROUPS=[
+ {id:"featured",name:"Nổi bật",items:[
+  {id:"gmail",name:"Gmail",brand:"gmail",desc:"Gửi thư đã duyệt từ địa chỉ Gmail của bạn bằng mật khẩu ứng dụng."},
+  {id:"push",name:"Thông báo đẩy",icon:"bell",desc:"Báo trên máy này khi bot cần bạn duyệt hoặc đã xong việc."},
+  {id:"smtp",name:"Email (SMTP)",icon:"server",desc:"Gửi thư qua máy chủ SMTP bất kỳ: tên miền riêng, Zoho, Fastmail…"}]},
+ {id:"work",name:"Năng suất",items:[
+  {id:"gcal",name:"Google Calendar",brand:"googlecalendar",desc:"Đọc lịch, đề xuất giờ họp để bạn chốt."},
+  {id:"gdrive",name:"Google Drive",brand:"googledrive",desc:"Tìm và tóm tắt tài liệu trong Drive."},
+  {id:"notion",name:"Notion",brand:"notion",desc:"Ghi chú và cập nhật trang làm việc."},
+  {id:"github",name:"GitHub",brand:"github",desc:"Theo dõi issue và pull request."}]},
+ {id:"chat",name:"Nhắn tin",items:[
+  {id:"telegram",name:"Telegram",brand:"telegram",desc:"Nhắn bot qua Telegram."},
+  {id:"zalo",name:"Zalo",brand:"zalo",desc:"Nhận và trả lời tin Zalo."},
+  {id:"discord",name:"Discord",brand:"discord",desc:"Đăng tin vào kênh máy chủ Discord."},
+  {id:"slack",name:"Slack",icon:"hash",desc:"Đăng tin vào kênh làm việc."}]},
+ {id:"social",name:"Mạng xã hội",items:[{id:"x",name:"X",brand:"x",desc:"Soạn bài đăng để bạn duyệt trước khi đăng."}]}];
+const connCollapsed=new Set(store.get("neko-aurora-conn-collapsed",[]));
+function connState(c){const o=OB(),g=o.gmail||{},sm=o.smtp||{},pu=o.push||{};
+ if(c.id==="gmail")return g.connected?{on:1,sub:"1 tài khoản"+(g.from?" · "+g.from:""),act:()=>openSetup("gmail")}:{act:()=>openSetup("gmail")};
+ if(c.id==="smtp")return sm.connected?{on:1,sub:(sm.accounts||1)+" tài khoản"+(sm.from?" · "+sm.from:""),act:()=>openSetup("smtp")}:{act:()=>openSetup("smtp")};
+ if(c.id==="push")return pushOn?{on:1,sub:"Máy này · "+Math.max(1,pu.accounts|0)+" thiết bị"}:pu.connected?{act:()=>enableNotify().then(()=>{renderConnectors();renderSettings()}).catch(()=>toast("Không bật được thông báo"))}:{soon:1,label:"Chưa có khoá"};
+ return{soon:1}}
+function connectedCount(){let n=0;CONN_GROUPS.forEach(g=>g.items.forEach(c=>{if(connState(c).on)n++}));return n}
+function connTile(c,sz){const t=el("span","conn-ic");const b=c.brand&&self.AURORA_BRANDS&&AURORA_BRANDS[c.brand];
+ if(b){const NS="http://www.w3.org/2000/svg",sv=document.createElementNS(NS,"svg"),pa=document.createElementNS(NS,"path");sv.setAttribute("viewBox","0 0 24 24");sv.setAttribute("width",sz||22);sv.setAttribute("height",sz||22);sv.setAttribute("aria-hidden","true");pa.setAttribute("d",b.d);pa.setAttribute("fill",b.hex==="#000000"||b.hex==="#181717"?"currentColor":b.hex);sv.append(pa);t.append(sv)}else t.append(I(c.icon,sz||22));return t}
+function renderConnectors(){$("#connCount").textContent=connectedCount()+" đã kết nối";const B=$("#connBody");B.innerHTML="";
+ CONN_GROUPS.forEach(g=>{const sec=el("section","conn-sec");sec.dataset.id=g.id;const shut=connCollapsed.has(g.id);
+  const h=el("button","conn-h");h.setAttribute("aria-expanded",!shut);h.append(el("span",0,g.name),I("chevron-right",18));
+  h.onclick=()=>{shut?connCollapsed.delete(g.id):connCollapsed.add(g.id);store.set("neko-aurora-conn-collapsed",[...connCollapsed]);buzz("tap");renderConnectors()};sec.append(h);
+  if(!shut){const ul=el("ul","conns");g.items.forEach(c=>{const st=connState(c);const li=el("li","conn");li.dataset.id=c.id;
+   const t=el("span","pt");t.append(el("b",0,c.name),el("small",0,st.sub||c.desc));
+   const b=el("button","conn-btn"+(st.on?" on":"")+(st.soon?" soon":""),st.label||(st.soon?"Sắp có":st.on?"Đã kết nối":"Kết nối"));
+   if(st.soon)b.disabled=true;else{if(st.on)b.setAttribute("aria-disabled","true");b.onclick=()=>{buzz("tap");st.act()}}
+   if(st.act&&!st.soon){li.classList.add("tap");t.onclick=()=>{buzz("tap");st.act()}}
+   li.append(connTile(c),t,b);ul.append(li)});sec.append(ul)}
+  B.append(sec)});
+ B.append(el("p","conn-foot","Mật khẩu và khoá được mã hoá trong kho bí mật trên máy chủ của bạn; bot không bao giờ đọc được. Mọi thư vẫn phải qua nút Duyệt."))}
+// masked secret input (shared by the chat card and connector setup); the value goes only to the vault
+function secretField(name,label,ph){const w=el("label","sec-field");const i=el("input");i.type="password";i.autocomplete="new-password";i.spellcheck=false;i.autocapitalize="off";i.setAttribute("autocorrect","off");i.placeholder=ph||"Dán vào đây";i.setAttribute("aria-label",label);i.dataset.secret=name;
+ const eye=el("button","sec-eye");eye.type="button";eye.setAttribute("aria-label","Hiện/ẩn");eye.append(I("eye",18));eye.onclick=e=>{e.preventDefault();const show=i.type==="password";i.type=show?"text":"password";eye.replaceChildren(I(show?"eye-off":"eye",18))};w.append(i,eye);return{w,i}}
+let setupKind=null;
+function openSetup(kind){setupKind=kind;renderSetup();if(sheetOpen===$("#connSetup"))return;swapSheet($("#connSetup"))}
+$("#closeSetup").onclick=()=>{setupKind=null;renderConnectors();swapSheet($("#connectors"))};
+function field(label,attrs){const w=el("label","fld");w.append(el("span",0,label));const i=el("input");Object.assign(i,attrs);i.setAttribute("aria-label",label);w.append(i);return{w,i}}
+function renderSetup(){const B=$("#setupBody");B.innerHTML="";const o=OB();
+ if(setupKind==="gmail"){const g=o.gmail||{};$("#setupTitle").textContent="Gmail";const c=CONN_GROUPS[0].items[0];
+  const hd=el("div","setup-hd");hd.append(connTile(c,30),el("b",0,"Gmail"),el("small",0,g.connected?"Đã kết nối · gửi từ "+g.from:"Gửi qua smtp.gmail.com:587 (STARTTLS) bằng mật khẩu ứng dụng"));B.append(hd);
+  const em=field("Địa chỉ Gmail",{type:"email",id:"gmailAddr",autocomplete:"email",placeholder:"ban@gmail.com",value:g.from||""});em.i.inputMode="email";
+  const card=el("div","secret");card.dataset.name="GMAIL_APP_PASSWORD";const top=el("div","sec-top");top.append(I("key-round",18),el("b",0,"Mật khẩu ứng dụng"),el("code",0,"GMAIL_APP_PASSWORD"));
+  const sf=secretField("GMAIL_APP_PASSWORD","Mật khẩu ứng dụng Gmail",g.connected?"Đã lưu · để trống nếu giữ nguyên":"16 ký tự, ví dụ abcd efgh ijkl mnop");sf.i.id="gmailPass";
+  const how=el("p","sec-desc");how.append("Bật xác minh 2 bước, rồi tạo mật khẩu ứng dụng tại ");const a=el("a",0,"myaccount.google.com/apppasswords");a.href="https://myaccount.google.com/apppasswords";a.target="_blank";a.rel="noopener noreferrer";how.append(a,". Không dùng mật khẩu Gmail chính.");
+  card.append(top,how,sf.w);const save=el("button","pill wide","Lưu");save.id="gmailSave";
+  save.onclick=async()=>{const address=em.i.value.trim(),password=sf.i.value;if(!address){toast("Nhập địa chỉ Gmail");return}if(!password&&!g.connected){toast("Nhập mật khẩu ứng dụng");return}save.disabled=true;
+   try{S.outbound=await api("/connectors/gmail",{address,password});sf.i.value="";buzz("confirm");toast("Đã lưu vào kho bí mật");renderSetup()}catch(e){sf.i.value="";toast(e.status===400?"Kiểm tra lại địa chỉ hoặc mật khẩu 16 ký tự":"Không lưu được")}finally{save.disabled=false}};
+  B.append(em.w,card,save);
+  if(g.connected){const t=el("div","setup-test");const to=field("Gửi thử tới",{type:"email",id:"gmailTestTo",value:g.from,autocomplete:"email"});const go=el("button","pill wide ghost","Gửi thử");go.id="gmailTest";
+   go.onclick=()=>gmailTest(to.i.value.trim());t.append(el("small",0,"Thư thử đi qua thẻ Duyệt như mọi thư khác."),to.w,go);B.append(t);
+   const off=el("button","text-btn danger","Ngắt kết nối Gmail");off.id="gmailOff";off.onclick=async()=>{try{S.outbound=await api("/connectors/gmail/disconnect",{});S.secrets=S.secrets.filter(n=>!n.startsWith("GMAIL_"));toast("Đã xoá khỏi kho");renderSetup()}catch{toast("Không ngắt được")}};B.append(off)}}
+ else if(setupKind==="smtp"){const sm=o.smtp||{};$("#setupTitle").textContent="Email (SMTP)";const hd=el("div","setup-hd");hd.append(connTile(CONN_GROUPS[0].items[2],30),el("b",0,"Email (SMTP)"),el("small",0,sm.connected?(sm.env&&!sm.accounts?"Đang dùng cấu hình AURORA_SMTP_* của máy chủ":"Đã kết nối"+(sm.from?" · "+sm.from:"")):"STARTTLS cổng 587 hoặc TLS cổng 465"));B.append(hd);
+  const h=field("Máy chủ",{id:"smtpHost",placeholder:"smtp.example.com",autocapitalize:"off"}),pt=field("Cổng",{id:"smtpPort",value:"587",inputMode:"numeric"}),u=field("Tài khoản",{id:"smtpUser",autocomplete:"username",autocapitalize:"off"}),f=field("Gửi từ",{id:"smtpFrom",type:"email",placeholder:"ban@tenmien.vn"});
+  const card=el("div","secret");const top=el("div","sec-top");top.append(I("key-round",18),el("b",0,"Mật khẩu SMTP"),el("code",0,"SMTP_PASSWORD"));const sf=secretField("SMTP_PASSWORD","Mật khẩu SMTP");sf.i.id="smtpPass";card.append(top,sf.w);
+  const save=el("button","pill wide","Lưu");save.onclick=async()=>{save.disabled=true;try{S.outbound=await api("/connectors/smtp",{host:h.i.value,port:pt.i.value,user:u.i.value,from:f.i.value,password:sf.i.value});sf.i.value="";toast("Đã lưu vào kho bí mật");renderSetup()}catch{sf.i.value="";toast("Kiểm tra lại máy chủ, cổng (587/465) và địa chỉ")}finally{save.disabled=false}};
+  B.append(h.w,pt.w,u.w,f.w,card,save);if(sm.accounts){const off=el("button","text-btn danger","Ngắt kết nối SMTP");off.onclick=async()=>{S.outbound=await api("/connectors/smtp/disconnect",{});renderSetup()};B.append(off)}}}
+// "Gửi thử": asks the first bot to draft a test email; delivery still waits for the owner's Duyệt
+async function gmailTest(to){if(!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(to)){toast("Địa chỉ không hợp lệ");return}const b=bots()[0];if(!b){toast("Cần ít nhất 1 bot");return}
+ try{await api(`/agents/${b.id}/messages`,{text:`Soạn email thử tới ${to}, tiêu đề "Neko Aurora: thư thử Gmail", nội dung ngắn xác nhận Gmail đã kết nối. Chờ mình duyệt.`});buzz("confirm");closeSheet(true);setTimeout(()=>openThread(b.id),340)}catch{toast("Không gửi được yêu cầu")}}
+$("#closeConnectors").onclick=()=>closeSheet(true);
 $("#appsBtn").onclick=()=>{if(sheetOpen)return;renderConnectors();openSheet($("#connectors"))};
+// in-chat secret request card: masked input → vault; message/journal hold only the name
+function secretCard(m){const x=m.secret,saved=S.secrets.includes(x.name),c=el("div","secret"+(saved?" saved":""));c.dataset.id=m.id;c.dataset.name=x.name;
+ const top=el("div","sec-top");top.append(I("key-round",18),el("b",0,x.label||x.name),el("code",0,x.name));c.append(top);if(x.desc)c.append(el("p","sec-desc",x.desc));
+ if(saved){const d=el("div","sec-done");d.append(I("check",16),el("span",0,"Đã lưu vào kho bí mật"));c.append(d);return c}
+ const sf=secretField(x.name,x.label||x.name);const row=el("div","sec-row");const go=el("button","pill","Lưu");go.className="pill sec-save";
+ go.onclick=async()=>{const value=sf.i.value;if(!value){toast("Chưa nhập");return}go.disabled=true;
+  try{await api("/secrets",{name:x.name,value,label:x.label||"",work:m.taskId});sf.i.value="";if(!S.secrets.includes(x.name))S.secrets.push(x.name);buzz("confirm");toast("Đã lưu "+x.name);loadState().catch(()=>{});renderThread()}catch{toast("Không lưu được");go.disabled=false}};
+ sf.i.onkeydown=e=>{if(e.key==="Enter"){e.preventDefault();go.click()}};row.append(sf.w,go);c.append(row,el("small","hint","Giá trị chỉ vào kho mã hoá trên máy chủ, không nằm trong tin nhắn."));return c}
 // ---------- activity ----------
 function renderLog(items,prepend){const L=$("#log");if(!prepend)L.innerHTML="";items.forEach(x=>{const li=el("li"),t=el("time",0,ago(x.t));li.append(t,x.text);prepend?L.prepend(li):L.append(li)})}
 $("#activityBtn").onclick=()=>{closeMenu();if(sheetOpen)return;renderLog([]);openSheet($("#activity"));api("/activity?limit=80").then(x=>renderLog(x)).catch(()=>toast("Không tải được hoạt động"))};$("#closeActivity").onclick=()=>closeSheet(true);
@@ -342,7 +405,7 @@ function I(n,sz){return self.AURORA_ICONS?AURORA_ICONS.icon(n,sz):document.creat
 function stepIcon(st){const m={pending:"circle",running:"loader-circle",done:"check",waiting:"pause",failed:"x",cancelled:"minus"};const s=el("span","ic");s.append(I(m[st]||"circle",16));return s}
 // Haptics: rare and short; owner can turn them off; vibrate is a no-op on iOS Safari.
 function buzz(k){try{if(!haptics||matchMedia("(prefers-reduced-motion: reduce)").matches||!navigator.vibrate)return;navigator.vibrate({tap:8,confirm:[10,40,14],soft:16}[k]||8)}catch{}}
-[["#newBtn","plus"],["#threadMore","ellipsis"],["#plusBtn","plus"],["#profBack","chevron-left"],["#profShare","share"],["#profMore","ellipsis"],["#appsBtn","layout-grid"],["#searchIc","search"],["#backBtn","chevron-left"],["#micBtn","mic"],["#cancelBtn","x"],["#closeGroup","x"],["#closeSettings","x"],["#closeConnectors","x"]].forEach(([q,n])=>{const b=$(q);if(b)b.replaceChildren(I(n))});
+[["#newBtn","plus"],["#threadMore","ellipsis"],["#plusBtn","plus"],["#profBack","chevron-left"],["#profShare","share"],["#profMore","ellipsis"],["#appsBtn","layout-grid"],["#searchIc","search"],["#backBtn","chevron-left"],["#micBtn","mic"],["#cancelBtn","x"],["#closeGroup","x"],["#closeSetup","chevron-left"],["#closeSettings","x"],["#closeConnectors","x"]].forEach(([q,n])=>{const b=$(q);if(b)b.replaceChildren(I(n))});
 document.querySelectorAll(".mi[data-i]").forEach(s=>s.replaceChildren(I(s.dataset.i,18)));
 setSendMode();
 window.__AURORA={state:()=>S,reload:loadState,current:()=>cur&&cur.id};

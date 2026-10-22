@@ -60,7 +60,7 @@ type AuroraRecord struct {
 
 const auroraActivityKeep = 2000
 
-var auroraActivityKinds = map[string]bool{"message": true, "plan": true, "step": true, "approval": true, "decision": true, "delivery": true, "stop": true, "error": true, "reply": true, "agent": true}
+var auroraActivityKinds = map[string]bool{"message": true, "plan": true, "step": true, "approval": true, "decision": true, "delivery": true, "stop": true, "error": true, "reply": true, "agent": true, "secret": true, "connector": true}
 var auroraHat = map[string]bool{"none": true, "beanie": true, "cap": true, "top": true, "crown": true}
 var auroraEyes = map[string]bool{"none": true, "round": true, "shades": true, "visor": true, "mono": true}
 var auroraExtra = map[string]bool{"none": true, "bow": true, "flower": true, "antenna": true, "scarf": true}
@@ -114,7 +114,7 @@ func (s *Store) validAuroraEvent(e Event) bool {
 			return false
 		}
 		_, err := time.Parse(time.RFC3339Nano, a.At)
-		return err == nil && s.hasBot(a.BotID)
+		return err == nil && (s.hasBot(a.BotID) || a.BotID == "" && a.WorkID == "" && (a.Kind == "secret" || a.Kind == "connector"))
 	}
 	return false
 }

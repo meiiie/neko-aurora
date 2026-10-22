@@ -13,6 +13,7 @@ package ledger
 
 import (
 	"reflect"
+	"regexp"
 	"strings"
 	"time"
 	"unicode/utf8"
@@ -57,6 +58,21 @@ type DirectRun struct {
 	Choices    []string        `json:"choices,omitempty"`
 	Items      []string        `json:"items,omitempty"`
 	Approval   *DirectApproval `json:"approval,omitempty"`
+	Secret     *DirectSecret   `json:"secret,omitempty"`
+}
+
+// DirectSecret is a bot's request for a secret. It carries only the vault
+// name and copy for the masked input card; the value never enters the ledger.
+type DirectSecret struct {
+	Name  string `json:"name"`
+	Label string `json:"label,omitempty"`
+	Desc  string `json:"desc,omitempty"`
+}
+
+var directSecretName = regexp.MustCompile(`^[A-Z][A-Z0-9_]{1,63}$`)
+
+func validDirectSecret(x *DirectSecret) bool {
+	return x == nil || directSecretName.MatchString(x.Name) && directText(x.Label, 160) && directText(x.Desc, 640)
 }
 
 func copyDirectRun(d DirectRun) DirectRun {
@@ -70,6 +86,10 @@ func copyDirectRun(d DirectRun) DirectRun {
 			a.Delivery = &x
 		}
 		d.Approval = &a
+	}
+	if d.Secret != nil {
+		x := *d.Secret
+		d.Secret = &x
 	}
 	return d
 }
@@ -110,7 +130,7 @@ func validDirectRun(d *DirectRun) bool {
 			return false
 		}
 	}
-	return validDirectApproval(d.Approval)
+	return validDirectApproval(d.Approval) && validDirectSecret(d.Secret)
 }
 
 func sameDirectIdentity(a, b *DirectRun) bool {
@@ -263,3 +283,5 @@ func (s *Store) DirectDecide(id string, change func(*DirectApproval, *DirectRun)
 		return nil
 	})
 }
+
+func ValidDirectSecret(x *DirectSecret) bool { return x != nil && validDirectSecret(x) }

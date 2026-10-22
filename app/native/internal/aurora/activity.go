@@ -12,7 +12,7 @@ func (s *Service) record(botID, workID, kind, text string) {
 	if s.L.ReadOnly() {
 		return
 	}
-	if err := s.L.RecordAuroraActivity(ledger.AuroraActivity{BotID: botID, WorkID: workID, Kind: kind, Text: clean(text, 200)}); err != nil {
+	if err := s.L.RecordAuroraActivity(ledger.AuroraActivity{BotID: botID, WorkID: workID, Kind: kind, Text: clean(s.V.Redact(text), 200)}); err != nil {
 		log.Printf("aurora activity: %v", err)
 	}
 }

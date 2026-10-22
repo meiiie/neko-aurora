@@ -16,6 +16,7 @@ import (
 
 	"nekoaurora.local/native/internal/ledger"
 	"nekoaurora.local/native/internal/outbound"
+	"nekoaurora.local/native/internal/vault"
 )
 
 type Event struct {
@@ -32,6 +33,7 @@ type Service struct {
 	Push  *Pusher
 	Out   *outbound.Router
 	Prefs *Prefs
+	V     *vault.Vault
 	mux   *http.ServeMux
 	mu    sync.Mutex
 	subs  map[chan Event]struct{}
@@ -73,8 +75,15 @@ func New(ctx context.Context, store *ledger.Store, stateDir string, opt Options)
 			model = c
 		}
 	}
-	s := &Service{L: store, AI: model, Push: p, Out: outbound.FromEnv(), Prefs: prefs, subs: map[chan Event]struct{}{}, ctx: ctx, wake: make(chan struct{}, 1), running: map[string]bool{}, seen: map[string]string{}, Now: time.Now}
+	v, err := vault.Open(stateDir)
+	if err != nil {
+		return nil, err
+	}
+	log.SetOutput(v.Writer(os.Stderr))
+	s := &Service{L: store, AI: model, Push: p, V: v, Prefs: prefs, subs: map[chan Event]struct{}{}, ctx: ctx, wake: make(chan struct{}, 1), running: map[string]bool{}, seen: map[string]string{}, Now: time.Now}
+	s.Out = outbound.NewRouter(outbound.Switch{Resolve: s.mailer})
 	s.routes()
+	s.connectorRoutes()
 	s.sync()
 	go s.watch()
 	if opt.RunTurns && !store.ReadOnly() {
@@ -458,15 +467,15 @@ func (s *Service) routes() {
 			"agents": agents, "pending": v.pending(), "brief": v.brief(),
 			"ai":             map[string]any{"configured": s.AI.Configured(), "model": s.AI.ModelName(), "provider": "z.ai", "runtime": s.AI.Runtime()},
 			"vapidPublicKey": s.Push.Pub, "pushSubscriptions": len(s.Prefs.PushSubs()),
-			"outbound": s.outboundInfo(),
+			"outbound": s.outboundInfo(), "secrets": s.secretNames(),
 		})
 	})
 	m.HandleFunc("POST /app/api/agents", func(w http.ResponseWriter, r *http.Request) {
 		var in struct {
-			Name   string `json:"name"`
-			Desc   string `json:"desc"`
-			Face   Face   `json:"av"`
-			Nonce  string `json:"clientNonce"`
+			Name  string `json:"name"`
+			Desc  string `json:"desc"`
+			Face  Face   `json:"av"`
+			Nonce string `json:"clientNonce"`
 		}
 		if err := decode(r, &in); err != nil {
 			fail(w, err)
@@ -913,14 +922,4 @@ func (s *Service) events(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-}
-
-// outboundInfo lists the real delivery channels for the connectors sheet.
-func (s *Service) outboundInfo() []map[string]any {
-	out := []map[string]any{}
-	if a, ok := s.Out.Adapter("email"); ok {
-		out = append(out, map[string]any{"id": "email", "configured": a.Configured(), "from": a.Sender()})
-	}
-	out = append(out, map[string]any{"id": "push", "configured": s.Push != nil && s.Push.Pub != "", "subscriptions": len(s.Prefs.PushSubs())})
-	return out
 }

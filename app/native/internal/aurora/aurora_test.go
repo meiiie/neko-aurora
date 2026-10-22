@@ -85,9 +85,10 @@ func scriptedAI(t *testing.T, replies ...string) *httptest.Server {
 	}))
 }
 
-func newSvc(t *testing.T) (*Service, *ledger.Store) {
+func newSvc(t *testing.T) (*Service, *ledger.Store) { t.Helper(); return newSvcIn(t, t.TempDir()) }
+
+func newSvcIn(t *testing.T, dir string) (*Service, *ledger.Store) {
 	t.Helper()
-	dir := t.TempDir()
 	st, err := ledger.Open(dir)
 	if err != nil {
 		t.Fatal(err)

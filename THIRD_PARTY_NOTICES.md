@@ -80,3 +80,13 @@ OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
 
 `assets/app/aurora/aurora.css`, the logo mark and wordmark are original
 HoLiLiHu work (from the aurora-design package); no third-party code.
+
+## Simple Icons — CC0 1.0 Universal
+
+Brand marks for Gmail, Google Calendar, Google Drive, Notion, GitHub, Telegram,
+Zalo, Discord and X in `app/native/internal/web/assets/app/aurora/brands.js`
+come from Simple Icons v16.35.0 (https://simpleicons.org), dedicated to the
+public domain under CC0 1.0 (full text in `aurora/simple-icons-LICENSE.txt`).
+The marks remain trademarks of their owners and are used only to identify the
+services in the connectors sheet. Slack is not in Simple Icons and uses a
+neutral Lucide glyph instead.
