@@ -58,7 +58,7 @@ function connect(){es=new EventSource(API+"/events");
   if(L){const i=L.findIndex(x=>x.id===m.id);if(i<0)L.push(m);else L[i]=m}
   S.pending=S.pending.filter(x=>x.id!==m.id);if(m.approval&&m.approval.state==="pending")S.pending.push(m);
   if(cur&&cur.id===m.agentId)renderThread();renderListSoon()});
- es.addEventListener("delta",e=>{const d=JSON.parse(e.data);S.deltaCount=(S.deltaCount||0)+1;const x=S.drafts[d.id]||(S.drafts[d.id]={agentId:d.agentId,from:d.from,text:""});x.text+=d.delta;if(cur&&cur.id===d.agentId)paintDraft(d.id)});
+ es.addEventListener("delta",e=>{const d=JSON.parse(e.data);S.deltaCount=(S.deltaCount||0)+1;const x=S.drafts[d.id]||(S.drafts[d.id]={agentId:d.agentId,from:d.from,text:""});x.text=typeof d.text==="string"?d.text:x.text+d.delta;if(cur&&cur.id===d.agentId)paintDraft(d.id)});
  es.addEventListener("draft_end",e=>{const d=JSON.parse(e.data);if(S.drafts[d.id]){delete S.drafts[d.id];if(cur&&cur.id===d.agentId)renderThread()}});
  es.addEventListener("activity",e=>{if(sheetOpen===$("#activity"))renderLog([JSON.parse(e.data)],true)});
  es.addEventListener("brief",e=>{S.brief=JSON.parse(e.data);renderListSoon()});
@@ -139,40 +139,68 @@ function approvalCard(m){const ap=m.approval,c=el("div","approval"+(ap.state!=="
   c.append(el("small","hint","Muốn đổi hướng? Nhắn yêu cầu mới, bản nháp này sẽ được thay."))}
  else if(ap.state!=="superseded"){const dv=ap.delivery,DS={queued:"đang chờ kênh email",sending:"đang gửi…",sent:"đã gửi"+(dv&&dv.from?" từ "+dv.from:""),failed:"gửi thất bại"+(dv&&dv.detail?": "+dv.detail:"")};c.append(el("small",0,ap.state==="approved"?(dv?"✓ Bạn đã duyệt · "+DS[dv.status]:"✓ Bạn đã duyệt · chưa gửi ra ngoài (kênh gửi chưa kết nối)"):"Đã hoãn"))}
  return c}
-// tool-call card: states and source de-duplication follow CopilotKit/openmuse
-// apps/mobile/src/search-tool-card.tsx (MIT, © 2026 OpenMuse contributors)
-const TOOL_ICON={gold_price:"activity",web_search:"search",web_fetch:"arrow-up-right"};
-function toolCard(m,a){const c=el("div","toolcard");c.dataset.id=m.id;const live=a&&a.status==="working";
- m.tools.forEach(t=>{const row=el("div","tool "+t.status);const ic=el("span","ic");
-  const stopped=t.status==="running"&&!live;ic.append(I(t.status==="running"&&!stopped?"loader-circle":t.status==="failed"?"x":TOOL_ICON[t.name]||"search",16));
-  const label=t.status==="running"?(stopped?"Đã dừng tra cứu":(t.summary||"Đang tra cứu")+"…"):t.summary||t.name;
-  const tx=el("span","tool-t",label);row.append(ic,tx);if(t.ms&&t.status!=="running")row.append(el("span","tool-ms",(t.ms/1000).toFixed(1)+"s"));
-  if(t.arg)row.title=t.arg;c.append(row)});return c}
+// tool activity stays unobtrusive: a status line while running, folded into the
+// "Nguồn" footer afterwards (states/dedup after CopilotKit/openmuse search-tool-card.tsx, MIT)
 const srcHost=u=>{try{return new URL(u).hostname.replace(/^www\./,"")}catch{return u}};
 function uniqSources(list){const seen=new Map();(list||[]).forEach((x,i)=>{if(!seen.has(x.url))seen.set(x.url,{...x,n:i+1})});return[...seen.values()]}
-// "[n]" in the reply becomes a tappable citation to source n
-function citeText(node,text,sources){const parts=text.split(/(\[\d{1,2}\](?:\s*,?\s*\[\d{1,2}\])*)/);parts.forEach(p=>{if(/^\[\d/.test(p)){p.match(/\d{1,2}/g).forEach(n=>{const s=sources[+n-1];if(!s){node.append("["+n+"]");return}const l=el("a","cite",n);l.href=s.url;l.target="_blank";l.rel="noopener noreferrer";l.setAttribute("aria-label","Nguồn "+n+": "+srcHost(s.url));node.append(l)})}else if(p)node.append(p)})}
-function sourceList(m){const w=el("details","sources");const sm=el("summary");const u=uniqSources(m.sources);sm.append(I("list-checks",16),el("span",0,`Nguồn · ${u.length}`));w.append(sm);const ol=el("ol");
+// ---------- markdown (safe: builds DOM nodes, never innerHTML) ----------
+// headings, **bold**, *italic*, `code`, lists, tables, quotes, links, [n] citations
+function mdInline(node,text,src){const re=/(\*\*[^*\n]+\*\*|__[^_\n]+__|`[^`\n]+`|\[[^\]\n]+\]\(https?:\/\/[^\s)]+\)|https?:\/\/[^\s<>()]+[^\s<>().,;:!?]|\[\d{1,2}\](?:\s*,?\s*\[\d{1,2}\])*|(?<![\w*])\*[^*\n]+\*(?![\w*])|(?<![\w_])_[^_\n]+_(?![\w_]))/g;let last=0,m;
+ const link=(t,u)=>{const a=el("a","lnk",t);a.href=u;a.target="_blank";a.rel="noopener noreferrer";return a};
+ while((m=re.exec(text))){if(m.index>last)node.append(text.slice(last,m.index));const t=m[0];
+  if(t.startsWith("**")||t.startsWith("__")){const b=el("strong");mdInline(b,t.slice(2,-2),src);node.append(b)}
+  else if(t[0]==="`")node.append(el("code",0,t.slice(1,-1)))
+  else if(/^\[\d/.test(t)&&!t.includes("](")){t.match(/\d{1,2}/g).forEach(n=>{const x=src&&src[+n-1];if(!x){node.append("["+n+"]");return}const c=link(n,x.url);c.className="cite";c.setAttribute("aria-label","Nguồn "+n+": "+srcHost(x.url));node.append(c)})}
+  else if(t[0]==="["){const k=t.indexOf("](");node.append(link(t.slice(1,k),t.slice(k+2,-1)))}
+  else if(t.startsWith("http"))node.append(link(srcHost(t),t))
+  else{const e=el("em");mdInline(e,t.slice(1,-1),src);node.append(e)}
+  last=m.index+t.length}
+ if(last<text.length)node.append(text.slice(last))}
+function md(node,text,src){node.classList.add("md");const lines=text.replace(/\r/g,"").split("\n");let i=0;
+ const isRow=l=>/^\s*\|.*\|\s*$/.test(l),cells=l=>l.trim().replace(/^\||\|$/g,"").split("|").map(c=>c.trim());
+ while(i<lines.length){const l=lines[i];
+  if(!l.trim()){i++;continue}
+  let h=l.match(/^\s*(#{1,4})\s+(.*)$/);if(h){const e=el(h[1].length<=2?"h3":"h4");mdInline(e,h[2].replace(/\s*#+\s*$/,""),src);node.append(e);i++;continue}
+  if(/^\s*([-*_])\s*\1\s*\1[\s\-*_]*$/.test(l)){node.append(el("hr"));i++;continue}
+  if(isRow(l)&&i+1<lines.length&&/^\s*\|?\s*:?-{2,}/.test(lines[i+1])){const wrap=el("div","tbl"),t=el("table"),th=el("thead"),tr=el("tr");cells(l).forEach(c=>{const x=el("th");mdInline(x,c,src);tr.append(x)});th.append(tr);t.append(th);const tb=el("tbody");i+=2;
+   while(i<lines.length&&isRow(lines[i])){const r=el("tr");cells(lines[i]).forEach(c=>{const x=el("td");mdInline(x,c,src);r.append(x)});tb.append(r);i++}t.append(tb);wrap.append(t);node.append(wrap);continue}
+  if(/^\s*>\s?/.test(l)){const q=el("blockquote");const buf=[];while(i<lines.length&&/^\s*>\s?/.test(lines[i]))buf.push(lines[i++].replace(/^\s*>\s?/,""));mdInline(q,buf.join(" "),src);node.append(q);continue}
+  const li=/^\s*(?:[-*•+]|(\d{1,2})[.)])\s+(.*)$/;let m=l.match(li);
+  if(m){const ol=!!m[1],list=el(ol?"ol":"ul");if(ol&&+m[1]>1)list.start=+m[1];while(i<lines.length&&(m=lines[i].match(li))&&!!m[1]===ol){const it=el("li");mdInline(it,m[2],src);
+     while(i+1<lines.length&&/^\s{2,}\S/.test(lines[i+1])&&!li.test(lines[i+1])){it.append(" ");mdInline(it,lines[++i].trim(),src)}list.append(it);i++}node.append(list);continue}
+  const p=el("p"),buf=[l.trim()];i++;while(i<lines.length&&lines[i].trim()&&!li.test(lines[i])&&!/^\s*(#{1,4}\s|>|\|)/.test(lines[i]))buf.push(lines[i++].trim());
+  buf.forEach((b,k)=>{if(k)p.append(el("br"));mdInline(p,b,src)});node.append(p)}}
+function sourceList(m){const w=el("details","sources");const sm=el("summary");const u=uniqSources(m.sources);const ok=u.length>0;sm.append(el("span",0,ok?`Nguồn · ${u.length}`:"Không lấy được dữ liệu"),I("chevron-down",14));w.append(sm);
+ (m.tools||[]).forEach(t=>{const r=el("p","tool-line"+(t.status==="failed"?" bad":""),(t.summary||t.name)+(t.ms?" · "+(t.ms/1000).toFixed(1).replace(".",",")+"s":""));w.append(r)});const ol=el("ol");
  u.forEach(x=>{const li=el("li");const l=el("a");l.href=x.url;l.target="_blank";l.rel="noopener noreferrer";l.append(el("b",0,"["+x.n+"] "+(x.title||srcHost(x.url))),el("small",0,srcHost(x.url)+(x.at?" · "+new Date(x.at).toLocaleTimeString("vi-VN",{hour:"2-digit",minute:"2-digit"}):"")));li.append(l);ol.append(li)});w.append(ol);return w}
 function speaker(box,m,last){if(!isGroup(cur)||m.role!=="agent"||!m.from)return;if(last.v===m.from)return;last.v=m.from;const b=byId(m.from);const h=el("div","speaker");h.append(face(b&&b.av,20),el("span",0,b?b.name:"Bot"));box.append(h)}
 function renderThread(){const a=cur;if(!a)return;$("#threadState").textContent=stateLine(a);const box=$("#messages");
  const keepSec=[...box.querySelectorAll(".secret input[data-secret]")].map(i=>[i.closest(".secret").dataset.id,i.value]);
  const keepEdit=[...box.querySelectorAll(".ap-body")].map(t=>[t.closest(".approval").dataset.id,t.value,t.closest(".approval").querySelector(".ap-subject")?.value]);
  box.innerHTML="";const L=S.msgs[a.id]||[];const last={v:null};
- L.forEach((m,idx)=>{if(m.role!=="agent")last.v=null;if(m.tools&&m.tools.length){speaker(box,m,last);box.append(toolCard(m,a))}
-  if(m.text){speaker(box,m,last);const b=el("div","msg"+(m.role==="user"?" mine":m.role==="system"?" sys":""));if(m.sources&&m.sources.length)citeText(b,m.text,m.sources);else b.textContent=m.text;if(m.queued){b.append(el("span","chip","Đang chờ lượt"))}box.append(b)}
+ const pin=atBottom(box);let prevT=0;
+ L.forEach((m,idx)=>{if(m.role!=="agent")last.v=null;const t=T(m.t);if(m.role==="user"&&t>0&&(!prevT||t-prevT>15*60e3))box.append(el("div","daystamp",dayStamp(t)));if(t>0)prevT=t;
+  if(m.text){speaker(box,m,last);const b=el("div","msg"+(m.role==="user"?" mine":m.role==="system"?" sys":" bot"));if(m.role==="agent")md(b,m.text,m.sources);else b.textContent=m.text;if(m.queued){b.append(el("span","chip","Đang chờ lượt"))}box.append(b)}
   if(m.plan)box.append(planCard(m));
   if(m.choices&&m.choices.length){const wrap=el("div","choices");const later=L.slice(idx+1).some(x=>x.role==="user");m.choices.forEach(ch=>{const b=el("button","choice",ch);b.disabled=later||usedChoice.has(m.id);b.onclick=async()=>{if(usedChoice.has(m.id))return;usedChoice.add(m.id);renderThread();if(!(await sendMsg(ch)))usedChoice.delete(m.id)};wrap.append(b)});box.append(wrap)}
-  if(m.sources&&m.sources.length&&m.text)box.append(sourceList(m));
+  if(m.tools&&m.tools.length&&m.text&&!(a.status==="working"&&idx===L.length-1&&!m.text))box.append(sourceList(m));
   if(m.approval)box.append(approvalCard(m));if(m.secret)box.append(secretCard(m))});
  keepSec.forEach(([id,v])=>{const i=box.querySelector(`.secret[data-id="${id}"] input[data-secret]`);if(i)i.value=v});
  keepEdit.forEach(([id,v,sj])=>{const c=box.querySelector(`.approval[data-id="${id}"]`);if(c){const t=c.querySelector(".ap-body");if(t)t.value=v;const s2=c.querySelector(".ap-subject");if(s2&&sj!=null)s2.value=sj}});
- Object.entries(S.drafts).forEach(([id,d])=>{if(d.agentId===a.id){speaker(box,{role:"agent",from:d.from},last);const b=el("div","msg draft",visible(d.text));b.id="d_"+id;box.append(b)}});
- if(a.status==="working"&&!Object.values(S.drafts).some(d=>d.agentId===a.id))box.append(el("div","msg typing dots","Đang nghĩ"));
+ Object.entries(S.drafts).forEach(([id,d])=>{if(d.agentId===a.id){speaker(box,{role:"agent",from:d.from},last);const b=el("div","msg bot draft");md(b,visible(d.text),srcOf(id));b.id="d_"+id;box.append(b)}});
+ if(a.status==="working"&&!Object.values(S.drafts).some(d=>d.agentId===a.id))box.append(turnStatus(a,L));
  setSendMode();
- if(!box.contains(document.activeElement)||document.activeElement===box)requestAnimationFrame(()=>box.scrollTop=box.scrollHeight)}
+ if(pin||justSent)requestAnimationFrame(()=>{box.scrollTop=box.scrollHeight;justSent=false;syncJump()})}
+// single status line (bot face + milestone text), replaced by the streamed answer
+function turnStatus(a,L){const lastW=[...L].reverse().find(m=>m.role==="agent"&&m.tools&&m.tools.length);const run=lastW&&lastW.tools.find(t=>t.status==="running");
+ const txt=run?(run.summary||"Đang tra cứu"):lastW&&T(lastW.t)>=T((L.filter(m=>m.role==="user").at(-1)||{}).t)?"Đang tổng hợp":"Đang suy nghĩ";
+ const d=el("div","status");d.setAttribute("role","status");const f=el("span","st-face");f.append(face(a.av||{},22));d.append(f,el("span","st-t",txt));return d}
+const srcOf=id=>{const m=(S.msgs[cur&&cur.id]||[]).find(x=>x.id===id);return m&&m.sources};
+const atBottom=b=>b.scrollHeight-b.scrollTop-b.clientHeight<120;let justSent=false;
+const dayStamp=t=>{const d=new Date(t),n=new Date(),y=new Date(n-864e5);const hm=d.toLocaleTimeString("vi-VN",{hour:"2-digit",minute:"2-digit"});return(d.toDateString()===n.toDateString()?"Hôm nay ":d.toDateString()===y.toDateString()?"Hôm qua ":d.toLocaleDateString("vi-VN",{day:"numeric",month:"numeric"})+" ")+hm};
+function syncJump(){const b=$("#messages");$("#jumpBtn").classList.toggle("hidden",atBottom(b))}
 const visible=t=>{const i=t.search(/(^|\n)\s*(APPROVAL|PLAN|CHOICES):/);return(i>=0?t.slice(0,i):t).trim()||"…"};
-function paintDraft(id){const n=document.getElementById("d_"+id);if(!n){renderThread();return}n.textContent=visible(S.drafts[id].text);const box=$("#messages");box.scrollTop=box.scrollHeight}
+function paintDraft(id){const n=document.getElementById("d_"+id);if(!n){renderThread();return}const box=$("#messages"),pin=atBottom(box);n.replaceChildren();md(n,visible(S.drafts[id].text),srcOf(id));if(pin)box.scrollTop=box.scrollHeight;syncJump()}
 async function decide(m,v,bs,extra){if(deciding.has(m.id))return;deciding.add(m.id);bs.querySelectorAll("button").forEach(b=>b.disabled=true);
  try{await api(`/approvals/${m.id}`,{decision:v,...(extra||{})});buzz(v==="approved"?"confirm":"soft");editing.delete(m.id)}catch(e){if(e.status!==409){deciding.delete(m.id);toast("Không ghi nhận được, thử lại");bs.querySelectorAll("button").forEach(b=>b.disabled=false)}}}
 // send ↔ stop in the same spot while the agent works (stopping holds queued follow-ups)
@@ -411,7 +439,7 @@ addEventListener("popstate",()=>{if(skipPop){skipPop=false;return}closeMenu();if
 $("#search").oninput=e=>{filter=e.target.value;renderList()};
 $("#search").onkeydown=e=>{if(e.key==="Enter")e.target.blur()};
 const inp=$("#input");inp.oninput=()=>{inp.style.height="auto";inp.style.height=Math.min(140,inp.scrollHeight)+"px";setSendMode()};
-$("#composer").onsubmit=async e=>{e.preventDefault();stopVoice();const v=inp.value;if(!v.trim()){if(cur&&cur.status==="working")stopAgent();else if(SR)$("#micBtn").click();else inp.focus();return}inp.value="";inp.style.height="";if(!(await sendMsg(v)))inp.value=v};
+$("#composer").onsubmit=async e=>{e.preventDefault();stopVoice();const v=inp.value;if(!v.trim()){if(cur&&cur.status==="working")stopAgent();else if(SR)$("#micBtn").click();else inp.focus();return}inp.value="";inp.style.height="";inp.blur();justSent=true;setSendMode();if(!(await sendMsg(v))){inp.value=v;inp.oninput()}};
 inp.onkeydown=e=>{if(e.key==="Enter"&&!e.shiftKey&&!e.isComposing){e.preventDefault();$("#composer").requestSubmit()}};
 document.addEventListener("visibilitychange",()=>{if(!document.hidden&&es)loadState().catch(()=>{})});
 if("serviceWorker"in navigator)navigator.serviceWorker.register("/app/sw.js",{scope:"/app/"}).then(r=>r.pushManager?.getSubscription()).then(s=>{if(s)pushOn=true}).catch(()=>{});
@@ -423,8 +451,9 @@ function I(n,sz){return self.AURORA_ICONS?AURORA_ICONS.icon(n,sz):document.creat
 function stepIcon(st){const m={pending:"circle",running:"loader-circle",done:"check",waiting:"pause",failed:"x",cancelled:"minus"};const s=el("span","ic");s.append(I(m[st]||"circle",16));return s}
 // Haptics: rare and short; owner can turn them off; vibrate is a no-op on iOS Safari.
 function buzz(k){try{if(!haptics||matchMedia("(prefers-reduced-motion: reduce)").matches||!navigator.vibrate)return;navigator.vibrate({tap:8,confirm:[10,40,14],soft:16}[k]||8)}catch{}}
-[["#newBtn","plus"],["#threadMore","ellipsis"],["#plusBtn","plus"],["#profBack","chevron-left"],["#profShare","share"],["#profMore","ellipsis"],["#appsBtn","layout-grid"],["#searchIc","search"],["#backBtn","chevron-left"],["#micBtn","mic"],["#cancelBtn","x"],["#closeGroup","x"],["#closeSetup","chevron-left"],["#closeSettings","x"],["#closeConnectors","x"]].forEach(([q,n])=>{const b=$(q);if(b)b.replaceChildren(I(n))});
+[["#newBtn","plus"],["#threadMore","ellipsis"],["#plusBtn","plus"],["#profBack","chevron-left"],["#profShare","share"],["#profMore","ellipsis"],["#appsBtn","layout-grid"],["#searchIc","search"],["#backBtn","chevron-left"],["#jumpBtn","chevron-down"],["#micBtn","mic"],["#cancelBtn","x"],["#closeGroup","x"],["#closeSetup","chevron-left"],["#closeSettings","x"],["#closeConnectors","x"]].forEach(([q,n])=>{const b=$(q);if(b)b.replaceChildren(I(n))});
 document.querySelectorAll(".mi[data-i]").forEach(s=>s.replaceChildren(I(s.dataset.i,18)));
 setSendMode();
+$("#messages").addEventListener("scroll",syncJump,{passive:true});if(window.ResizeObserver)new ResizeObserver(syncJump).observe($("#messages"));$("#jumpBtn").onclick=()=>{const b=$("#messages");b.scrollTo({top:b.scrollHeight,behavior:"smooth"});buzz("tap")};
 window.__AURORA={state:()=>S,reload:loadState,current:()=>cur&&cur.id};
 })();

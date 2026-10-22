@@ -306,6 +306,9 @@ func workMessages(w ledger.Work, botRunning bool) []*Message {
 		}
 		return out
 	}
+	if d.Ack != "" {
+		out = append(out, &Message{ID: w.RequestID + ":ack", TaskID: w.RequestID, AgentID: w.BotID, Role: "agent", Text: d.Ack, Created: at})
+	}
 	if len(d.Plan) > 0 {
 		out = append(out, &Message{ID: w.RequestID + ":plan", TaskID: w.RequestID, AgentID: w.BotID, Role: "agent", Text: d.PlanIntro, Plan: &Plan{Steps: append([]Step(nil), d.Plan...)}, Created: at})
 	}

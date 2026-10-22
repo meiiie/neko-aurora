@@ -254,9 +254,26 @@ func (s *Service) agui(e AGUIEvent) { s.publish("agui", e) }
 // call streams one model call; deltas go to SSE as TEXT_MESSAGE_CONTENT.
 func (s *Service) call(ctx context.Context, w ledger.Work, msgs []ChatMsg) (directives, error) {
 	s.agui(AGUIEvent{Type: TEXT_MESSAGE_START, ThreadID: w.BotID, RunID: w.RequestID, MessageID: w.RequestID})
+	// Deltas are coalesced (~60ms) and each event also carries the full text so far,
+	// so a burst that overflows a slow client's buffer can never drop characters.
+	var sb strings.Builder
+	var pend string
+	var last time.Time
+	flush := func() {
+		if pend == "" {
+			return
+		}
+		s.publish("delta", map[string]any{"type": TEXT_MESSAGE_CONTENT, "agentId": threadOf(w), "from": w.BotID, "id": w.RequestID, "messageId": w.RequestID, "delta": pend, "text": sb.String()})
+		pend, last = "", time.Now()
+	}
 	full, err := s.AI.Stream(ctx, msgs, func(d string) {
-		s.publish("delta", map[string]any{"type": TEXT_MESSAGE_CONTENT, "agentId": threadOf(w), "from": w.BotID, "id": w.RequestID, "messageId": w.RequestID, "delta": d})
+		sb.WriteString(d)
+		pend += d
+		if time.Since(last) >= 60*time.Millisecond {
+			flush()
+		}
 	})
+	flush()
 	return ParseDirectives(full), err
 }
 
@@ -384,13 +401,25 @@ func (s *Service) update(id string, fn func(*ledger.DirectRun)) {
 
 func (s *Service) runTurn(ctx context.Context, w ledger.Work) (*Approval, []string, error) {
 	tc := &toolCtx{}
-	for _, c := range s.autoTools(w) {
-		s.runTool(ctx, w, tc, c.name, c.arg)
+	// Reply flow: short acknowledgement first, then the tool status line, then
+	// the result as its own message (progress only at milestones).
+	if auto := s.autoTools(w); len(auto) > 0 {
+		s.ack(w, ackFor(auto))
+		for _, c := range auto {
+			s.runTool(ctx, w, tc, c.name, c.arg)
+		}
 	}
 	d, err := s.call(ctx, w, tc.inject(s.history(w.BotID, w.RequestID)))
 	for round := 0; err == nil && d.Tool != nil && round < 3 && s.Tools != nil; round++ {
 		arg := d.Tool.Q + d.Tool.URL
 		s.publish("draft_end", map[string]string{"id": w.RequestID, "agentId": threadOf(w)})
+		if cur, _ := s.L.Get(w.RequestID); cur.Direct != nil && cur.Direct.Ack == "" {
+			a := d.Text
+			if a == "" {
+				a = ackFor([]toolCall{{d.Tool.Name, arg}})
+			}
+			s.ack(w, a)
+		}
 		s.runTool(ctx, w, tc, d.Tool.Name, arg)
 		d, err = s.call(ctx, w, tc.inject(s.history(w.BotID, w.RequestID)))
 	}

@@ -110,3 +110,28 @@ func (s *Service) runTool(ctx context.Context, w ledger.Work, tc *toolCtx, name,
 	s.agui(AGUIEvent{Type: STEP_FINISHED, ThreadID: w.BotID, RunID: w.RequestID, StepName: "tool:" + name})
 	s.record(w.BotID, w.RequestID, "step", fmt.Sprintf("%s · %s · %.1fs", toolLabel[name], st, float64(ms)/1000))
 }
+
+var ackLabel = map[string]string{"gold_price": "giá vàng trong nước và thế giới", "web_search": "trên web", "web_fetch": "trang bạn gửi"}
+
+// ackFor is the immediate acknowledgement for a turn that needs live data.
+func ackFor(calls []toolCall) string {
+	seen, parts := map[string]bool{}, []string{}
+	for _, c := range calls {
+		if l := ackLabel[c.name]; l != "" && !seen[l] {
+			seen[l] = true
+			parts = append(parts, l)
+		}
+	}
+	if len(parts) == 0 {
+		return "Được, mình tra số liệu rồi trả lời bạn ngay."
+	}
+	return "Được, mình tra " + strings.Join(parts, " và ") + " ngay bây giờ rồi tổng hợp cho bạn."
+}
+
+func (s *Service) ack(w ledger.Work, text string) {
+	text = clean(text, 400)
+	if text == "" {
+		return
+	}
+	s.update(w.RequestID, func(r *ledger.DirectRun) { r.Ack = text })
+}

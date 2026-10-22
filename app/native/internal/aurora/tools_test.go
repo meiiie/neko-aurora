@@ -40,6 +40,19 @@ func TestModelRequestedToolCitesSources(t *testing.T) {
 	if strings.Contains(m.Text, "TOOL") || !strings.Contains(m.Text, "[1]") {
 		t.Fatalf("text %q", m.Text)
 	}
+	// reply flow: a short ack (the model's pre-TOOL sentence) is its own message, before the answer
+	var ack, ans = -1, -1
+	for i, x := range svc.view().messages(bot, 0) {
+		if strings.HasSuffix(x.ID, ":ack") && x.Text == "Để mình tra." {
+			ack = i
+		}
+		if x.ID == m.ID {
+			ans = i
+		}
+	}
+	if ack < 0 || ack > ans {
+		t.Fatalf("ack %d answer %d", ack, ans)
+	}
 }
 
 func TestFailedToolIsHonest(t *testing.T) {

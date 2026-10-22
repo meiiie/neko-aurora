@@ -54,6 +54,7 @@ type DirectRun struct {
 	FinishedAt string          `json:"finishedAt,omitempty"`
 	ImportedAt string          `json:"importedAt,omitempty"`
 	PlanIntro  string          `json:"planIntro,omitempty"`
+	Ack        string          `json:"ack,omitempty"` // short acknowledgement shown before the result
 	Plan       []DirectStep    `json:"plan,omitempty"`
 	Choices    []string        `json:"choices,omitempty"`
 	Items      []string        `json:"items,omitempty"`
@@ -156,7 +157,7 @@ func validDirectRun(d *DirectRun) bool {
 	if d == nil || d.Version != 1 || (d.Runtime != "neko-core-cli" && d.Runtime != "direct-http" && d.Runtime != "imported") || (d.Kind != "" && d.Kind != "brief" && d.Kind != "note") {
 		return false
 	}
-	if !directText(d.Model, 128) || d.StartedAt == "" || !directText(d.PlanIntro, 2000) || len(d.Plan) > 8 || len(d.Choices) > 4 || len(d.Items) > 8 {
+	if !directText(d.Model, 128) || d.StartedAt == "" || !directText(d.PlanIntro, 2000) || !directText(d.Ack, 600) || len(d.Plan) > 8 || len(d.Choices) > 4 || len(d.Items) > 8 {
 		return false
 	}
 	for _, st := range d.Plan {
