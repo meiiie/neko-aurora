@@ -16,12 +16,19 @@ import (
 	"time"
 )
 
+// AuroraAvatar is a flat shape avatar (Flat: one of 13 shapes in one of 12
+// colours). The pixel fields remain only so earlier journal records replay.
 type AuroraAvatar struct {
 	Shell int    `json:"shell"`
-	Hat   string `json:"hat"`
-	Eyes  string `json:"eyes"`
-	Extra string `json:"extra"`
+	Hat   string `json:"hat,omitempty"`
+	Eyes  string `json:"eyes,omitempty"`
+	Extra string `json:"extra,omitempty"`
+	Flat  bool   `json:"flat,omitempty"`
+	Shape int    `json:"shape,omitempty"`
+	Color int    `json:"color,omitempty"`
 }
+
+const AuroraShapes, AuroraColors = 13, 12
 
 type AuroraLook struct {
 	BotID  string        `json:"botId"`
@@ -59,7 +66,10 @@ var auroraEyes = map[string]bool{"none": true, "round": true, "shades": true, "v
 var auroraExtra = map[string]bool{"none": true, "bow": true, "flower": true, "antenna": true, "scarf": true}
 
 func ValidAuroraAvatar(a AuroraAvatar) bool {
-	return a.Shell >= 0 && a.Shell < 10 && auroraHat[a.Hat] && auroraEyes[a.Eyes] && auroraExtra[a.Extra]
+	if a.Flat {
+		return a.Shell == 0 && a.Hat == "" && a.Eyes == "" && a.Extra == "" && a.Shape >= 0 && a.Shape < AuroraShapes && a.Color >= 0 && a.Color < AuroraColors
+	}
+	return a.Shape == 0 && a.Color == 0 && a.Shell >= 0 && a.Shell < 10 && auroraHat[a.Hat] && auroraEyes[a.Eyes] && auroraExtra[a.Extra]
 }
 
 func (s *Store) hasBot(id string) bool {

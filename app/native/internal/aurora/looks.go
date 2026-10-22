@@ -14,6 +14,29 @@ import (
 // (aurora.look / aurora.push); there is no side file.
 type Avatar = ledger.AuroraAvatar
 
+// Face is the flat avatar the UI draws: shape 0..12, colour 0..11.
+type Face struct {
+	Shape int `json:"shape"`
+	Color int `json:"color"`
+}
+
+func faceOf(a Avatar) Face {
+	if a.Flat {
+		return Face{a.Shape, a.Color}
+	}
+	// earlier pixel avatars: keep their colour family, pick a stable shape
+	pixel := []int{2, 9, 4, 3, 1, 5, 6, 10, 11, 4}
+	h := len(a.Hat)*3 + len(a.Eyes)*5 + len(a.Extra)
+	return Face{(a.Shell + h) % ledger.AuroraShapes, pixel[a.Shell%len(pixel)]}
+}
+
+func avatarOf(f Face) (Avatar, bool) {
+	a := Avatar{Flat: true, Shape: f.Shape, Color: f.Color}
+	return a, validAvatar(a)
+}
+
+func (p *Prefs) GroupPinned(string) bool { return false }
+
 type PushSub struct {
 	Endpoint string `json:"endpoint"`
 	Keys     struct {
@@ -77,9 +100,7 @@ func defaultAvatar(id string) Avatar {
 	if h < 0 {
 		h = -h
 	}
-	hats := []string{"none", "beanie", "cap", "top", "crown"}
-	eyes := []string{"round", "none", "shades", "visor", "mono"}
-	return Avatar{Shell: h % 10, Hat: hats[(h/10)%5], Eyes: eyes[(h/50)%5], Extra: "none"}
+	return Avatar{Flat: true, Shape: h % ledger.AuroraShapes, Color: (h / 13) % ledger.AuroraColors}
 }
 
 // Env reads AURORA_<name>.
