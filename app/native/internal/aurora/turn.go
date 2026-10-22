@@ -416,7 +416,7 @@ func (s *Service) runTurn(ctx context.Context, w ledger.Work) (*Approval, []stri
 		arg := d.Tool.Q + d.Tool.URL
 		s.publish("draft_end", map[string]string{"id": w.RequestID, "agentId": threadOf(w)})
 		if cur, _ := s.L.Get(w.RequestID); cur.Direct != nil && cur.Direct.Ack == "" {
-			a := d.Text
+			a := strings.TrimSpace(strings.TrimLeft(strings.TrimSpace(d.Text), "-•* "))
 			if a == "" {
 				a = ackFor([]toolCall{{d.Tool.Name, arg}})
 			}
