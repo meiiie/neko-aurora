@@ -22,6 +22,7 @@ import (
 type DirectStep struct {
 	Title  string `json:"title"`
 	Status string `json:"status"` // pending|running|done|waiting|failed|cancelled
+	Note   string `json:"note,omitempty"` // short milestone update once the step is done
 }
 
 type DirectDelivery struct {
@@ -161,7 +162,7 @@ func validDirectRun(d *DirectRun) bool {
 		return false
 	}
 	for _, st := range d.Plan {
-		if !directStepStatus[st.Status] || !directText(st.Title, 480) {
+		if !directStepStatus[st.Status] || !directText(st.Title, 480) || !directText(st.Note, 1600) {
 			return false
 		}
 	}

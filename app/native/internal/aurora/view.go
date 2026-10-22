@@ -4,6 +4,7 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"errors"
+	"fmt"
 	"regexp"
 	"sort"
 	"strings"
@@ -328,6 +329,12 @@ func workMessages(w ledger.Work, botRunning bool) []*Message {
 	}
 	if len(d.Plan) > 0 {
 		out = append(out, &Message{ID: w.RequestID + ":plan", TaskID: w.RequestID, AgentID: w.BotID, Role: "agent", Text: d.PlanIntro, Plan: &Plan{Steps: append([]Step(nil), d.Plan...)}, Created: at})
+	}
+	for i, st := range d.Plan {
+		if st.Note != "" {
+			// milestone update: one short message per finished step
+			out = append(out, &Message{ID: fmt.Sprintf("%s:step%d", w.RequestID, i+1), TaskID: w.RequestID, AgentID: w.BotID, Role: "agent", Text: fmt.Sprintf("**Xong bước %d/%d · %s**\n\n%s", i+1, len(d.Plan), st.Title, st.Note), Sources: append([]ledger.DirectSource(nil), d.Sources...), Created: at})
+		}
 	}
 	reply := visibleText(w.Reply)
 	if reply != "" || d.Approval != nil || len(d.Choices) > 0 || d.Secret != nil || len(d.Tools) > 0 {

@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"regexp"
 	"strings"
 	"time"
 
@@ -35,6 +36,35 @@ func (c *toolCtx) inject(msgs []ChatMsg) []ChatMsg {
 	out := append([]ChatMsg{msgs[0], {Role: "system", Content: sb.String()}}, msgs[1:]...)
 	return out
 }
+
+// addSource numbers a source once per turn: the same URL (ignoring a trailing
+// slash or #fragment) keeps its first [n], so footnotes never list duplicates.
+// It returns 0 for sources that are dropped (non-https or over the cap).
+func (c *toolCtx) addSource(title, url, at string) int {
+	if !strings.HasPrefix(url, "https://") {
+		return 0
+	}
+	key := sourceKey(url)
+	for i, s := range c.sources {
+		if sourceKey(s.URL) == key {
+			return i + 1
+		}
+	}
+	if len(c.sources) >= 16 {
+		return 0
+	}
+	c.sources = append(c.sources, ledger.DirectSource{Title: clean(title, 200), URL: clean(url, 600), At: at})
+	return len(c.sources)
+}
+
+func sourceKey(u string) string {
+	if i := strings.IndexByte(u, '#'); i >= 0 {
+		u = u[:i]
+	}
+	return strings.ToLower(strings.TrimRight(u, "/"))
+}
+
+var localRefRe = regexp.MustCompile(`(?m)^\[(\d{1,2})\]`)
 
 func (c *toolCtx) note(s string) { c.blocks = append(c.blocks, s) }
 
@@ -115,13 +145,23 @@ func (s *Service) runTool(ctx context.Context, w ledger.Work, tc *toolCtx, name,
 		log.Printf("aurora tool %s failed: %s", name, tools.Short(err))
 	}
 	if res.Text != "" {
-		base := len(tc.sources)
-		for _, src := range res.Sources {
-			if len(tc.sources) < 16 && strings.HasPrefix(src.URL, "https://") {
-				tc.sources = append(tc.sources, ledger.DirectSource{Title: clean(src.Title, 200), URL: clean(src.URL, 600), At: src.At})
+		var refs []string
+		global := map[string]string{}
+		for k, src := range res.Sources {
+			if n := tc.addSource(src.Title, src.URL, src.At); n > 0 {
+				refs = append(refs, fmt.Sprintf("[%d]", n))
+				global[fmt.Sprint(k+1)] = fmt.Sprint(n)
 			}
 		}
-		tc.blocks = append(tc.blocks, fmt.Sprintf("Công cụ %s%s (nguồn [%d]–[%d]):\n%s", name, map[bool]string{true: " “" + arg + "”"}[arg != ""], base+1, len(tc.sources), res.Text))
+		// Tool text numbers its own results [1]..[k]; renumber to this turn's
+		// global source list so later steps cite the right footnote.
+		text := localRefRe.ReplaceAllStringFunc(res.Text, func(m string) string {
+			if g, ok := global[localRefRe.FindStringSubmatch(m)[1]]; ok {
+				return "[" + g + "]"
+			}
+			return "[?]"
+		})
+		tc.blocks = append(tc.blocks, fmt.Sprintf("Công cụ %s%s (nguồn %s):\n%s", name, map[bool]string{true: " “" + arg + "”"}[arg != ""], strings.Join(refs, " "), text))
 	} else if err != nil {
 		tc.blocks = append(tc.blocks, fmt.Sprintf("Công cụ %s thất bại (%s): KHÔNG có dữ liệu, không được đoán số.", name, tools.Short(err)))
 	}

@@ -434,7 +434,16 @@ func (s *Service) runTurn(ctx context.Context, w ledger.Work) (*Approval, []stri
 			s.runTool(ctx, w, tc, c.name, c.arg)
 		}
 	}
-	d, err := s.call(ctx, w, tc.inject(s.history(w.BotID, w.RequestID)))
+	var d directives
+	var err error
+	if steps := userSteps(w.Text); len(steps) >= 3 && threadOf(w) == w.BotID {
+		// The owner already listed the steps: run them as a server-driven plan
+		// (one milestone update per step, then a final result) without asking
+		// the model to re-plan.
+		d = directives{Text: fmt.Sprintf("Mình sẽ làm %d bước và báo sau mỗi bước.", len(steps)), Plan: steps}
+	} else {
+		d, err = s.call(ctx, w, tc.inject(s.history(w.BotID, w.RequestID)))
+	}
 	if err == nil && promiseOnly(d) {
 		// "Em sẽ làm từng bước…" and then nothing: ask once for the action itself.
 		s.publish("draft_end", map[string]string{"id": w.RequestID, "agentId": threadOf(w)})
@@ -472,7 +481,7 @@ func (s *Service) runTurn(ctx context.Context, w ledger.Work) (*Approval, []stri
 		s.record(w.BotID, w.RequestID, "secret", "Xin bí mật "+sec.Name)
 	}
 	if len(d.Plan) < 2 || d.Approval != nil {
-		return d.Approval, d.Choices, s.appendText(w.RequestID, d.Text)
+		return d.Approval, d.Choices, s.appendText(w.RequestID, normalizeCites(d.Text, len(tc.sources)))
 	}
 	steps := make([]Step, len(d.Plan))
 	for i, t := range d.Plan {
@@ -497,8 +506,8 @@ func (s *Service) runTurn(ctx context.Context, w ledger.Work) (*Approval, []stri
 		}
 		setStep(i, "running")
 		s.agui(AGUIEvent{Type: STEP_STARTED, ThreadID: w.BotID, RunID: w.RequestID, StepName: title})
-		msgs := append(tc.inject(s.history(w.BotID, w.RequestID)), ChatMsg{"user", fmt.Sprintf("[Hệ thống] Thực hiện bước %d/%d: %s. Chỉ làm bước này, trả lời ngắn. Không viết PLAN. Đừng tự tạo bước chờ Darren duyệt: việc duyệt do hệ thống lo. Nếu thật sự thiếu thông tin chỉ Darren biết, hỏi 1 câu và dùng CHOICES, kế hoạch sẽ tạm dừng. Chỉ dùng APPROVAL nếu bước này cần hành động ra bên ngoài.", i+1, len(d.Plan), title)})
-		sd, err := s.call(ctx, w, msgs)
+		prompt := fmt.Sprintf("[Hệ thống] Thực hiện bước %d/%d: %s. Chỉ làm bước này. Cần số liệu hiện tại thì in đúng một dòng TOOL. Trả lời ngắn gọn (tối đa 5 gạch đầu dòng) chỉ nêu kết quả của bước, có [n] nếu dùng nguồn; không viết “Kết quả bước…” hay “Bước tiếp theo…”. Không hỏi lựa chọn khi bước đã làm xong. Không viết PLAN. Đừng tự tạo bước chờ Darren duyệt. Nếu thật sự thiếu thông tin chỉ Darren biết, hỏi 1 câu và dùng CHOICES. Chỉ dùng APPROVAL nếu bước này cần hành động ra bên ngoài.", i+1, len(d.Plan), title)
+		sd, err := s.stepCall(ctx, w, tc, prompt)
 		if err != nil {
 			st := "failed"
 			if errors.Is(err, context.Canceled) || ctx.Err() != nil {
@@ -507,19 +516,128 @@ func (s *Service) runTurn(ctx context.Context, w ledger.Work) (*Approval, []stri
 			setStep(i, st)
 			return nil, nil, err
 		}
-		if err := s.appendText(w.RequestID, sd.Text); err != nil {
-			return nil, nil, err
-		}
+		s.fixScript(ctx, w, &sd)
 		s.agui(AGUIEvent{Type: STEP_FINISHED, ThreadID: w.BotID, RunID: w.RequestID, StepName: title})
+		if len(sd.Choices) > 0 && sd.Approval == nil && (len([]rune(sd.Text)) > 300 || !strings.Contains(sd.Text, "?")) {
+			sd.Choices = nil // a finished step offering options is not a real question
+		}
 		if sd.Approval != nil || len(sd.Choices) > 0 {
 			setStep(i, "waiting")
 			s.endDraft(w)
-			return sd.Approval, sd.Choices, nil
+			return sd.Approval, sd.Choices, s.appendText(w.RequestID, normalizeCites(sd.Text, len(tc.sources)))
 		}
-		setStep(i, "done")
+		note := normalizeCites(clean(stepNote(sd.Text), 1500), len(tc.sources))
+		tc.note(fmt.Sprintf("KẾT QUẢ BƯỚC %d (%s): %s", i+1, title, note))
+		s.update(w.RequestID, func(r *ledger.DirectRun) {
+			r.Plan[i].Status, r.Plan[i].Note = "done", note
+		})
 		s.endDraft(w)
+		if i < len(d.Plan)-1 {
+			s.notify(fmt.Sprintf("%s · bước %d/%d xong", s.botName(w.BotID), i+1, len(d.Plan)), clean(firstLine(note), 140), "/app/#"+threadOf(w))
+		}
 	}
-	return nil, nil, nil
+	// Final result: one complete answer built from every step's outcome.
+	fd, err := s.stepCall(ctx, w, tc, "[Hệ thống] Mọi bước đã xong. Viết KẾT QUẢ CUỐI CÙNG hoàn chỉnh cho yêu cầu ban đầu, dựa trên KẾT QUẢ BƯỚC và KẾT QUẢ CÔNG CỤ, trích [n]. Không nhắc lại tiến độ, không PLAN, không TOOL.")
+	if err != nil {
+		return nil, nil, err
+	}
+	s.fixScript(ctx, w, &fd)
+	if err := s.appendText(w.RequestID, normalizeCites(fd.Text, len(tc.sources))); err != nil {
+		return nil, nil, err
+	}
+	s.endDraft(w)
+	return fd.Approval, fd.Choices, nil
+}
+
+// stepCall runs one model call with its own small tool loop and always ends
+// in text (never a bare TOOL line).
+func (s *Service) stepCall(ctx context.Context, w ledger.Work, tc *toolCtx, prompt string) (directives, error) {
+	mk := func(extra ...ChatMsg) []ChatMsg {
+		return append(append(tc.inject(s.history(w.BotID, w.RequestID)), ChatMsg{Role: "user", Content: prompt}), extra...)
+	}
+	d, err := s.call(ctx, w, mk())
+	for r := 0; err == nil && d.Tool != nil && r < 4 && s.Tools != nil; r++ {
+		s.publish("draft_end", map[string]string{"id": w.RequestID, "agentId": threadOf(w)})
+		s.runTool(ctx, w, tc, d.Tool.Name, d.Tool.Q+d.Tool.URL)
+		d, err = s.call(ctx, w, mk())
+	}
+	if err == nil && d.Tool != nil {
+		s.publish("draft_end", map[string]string{"id": w.RequestID, "agentId": threadOf(w)})
+		d, err = s.call(ctx, w, mk(ChatMsg{Role: "system", Content: finalNudge}))
+	}
+	d.Tool, d.Plan = nil, nil
+	return d, err
+}
+
+var (
+	stepMarkRe = regexp.MustCompile(`(?m)(?:^|\s)(?:\((\d{1,2})\)|(\d{1,2})[.)])\s+`)
+	citeRe     = regexp.MustCompile(`\[(\d{1,2})(?:\]|[^\[\]\n]{1,60}\])`)
+)
+
+// userSteps extracts an explicit numbered task list ("(1) … (2) …" or
+// "1. …\n2. …") from the owner's message; numbers must run 1,2,3….
+func userSteps(text string) []string {
+	idx := stepMarkRe.FindAllStringSubmatchIndex(text, -1)
+	var out []string
+	for k, m := range idx {
+		var num string
+		if m[2] >= 0 {
+			num = text[m[2]:m[3]]
+		} else {
+			num = text[m[4]:m[5]]
+		}
+		if num != fmt.Sprint(len(out)+1) {
+			return nil
+		}
+		end := len(text)
+		if k+1 < len(idx) {
+			end = idx[k+1][0]
+		}
+		t := strings.TrimRight(strings.TrimSpace(text[m[1]:end]), ",;.")
+		if t == "" {
+			return nil
+		}
+		out = append(out, clean(t, 120))
+	}
+	if len(out) > 8 {
+		return nil
+	}
+	return out
+}
+
+var (
+	noteHeadRe = regexp.MustCompile(`(?im)^\s*(\*\*)?(kết quả bước|bước \d+(/\d+)? (xong|đã xong|hoàn thành)|đã xong bước)[^\n]*$`)
+	noteNextRe = regexp.MustCompile(`(?i)\s*(đã xong bước \d+[.!]?\s*)?bước tiếp theo[^\n]*$`)
+)
+
+// stepNote trims progress chatter ("Kết quả bước 1/4:", "Bước tiếp theo mình
+// sẽ…") from a step reply; the milestone header already says which step.
+func stepNote(t string) string {
+	t = noteHeadRe.ReplaceAllStringFunc(t, func(m string) string {
+		if i := strings.Index(m, ":"); i >= 0 && strings.TrimSpace(m[i+1:]) != "" {
+			return strings.TrimSpace(m[i+1:])
+		}
+		if i := strings.Index(m, ". "); i >= 0 {
+			return strings.TrimSpace(m[i+2:])
+		}
+		return ""
+	})
+	t = noteNextRe.ReplaceAllString(strings.TrimSpace(t), "")
+	return strings.TrimSpace(t)
+}
+
+// normalizeCites repairs footnotes: "[12 nguồn thứ 2]" → "[12]", and drops
+// markers that point past the sources actually gathered this turn.
+func normalizeCites(text string, n int) string {
+	return citeRe.ReplaceAllStringFunc(text, func(m string) string {
+		k := citeRe.FindStringSubmatch(m)[1]
+		var v int
+		fmt.Sscan(k, &v)
+		if v < 1 || v > n {
+			return ""
+		}
+		return "[" + k + "]"
+	})
 }
 
 // hasHan reports CJK ideographs/kana/hangul: GLM occasionally drifts into
