@@ -9,7 +9,7 @@ const b=await puppeteer.launch({executablePath:process.env.CHROME||'/usr/bin/goo
 const results=[];let fail=0;
 const ok=(w,name,cond,extra='')=>{results.push(`${cond?'PASS':'FAIL'} ${w} ${name} ${extra}`);if(!cond)fail++};
 for(const w of (process.env.WIDTHS||'360,390,430').split(',').map(Number)){let p;try{
- const ctx=await b.createBrowserContext();await ctx.overridePermissions(new URL(U).origin,['notifications']);p=await ctx.newPage();const errs=[];p.on('pageerror',e=>errs.push(String(e)));
+ const ctx=await b.createBrowserContext();await ctx.overridePermissions(new URL(U).origin,['notifications']);p=await ctx.newPage();await p.evaluateOnNewDocument(()=>{try{if(!localStorage.getItem('neko-aurora-lang'))localStorage.setItem('neko-aurora-lang','vi')}catch{}});const errs=[];p.on('pageerror',e=>errs.push(String(e)));
  await p.setViewport({width:w,height:Math.round(w*2.165),deviceScaleFactor:2,isMobile:true,hasTouch:true});
  await p.goto(U,{waitUntil:'domcontentloaded'});await p.waitForFunction('window.__AURORA&&__AURORA.state().agents.length>0',{timeout:10000});await sleep(300);
  const T=p.touchscreen;
@@ -231,6 +231,16 @@ for(const w of (process.env.WIDTHS||'360,390,430').split(',').map(Number)){let p
   await p.goto(U,{waitUntil:'domcontentloaded'});await p.waitForFunction('window.__AURORA&&__AURORA.state().agents.length>0');await sleep(300);
   await tap('#appsBtn');await sleep(600);ok(w,'Gmail row: disabled-look "Đã kết nối" + 1 tài khoản',await p.$eval('.conn[data-id=gmail]',e=>e.querySelector('.conn-btn').textContent==='Đã kết nối'&&e.querySelector('.conn-btn').classList.contains('on')&&/1 tài khoản/.test(e.querySelector('small').textContent)));
   await p.screenshot({path:`${O}${w}-9g-connectors-connected.png`});await tap('#closeConnectors');await sleep(400)}
+ // i18n: English UI on demand (and when the device language is English); chat content untouched
+ await p.evaluate(()=>localStorage.setItem('neko-aurora-lang','en'));await p.reload();await p.waitForFunction('window.__AURORA&&__AURORA.state().agents.length>0');await sleep(500);
+ const en=await p.evaluate(()=>({lang:document.documentElement.lang,me:document.querySelector('#meBtn').getAttribute('aria-label'),ph:document.querySelector('#input').getAttribute('placeholder')}));
+ await tap('#meBtn');await sleep(500);const ens=await p.evaluate(()=>({t:document.querySelector('#settings .sheet-top b').textContent,body:document.querySelector('#settingsBody').innerText}));
+ ok(w,'English UI: lang=en, labels + settings translated',en.lang==='en'&&en.me==='Settings'&&ens.t==='Settings'&&/Language/.test(ens.body)&&/Log out|Sign out/.test(ens.body)&&!/Đăng xuất|Ngôn ngữ/.test(ens.body),JSON.stringify([en,ens.t]));
+ await p.screenshot({path:`${O}${w}-9-english-settings.png`});
+ await p.evaluate(()=>localStorage.setItem('neko-aurora-lang','auto'));await p.reload();await p.waitForFunction('window.__AURORA&&__AURORA.state().agents.length>0');await sleep(300);
+ ok(w,'auto follows device language (test browser is en-US)',await p.evaluate(()=>navigator.language.startsWith('en')&&document.documentElement.lang==='en'));
+ await p.evaluate(()=>localStorage.setItem('neko-aurora-lang','vi'));await p.reload();await p.waitForFunction('window.__AURORA&&__AURORA.state().agents.length>0');await sleep(300);
+ ok(w,'back to Vietnamese',await p.evaluate(()=>document.documentElement.lang==='vi'&&document.querySelector('#meBtn').getAttribute('aria-label')==='Cài đặt'));
  ok(w,'no page errors',!errs.length,errs.join('|').slice(0,200));
  await ctx.close();
 }catch(e){ok(w,'EXC',false,e.message.slice(0,160));try{await p.screenshot({path:O+w+'-exc.png'})}catch{}}}

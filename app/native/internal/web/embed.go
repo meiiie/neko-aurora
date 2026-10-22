@@ -16,6 +16,7 @@ var contentTypes = map[string]string{
 	"/app/":                      "text/html; charset=utf-8",
 	"/app/theme.js":              "text/javascript; charset=utf-8",
 	"/app/app.js":                "text/javascript; charset=utf-8",
+	"/app/i18n.js":               "text/javascript; charset=utf-8",
 	"/app/style.css":             "text/css; charset=utf-8",
 	"/app/sw.js":                 "text/javascript; charset=utf-8",
 	"/app/icon.svg":              "image/svg+xml",
