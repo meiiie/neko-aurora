@@ -112,3 +112,10 @@ func TestModelProposedPlanRunsWithMilestones(t *testing.T) {
 		t.Fatalf("steps %d last %q", n, ms[len(ms)-1].Text)
 	}
 }
+
+func TestScrubDropsRawToolCall(t *testing.T) {
+	got := scrubInternal("Đang tìm giá vé.\n{\"name\":\"web_search\",\"q\":\"vé Hà Nội Phú Quốc\"}\nXong.")
+	if strings.Contains(got, "{") || !strings.Contains(got, "Xong.") || !strings.Contains(got, "Đang tìm giá vé.") {
+		t.Fatalf("got %q", got)
+	}
+}

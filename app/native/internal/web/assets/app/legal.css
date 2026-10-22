@@ -1,3 +1,10 @@
-:root{color-scheme:light dark}body{margin:0;font:16px/1.6 -apple-system,system-ui,"Inter",sans-serif;background:#f7f7f7;color:#111;padding:calc(env(safe-area-inset-top) + 24px) 20px calc(env(safe-area-inset-bottom) + 40px)}
-main{max-width:680px;margin:0 auto}h1{font-size:28px;line-height:1.2}h2{font-size:19px;margin-top:28px}a{color:inherit}small{color:#6b6b6b}hr{border:0;border-top:1px solid #0001;margin:36px 0}
-@media(prefers-color-scheme:dark){body{background:#0d0d0d;color:#f2f2f2}small{color:#9a9a9a}hr{border-top-color:#fff2}}
+:root{color-scheme:light dark;--bg:#f2f2f7;--card:#fff;--ink:#000;--mute:#6c6c70;--line:#3c3c4329}
+body{margin:0;font:400 17px/1.47 -apple-system,BlinkMacSystemFont,"SF Pro Text","Inter","Be Vietnam Pro",system-ui,sans-serif;letter-spacing:-.01em;background:var(--bg);color:var(--ink);-webkit-font-smoothing:antialiased;padding:calc(env(safe-area-inset-top) + 8px) 16px calc(env(safe-area-inset-bottom) + 40px)}
+main{max-width:640px;margin:0 auto}
+.back{display:inline-flex;align-items:center;gap:4px;min-height:44px;color:var(--ink);text-decoration:none;font-size:17px;font-weight:500}
+h1{font-size:32px;line-height:40px;font-weight:700;letter-spacing:-.02em;margin:8px 0 4px;text-wrap:balance}
+small{display:block;color:var(--mute);font-size:13px;margin-bottom:24px}
+h2{font-size:20px;line-height:24px;font-weight:600;margin:32px 0 8px}
+p,ul{margin:0 0 16px}ul{padding-left:20px}li{margin-bottom:8px}a{color:inherit}
+hr{border:0;border-top:.5px solid var(--line);margin:40px 0}
+@media(prefers-color-scheme:dark){:root{--bg:#000;--card:#1c1c1e;--ink:#fff;--mute:#98989f;--line:#54545899}}

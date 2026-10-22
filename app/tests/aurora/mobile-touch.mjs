@@ -1,7 +1,7 @@
 // Real-touch mobile test for /app/ against a running neko-aurora.
 // npm i puppeteer-core ; AURORA_URL=http://127.0.0.1:8765/app/ OUT=./aurora-shots/ node mobile-touch.mjs
 import puppeteer from 'puppeteer-core';
-const U=process.env.AURORA_URL||'http://127.0.0.1:8765/app/',O=process.env.OUT||'./aurora-shots/';
+const U=process.env.AURORA_URL||'http://127.0.0.1:8799/app/',O=process.env.OUT||'./aurora-shots/';
 const REAL=!!process.env.REAL_AI;
 const SMTP=process.env.FAKE_SMTP||''; // e.g. http://127.0.0.1:8926 (fake-smtp.mjs); enables the Gmail delivery flow // stricter timeouts off for a real model
 const sleep=ms=>new Promise(r=>setTimeout(r,ms));

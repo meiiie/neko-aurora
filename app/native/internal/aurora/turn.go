@@ -644,11 +644,16 @@ func stepNote(t string) string {
 
 var internalRe = regexp.MustCompile("(?i)(định dạng |công cụ |lệnh )?`?\\b(web_fetch|web_search|gold_price)\\b`?( tool)?")
 
+// toolCallLineRe drops raw tool-call JSON the model sometimes prints instead of
+// calling the tool ({"name":"web_search","q":"…"}), seen in a step milestone.
+var toolCallLineRe = regexp.MustCompile(`(?m)^[ \t]*\{[^\n]*"(name|q|query|url|arguments)"[ \t]*:[^\n]*\}[ \t]*\n?`)
+
 var internalName = map[string]string{"web_fetch": "đọc trang", "web_search": "tìm trên web", "gold_price": "tra giá vàng"}
 
 // scrubInternal replaces internal tool identifiers that leak into replies
 // ("Định dạng web_fetch bị chặn") with plain Vietnamese.
 func scrubInternal(t string) string {
+	t = strings.TrimSpace(toolCallLineRe.ReplaceAllString(t, ""))
 	return internalRe.ReplaceAllStringFunc(t, func(m string) string {
 		k := strings.ToLower(internalRe.FindStringSubmatch(m)[2])
 		return "việc " + internalName[k]

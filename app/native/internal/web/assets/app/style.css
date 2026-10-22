@@ -66,7 +66,8 @@ code,pre,kbd{font-family:var(--na-font-family-mono)}
 
 .badge{position:absolute;right:0;bottom:0;width:14px;height:14px;border-radius:7px;box-shadow:0 0 0 2.5px var(--card);display:grid;place-items:center;color:#fff}
 .feat .badge{width:22px;height:22px;border-radius:11px;right:4px;bottom:6px;box-shadow:0 0 0 3px var(--card)}
-.badge.work{background:#34c759;animation:pulse 1.4s infinite}.badge.wait{background:var(--warn-fill)}.badge.err{background:var(--danger)}.badge.pin{background:var(--warn-fill)}
+.badge.work{background:#34c759}.badge.work::after{content:"";position:absolute;inset:0;border-radius:inherit;background:#34c759;animation:ring 2.4s cubic-bezier(.2,.8,.2,1) infinite}
+@keyframes ring{0%{transform:scale(1);opacity:.45}70%,100%{transform:scale(2.1);opacity:0}}.badge.wait{background:var(--warn-fill)}.badge.err{background:var(--danger)}.badge.pin{background:var(--warn-fill)}
 .face{display:block;flex:none}
 .stack{position:relative;display:block;flex:none}.stack .face{position:absolute}.stack .s0{left:0;top:0}.stack .s1{right:0;bottom:0;outline:2.5px solid var(--card);border-radius:50%}
 .rows{list-style:none;margin:0;padding:0}
@@ -217,10 +218,9 @@ code,pre,kbd{font-family:var(--na-font-family-mono)}
 .pick-row[aria-pressed=true] .ck{background:var(--ink);box-shadow:none;color:var(--bg)}
 .note{color:var(--mute);font-size:15px;padding:16px 0;list-style:none}
 /* grouped inset cards (settings, profile) */
-.card-group h3{font-size:13px;font-weight:500;color:var(--mute);margin:20px 16px 6px}
+.card-group h3{font-size:13px;line-height:16px;font-weight:500;color:var(--mute);margin:0 16px 8px}
 .card{background:var(--card);border-radius:23px;overflow:hidden}
-.card+.card,.card+.caption+.card{margin-top:20px}
-#profBody .card+.card{margin-top:24px}
+.card-group+.card-group{margin-top:24px}.card-group:not(:has(h3))+.card-group:not(:has(h3)){margin-top:16px}
 .cell{display:flex;align-items:center;gap:14px;width:100%;min-height:56px;border:0;background:none;padding:6px 16px;text-align:left;font-size:17px;position:relative}
 .cell+.cell::before{content:"";position:absolute;top:0;left:54px;right:0;border-top:.5px solid var(--line)}
 button.cell:active{background:var(--sunk)}
@@ -372,3 +372,15 @@ button.cell:active{background:var(--sunk)}
 .ctx-subh{font-weight:var(--w-semi)}.ctx-sep{height:.5px;background:var(--line-2);margin:4px 14px}
 .ctx-form{display:flex;gap:8px;padding:6px}.ctx-form input{flex:1;min-width:0;height:44px;border:0;border-radius:14px;background:var(--sunk);padding:0 12px;font:inherit;font-size:16px;color:var(--ink)}.ctx-form .pill{height:44px;min-width:64px}
 @media (prefers-reduced-motion:reduce){.ctx-card,.ctx-menu,.ctx-sub{transform:none!important}}
+
+/* ux-pro-pass: motion (Emil Kowalski: ease-out, <300ms, transform/opacity only; reduced-motion => no movement) */
+.msg.enter{animation:msgIn .26s cubic-bezier(.2,.8,.2,1) both}
+.msg.mine.enter{transform-origin:100% 100%;animation-name:msgInMine}
+@keyframes msgIn{from{opacity:0;transform:translateY(8px)}}
+@keyframes msgInMine{from{opacity:0;transform:translateY(8px) scale(.96)}}
+.send{transition:background-color .2s ease,color .2s ease,transform .12s ease}
+.send .morph{animation:morph .22s cubic-bezier(.2,.8,.2,1)}
+@keyframes morph{from{opacity:0;transform:scale(.5) rotate(-45deg)}}
+.badge.pin{background:#ffcc00;color:#1c1c1e}
+@media (prefers-reduced-motion:reduce){.badge.work::after{display:none}.msg.enter{animation:fadeOnly .2s both!important}}
+@keyframes fadeOnly{from{opacity:0}}
