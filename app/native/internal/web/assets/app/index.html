@@ -11,7 +11,7 @@
 <meta name="apple-mobile-web-app-status-bar-style" content="default">
 <meta name="apple-mobile-web-app-title" content="Neko Aurora">
 <link rel="manifest" href="/app/manifest.webmanifest">
-<link rel="icon" href="/app/icon.svg" type="image/svg+xml">
+<link rel="icon" href="/app/favicon.ico" sizes="any"><link rel="icon" href="/app/icon.svg" type="image/svg+xml">
 <link rel="apple-touch-icon" href="/app/icon-180.png">
 <title>Neko Aurora</title>
 <link rel="stylesheet" href="/app/aurora/fonts.css">
@@ -72,7 +72,7 @@
     </div>
   </section>
   <aside class="sheet activity hidden" id="activity" aria-label="Hoạt động"><div class="grip"></div><header class="sheet-top"><span></span><b>Đang làm gì</b><button class="text-btn" id="closeActivity">Xong</button></header><ol class="scroll" id="log"></ol></aside>
-  <section class="login hidden" id="login" aria-label="Đăng nhập chủ sở hữu"><form id="loginForm"><canvas id="loginAvatar" width="16" height="16" aria-hidden="true"></canvas><h1>Neko Aurora</h1><p class="sub">Nhập mã chủ sở hữu để mở.</p><input id="loginCode" type="password" autocomplete="current-password" placeholder="Mã chủ sở hữu" aria-label="Mã chủ sở hữu"><button class="pill wide">Mở</button></form></section>
+  <section class="login hidden" id="login" aria-label="Đăng nhập chủ sở hữu"><form id="loginForm"><img id="loginMark" class="login-mark" src="/app/icon-192.png" width="72" height="72" alt="" aria-hidden="true"><h1>Neko Aurora</h1><p class="sub">Nhập mã chủ sở hữu để mở.</p><input id="loginCode" type="password" autocomplete="current-password" placeholder="Mã chủ sở hữu" aria-label="Mã chủ sở hữu"><button class="pill wide">Mở</button></form></section>
   <aside class="sheet themes hidden" id="themes" aria-label="Giao diện"><div class="grip"></div><header class="sheet-top"><span></span><b>Giao diện</b><button class="text-btn" id="closeThemes">Xong</button></header><div class="scroll" id="themeList"></div></aside>
   <div class="toast" id="toast" role="status"></div>
 </div>

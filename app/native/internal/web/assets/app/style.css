@@ -108,7 +108,7 @@ button:disabled{opacity:.5}
 
 .login{position:fixed;inset:0;z-index:20;background:var(--bg);display:grid;place-items:center;padding:calc(var(--st) + 24px) 24px calc(var(--sb) + 24px)}
 .login form{width:min(100%,360px);display:flex;flex-direction:column;gap:12px;align-items:stretch;text-align:center}
-.login canvas{width:72px;height:72px;margin:0 auto}
+.login .login-mark{display:block;width:72px;height:72px;margin:0 auto;border-radius:16px}
 .login input{height:48px;border:1px solid var(--line);border-radius:14px;padding:0 14px;font-size:16px;background:var(--card)}
 .pill.wide{height:48px;font-size:16px}
 

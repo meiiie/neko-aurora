@@ -35,3 +35,11 @@ The derivative cat artwork and lockup/icon files containing it retain the source
 ## Production and verification
 
 No stock art, paid assets, generated raster artwork, external icon libraries or third-party product marks were used. SVG source and deterministic export scripts are included. Pixel exports were rendered with the application's installed Sharp; local SVG/PNG rendering and the separate Chromium verification limit are recorded in `VERIFICATION.md`. Design and inspection were local only; this kit has not been published.
+
+## 2026-10-22: Wiii logo adopted as the Neko Aurora app icon
+
+Darren chose the Wiii logo as the Neko Aurora logo/mascot (no redesign).
+- App/PWA/desktop icons (`app/icon-180/192/512.png`, `app/icon-maskable-512.png`, `app/favicon.ico`, `app/desktop/icons/*`) are rendered from `wiii-desktop/public/wiii-mascot-full.png` (1254 px, meiiie/wiii @ `6b1c30b15b4c67e3c841ae870e6989577fc228f8`), placed unchanged on the Wiii Mist→Fog tile gradient (#EEEBE6→#AEABAB).
+- `app/icon.svg` is `logo/neko-peek-mark.svg` from the same revision, unchanged.
+- `app/aurora/wordmark.svg` pairs that mark (with the graphite head edge for light surfaces) with an outlined Be Vietnam Pro SemiBold (OFL) "Neko Aurora".
+These files carry the source artwork's AGPL-3.0 provenance (see above).

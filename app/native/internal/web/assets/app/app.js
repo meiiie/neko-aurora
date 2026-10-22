@@ -206,7 +206,7 @@ inp.onkeydown=e=>{if(e.key==="Enter"&&!e.shiftKey&&!e.isComposing){e.preventDefa
 document.addEventListener("visibilitychange",()=>{if(!document.hidden&&es)loadState().catch(()=>{})});
 draw($("#meAvatar"),{shell:2,hat:"none",eyes:"none",extra:"flower"});
 if("serviceWorker"in navigator)navigator.serviceWorker.register("/app/sw.js",{scope:"/app/"}).then(r=>r.pushManager?.getSubscription()).then(s=>{if(s){pushOn=true;$("#bellBtn").classList.add("on")}}).catch(()=>{});
-function boot(){return loadState().then(()=>{$("#login").classList.add("hidden");if(!es)connect();const h=location.hash.slice(1);if(h)openThread(h)}).catch(e=>{if(e.status===401){draw($("#loginAvatar"),{shell:0,hat:"cap",eyes:"shades",extra:"none"});$("#login").classList.remove("hidden")}else toast("Không kết nối được máy chủ")})}
+function boot(){return loadState().then(()=>{$("#login").classList.add("hidden");if(!es)connect();const h=location.hash.slice(1);if(h)openThread(h)}).catch(e=>{if(e.status===401){$("#login").classList.remove("hidden")}else toast("Không kết nối được máy chủ")})}
 let logging=false;$("#loginForm").onsubmit=async e=>{e.preventDefault();if(logging)return;logging=true;try{const r=await fetch("/app/login",{method:"POST",credentials:"same-origin",headers:{"Content-Type":"application/json"},body:JSON.stringify({code:$("#loginCode").value})});if(!r.ok){toast(r.status===429?"Thử quá nhiều lần, đợi 5 phút":"Mã không đúng");return}$("#loginCode").value="";await boot()}catch{toast("Không kết nối được")}finally{logging=false}};
 boot();
 // ---------- Aurora icons (Lucide, ISC) + haptics ----------
