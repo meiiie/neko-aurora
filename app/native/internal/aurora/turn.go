@@ -27,12 +27,13 @@ Quy tắc:
 - Trả lời bằng tiếng Việt, ngắn gọn, cụ thể, như một đồng nghiệp đáng tin. Chỉ dùng chữ Latin tiếng Việt: tuyệt đối không chèn chữ Hán/Nhật/Hàn. Markdown gọn (tiêu đề ngắn, gạch đầu dòng, bảng) chỉ khi giúp dễ đọc.
 - Bạn KHÔNG tự gửi, đăng, thanh toán hay liên hệ ai bên ngoài. Không bao giờ nói là đã gửi.
 - Cuối câu trả lời, bạn có thể thêm các dòng chỉ thị (mỗi loại tối đa một dòng, đúng JSON):
-PLAN: ["bước 1","bước 2"]   ← chỉ khi việc cần 2-4 bước rõ ràng; khi đó phần trả lời chỉ cần 1 câu nêu cách làm.
+PLAN: ["bước 1","bước 2"]   ← khi việc gồm nhiều phần (tra nhiều thứ, so sánh rồi viết báo cáo, lên lịch nhiều hạng mục): 3-6 bước ngắn, bước cuối là tổng hợp kết quả; khi đó phần trả lời chỉ cần 1 câu nêu cách làm, chưa tra cứu.
 CHOICES: ["lựa chọn A","lựa chọn B"]   ← khi cần Darren chọn nhanh (2-4 lựa chọn ngắn).
 APPROVAL: {"title":"<việc cần duyệt>","kind":"email|send|post|pay|other","to":"<email nếu là email>","subject":"<tiêu đề nếu là email>","body":"<toàn bộ nội dung đã soạn>"}   ← bắt buộc cho mọi hành động ra bên ngoài.
 SECRET: {"name":"TEN_IN_HOA","label":"<tên hiển thị>","desc":"<vì sao cần, lấy ở đâu>"}   ← khi cần Darren cung cấp mật khẩu/khoá API. Darren nhập vào thẻ ẩn, giá trị vào kho bí mật, bạn không bao giờ thấy. Không bao giờ xin Darren dán bí mật vào chat. Mật khẩu ứng dụng Gmail dùng tên GMAIL_APP_PASSWORD.
 TOOL: {"name":"web_search","q":"<truy vấn>"} | {"name":"web_fetch","url":"https://..."} | {"name":"gold_price"}   ← công cụ đọc dữ liệu thật trên máy chủ. Khi cần số liệu/tin tức hiện tại mà chưa có trong KẾT QUẢ CÔNG CỤ, chỉ in đúng một dòng TOOL rồi dừng; hệ thống sẽ chạy và gọi lại bạn.
 - Số liệu (giá, tỷ giá, ngày, phần trăm) chỉ được lấy từ KẾT QUẢ CÔNG CỤ, ghi nguồn dạng [1], [2]. Tuyệt đối không bịa hay ước đoán số; thiếu dữ liệu thì nói rõ thiếu. Khi đã có KẾT QUẢ CÔNG CỤ thì trả lời thẳng, không dùng PLAN.
+- Không bao giờ nhắc tên kỹ thuật của công cụ hay chỉ thị (web_search, web_fetch, gold_price, TOOL…) trong câu trả lời; nói bằng lời thường như "tìm trên web", "đọc trang".
 - Với email: kind là "email", dùng đúng địa chỉ Darren đưa; không lặp lại toàn văn thư ở phần trả lời.`
 
 var gluedDirective = regexp.MustCompile(`([^\s\n])[ \t]*((?:PLAN|CHOICES|APPROVAL|SECRET|TOOL):\s*[\[{])`)
@@ -389,6 +390,7 @@ func (s *Service) appendText(id, text string) error {
 	if text = strings.TrimSpace(text); text == "" {
 		return nil
 	}
+	text = scrubInternal(text)
 	if cur.Reply != "" {
 		text = "\n\n" + text
 	}
@@ -413,6 +415,16 @@ const maxToolRounds = 5
 const finalNudge = "Đã hết lượt tra cứu cho lượt này. Viết NGAY câu trả lời cuối cùng chỉ từ KẾT QUẢ CÔNG CỤ ở trên, trích [n], nói rõ phần nào còn thiếu dữ liệu. Không viết dòng TOOL."
 
 const actNudge = "Bạn vừa nói sẽ làm nhưng chưa làm gì. Làm ngay trong lượt này: việc nhiều bước thì viết PLAN, cần số liệu thì in đúng một dòng TOOL, còn lại thì trả lời đầy đủ luôn. Không hứa thêm."
+
+const planNudge = "Yêu cầu này gồm nhiều phần. Trả lời đúng 1 câu nêu cách làm, rồi một dòng PLAN 3-6 bước ngắn (bước cuối là tổng hợp/viết kết quả). Chưa tra cứu, chưa trả lời chi tiết. Nếu thật ra chỉ là một câu hỏi đơn giản thì trả lời luôn."
+
+var multiPartRe = regexp.MustCompile(`(?i)(rồi|sau đó|tiếp theo|cuối cùng|so sánh|báo cáo|lịch trình|kế hoạch|từng bước|nhiều bước)`)
+
+// multiPart flags a long request with several parts ("nghiên cứu … so sánh …
+// rồi viết báo cáo") that should run as a step plan.
+func multiPart(t string) bool {
+	return len([]rune(t)) >= 120 && len(multiPartRe.FindAllString(t, -1)) >= 2
+}
 
 var promiseRe = regexp.MustCompile(`(?i)(^|\s)(sẽ|để (em|mình|tôi) (tra|làm|tìm|xem)|bắt đầu|đang tra|chờ (em|mình|tôi))`)
 
@@ -441,6 +453,10 @@ func (s *Service) runTurn(ctx context.Context, w ledger.Work) (*Approval, []stri
 		// (one milestone update per step, then a final result) without asking
 		// the model to re-plan.
 		d = directives{Text: fmt.Sprintf("Mình sẽ làm %d bước và báo sau mỗi bước.", len(steps)), Plan: steps}
+	} else if multiPart(w.Text) && threadOf(w) == w.BotID {
+		// Long multi-part request without numbered steps: ask the model to
+		// propose the plan first, so it runs with milestones.
+		d, err = s.call(ctx, w, append(tc.inject(s.history(w.BotID, w.RequestID)), ChatMsg{Role: "system", Content: planNudge}))
 	} else {
 		d, err = s.call(ctx, w, tc.inject(s.history(w.BotID, w.RequestID)))
 	}
@@ -526,7 +542,7 @@ func (s *Service) runTurn(ctx context.Context, w ledger.Work) (*Approval, []stri
 			s.endDraft(w)
 			return sd.Approval, sd.Choices, s.appendText(w.RequestID, normalizeCites(sd.Text, len(tc.sources)))
 		}
-		note := normalizeCites(clean(stepNote(sd.Text), 1500), len(tc.sources))
+		note := normalizeCites(clean(scrubInternal(stepNote(sd.Text)), 1500), len(tc.sources))
 		tc.note(fmt.Sprintf("KẾT QUẢ BƯỚC %d (%s): %s", i+1, title, note))
 		s.update(w.RequestID, func(r *ledger.DirectRun) {
 			r.Plan[i].Status, r.Plan[i].Note = "done", note
@@ -624,6 +640,19 @@ func stepNote(t string) string {
 	})
 	t = noteNextRe.ReplaceAllString(strings.TrimSpace(t), "")
 	return strings.TrimSpace(t)
+}
+
+var internalRe = regexp.MustCompile("(?i)(định dạng |công cụ |lệnh )?`?\\b(web_fetch|web_search|gold_price)\\b`?( tool)?")
+
+var internalName = map[string]string{"web_fetch": "đọc trang", "web_search": "tìm trên web", "gold_price": "tra giá vàng"}
+
+// scrubInternal replaces internal tool identifiers that leak into replies
+// ("Định dạng web_fetch bị chặn") with plain Vietnamese.
+func scrubInternal(t string) string {
+	return internalRe.ReplaceAllStringFunc(t, func(m string) string {
+		k := strings.ToLower(internalRe.FindStringSubmatch(m)[2])
+		return "việc " + internalName[k]
+	})
 }
 
 // normalizeCites repairs footnotes: "[12 nguồn thứ 2]" → "[12]", and drops

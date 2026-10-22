@@ -78,3 +78,37 @@ func TestStepNoteTrimsChatter(t *testing.T) {
 	}
 }
 
+func TestScrubInternalAndMultiPart(t *testing.T) {
+	if got := scrubInternal("Định dạng web_fetch bị chặn, `web_search` cũng vậy."); strings.Contains(got, "web_") {
+		t.Fatalf("%q", got)
+	}
+	if !multiPart("Nghiên cứu và so sánh gói 2TB của Google One, OneDrive và iCloud+ tại Việt Nam, sau đó viết báo cáo ngắn có bảng so sánh và khuyến nghị cho gia đình.") {
+		t.Fatal("compare+report should plan")
+	}
+	if multiPart("Giá vàng hôm nay thế nào?") {
+		t.Fatal("short question planned")
+	}
+}
+
+func TestModelProposedPlanRunsWithMilestones(t *testing.T) {
+	fa := scriptedAI(t, "Mình làm 3 bước.\nPLAN: [\"Tra A\",\"Tra B\",\"Viết báo cáo\"]", "A xong.", "B xong.", "Báo cáo nháp.", "KẾT QUẢ CUỐI: bảng so sánh.")
+	defer fa.Close()
+	t.Setenv("ZAI_API_KEY", "k")
+	t.Setenv("AURORA_AI_BASE_URL", fa.URL)
+	svc, _ := newSvc(t)
+	srv := httptest.NewServer(svc)
+	defer srv.Close()
+	bot := firstBot(svc)
+	post(t, srv.URL+"/app/api/agents/"+bot+"/messages", `{"text":"Nghiên cứu và so sánh gói 2TB của Google One, OneDrive và iCloud+ tại Việt Nam, sau đó viết báo cáo ngắn có bảng so sánh và khuyến nghị cho gia đình."}`)
+	waitTask(t, svc, bot)
+	ms := svc.view().messages(bot, 0)
+	n := 0
+	for _, m := range ms {
+		if strings.Contains(m.ID, ":step") {
+			n++
+		}
+	}
+	if n != 3 || !strings.Contains(ms[len(ms)-1].Text, "KẾT QUẢ CUỐI") {
+		t.Fatalf("steps %d last %q", n, ms[len(ms)-1].Text)
+	}
+}
