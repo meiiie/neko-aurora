@@ -415,8 +415,16 @@ func foldVietnamese(r rune) rune {
 	return r
 }
 
+// MaxBots mirrors the ledger's cap on bots (archived ones still count).
+const MaxBots = 32
+
+var ErrBotLimit = fmt.Errorf("%w: bot_limit", ErrConflict)
+
 func (s *Service) createBot(name, desc, nonce string) (ledger.Bot, error) {
 	snap := s.L.Snapshot()
+	if len(snap.Bots) >= MaxBots {
+		return ledger.Bot{}, ErrBotLimit
+	}
 	taken, names := map[string]bool{}, map[string]bool{}
 	for _, b := range snap.Bots {
 		taken[b.Alias] = true

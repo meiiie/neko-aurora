@@ -74,7 +74,7 @@ function renderList(){
  const q=filter.trim().toLowerCase(),match=a=>!q||a.name.toLowerCase().includes(q)||(a.snip||"").toLowerCase().includes(q);
  const pinned=all.filter(a=>a.pin&&match(a)),rest=all.filter(a=>!a.pin&&match(a));
  const fe=$("#featured");fe.innerHTML="";fe.classList.toggle("hidden",!pinned.length);
- pinned.forEach(a=>{const b=el("button","feat");b.dataset.id=a.id;b.setAttribute("aria-label",a.name);const av=el("span","feat-av");av.append(avatarOf(a,72));const bd=badge(a);if(bd)av.append(bd);if(unread(a))av.append(el("i","dot"));b.append(av,el("span","feat-name",a.name));b.onclick=()=>openThread(a.id);fe.append(b)});
+ pinned.forEach(a=>{const b=el("button","feat");b.dataset.id=a.id;b.setAttribute("aria-label",a.name);const av=el("span","feat-av");av.append(avatarOf(a,92));const bd=badge(a);if(bd)av.append(bd);if(unread(a))av.append(el("i","dot"));b.append(av,el("span","feat-name",a.name));b.onclick=()=>openThread(a.id);fe.append(b)});
  renderBrief(q);
  const ul=$("#rows");ul.innerHTML="";
  rest.forEach(a=>{
@@ -82,7 +82,7 @@ function renderList(){
   if(!isGroup(a)){const acts=el("div","actions"),pin=el("button","pin",a.pin?"Bỏ ghim":"Ghim"),ar=el("button","arch","Lưu trữ");acts.append(pin,ar);li.append(acts);
    pin.onclick=e=>{e.stopPropagation();suppress=performance.now()+600;api(`/agents/${a.id}`,{pin:!a.pin}).then(upsert).then(()=>{buzz("tap");renderList()}).catch(()=>toast("Không ghim được"))};
    ar.onclick=e=>{e.stopPropagation();suppress=performance.now()+600;if(ar.disabled)return;ar.disabled=true;api(`/agents/${a.id}`,{archived:true}).then(()=>{S.agents=S.agents.filter(x=>x.id!==a.id);S.pending=S.pending.filter(m=>m.agentId!==a.id);renderList();toast("Đã lưu trữ "+a.name)}).catch(()=>{ar.disabled=false;toast("Không lưu trữ được")})}}
-  const inn=el("div","rowin");inn.setAttribute("role","button");inn.tabIndex=0;const av=el("span","row-av");av.append(avatarOf(a,52));const bd=badge(a);if(bd)av.append(bd);inn.append(av);
+  const inn=el("div","rowin");inn.setAttribute("role","button");inn.tabIndex=0;const av=el("span","row-av");av.append(avatarOf(a,48));const bd=badge(a);if(bd)av.append(bd);inn.append(av);
   const tx=el("div","rowtxt"),h=el("div","rowh");h.append(el("b",0,a.name));if(isGroup(a))h.append(el("span","tag",(a.members||[]).length+" bot"));
   const live=a.status==="working",un=unread(a);h.append(el("span","time"+(live?" now":"")+(un?" un":""),live?"bây giờ":ago(a.t)));
   const sn=el("div","snip"+(waiting(a)?" wait":"")+(live?" dots":"")+(a.status==="error"?" err":"")+(un?" un":""),statusLine(a));
@@ -91,15 +91,18 @@ function renderList(){
   if(!isGroup(a))swipeRow(li,inn)});
  const em=$("#empty");em.classList.toggle("hidden",!!(pinned.length||rest.length));em.textContent=q?"Không tìm thấy “"+filter.trim()+"”.":"Chưa có bot nào. Bấm + để tạo.";
  updatePill()}
-function renderBrief(q){const br=$("#brief");br.innerHTML="";br.classList.toggle("hidden",!!q);if(q)return;
- const h=el("div","brief-h");h.append(el("h2",0,"Bản tin sáng"));const rf=el("button","text-btn small","Làm mới");rf.setAttribute("aria-label","Tạo lại bản tin sáng");rf.onclick=refreshBrief;h.append(rf);br.append(h);
- const b=S.brief;br.append(el("p",0,b?b.text:"Chưa có bản tin."));if(b)br.append(el("small","meta",`${b.source==="ai"?"AI · "+(S.ai.model||""):"Tự động"} · ${ago(b.generated)}`+(S.ai.configured?"":" · AI chưa cấu hình")));
- const ol=el("ol");S.pending.forEach(m=>{const a=byId(m.agentId);if(!a)return;const li=el("li"),bt=el("button","brief-item");bt.append(el("span","bi-dot"),el("span",0,`${a.name}: ${m.approval.title}`));bt.onclick=()=>openThread(a.id);li.append(bt);ol.append(li)});
- if(ol.children.length)br.append(ol)}
+// morning brief: rendered as the first list row; tap to expand (full text, approvals waiting, refresh)
+let briefOpen=false;
+function renderBrief(q){const br=$("#brief");br.innerHTML="";br.classList.toggle("hidden",!!q);if(q)return;const b=S.brief;
+ const head=el("button","rowin brief-head");head.setAttribute("aria-expanded",briefOpen);const av=el("span","row-av brief-av");const lg=el("img");lg.src="/app/icon.svg";lg.alt="";av.append(lg);if(S.pending.length){const n=el("i","badge wait");av.append(n)}
+ const tx=el("div","rowtxt"),h=el("div","rowh");h.append(el("b",0,"Bản tin sáng"),el("span","time",b?ago(b.generated):""));tx.append(h,el("div","snip",S.pending.length?`${S.pending.length} việc chờ bạn duyệt`:(b?b.text:"Chưa có bản tin.")));head.append(av,tx);head.onclick=()=>{briefOpen=!briefOpen;buzz("tap");renderBrief("")};br.append(head);
+ if(!briefOpen)return;const body=el("div","brief-body");body.append(el("p",0,b?b.text:"Chưa có bản tin."));if(b)body.append(el("small","meta",`${b.source==="ai"?"AI · "+(S.ai.model||""):"Tự động"}`+(S.ai.configured?"":" · AI chưa cấu hình")));
+ const ol=el("ol");S.pending.forEach(m=>{const a=byId(m.agentId);if(!a)return;const li=el("li"),bt=el("button","brief-item");bt.append(el("span","bi-dot"),el("span",0,`${a.name}: ${m.approval.title}`));bt.onclick=()=>openThread(a.id);li.append(bt);ol.append(li)});if(ol.children.length)body.append(ol);
+ const rf=el("button","pill soft small","Làm mới");rf.setAttribute("aria-label","Tạo lại bản tin sáng");rf.onclick=refreshBrief;body.append(rf);br.append(body)}
 // floating "N chưa đọc" pill: shows when unread rows sit below the fold
 function updatePill(){const sc=$("#listScroll"),pill=$("#unreadPill");const items=[...document.querySelectorAll("#rows .row")].filter(r=>r.querySelector(".dot"));
  const fold=sc.getBoundingClientRect().bottom-80,below=items.filter(r=>r.getBoundingClientRect().top>fold);
- pill.classList.toggle("hidden",!below.length);if(below.length){pill.replaceChildren(I("arrow-up",16),document.createTextNode(` ${below.length} chưa đọc`));pill.firstChild.style.transform="rotate(180deg)";pill.onclick=()=>{below[0].scrollIntoView({block:"center",behavior:matchMedia("(prefers-reduced-motion: reduce)").matches?"auto":"smooth"});buzz("tap")}}}
+ pill.classList.toggle("hidden",!below.length);if(below.length){pill.replaceChildren(I("chevron-down",18),document.createTextNode(`${below.length} chưa đọc`));pill.onclick=()=>{below[0].scrollIntoView({block:"center",behavior:matchMedia("(prefers-reduced-motion: reduce)").matches?"auto":"smooth"});buzz("tap")}}}
 $("#listScroll").addEventListener("scroll",()=>{if(!listQueued)requestAnimationFrame(updatePill)},{passive:true});
 let briefBusy=false;async function refreshBrief(){if(briefBusy)return;briefBusy=true;toast("Đang tạo bản tin…");try{S.brief=await api("/brief",{});renderList();toast("Đã cập nhật bản tin")}catch{toast("Không tạo được bản tin")}finally{briefBusy=false}}
 let openRow=null,suppress=0;const closeRow=li=>{li.querySelector(".rowin").style.transform="";delete li.dataset.open;if(openRow===li)openRow=null};
@@ -201,7 +204,7 @@ $("#menuBot").onclick=()=>{closeMenu();openCreator()};
 $("#cancelBtn").onclick=()=>closeSheet(true);
 let creating=false;
 $("#createBtn").onclick=async()=>{if(sheetOpen!==$("#sheet")||creating)return;const name=$("#agentName").value.trim(),desc=$("#agentDesc").value.trim();if(!name)return;creating=true;$("#createBtn").disabled=true;
- try{const ed=editing_bot;const a=await api(ed?`/agents/${ed.id}`:"/agents",{name,desc,av:{...draft}});upsert(a);markSeen(a.id);closeSheet(true);renderList();if(ed){if(cur&&cur.id===a.id){cur=a;$("#threadName").textContent=a.name;$("#threadAvatar").replaceChildren(avatarOf(a,32))}if(profId===a.id)renderProfile()}buzz("confirm");toast((ed?"Đã lưu ":"Đã tạo ")+a.name)}catch{toast(editing_bot?"Không lưu được":"Không tạo được bot");syncCreate()}finally{creating=false}};
+ try{const ed=editing_bot;const a=await api(ed?`/agents/${ed.id}`:"/agents",{name,desc,av:{...draft}});upsert(a);markSeen(a.id);closeSheet(true);renderList();if(ed){if(cur&&cur.id===a.id){cur=a;$("#threadName").textContent=a.name;$("#threadAvatar").replaceChildren(avatarOf(a,32))}if(profId===a.id)renderProfile()}buzz("confirm");toast((ed?"Đã lưu ":"Đã tạo ")+a.name)}catch(e){toast(editing_bot?"Không lưu được":e.status===409&&!editing_bot?"Đã đạt giới hạn 32 bot (kể cả bot đã lưu trữ)":"Không tạo được bot");syncCreate()}finally{creating=false}};
 $("#agentName").onkeydown=e=>{if(e.key==="Enter"){e.preventDefault();$("#createBtn").click()}};
 // ---------- new group chat ----------
 let picked=[];

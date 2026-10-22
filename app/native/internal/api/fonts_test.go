@@ -22,6 +22,7 @@ func TestEmbeddedFontResponseAndStaticBoundary(t *testing.T) {
 		t.Fatal(err)
 	}
 	fonts := map[string]string{
+		"/app/aurora/fonts/inter-var.woff2":                       "90b7f11cafe7a22f64b2279fc08e3be05082dc59e39a01facae9e25d375c4f2e",
 		"/app/aurora/fonts/bevietnampro-400-latin.woff2":          "48365fa93eeb5b730d595061e2c48d97e2bdf4990ef725a7da4193bfa60f485c",
 		"/app/aurora/fonts/bevietnampro-400-vietnamese.woff2":     "b62689bd59a16789eedb19bde3ac7837c42a06ed766be995a5d7ccd87eb4687d",
 		"/app/aurora/fonts/bevietnampro-600-latin.woff2":          "5d85274fcb42d8c2b744368f7d2d5bd7b639ad1988edc5d0ab5441b2fec623a7",

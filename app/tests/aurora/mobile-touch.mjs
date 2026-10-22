@@ -59,7 +59,7 @@ for(const w of (process.env.WIDTHS||'360,390,430').split(',').map(Number)){let p
  const mine=st1.agents.find(a=>a.name===name);ok(w,'flat face persisted (shape 5, colour 3)',mine&&mine.av&&mine.av.shape===5&&mine.av.color===3,JSON.stringify(mine&&mine.av));
  // row swipe + archive a throwaway agent
  await p.evaluate(async n=>{await fetch('/app/api/agents',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({name:n,desc:'x',av:{shape:1,color:2}})})},'Trash '+w+' '+RUN);await sleep(500);
- let rp=await rowOf('Trash '+w+' '+RUN);await sleep(100);rp=await rowOf('Trash '+w+' '+RUN);
+ let rp=null;for(let i=0;i<30&&!rp;i++){rp=await rowOf('Trash '+w+' '+RUN);if(!rp)await sleep(100)}await sleep(100);rp=await rowOf('Trash '+w+' '+RUN);
  await swipe(rp[0]+100,rp[1],rp[0]-120,rp[1],6,8);await sleep(350);
  const opened=await p.evaluate(n=>!![...document.querySelectorAll('.row')].find(e=>e.querySelector('.rowh b').textContent===n)?.dataset.open,'Trash '+w+' '+RUN);
  ok(w,'row swipe reveals actions',opened);await p.screenshot({path:`${O}${w}-3-rowswipe.png`});
@@ -114,8 +114,8 @@ for(const w of (process.env.WIDTHS||'360,390,430').split(',').map(Number)){let p
  // Grok-like look: neutral default theme, system font, black user bubble, plain assistant text
  const look=await p.evaluate(()=>{const cs=getComputedStyle(document.body);const u=document.querySelector('.msg.mine'),g=document.querySelector('.msg:not(.mine):not(.sys):not(.typing)');return{theme:document.documentElement.dataset.theme||'',bg:cs.backgroundColor,font:cs.fontFamily,ub:u&&getComputedStyle(u).backgroundColor,uc:u&&getComputedStyle(u).color,gb:g&&getComputedStyle(g).backgroundColor}});
  ok(w,'default neutral theme + system font stack',!look.theme&&look.bg==='rgb(247, 247, 247)'&&/^-apple-system/.test(look.font),look.bg+' '+look.font.slice(0,40));
- ok(w,'black user bubble, white text; assistant text has no bubble',look.ub==='rgb(13, 13, 13)'&&look.uc==='rgb(247, 247, 247)'&&look.gb==='rgba(0, 0, 0, 0)',JSON.stringify([look.ub,look.uc,look.gb]));
- ok(w,'composer: + button, "Hỏi <bot>" pill, black voice button',await p.$eval('#input',(e,n)=>e.placeholder==='Hỏi '+n,name)&&await p.$eval('#composer .send',e=>e.classList.contains('voice')&&getComputedStyle(e).backgroundColor==='rgb(13, 13, 13)')&&!!(await p.$('#plusBtn')));
+ ok(w,'black user bubble, white text; assistant text has no bubble',/^rgb\((0|13), \1, \1\)$/.test(look.ub)&&look.uc==='rgb(247, 247, 247)'&&look.gb==='rgba(0, 0, 0, 0)',JSON.stringify([look.ub,look.uc,look.gb]));
+ ok(w,'composer: + button, "Hỏi <bot>" pill, black voice button',await p.$eval('#input',(e,n)=>e.placeholder==='Hỏi '+n,name)&&await p.$eval('#composer .send',e=>e.classList.contains('voice')&&/^rgb\((0|13), \1, \1\)$/.test(getComputedStyle(e).backgroundColor))&&!!(await p.$('#plusBtn')));
  // header popover → find in chat
  await tap('#threadMore');await sleep(350);ok(w,'thread ⋯ opens frosted popover (Xem hồ sơ / Tìm / Chia sẻ)',await p.$eval('#threadMenu',e=>!e.classList.contains('hidden')&&getComputedStyle(e).backdropFilter.includes('blur')&&e.querySelectorAll('button').length===3));
  sm=await small();ok(w,'touch>=44 thread popover',!sm.length,sm.join(','));
