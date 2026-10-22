@@ -325,3 +325,6 @@ button.cell:active{background:var(--sunk)}
 
 @media (prefers-reduced-transparency:reduce){.glass,.fab,.jump,#thread .who,.composer,.float-top .who{-webkit-backdrop-filter:none!important;backdrop-filter:none!important;background:var(--bg)!important}}
 .net{position:fixed;z-index:60;left:50%;top:calc(var(--st) + 60px);transform:translateX(-50%);padding:7px 14px;border-radius:18px;font-size:13px;color:var(--fg);background:var(--glass);box-shadow:0 0 0 .5px var(--glass-line),0 4px 14px rgba(0,0,0,.08);-webkit-backdrop-filter:blur(18px);backdrop-filter:blur(18px);white-space:nowrap}
+.ask.multi{flex-wrap:wrap;border-radius:26px;padding:4px 4px 4px 16px}.ask.multi textarea{flex-basis:100%;max-height:160px;padding:10px 12px 2px 0}.ask.multi .mic{margin-left:auto}
+/* Dynamic Type (iOS): chat text follows the system text-size setting; layout chrome stays fixed */
+@supports (font:-apple-system-body){html{font:-apple-system-body;font-family:var(--na-font-family-sans)}body{font-size:17px}.msg,.ask textarea,.md h4{font-size:max(15px,1rem)}.md h3{font-size:calc(max(15px,1rem) + 2px)}.md code{font-size:calc(max(15px,1rem) - 2px)}}
