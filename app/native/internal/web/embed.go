@@ -14,6 +14,7 @@ var contentTypes = map[string]string{
 	"/connections.js":                      "text/javascript; charset=utf-8",
 	"/style.css":                           "text/css; charset=utf-8",
 	"/duet/":                               "text/html; charset=utf-8",
+	"/duet/theme.js":                       "text/javascript; charset=utf-8",
 	"/duet/app.js":                         "text/javascript; charset=utf-8",
 	"/duet/style.css":                      "text/css; charset=utf-8",
 	"/duet/sw.js":                          "text/javascript; charset=utf-8",

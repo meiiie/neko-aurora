@@ -23,6 +23,7 @@ type Service struct {
 	Store  *Store
 	AI     *AI
 	Push   *Pusher
+	Mail   *Mailer
 	mux    *http.ServeMux
 	mu     sync.Mutex
 	subs   map[chan Event]struct{}
@@ -44,7 +45,7 @@ func New(ctx context.Context, stateDir string) (*Service, error) {
 	if err != nil {
 		return nil, err
 	}
-	s := &Service{Store: st, AI: AIFromEnv(), Push: p, subs: map[chan Event]struct{}{}, work: map[string]*worker{}, ctx: ctx, Now: time.Now}
+	s := &Service{Store: st, AI: AIFromEnv(), Push: p, Mail: MailerFromEnv(), subs: map[chan Event]struct{}{}, work: map[string]*worker{}, ctx: ctx, Now: time.Now}
 	s.routes()
 	go s.briefLoop()
 	return s, nil
@@ -124,7 +125,8 @@ Quy tắc:
 - Trả lời bằng tiếng Việt, ngắn gọn, cụ thể, như một đồng nghiệp đáng tin. Không dùng markdown nặng.
 - Bạn KHÔNG tự gửi, đăng, thanh toán hay liên hệ ai bên ngoài. Không bao giờ nói là đã gửi.
 - Khi việc cần một hành động ra bên ngoài (gửi email/tin nhắn, đăng bài, thanh toán, mời họp), hãy soạn sẵn nội dung rồi kết thúc câu trả lời bằng đúng MỘT dòng cuối:
-APPROVAL: {"title":"<việc cần duyệt>","kind":"send|post|pay|other","body":"<nội dung đã soạn>"}
+APPROVAL: {"title":"<việc cần duyệt>","kind":"email|send|post|pay|other","to":"<địa chỉ email nếu là email>","subject":"<tiêu đề nếu là email>","body":"<nội dung đã soạn>"}
+- Với email: kind phải là "email", điền đúng địa chỉ người nhận Darren đưa, tiêu đề và toàn bộ nội dung thư trong body (không lặp lại thư ở phần trả lời phía trên; chỉ tóm tắt 1 câu).
 - Nếu không cần duyệt thì không viết dòng APPROVAL.`
 
 var approvalRe = regexp.MustCompile(`(?s)\n?\s*APPROVAL:\s*(\{.*\})\s*$`)
@@ -139,6 +141,16 @@ func SplitApproval(text string) (string, *Approval) {
 		return strings.TrimSpace(text), nil
 	}
 	a.Title, a.Body, a.Kind = clean(a.Title, 80), clean(a.Body, 4000), clean(a.Kind, 12)
+	a.Subject = clean(a.Subject, 160)
+	if a.Kind == "email" {
+		if to, ok := ValidEmail(a.To); ok {
+			a.To = to
+		} else {
+			a.To = ""
+		}
+	} else {
+		a.To, a.Subject = "", ""
+	}
 	if a.Title == "" {
 		a.Title = "Hành động cần bạn duyệt"
 	}
@@ -410,7 +422,11 @@ func (s *Service) routes() {
 		s.publish("message", msg)
 		a, _ := s.Store.Agent(msg.AgentID)
 		var follow string
-		if in.Decision == "approved" {
+		if in.Decision == "approved" && msg.Approval.Kind == "email" && msg.Approval.To != "" {
+			follow = s.deliverEmail(msg)
+			s.status(msg.AgentID, "done", "Đã duyệt: "+msg.Approval.Title)
+			s.logAct(msg.AgentID, "Bạn duyệt email “"+msg.Approval.Title+"” cho "+a.Name)
+		} else if in.Decision == "approved" {
 			follow = "Đã ghi nhận bạn duyệt “" + msg.Approval.Title + "”. Kênh gửi ra ngoài chưa được kết nối nên mình chưa gửi gì; bản đã duyệt được lưu để gửi khi kênh sẵn sàng."
 			s.status(msg.AgentID, "done", "Đã duyệt: "+msg.Approval.Title)
 			s.logAct(msg.AgentID, "Bạn duyệt “"+msg.Approval.Title+"” cho "+a.Name)
@@ -424,6 +440,9 @@ func (s *Service) routes() {
 			s.publish("message", f)
 		}
 		writeJSON(w, 200, msg)
+	})
+	m.HandleFunc("GET /duet/api/outbox", func(w http.ResponseWriter, r *http.Request) {
+		writeJSON(w, 200, map[string]any{"email": map[string]any{"configured": s.Mail.Configured(), "from": s.Mail.From}, "items": s.Store.Outbox()})
 	})
 	m.HandleFunc("GET /duet/api/activity", func(w http.ResponseWriter, r *http.Request) {
 		n, _ := strconv.Atoi(r.URL.Query().Get("limit"))
@@ -491,4 +510,52 @@ func (s *Service) events(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
+}
+
+// deliverEmail runs only after an owner approval was recorded. The recipient
+// must be an address the owner typed in this thread, so model output alone
+// can never choose who receives mail.
+func (s *Service) deliverEmail(msg *Message) string {
+	ap := msg.Approval
+	if !s.Store.UserMentioned(msg.AgentID, ap.To) {
+		m, _ := s.Store.SetDelivery(msg.ID, Delivery{Status: "failed", Detail: "recipient_not_from_owner"})
+		if m != nil {
+			s.publish("message", m)
+		}
+		return "Mình không gửi: địa chỉ " + ap.To + " không phải do bạn nhập trong hội thoại này."
+	}
+	if !s.Mail.Configured() {
+		m, _ := s.Store.SetDelivery(msg.ID, Delivery{Status: "queued", Detail: "email_channel_not_configured"})
+		if m != nil {
+			s.publish("message", m)
+		}
+		return "Đã ghi nhận bạn duyệt. Kênh email của máy chủ chưa được cấu hình (DUET_SMTP_*), nên thư tới " + ap.To + " đang nằm trong hàng đợi, chưa gửi."
+	}
+	m, _ := s.Store.SetDelivery(msg.ID, Delivery{Status: "sending", From: s.Mail.From})
+	if m != nil {
+		s.publish("message", m)
+	}
+	go func() {
+		subj := ap.Subject
+		if subj == "" {
+			subj = ap.Title
+		}
+		err := s.Mail.Send(ap.To, subj, ap.Body)
+		d := Delivery{Status: "sent", From: s.Mail.From}
+		text := "Đã gửi thư tới " + ap.To + " từ " + s.Mail.From + "."
+		if err != nil {
+			d = Delivery{Status: "failed", From: s.Mail.From, Detail: clean(err.Error(), 160)}
+			text = "Gửi thư tới " + ap.To + " thất bại: " + d.Detail
+		}
+		if m, _ := s.Store.SetDelivery(msg.ID, d); m != nil {
+			s.publish("message", m)
+		}
+		f := &Message{AgentID: msg.AgentID, Role: "agent", Text: text}
+		if s.Store.AddMessage(f) == nil {
+			s.publish("message", f)
+		}
+		s.logAct(msg.AgentID, text)
+		s.notify("Email", text, "/duet/#"+msg.AgentID)
+	}()
+	return "Đã ghi nhận bạn duyệt. Đang gửi thư tới " + ap.To + "…"
 }

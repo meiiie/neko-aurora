@@ -182,3 +182,28 @@ func TestNoKeyIsHonest(t *testing.T) {
 		t.Fatalf("%+v", last)
 	}
 }
+
+func TestEmailApprovalGuards(t *testing.T) {
+	t.Setenv("DUET_SMTP_HOST", "")
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	svc, _ := New(ctx, t.TempDir())
+	ag := svc.Store.Agents()[0]
+	_, a := SplitApproval("ok\nAPPROVAL: {\"title\":\"Chào\",\"kind\":\"email\",\"to\":\"x@example.com\",\"subject\":\"Hi\",\"body\":\"Xin chào\"}")
+	if a == nil || a.To != "x@example.com" || a.Subject != "Hi" {
+		t.Fatalf("%+v", a)
+	}
+	m := &Message{AgentID: ag.ID, Role: "agent", Approval: a}
+	svc.Store.AddMessage(m)
+	svc.Store.Decide(m.ID, "approved")
+	if txt := svc.deliverEmail(m); !strings.Contains(txt, "không phải do bạn nhập") {
+		t.Fatal("recipient guard missing: " + txt)
+	}
+	svc.Store.AddMessage(&Message{AgentID: ag.ID, Role: "user", Text: "gửi cho x@example.com"})
+	if txt := svc.deliverEmail(m); !strings.Contains(txt, "hàng đợi") {
+		t.Fatal("expected queued: " + txt)
+	}
+	if ob := svc.Store.Outbox(); len(ob) != 1 || ob[0].Approval.Delivery.Status != "queued" {
+		t.Fatalf("%+v", ob)
+	}
+}

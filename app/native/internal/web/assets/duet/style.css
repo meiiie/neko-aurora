@@ -6,7 +6,17 @@
 --ok:#2c7f52;--on-ok:#fff;--danger:#a3160f;--on-danger:#fff;--danger-soft:#f9e1de;
 --bubble-me:#17130e;--on-bubble-me:#f4efe4;--chip:#e9e2d2;--neutral:#5b544a;--scrim:rgba(19,16,24,.38);--snow:#f7f5eb;
 --st:env(safe-area-inset-top);--sb:env(safe-area-inset-bottom);--sl:env(safe-area-inset-left);--sr:env(safe-area-inset-right)}
-@media (prefers-color-scheme:dark){:root{
+:root[data-theme=gold]{color-scheme:dark;
+--bg:#0d0c0a;--card:#17150f;--sunk:#221f17;--ink:#f5ecd7;--mute:#b3a88c;--line:#2a261c;--line-2:#3b3526;
+--acc:#d4a72c;--acc-press:#e8bd4a;--acc-ink:#e8bd4a;--on-acc:#0d0c0a;--acc-soft:#2e2612;
+--warn:#ffd166;--warn-fill:#d4a72c;--warn-soft:#2a2210;--ok:#6fd39a;--on-ok:#0d0c0a;--danger:#ff8a7a;--on-danger:#0d0c0a;--danger-soft:#3a1a16;
+--bubble-me:#f5ecd7;--on-bubble-me:#0d0c0a;--chip:#221f17;--neutral:#3b3526;--scrim:rgba(0,0,0,.6)}
+:root[data-theme=blue]{color-scheme:light;
+--bg:#f5f8fc;--card:#ffffff;--sunk:#e8eef7;--ink:#0f1b2d;--mute:#4a5a70;--line:#d8e1ee;--line-2:#c3cfe0;
+--acc:#1d5fd1;--acc-press:#174ea9;--acc-ink:#1d5fd1;--on-acc:#fff;--acc-soft:#e3ecfb;
+--warn:#9a5b00;--warn-fill:#f2a516;--warn-soft:#fdf3dc;--ok:#1f7a4d;--on-ok:#fff;--danger:#b42318;--on-danger:#fff;--danger-soft:#fde4e1;
+--bubble-me:#0f1b2d;--on-bubble-me:#fff;--chip:#e8eef7;--neutral:#4a5a70;--scrim:rgba(15,27,45,.4)}
+@media (prefers-color-scheme:dark){:root:not([data-theme]){
 --bg:#131018;--card:#1b1722;--sunk:#272232;--ink:#f4efe4;--mute:#a59eae;--line:#272232;--line-2:#3a3348;
 --acc:#e0261f;--acc-press:#ff3b2e;--acc-ink:#ff5a4e;--on-acc:#fff;--acc-soft:#3a1514;
 --warn:#f0a94a;--warn-fill:#eda12c;--warn-soft:#33240f;
@@ -119,3 +129,9 @@ button:disabled{opacity:.5}
 
 .icon-btn.primary:active,.pill:active,.send:active{background:var(--acc-press)}
 .approval.done{box-shadow:none}
+.themes{top:auto;max-height:70%}
+.theme-opt{display:flex;align-items:center;gap:12px;width:100%;min-height:64px;border:1px solid var(--line);border-radius:14px;background:var(--card);padding:10px 12px;margin:8px 0;text-align:left}
+.theme-opt[aria-pressed=true]{border:2px solid var(--acc)}
+.theme-opt .dots3{display:flex;gap:4px}.theme-opt .dots3 i{width:18px;height:18px;border-radius:9px;display:block;box-shadow:inset 0 0 0 1px rgba(0,0,0,.15)}
+.theme-opt small{display:block;color:var(--mute);font-size:13px}
+.ap-meta{font-size:14px;color:var(--mute);margin-top:4px;overflow-wrap:anywhere}.ap-meta b{color:var(--ink);font-weight:600}

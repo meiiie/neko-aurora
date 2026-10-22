@@ -100,9 +100,9 @@ function closeThread(fromPop){if(!cur)return;cur=null;stopVoice();$("#thread").c
 const deciding=new Set();
 function renderThread(){const a=cur;if(!a)return;$("#threadState").textContent=stateLine(a);const box=$("#messages");const atBottom=box.scrollHeight-box.scrollTop-box.clientHeight<80;box.innerHTML="";
  (S.msgs[a.id]||[]).forEach(m=>{if(m.text)box.append(el("div","msg"+(m.role==="user"?" mine":m.role==="system"?" sys":""),m.text));
-  if(m.approval){const ap=m.approval,c=el("div","approval"+(ap.state!=="pending"?" done":""));c.dataset.id=m.id;c.append(el("small",0,"Cần bạn duyệt · không gửi khi chưa có OK"),el("div","ap-title",ap.title),el("pre",0,ap.body));
+  if(m.approval){const ap=m.approval,c=el("div","approval"+(ap.state!=="pending"?" done":""));c.dataset.id=m.id;c.append(el("small",0,"Cần bạn duyệt · không gửi khi chưa có OK"),el("div","ap-title",ap.title));if(ap.to){const meta=el("div","ap-meta");meta.append(el("span",0,"Tới: "),el("b",0,ap.to));c.append(meta)}if(ap.subject){const meta=el("div","ap-meta");meta.append(el("span",0,"Tiêu đề: "),el("b",0,ap.subject));c.append(meta)}c.append(el("pre",0,ap.body));
    if(ap.state==="pending"){const bs=el("div","btns"),no=el("button",0,"Để sau"),go=el("button","go","Duyệt");no.onclick=()=>decide(m,"declined",bs);go.onclick=()=>decide(m,"approved",bs);if(deciding.has(m.id)){no.disabled=go.disabled=true}bs.append(no,go);c.append(bs)}
-   else c.append(el("small",0,ap.state==="approved"?"✓ Bạn đã duyệt · chưa gửi ra ngoài (kênh gửi chưa kết nối)":"Đã hoãn"));box.append(c)}});
+   else{const dv=ap.delivery,DS={queued:"đang chờ kênh email",sending:"đang gửi…",sent:"đã gửi"+(dv&&dv.from?" từ "+dv.from:""),failed:"gửi thất bại"+(dv&&dv.detail?": "+dv.detail:"")};c.append(el("small",0,ap.state==="approved"?(dv?"✓ Bạn đã duyệt · "+DS[dv.status]:"✓ Bạn đã duyệt · chưa gửi ra ngoài (kênh gửi chưa kết nối)"):"Đã hoãn"))}box.append(c)}});
  Object.entries(S.drafts).forEach(([id,d])=>{if(d.agentId===a.id){const b=el("div","msg draft",visible(d.text));b.id="d_"+id;box.append(b)}});
  if(a.status==="working"&&!Object.values(S.drafts).some(d=>d.agentId===a.id))box.append(el("div","msg typing dots","Đang nghĩ"));
  if(atBottom||true)requestAnimationFrame(()=>box.scrollTop=box.scrollHeight)}
@@ -159,6 +159,15 @@ if(!SR)$("#micBtn").classList.add("hidden");
 $("#micBtn").onclick=()=>{if(rec){stopVoice();return}rec=new SR();rec.lang="vi-VN";rec.interimResults=true;rec.continuous=false;const base=inp.value?inp.value+" ":"";
  rec.onresult=e=>{let t="";for(const r of e.results)t+=r[0].transcript;inp.value=base+t;inp.oninput()};rec.onend=()=>{rec=null;$("#micBtn").classList.remove("on")};rec.onerror=e=>{toast(e.error==="not-allowed"?"Chưa cho phép micro":"Không nghe được, thử lại")};
  try{rec.start();$("#micBtn").classList.add("on")}catch{rec=null}};
+// ---------- themes ----------
+const THEMES=[{id:"brand",name:"Thương hiệu",sub:"Kem, hổ phách, khăn đỏ Wiii · theo sáng/tối hệ thống",sw:["#f4efe4","#e0261f","#131018"]},{id:"gold",name:"Đen vàng",sub:"Nền đen, điểm vàng · tối",sw:["#0d0c0a","#d4a72c","#f5ecd7"],tc:"#0d0c0a"},{id:"blue",name:"Trắng xanh",sub:"Nền trắng, điểm xanh · sáng",sw:["#f5f8fc","#1d5fd1","#0f1b2d"],tc:"#f5f8fc"}];
+const curTheme=()=>{try{return localStorage.getItem("neko-duet-theme")||"brand"}catch{return"brand"}};
+function applyTheme(id){const t=THEMES.find(x=>x.id===id)||THEMES[0];try{t.id==="brand"?localStorage.removeItem("neko-duet-theme"):localStorage.setItem("neko-duet-theme",t.id)}catch{}
+ if(t.id==="brand")delete document.documentElement.dataset.theme;else document.documentElement.dataset.theme=t.id;
+ const ms=document.querySelectorAll('meta[name="theme-color"]');ms.forEach((m,i)=>m.content=t.tc||(i===0?"#f4efe4":"#131018"));
+ const cs=document.querySelector('meta[name="color-scheme"]');if(cs)cs.content=t.id==="gold"?"dark":t.id==="blue"?"light":"light dark";renderThemes()}
+function renderThemes(){const L=$("#themeList");L.innerHTML="";const c=curTheme();THEMES.forEach(t=>{const b=el("button","theme-opt");b.setAttribute("aria-pressed",c===t.id);b.dataset.theme=t.id;const d=el("span","dots3");t.sw.forEach(x=>{const i=el("i");i.style.background=x;d.append(i)});const tx=el("span");tx.append(el("b",0,t.name),el("small",0,t.sub));b.append(d,tx);b.onclick=()=>applyTheme(t.id);L.append(b)})}
+$("#themeBtn").onclick=()=>{if(sheetOpen)return;renderThemes();openSheet($("#themes"))};$("#closeThemes").onclick=closeSheet;
 // ---------- misc ----------
 $("#backBtn").onclick=()=>closeThread();
 addEventListener("popstate",()=>{if(sheetOpen)closeSheet();else if(cur)closeThread(true)});

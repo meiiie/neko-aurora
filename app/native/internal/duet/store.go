@@ -43,6 +43,16 @@ type Approval struct {
 	Body      string     `json:"body"`
 	State     string     `json:"state"` // pending|approved|declined
 	DecidedAt *time.Time `json:"decidedAt,omitempty"`
+	To        string     `json:"to,omitempty"`
+	Subject   string     `json:"subject,omitempty"`
+	Delivery  *Delivery  `json:"delivery,omitempty"`
+}
+
+type Delivery struct {
+	Status string    `json:"status"` // queued|sending|sent|failed
+	Detail string    `json:"detail,omitempty"`
+	From   string    `json:"from,omitempty"`
+	At     time.Time `json:"at"`
 }
 
 type Message struct {
@@ -424,4 +434,50 @@ func (s *Store) DropPush(endpoint string) {
 	}
 	s.d.Push = out
 	_ = s.saveLocked()
+}
+
+// SetDelivery records the outbound status of an approved message.
+func (s *Store) SetDelivery(msgID string, d Delivery) (*Message, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for _, m := range s.d.Messages {
+		if m.ID == msgID && m.Approval != nil {
+			if m.Approval.State != "approved" {
+				return nil, ErrConflict
+			}
+			d.At = time.Now()
+			m.Approval.Delivery = &d
+			c := cp(m)
+			c.Approval = cp(m.Approval)
+			return c, s.saveLocked()
+		}
+	}
+	return nil, ErrNotFound
+}
+
+// UserMentioned reports whether the owner wrote needle in this agent's thread.
+func (s *Store) UserMentioned(agentID, needle string) bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	n := strings.ToLower(needle)
+	for _, m := range s.d.Messages {
+		if m.AgentID == agentID && m.Role == "user" && strings.Contains(strings.ToLower(m.Text), n) {
+			return true
+		}
+	}
+	return false
+}
+
+func (s *Store) Outbox() []*Message {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	out := []*Message{}
+	for _, m := range s.d.Messages {
+		if m.Approval != nil && m.Approval.Kind == "email" {
+			c := cp(m)
+			c.Approval = cp(m.Approval)
+			out = append(out, c)
+		}
+	}
+	return out
 }
