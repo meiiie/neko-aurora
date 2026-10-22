@@ -1,7 +1,7 @@
 "use strict";
 (()=>{
 const $=s=>document.querySelector(s);
-const SHELLS=["#d9603b","#e0473a","#e5a428","#5b9e3c","#2f9e8f","#2f8fd6","#3b6fe0","#8b5cf6","#c76bd1","#e86a92"];
+const SHELLS=["#e0261f","#e2827c","#eda12c","#f7b551","#96590a","#2c7f52","#74cfc6","#506c62","#8b8496","#e8bd63"]; // brand-derived, see docs/duet-palette
 const HATS=["none","beanie","cap","top","crown"],EYES=["none","round","shades","visor","mono"],EXTRAS=["none","bow","flower","antenna","scarf"];
 const VN={none:"Không",beanie:"Mũ len",cap:"Mũ lưỡi trai",top:"Mũ chóp",crown:"Vương miện",round:"Kính tròn",shades:"Kính râm",visor:"Kính visor",mono:"Kính một tròng",bow:"Nơ",flower:"Hoa",antenna:"Ăng-ten",scarf:"Khăn"};
 const shade=(h,k)=>{const n=parseInt(h.slice(1),16),f=c=>Math.max(0,Math.min(255,Math.round(c*k)));return`rgb(${f(n>>16)},${f(n>>8&255)},${f(n&255)})`};
@@ -11,7 +11,7 @@ function draw(cv,a,part){const g=cv.getContext("2d");g.clearRect(0,0,16,16);cons
  // body
  p(4,6,8,7,c);p(3,7,10,5,c);p(4,6,8,1,l);p(3,11,10,1,d);p(4,12,8,1,d);p(4,13,2,1,d);p(10,13,2,1,d);
  p(3,5,2,2,c);p(11,5,2,2,c);p(3,5,1,1,l);p(12,5,1,1,l); // ears
- if(part!=="eyes"||a.eyes==="none"){p(5,8,2,2,"#221d1a");p(9,8,2,2,"#221d1a");p(5,8,1,1,"#fff");p(9,8,1,1,"#fff")}
+ if(part!=="eyes"||a.eyes==="none"){p(5,8,2,2,"#17130e");p(9,8,2,2,"#17130e");p(5,8,1,1,"#fff");p(9,8,1,1,"#fff")}
  p(7,10,2,1,"#f3b49a");
  const H=a.hat,K="#2a2320";
  if(H==="beanie"){p(4,3,8,3,"#3b6fe0");p(3,5,10,1,"#2b55b8");p(7,2,2,1,"#f6f1ea")}
@@ -19,15 +19,15 @@ function draw(cv,a,part){const g=cv.getContext("2d");g.clearRect(0,0,16,16);cons
  if(H==="top"){p(5,1,6,4,K);p(5,4,6,1,"#c2410c");p(3,5,10,1,K)}
  if(H==="crown"){p(4,3,8,2,"#e5a428");p(4,2,1,1,"#e5a428");p(7,1,2,2,"#e5a428");p(11,2,1,1,"#e5a428");p(7,3,2,1,"#e0473a")}
  const E=a.eyes;
- if(E==="round"){g.strokeStyle=K;p(4,7,4,1,K);p(8,7,4,1,K);p(4,10,4,1,K);p(8,10,4,1,K);p(4,7,1,4,K);p(11,7,1,4,K);p(7,8,2,1,K);p(5,8,2,2,"#221d1a");p(9,8,2,2,"#221d1a")}
+ if(E==="round"){g.strokeStyle=K;p(4,7,4,1,K);p(8,7,4,1,K);p(4,10,4,1,K);p(8,10,4,1,K);p(4,7,1,4,K);p(11,7,1,4,K);p(7,8,2,1,K);p(5,8,2,2,"#17130e");p(9,8,2,2,"#17130e")}
  if(E==="shades"){p(3,7,10,1,K);p(4,8,3,2,K);p(9,8,3,2,K);p(5,8,1,1,"#6b7280");p(10,8,1,1,"#6b7280")}
  if(E==="visor"){p(3,8,10,2,"#2f9e8f");p(4,8,3,1,"#9fe5da")}
- if(E==="mono"){p(5,8,2,2,"#221d1a");p(8,7,4,4,"#e5a428");p(9,8,2,2,"#221d1a");p(11,11,1,2,"#e5a428")}
+ if(E==="mono"){p(5,8,2,2,"#17130e");p(8,7,4,4,"#e5a428");p(9,8,2,2,"#17130e");p(11,11,1,2,"#e5a428")}
  const X=a.extra;
  if(X==="bow"){p(10,4,2,2,"#e86a92");p(13,4,2,2,"#e86a92");p(12,5,1,1,"#c24d75")}
- if(X==="flower"){p(2,3,3,3,"#f6f1ea");p(3,4,1,1,"#e5a428")}
+ if(X==="flower"){p(2,3,3,3,"#f7f5eb");p(3,4,1,1,"#e5a428")}
  if(X==="antenna"){p(7,1,1,4,K);p(6,0,3,2,"#e0473a")}
- if(X==="scarf"){p(3,11,10,1,"#e5a428");p(10,12,2,3,"#e5a428")}
+ if(X==="scarf"){p(3,11,10,1,"#e0261f");p(10,12,2,3,"#e0261f")}
 }
 const thumb=(a)=>{const cv=document.createElement("canvas");cv.width=cv.height=16;draw(cv,a);return cv};
 // ---------- server state (real Go control plane at /duet/api) ----------

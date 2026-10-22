@@ -18,6 +18,8 @@ var contentTypes = map[string]string{
 	"/duet/style.css":                      "text/css; charset=utf-8",
 	"/duet/sw.js":                          "text/javascript; charset=utf-8",
 	"/duet/icon.svg":                       "image/svg+xml",
+	"/duet/icon-180.png":                   "image/png",
+	"/duet/icon-512.png":                   "image/png",
 	"/duet/manifest.webmanifest":           "application/manifest+json",
 	"/fonts/geist-latin-wght-normal.woff2": "font/woff2",
 	"/fonts/geist-latin-ext-wght-normal.woff2":  "font/woff2",
