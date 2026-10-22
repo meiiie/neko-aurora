@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"net/url"
 	"regexp"
 	"strings"
 	"time"
@@ -497,7 +498,7 @@ func (s *Service) runTurn(ctx context.Context, w ledger.Work) (*Approval, []stri
 		s.record(w.BotID, w.RequestID, "secret", "Xin bí mật "+sec.Name)
 	}
 	if len(d.Plan) < 2 || d.Approval != nil {
-		return d.Approval, d.Choices, s.appendText(w.RequestID, normalizeCites(d.Text, len(tc.sources)))
+		return d.Approval, d.Choices, s.appendText(w.RequestID, normalizeCites(d.Text, tc.sources))
 	}
 	steps := make([]Step, len(d.Plan))
 	for i, t := range d.Plan {
@@ -540,9 +541,9 @@ func (s *Service) runTurn(ctx context.Context, w ledger.Work) (*Approval, []stri
 		if sd.Approval != nil || len(sd.Choices) > 0 {
 			setStep(i, "waiting")
 			s.endDraft(w)
-			return sd.Approval, sd.Choices, s.appendText(w.RequestID, normalizeCites(sd.Text, len(tc.sources)))
+			return sd.Approval, sd.Choices, s.appendText(w.RequestID, normalizeCites(sd.Text, tc.sources))
 		}
-		note := normalizeCites(clean(scrubInternal(stepNote(sd.Text)), 1500), len(tc.sources))
+		note := normalizeCites(clean(scrubInternal(stepNote(sd.Text)), 1500), tc.sources)
 		tc.note(fmt.Sprintf("KẾT QUẢ BƯỚC %d (%s): %s", i+1, title, note))
 		s.update(w.RequestID, func(r *ledger.DirectRun) {
 			r.Plan[i].Status, r.Plan[i].Note = "done", note
@@ -558,7 +559,7 @@ func (s *Service) runTurn(ctx context.Context, w ledger.Work) (*Approval, []stri
 		return nil, nil, err
 	}
 	s.fixScript(ctx, w, &fd)
-	if err := s.appendText(w.RequestID, normalizeCites(fd.Text, len(tc.sources))); err != nil {
+	if err := s.appendText(w.RequestID, normalizeCites(fd.Text, tc.sources)); err != nil {
 		return nil, nil, err
 	}
 	s.endDraft(w)
@@ -644,20 +645,77 @@ func stepNote(t string) string {
 
 var internalRe = regexp.MustCompile("(?i)(định dạng |công cụ |lệnh )?`?\\b(web_fetch|web_search|gold_price)\\b`?( tool)?")
 
+// toolCallLineRe drops raw tool-call JSON the model sometimes prints instead of
+// calling the tool ({"name":"web_search","q":"…"}), seen in a step milestone.
+var toolCallLineRe = regexp.MustCompile(`(?m)^[ \t]*\{[^\n]*"(name|q|query|url|arguments)"[ \t]*:[^\n]*\}[ \t]*\n?`)
+
 var internalName = map[string]string{"web_fetch": "đọc trang", "web_search": "tìm trên web", "gold_price": "tra giá vàng"}
 
 // scrubInternal replaces internal tool identifiers that leak into replies
 // ("Định dạng web_fetch bị chặn") with plain Vietnamese.
 func scrubInternal(t string) string {
+	t = strings.TrimSpace(toolCallLineRe.ReplaceAllString(t, ""))
 	return internalRe.ReplaceAllStringFunc(t, func(m string) string {
 		k := strings.ToLower(internalRe.FindStringSubmatch(m)[2])
 		return "việc " + internalName[k]
 	})
 }
 
+var namedCiteRe = regexp.MustCompile(`\[([A-Z][A-Za-z0-9.\-]{2,30})\]`)
+
+func citeKey(s string) string {
+	var b strings.Builder
+	for _, r := range strings.ToLower(s) {
+		if r >= 'a' && r <= 'z' || r >= '0' && r <= '9' {
+			b.WriteRune(r)
+		}
+	}
+	return b.String()
+}
+
+// namedCites turns site-name markers the model invents ("[BestPrice]") into the
+// numbered footnote of the matching source, or drops them when nothing matches.
+// Markdown links ("[Agoda](https://…)") and images are left alone.
+func namedCites(text string, src []ledger.DirectSource) string {
+	idx := namedCiteRe.FindAllStringSubmatchIndex(text, -1)
+	if len(idx) == 0 {
+		return text
+	}
+	var b strings.Builder
+	last := 0
+	for _, m := range idx {
+		if m[1] < len(text) && text[m[1]] == '(' || m[0] > 0 && (text[m[0]-1] == '!' || text[m[0]-1] == ']') {
+			continue
+		}
+		k := citeKey(text[m[2]:m[3]])
+		rep := ""
+		for i, x := range src {
+			if k != "" && (strings.Contains(citeKey(x.Title), k) || strings.Contains(citeKey(srcHost(x.URL)), k)) {
+				rep = fmt.Sprintf("[%d]", i+1)
+				break
+			}
+		}
+		b.WriteString(strings.TrimRight(text[last:m[0]], " ") + rep)
+		if rep == "" && m[1] < len(text) && text[m[1]] == ' ' && m[0] > 0 && text[m[0]-1] != ' ' {
+			b.WriteString(" ")
+		}
+		last = m[1]
+	}
+	return b.String() + text[last:]
+}
+
+func srcHost(u string) string {
+	if p, err := url.Parse(u); err == nil {
+		return strings.TrimPrefix(p.Hostname(), "www.")
+	}
+	return u
+}
+
 // normalizeCites repairs footnotes: "[12 nguồn thứ 2]" → "[12]", and drops
 // markers that point past the sources actually gathered this turn.
-func normalizeCites(text string, n int) string {
+func normalizeCites(text string, src []ledger.DirectSource) string {
+	n := len(src)
+	text = namedCites(text, src)
 	return citeRe.ReplaceAllStringFunc(text, func(m string) string {
 		k := citeRe.FindStringSubmatch(m)[1]
 		var v int

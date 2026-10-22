@@ -425,3 +425,22 @@ func TestGroupChatFansOutToMembers(t *testing.T) {
 		t.Fatal("group history missing other bots' replies")
 	}
 }
+
+func TestGroupRetiredWhenMemberArchived(t *testing.T) {
+	svc, st := newSvc(t)
+	srv := httptest.NewServer(svc)
+	defer srv.Close()
+	bots := st.Snapshot().Bots
+	r := post(t, srv.URL+"/app/api/groups", `{"name":"Nhóm thử","bots":["`+bots[0].ID+`","`+bots[1].ID+`"]}`)
+	var g Agent
+	json.NewDecoder(r.Body).Decode(&g)
+	if r.StatusCode != 201 || len(svc.view().groups()) != 1 {
+		t.Fatalf("create %d", r.StatusCode)
+	}
+	if r := post(t, srv.URL+"/app/api/agents/"+bots[1].ID, `{"archived":true}`); r.StatusCode != 200 {
+		t.Fatal(r.StatusCode)
+	}
+	if n := len(svc.view().groups()); n != 0 {
+		t.Fatalf("group with one live member still listed (%d)", n)
+	}
+}

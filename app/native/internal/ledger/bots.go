@@ -30,11 +30,28 @@ func botText(value string, limit int) bool {
 	}
 	return true
 }
+
+// MaxActiveBots caps live (non-archived) bots; archived ones only count toward
+// the much larger MaxTotalBots bound that keeps the ledger finite.
+const (
+	MaxActiveBots = 32
+	MaxTotalBots  = 256
+)
+
+func (s *Store) activeBotCount() int {
+	n := 0
+	for _, b := range s.bots {
+		if !s.archivedBot(b.ID) {
+			n++
+		}
+	}
+	return n
+}
 func validBotInput(in BotInput) bool {
 	return in.Name == strings.TrimSpace(in.Name) && in.Name != "" && botText(in.Name, 80) && aliasPattern.MatchString(in.Alias) && botText(in.Description, 240) && regexp.MustCompile(`^[a-zA-Z0-9_-]{8,128}$`).MatchString(in.ClientNonce)
 }
 func (s *Store) validBotEvent(e Event) bool {
-	if e.Bot == nil || !reflect.DeepEqual(e.Work, Work{}) || !validBotInput(BotInput{e.Bot.Name, e.Bot.Alias, e.Bot.Description, e.Nonce}) || !botIDPattern.MatchString(e.Bot.ID) || e.Bot.Revision != 1 || e.Bot.DisplayRevision != 0 || e.Bot.Color != "#7384d8" || len(s.bots) >= 32 {
+	if e.Bot == nil || !reflect.DeepEqual(e.Work, Work{}) || !validBotInput(BotInput{e.Bot.Name, e.Bot.Alias, e.Bot.Description, e.Nonce}) || !botIDPattern.MatchString(e.Bot.ID) || e.Bot.Revision != 1 || e.Bot.DisplayRevision != 0 || e.Bot.Color != "#7384d8" || s.activeBotCount() >= MaxActiveBots || len(s.bots) >= MaxTotalBots {
 		return false
 	}
 	if _, exists := s.botNonces[e.Nonce]; exists {

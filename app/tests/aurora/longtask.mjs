@@ -1,6 +1,8 @@
+import {notLive} from './guard.mjs';
 // Long multi-step task at 390: milestones stream in, the app is closed mid-run, reopened, final result checked.
 import {chromium} from 'playwright-core';
-const U=process.env.AURORA_URL||'http://127.0.0.1:8765/app/',O=process.env.OUT||'/workspace/neko-bot-shots/aurora/dogfood/',TAG=process.env.TAG||'long';
+const U=process.env.AURORA_URL||'http://127.0.0.1:8798/app/',O=process.env.OUT||'/workspace/neko-bot-shots/aurora/dogfood/',TAG=process.env.TAG||'long';
+notLive(U);
 const BOT=process.env.BOT||'Trợ lý chuyến đi',Q=process.env.Q;const sl=ms=>new Promise(r=>setTimeout(r,ms));
 const b=await chromium.launch({executablePath:'/usr/bin/google-chrome',args:['--no-sandbox']});
 const ctx=await b.newContext({viewport:{width:390,height:844},deviceScaleFactor:2,isMobile:true,hasTouch:true,locale:'vi-VN',recordVideo:{dir:O+'raw/',size:{width:390,height:844}}});
@@ -14,7 +16,7 @@ await open();await p.tap('#input');await p.keyboard.type(Q,{delay:8});await p.ke
 const steps=()=>p.evaluate(id=>(__AURORA.state().msgs[id]||[]).filter(m=>/:step\d+$/.test(m.id)).length,id);
 const scroll=()=>p.evaluate(()=>{const m=document.querySelector('#messages');m.scrollTop=m.scrollHeight});
 let seen=0;for(let i=0;i<600&&seen<1;i++){await sl(500);const n=await steps();if(n>seen){seen=n;L('milestone '+n);await scroll();await sl(300);await shot('m'+n)}}
-L('closing app mid-task');await p.goto('about:blank');await sl(20000);L('reopening');await open();await scroll();await shot('reopen');
+await p.goto(U);await p.waitForFunction(()=>window.__AURORA);await sl(1500);L('list subtitle: '+await p.evaluate(id=>{const r=document.querySelector(`[data-id="${id}"]`);return r?r.innerText.replace(/\n/g,' | '):'(pinned/none)'},id));await shot('home-working');L('closing app mid-task');await p.goto('about:blank');await sl(20000);L('reopening');await open();await scroll();await shot('reopen');
 let done=false;for(let i=0;i<900;i++){await sl(500);const s=await p.evaluate(id=>__AURORA.state().agents.find(a=>a.id===id).status,id);const n=await steps();if(n>seen){seen=n;L('milestone '+n);await scroll();await sl(300);await shot('m'+n)}if(s!=='working'){done=true;L('done status='+s);break}}
 await sl(1000);await scroll();await sl(400);await shot('final');
 const ms=await p.evaluate(id=>__AURORA.state().msgs[id],id);const last=ms.at(-1);

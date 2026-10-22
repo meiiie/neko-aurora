@@ -1,6 +1,7 @@
 package aurora
 
 import (
+	"nekoaurora.local/native/internal/ledger"
 	"net/http/httptest"
 	"reflect"
 	"strings"
@@ -34,7 +35,7 @@ func TestCitationsDedupeAndRepair(t *testing.T) {
 	if tc.addSource("http", "http://x.vn", "") != 0 {
 		t.Fatal("non-https kept")
 	}
-	got := normalizeCites("Giá 610K [2][12 nguồn thứ 2 nhóm vé] và [1]. Xem [nguồn](https://b.vn) [9].", 2)
+	got := normalizeCites("Giá 610K [2][12 nguồn thứ 2 nhóm vé] và [1]. Xem [nguồn](https://b.vn) [9].", make([]ledger.DirectSource, 2))
 	if got != "Giá 610K [2] và [1]. Xem [nguồn](https://b.vn) ." {
 		t.Fatalf("%q", got)
 	}
@@ -110,5 +111,21 @@ func TestModelProposedPlanRunsWithMilestones(t *testing.T) {
 	}
 	if n != 3 || !strings.Contains(ms[len(ms)-1].Text, "KẾT QUẢ CUỐI") {
 		t.Fatalf("steps %d last %q", n, ms[len(ms)-1].Text)
+	}
+}
+
+func TestScrubDropsRawToolCall(t *testing.T) {
+	got := scrubInternal("Đang tìm giá vé.\n{\"name\":\"web_search\",\"q\":\"vé Hà Nội Phú Quốc\"}\nXong.")
+	if strings.Contains(got, "{") || !strings.Contains(got, "Xong.") || !strings.Contains(got, "Đang tìm giá vé.") {
+		t.Fatalf("got %q", got)
+	}
+}
+
+func TestNamedCitesMapOrDrop(t *testing.T) {
+	src := []ledger.DirectSource{{Title: "Vé rẻ", URL: "https://www.bestprice.vn/ve"}, {Title: "Agoda", URL: "https://agoda.com/x"}}
+	got := normalizeCites("Vé từ 66.000đ [BestPrice], phòng [Agoda] và [Zzz] nữa; xem [Agoda](https://agoda.com).", src)
+	want := "Vé từ 66.000đ[1], phòng[2] và nữa; xem [Agoda](https://agoda.com)."
+	if got != want {
+		t.Fatalf("got  %q\nwant %q", got, want)
 	}
 }

@@ -72,15 +72,18 @@ function connect(){es=new EventSource(API+"/events");
 }
 // ---------- list ----------
 function avatarOf(a,sz){if(!isGroup(a))return face(a.av,sz);const w=el("span","stack");w.style.width=w.style.height=sz+"px";(a.members||[]).slice(0,2).forEach((id,i)=>{const b=byId(id);w.append(face(b&&b.av,Math.round(sz*.64),"s"+i))});return w}
+function pinBadge(){const b=el("i","badge pin");b.setAttribute("aria-hidden","true");b.append(I("star",12));return b}
 function badge(a){const k=a.status==="working"?"work":waiting(a)?"wait":a.status==="error"?"err":"";if(!k)return null;const b=el("i","badge "+k);b.setAttribute("aria-hidden","true");return b}
 let filter="";
-const statusLine=a=>a.status==="working"?"Đang làm việc…":waiting(a)?"Chờ bạn duyệt":a.snip||a.desc||"";
-function renderList(){
+const statusLine=a=>a.status==="working"?(a.doing||"Đang làm việc…"):waiting(a)?"Chờ bạn duyệt":a.snip||a.desc||"";
+function flipSnap(){const m=new Map();document.querySelectorAll("#featured [data-id],#rows [data-id]").forEach(e=>m.set(e.dataset.id,e.getBoundingClientRect().top));return m}
+function flipPlay(m){if(!m.size||reduceMotion())return;document.querySelectorAll("#featured [data-id],#rows [data-id]").forEach(e=>{const y=m.get(e.dataset.id);if(y==null)return;const d=y-e.getBoundingClientRect().top;if(Math.abs(d)<1)return;e.animate([{transform:`translateY(${d}px)`},{transform:"none"}],{duration:300,easing:"cubic-bezier(.2,.8,.2,1)"})})}
+function renderList(){const snap=filter.trim()?new Map():flipSnap();
  const all=[...S.agents].sort((a,b)=>(waiting(b)-waiting(a))||T(b.t)-T(a.t));
  const q=filter.trim().toLowerCase(),match=a=>!q||a.name.toLowerCase().includes(q)||(a.snip||"").toLowerCase().includes(q);
  const pinned=all.filter(a=>a.pin&&match(a)),rest=all.filter(a=>!a.pin&&match(a));
  const fe=$("#featured");fe.innerHTML="";fe.classList.toggle("hidden",!pinned.length);
- pinned.forEach(a=>{const b=el("button","feat");b.dataset.id=a.id;b.setAttribute("aria-label",a.name);const av=el("span","feat-av");av.append(avatarOf(a,92));const bd=badge(a);if(bd)av.append(bd);const nm=el("span","feat-name");nm.append(el("span",0,a.name));if(unread(a)){nm.append(el("i","dot"));b.setAttribute("aria-label",a.name+", chưa đọc")}b.append(av,nm);b.onclick=()=>{if(performance.now()<suppress)return;openThread(a.id)};longPress(b,a);fe.append(b)});
+ pinned.forEach(a=>{const b=el("button","feat");b.dataset.id=a.id;b.setAttribute("aria-label",a.name);const av=el("span","feat-av");av.append(avatarOf(a,92));const bd=badge(a)||pinBadge();av.append(bd);const nm=el("span","feat-name");nm.append(el("span",0,a.name));if(unread(a)){nm.append(el("i","dot"));b.setAttribute("aria-label",a.name+", chưa đọc")}b.append(av,nm);b.onclick=()=>{if(performance.now()<suppress)return;openThread(a.id)};longPress(b,a);fe.append(b)});
  renderBrief(q);
  const ul=$("#rows");ul.innerHTML="";
  const hid=new Set(store.get("neko-aurora-hidden",[])),secs=store.get("neko-aurora-sections",{list:[],of:{}});
@@ -96,14 +99,14 @@ function renderList(){
   const inn=el("div","rowin");inn.setAttribute("role","button");inn.tabIndex=0;const av=el("span","row-av");av.append(avatarOf(a,48));const bd=badge(a);if(bd)av.append(bd);inn.append(av);
   const tx=el("div","rowtxt"),h=el("div","rowh");h.append(el("b",0,a.name));if(isGroup(a))h.append(el("span","tag",(a.members||[]).length+" bot"));
   const live=a.status==="working",un=unread(a);h.append(el("span","time"+(live?" now":"")+(un?" un":""),live?"bây giờ":ago(a.t)));
-  const sn=el("div","snip"+(waiting(a)?" wait":"")+(live?" dots":"")+(a.status==="error"?" err":"")+(un?" un":""),statusLine(a));
+  const sn=el("div","snip"+(waiting(a)?" wait":"")+(live&&!/…$/.test(statusLine(a))?" dots":"")+(a.status==="error"?" err":"")+(un?" un":""),statusLine(a));
   tx.append(h,sn);inn.append(tx);if(un)inn.append(el("i","dot"));li.append(inn);ul.append(li);
   inn.onclick=()=>{if(performance.now()<suppress)return;if(li.dataset.open){closeRow(li);return}openThread(a.id)};inn.onkeydown=e=>{if(e.key==="Enter")openThread(a.id)};
   if(hid.has(a.id))li.classList.add("is-hidden");
   if(!isGroup(a))swipeRow(li,inn);longPress(inn,a)});
  if(hiddenN&&!q){const li=el("li","hid-toggle"),b=el("button","text-btn",showHidden?"Ẩn lại "+hiddenN+" bot":"Đã ẩn · "+hiddenN);b.onclick=()=>{showHidden=!showHidden;buzz("tap");renderList()};li.append(b);ul.append(li)}
  const em=$("#empty");em.classList.toggle("hidden",!!(pinned.length||rest.length));em.textContent=q?"Không tìm thấy “"+filter.trim()+"”.":"Chưa có bot nào. Bấm + để tạo.";
- updatePill()}
+ flipPlay(snap);updatePill()}
 // ---------- long-press context menu (iOS-style: blurred backdrop, preview, menu + stacked submenu) ----------
 let showHidden=false,ctxOpen=null;
 function longPress(node,a){let t=null,x0=0,y0=0;const clear=()=>{clearTimeout(t);t=null;node.classList.remove("pressing")};
@@ -213,13 +216,14 @@ function sourceList(m){const w=el("details","sources");const sm=el("summary");co
  (m.tools||[]).forEach(t=>{const r=el("p","tool-line"+(t.status==="failed"?" bad":""),(t.summary||t.name)+(t.ms?" · "+(t.ms/1000).toFixed(1).replace(".",",")+"s":""));w.append(r)});const ol=el("ol");
  u.forEach(x=>{const li=el("li");const l=el("a");l.href=x.url;l.target="_blank";l.rel="noopener noreferrer";l.append(el("b",0,"["+x.n+"] "+(x.title||srcHost(x.url))),el("small",0,srcHost(x.url)+(x.at?" · "+new Date(x.at).toLocaleTimeString("vi-VN",{hour:"2-digit",minute:"2-digit"}):"")));li.append(l);ol.append(li)});w.append(ol);return w}
 function speaker(box,m,last){if(!isGroup(cur)||m.role!=="agent"||!m.from)return;if(last.v===m.from)return;last.v=m.from;const b=byId(m.from);const h=el("div","speaker");h.append(face(b&&b.av,20),el("span",0,b?b.name:"Bot"));box.append(h)}
-function renderThread(){const a=cur;if(!a)return;$("#threadState").textContent=stateLine(a);const box=$("#messages");
+const seenMsgs=new Map();
+function renderThread(){const a=cur;if(!a)return;const first=!seenMsgs.has(a.id);if(first)seenMsgs.set(a.id,new Set());const seen=seenMsgs.get(a.id);$("#threadState").textContent=stateLine(a);const box=$("#messages");
  const keepSec=[...box.querySelectorAll(".secret input[data-secret]")].map(i=>[i.closest(".secret").dataset.id,i.value]);
  const keepEdit=[...box.querySelectorAll(".ap-body")].map(t=>[t.closest(".approval").dataset.id,t.value,t.closest(".approval").querySelector(".ap-subject")?.value]);
  box.innerHTML="";const L=S.msgs[a.id]||[];const last={v:null};
  const pin=atBottom(box);let prevT=0;
  L.forEach((m,idx)=>{if(m.role!=="agent")last.v=null;const t=T(m.t);if(m.role==="user"&&t>0&&(!prevT||t-prevT>15*60e3))box.append(el("div","daystamp",dayStamp(t)));if(t>0)prevT=t;
-  if(m.text){speaker(box,m,last);const b=el("div","msg"+(m.role==="user"?" mine":m.role==="system"?" sys":" bot"));if(m.role==="agent")md(b,m.text,m.sources);else b.textContent=m.text;if(m.queued){b.append(el("span","chip","Đang chờ lượt"))}box.append(b)}
+  if(m.text){speaker(box,m,last);const b=el("div","msg"+(m.role==="user"?" mine":m.role==="system"?" sys":" bot"));if(m.role==="agent")md(b,m.text,m.sources);else b.textContent=m.text;if(m.queued){b.append(el("span","chip","Đang chờ lượt"))}const k=m.id||idx;if(!first&&!seen.has(k))b.classList.add("enter");seen.add(k);box.append(b)}
   if(m.plan)box.append(planCard(m));
   if(m.choices&&m.choices.length){const wrap=el("div","choices");const later=L.slice(idx+1).some(x=>x.role==="user");m.choices.forEach(ch=>{const b=el("button","choice",ch);b.disabled=later||usedChoice.has(m.id);b.onclick=async()=>{if(usedChoice.has(m.id))return;usedChoice.add(m.id);renderThread();if(!(await sendMsg(ch)))usedChoice.delete(m.id)};wrap.append(b)});box.append(wrap)}
   if(m.tools&&m.tools.length&&m.text&&!(a.status==="working"&&idx===L.length-1&&!m.text))box.append(sourceList(m));
@@ -246,7 +250,7 @@ function paintDraft(id){const n=document.getElementById("d_"+id);if(!n){if(shown
 async function decide(m,v,bs,extra){if(deciding.has(m.id))return;deciding.add(m.id);bs.querySelectorAll("button").forEach(b=>b.disabled=true);
  try{await api(`/approvals/${m.id}`,{decision:v,...(extra||{})});buzz(v==="approved"?"confirm":"soft");editing.delete(m.id)}catch(e){if(e.status!==409){deciding.delete(m.id);toast("Không ghi nhận được, thử lại");bs.querySelectorAll("button").forEach(b=>b.disabled=false)}}}
 // send ↔ stop in the same spot while the agent works (stopping holds queued follow-ups)
-function setSendMode(){const b=$("#composer .send");const empty=!$("#input").value.trim(),run=!!(cur&&cur.status==="working")&&empty,voice=empty&&!run;b.classList.toggle("stop",run);b.classList.toggle("voice",voice);b.replaceChildren(I(run?"square":voice?"audio-lines":"arrow-up"));b.setAttribute("aria-label",run?"Dừng":voice?"Nói":"Gửi")}
+function setSendMode(){const b=$("#composer .send");const empty=!$("#input").value.trim(),run=!!(cur&&cur.status==="working")&&empty,voice=empty&&!run;b.classList.toggle("stop",run);b.classList.toggle("voice",voice);const ic=run?"square":voice?"audio-lines":"arrow-up";if(b.dataset.ic!==ic){const changed=!!b.dataset.ic;b.dataset.ic=ic;const n=I(ic);if(changed)n.classList.add("morph");b.replaceChildren(n)}b.setAttribute("aria-label",run?"Dừng":voice?"Nói":"Gửi")}
 let stopping=false;async function stopAgent(){if(!cur||stopping)return;stopping=true;try{await api(`/agents/${cur.id}/stop`,{});buzz("soft");toast("Đã dừng")}catch{toast("Không dừng được")}finally{stopping=false}}
 let sending=false;
 async function sendMsg(text){const a=cur;text=text.trim();if(!a||!text||sending)return false;sending=true;
@@ -264,7 +268,7 @@ function openSheet(s){if(sheetOpen)return;closeMenu();openedAt=performance.now()
 function closeSheet(force){const s=sheetOpen;if(!s||(!force&&performance.now()-openedAt<350))return;sheetOpen=null;ghost=performance.now()+400;s.style.transform="";s.classList.add("closed");scrim.classList.add("hidden");document.activeElement?.blur?.();setTimeout(()=>{if(sheetOpen!==s)s.classList.add("hidden")},330)}
 // swap one sheet for another (settings → connectors / themes)
 function swapSheet(next){const s=sheetOpen;if(s){sheetOpen=null;s.classList.add("closed");setTimeout(()=>{if(sheetOpen!==s)s.classList.add("hidden")},330)}openedAt=0;openSheet(next)}
-scrim.onclick=()=>closeSheet();
+scrim.onclick=()=>{if(performance.now()-openedAt<600)return;closeSheet()};
 document.querySelectorAll(".sheet").forEach(s=>{let y0=null,dy=0;const start=e=>{const sc=e.target.closest(".scroll");if(sc&&sc.scrollTop>0)return;if(e.target.closest("input,textarea"))return;y0=e.touches[0].clientY;dy=0};
  s.addEventListener("touchstart",start,{passive:true});
  s.addEventListener("touchmove",e=>{if(y0==null)return;dy=e.touches[0].clientY-y0;if(dy<=0){s.style.transform="";return}if(e.target.closest(".scroll")&&dy<12)return;e.preventDefault();s.classList.add("drag");s.style.transform=`translate3d(0,${dy}px,0)`},{passive:false});
@@ -454,7 +458,7 @@ const shareLink=async a=>{const url=location.origin+"/app/#"+a.id;try{if(navigat
 function openProfile(id){const a=byId(id);if(!a)return;closeMenu();profId=id;renderProfile();if(!S.msgs[id])loadMsgs(id).then(()=>profId===id&&renderProfile()).catch(()=>{});$("#profile").classList.remove("off");$("#profBody").scrollTop=0;buzz("tap");history.pushState({p:1},"",location.hash||"#"+id)}
 function closeProfile(fromPop){if(!profId)return;profId=null;closeMenu();$("#profile").classList.add("off");if(!fromPop&&history.state&&history.state.p){skipPop=true;history.back()}}
 function renderProfile(){const a=byId(profId);const B=$("#profBody");if(!a){B.innerHTML="";return}B.innerHTML="";
- const hero=el("div","hero");const av=el("span","hero-av");av.append(avatarOf(a,112));const bd=a.pin?el("i","badge pin"):badge(a);if(a.pin)bd.append(I("star",12));if(bd)av.append(bd);hero.append(av,el("h2",0,a.name));if(a.desc)hero.append(el("p",0,a.desc));
+ const hero=el("div","hero");const av=el("span","hero-av");av.append(avatarOf(a,112));const bd=badge(a)||(a.pin?pinBadge():null);if(bd)av.append(bd);hero.append(av,el("h2",0,a.name));if(a.desc)hero.append(el("p",0,a.desc));
  if(!isGroup(a)){const ed=el("button","pill soft","Sửa");ed.id="profEdit";ed.onclick=()=>openCreator(a);hero.append(ed)}B.append(hero);
  const L=S.msgs[a.id]||[],pend=S.pending.filter(m=>m.agentId===a.id).length;
  const toThread=()=>{closeProfile();if(!cur||cur.id!==a.id)setTimeout(()=>openThread(a.id),cur?0:0)};

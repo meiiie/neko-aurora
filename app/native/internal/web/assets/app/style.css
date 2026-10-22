@@ -66,7 +66,8 @@ code,pre,kbd{font-family:var(--na-font-family-mono)}
 
 .badge{position:absolute;right:0;bottom:0;width:14px;height:14px;border-radius:7px;box-shadow:0 0 0 2.5px var(--card);display:grid;place-items:center;color:#fff}
 .feat .badge{width:22px;height:22px;border-radius:11px;right:4px;bottom:6px;box-shadow:0 0 0 3px var(--card)}
-.badge.work{background:#34c759;animation:pulse 1.4s infinite}.badge.wait{background:var(--warn-fill)}.badge.err{background:var(--danger)}.badge.pin{background:var(--warn-fill)}
+.badge.work{background:#34c759}.badge.work::after{content:"";position:absolute;inset:0;border-radius:inherit;background:#34c759;animation:ring 2.4s cubic-bezier(.2,.8,.2,1) infinite}
+@keyframes ring{0%{transform:scale(1);opacity:.45}70%,100%{transform:scale(2.1);opacity:0}}.badge.wait{background:var(--warn-fill)}.badge.err{background:var(--danger)}.badge.pin{background:var(--warn-fill)}
 .face{display:block;flex:none}
 .stack{position:relative;display:block;flex:none}.stack .face{position:absolute}.stack .s0{left:0;top:0}.stack .s1{right:0;bottom:0;outline:2.5px solid var(--card);border-radius:50%}
 .rows{list-style:none;margin:0;padding:0}
@@ -100,7 +101,7 @@ code,pre,kbd{font-family:var(--na-font-family-mono)}
 .pill.small{min-height:44px;margin-top:4px;font-size:15px}
 .text-btn{border:0;background:none;min-height:44px;min-width:44px;color:var(--ink);font-weight:500}
 .empty{color:var(--mute);text-align:center;margin:40px 0}
-.unread-pill{position:absolute;left:50%;transform:translateX(-50%);bottom:calc(var(--sb) + 80px);z-index:3;height:40px;padding:0 18px 0 12px;border-radius:20px;border:0;background:#3478f6;color:#fff;font-weight:var(--w-semi);font-size:16px;letter-spacing:var(--t15);display:flex;align-items:center;gap:6px;box-shadow:0 6px 18px rgba(52,120,246,.35);animation:pop .3s var(--spring)}
+.unread-pill{position:absolute;left:50%;transform:translateX(-50%);bottom:calc(var(--sb) + 80px);z-index:3;height:44px;padding:0 18px 0 12px;border-radius:22px;border:0;background:#3478f6;color:#fff;font-weight:var(--w-semi);font-size:16px;letter-spacing:var(--t15);display:flex;align-items:center;gap:6px;box-shadow:0 6px 18px rgba(52,120,246,.35);animation:pop .3s var(--spring)}
 .unread-pill::before{content:"";position:absolute;inset:-2px 0}
 @keyframes pop{from{opacity:0;transform:translate(-50%,10px) scale(.9)}}
 .dock{position:absolute;left:0;right:0;bottom:0;z-index:2;display:flex;gap:12px;align-items:center;padding:12px calc(var(--sr) + 16px) calc(var(--sb) + 16px) calc(var(--sl) + 16px);pointer-events:none;background:linear-gradient(transparent,color-mix(in srgb,var(--card) 85%,transparent) 50%)}
@@ -210,17 +211,16 @@ code,pre,kbd{font-family:var(--na-font-family-mono)}
 .chips{display:contents}
 .gchip{display:flex;align-items:center;gap:6px;height:44px;padding:0 12px 0 8px;border-radius:22px;border:0;background:var(--sunk);font-size:15px}
 .group-name{margin:0 calc(var(--sr) + 16px) 8px calc(var(--sl) + 16px);width:auto}
-.pick{list-style:none;margin:0}.conns{list-style:none;margin:0;padding:0}.pick li{border-bottom:.5px solid var(--line)}
+.pick{list-style:none;margin:0}.pick li{border-bottom:.5px solid var(--line)}
 .pick-row{display:flex;align-items:center;gap:12px;width:100%;min-height:64px;border:0;background:none;padding:8px 0;text-align:left}
 .pt{flex:1;min-width:0;display:flex;flex-direction:column}.pt b{font-weight:var(--w-semi)}.pt small{color:var(--mute);font-size:14px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .ck{width:26px;height:26px;border-radius:13px;box-shadow:inset 0 0 0 1.5px var(--line-2);display:grid;place-items:center;flex:none}
 .pick-row[aria-pressed=true] .ck{background:var(--ink);box-shadow:none;color:var(--bg)}
 .note{color:var(--mute);font-size:15px;padding:16px 0;list-style:none}
 /* grouped inset cards (settings, profile) */
-.card-group h3{font-size:13px;font-weight:500;color:var(--mute);margin:20px 16px 6px}
+.card-group h3{font-size:13px;line-height:16px;font-weight:500;color:var(--mute);margin:0 16px 8px}
 .card{background:var(--card);border-radius:23px;overflow:hidden}
-.card+.card,.card+.caption+.card{margin-top:20px}
-#profBody .card+.card{margin-top:24px}
+.card-group+.card-group{margin-top:24px}.card-group:not(:has(h3))+.card-group:not(:has(h3)){margin-top:16px}
 .cell{display:flex;align-items:center;gap:14px;width:100%;min-height:56px;border:0;background:none;padding:6px 16px;text-align:left;font-size:17px;position:relative}
 .cell+.cell::before{content:"";position:absolute;top:0;left:54px;right:0;border-top:.5px solid var(--line)}
 button.cell:active{background:var(--sunk)}
@@ -372,3 +372,52 @@ button.cell:active{background:var(--sunk)}
 .ctx-subh{font-weight:var(--w-semi)}.ctx-sep{height:.5px;background:var(--line-2);margin:4px 14px}
 .ctx-form{display:flex;gap:8px;padding:6px}.ctx-form input{flex:1;min-width:0;height:44px;border:0;border-radius:14px;background:var(--sunk);padding:0 12px;font:inherit;font-size:16px;color:var(--ink)}.ctx-form .pill{height:44px;min-width:64px}
 @media (prefers-reduced-motion:reduce){.ctx-card,.ctx-menu,.ctx-sub{transform:none!important}}
+
+/* ux-pro-pass: motion (Emil Kowalski: ease-out, <300ms, transform/opacity only; reduced-motion => no movement) */
+.msg.enter{animation:msgIn .26s cubic-bezier(.2,.8,.2,1) both}
+.msg.mine.enter{transform-origin:100% 100%;animation-name:msgInMine}
+@keyframes msgIn{from{opacity:0;transform:translateY(8px)}}
+@keyframes msgInMine{from{opacity:0;transform:translateY(8px) scale(.96)}}
+.send{transition:background-color .2s ease,color .2s ease,transform .12s ease}
+.send .morph{animation:morph .22s cubic-bezier(.2,.8,.2,1)}
+@keyframes morph{from{opacity:0;transform:scale(.5) rotate(-45deg)}}
+.badge.pin{background:#ffcc00;color:#1c1c1e}
+@media (prefers-reduced-motion:reduce){.badge.work::after{display:none}.msg.enter{animation:fadeOnly .2s both!important}}
+@keyframes fadeOnly{from{opacity:0}}
+
+/* ux-pro-pass 2 — Apple HIG layout/typography: 17pt body, ≥11pt captions, Regular/Medium/Semibold only,
+   hierarchy by weight+colour, align to one leading edge, group by space/containers, 44pt targets, 8pt rhythm. */
+/* home */
+.feat-name{color:var(--ink);font-weight:500}
+.featured{padding:8px 16px 24px;row-gap:16px}
+/* secret card: label first, technical name as a caption, full-width field + button */
+.secret{padding:16px;border-radius:20px}
+.sec-top{display:grid;grid-template-columns:36px 1fr;column-gap:12px;align-items:center}
+.sec-top>svg{grid-row:span 2;width:36px;height:36px;padding:8px;border-radius:18px;background:var(--sunk);color:var(--ink)}
+.sec-top b{font-size:17px;line-height:22px}
+.sec-top code{grid-column:2;justify-self:start;max-width:100%;background:none;padding:0;border-radius:0;font-size:12px;line-height:16px}
+.sec-desc{margin:12px 0 0;font-size:15px;line-height:20px}
+.sec-row{flex-direction:column;align-items:stretch;gap:8px;margin-top:16px}
+.sec-row .sec-save{width:100%;height:50px;border-radius:25px}
+.sec-done{margin-top:12px}
+/* connectors: one leading edge, inset separators, 8pt spacing */
+.conn-body,.setup-body{padding-left:calc(var(--sl) + 16px);padding-right:calc(var(--sr) + 16px)}
+.conn-sec+.conn-sec{margin-top:16px}
+.conn-h{font-size:20px;line-height:24px;padding:8px 0}
+#connectors,#connSetup{background:var(--bg)}
+.conns{margin:0;list-style:none;background:var(--card);border-radius:20px;padding:0 16px}
+.conn{min-height:72px;padding:12px 0;position:relative}
+.conn+.conn::before{content:"";position:absolute;top:0;left:58px;right:0;border-top:.5px solid var(--line)}
+.conn-foot{margin:24px 4px 0;line-height:18px}
+.setup-body .secret{background:var(--card)}
+/* new-bot sheet: keep the last colour row clear of the sticky footer */
+#sheetBody{padding-bottom:calc(var(--sb) + 96px)}
+/* login */
+.login form{gap:16px}
+.login .login-mark{width:80px;height:80px;border-radius:20px}
+.login input{text-align:center}.login input:not(:placeholder-shown){letter-spacing:.08em}
+.login-help{margin:0;color:var(--mute);font-size:13px;line-height:18px}
+.login-links{position:absolute;left:0;right:0;bottom:calc(var(--sb) + 16px);display:flex;justify-content:center;align-items:center;gap:8px;font-size:13px;color:var(--mute)}
+.login-links a{color:var(--mute);text-decoration:none;min-height:44px;display:inline-flex;align-items:center;padding:0 4px}
+/* chat: sources/status line aligns with bubble text edge */
+.sources{margin:0 0 16px 16px}

@@ -1,7 +1,9 @@
+import {notLive} from './guard.mjs';
 // Real-touch mobile test for /app/ against a running neko-aurora.
-// npm i puppeteer-core ; AURORA_URL=http://127.0.0.1:8765/app/ OUT=./aurora-shots/ node mobile-touch.mjs
+// npm i puppeteer-core ; AURORA_URL=http://127.0.0.1:8799/app/ OUT=./aurora-shots/ node mobile-touch.mjs
 import puppeteer from 'puppeteer-core';
-const U=process.env.AURORA_URL||'http://127.0.0.1:8765/app/',O=process.env.OUT||'./aurora-shots/';
+const U=process.env.AURORA_URL||'http://127.0.0.1:8799/app/',O=process.env.OUT||'./aurora-shots/';
+notLive(U);
 const REAL=!!process.env.REAL_AI;
 const SMTP=process.env.FAKE_SMTP||''; // e.g. http://127.0.0.1:8926 (fake-smtp.mjs); enables the Gmail delivery flow // stricter timeouts off for a real model
 const sleep=ms=>new Promise(r=>setTimeout(r,ms));
@@ -243,7 +245,7 @@ for(const w of (process.env.WIDTHS||'360,390,430').split(',').map(Number)){let p
  ok(w,'back to Vietnamese',await p.evaluate(()=>document.documentElement.lang==='vi'&&document.querySelector('#meBtn').getAttribute('aria-label')==='Cài đặt'));
  ok(w,'no page errors',!errs.length,errs.join('|').slice(0,200));
  await ctx.close();
-}catch(e){ok(w,'EXC',false,e.message.slice(0,160));try{await p.screenshot({path:O+w+'-exc.png'})}catch{}}}
+}catch(e){ok(w,'EXC',false,e.message.slice(0,160)+' url='+p.url()+' rows='+(await p.$$eval('#rows > *',l=>l.map(x=>x.className).join(',')).catch(()=>'?')));try{await p.screenshot({path:O+w+'-exc.png'})}catch{}}}
 // brief
 {const p=await b.newPage();await p.goto(U,{waitUntil:'domcontentloaded'});await p.waitForFunction('window.__AURORA');
  const br=await p.evaluate(async()=>(await fetch('/app/api/brief',{method:'POST',headers:{'Content-Type':'application/json'},body:'{}'})).json());
