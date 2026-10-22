@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -33,6 +34,28 @@ func (a *AI) ModelName() string { return a.Model }
 type Core struct {
 	Bun, Entry, Home, Model, Profile string
 	key                              string
+}
+
+// Hybrid streams turns straight from z.ai over HTTP (TTFT ~3s vs ~23s through
+// a Core CLI cold start + buffered output) and falls back to Core only when the
+// direct call fails before producing any text. AURORA_RUNTIME=core forces Core.
+type Hybrid struct {
+	Fast *AI
+	Core *Core
+}
+
+func (h *Hybrid) Configured() bool  { return h.Fast.Configured() || h.Core.Configured() }
+func (h *Hybrid) Runtime() string   { return "direct-http" }
+func (h *Hybrid) ModelName() string { return h.Fast.Model }
+
+func (h *Hybrid) Stream(ctx context.Context, msgs []ChatMsg, onDelta func(string)) (string, error) {
+	got := false
+	out, err := h.Fast.Stream(ctx, msgs, func(d string) { got = true; onDelta(d) })
+	if err == nil || got || ctx.Err() != nil {
+		return out, err
+	}
+	log.Printf("aurora direct model failed (%v); falling back to core", err)
+	return h.Core.Stream(ctx, msgs, onDelta)
 }
 
 // CoreFromEnv locates Bun and core/bin/neko.ts. NEKO_CORE_DIR overrides the

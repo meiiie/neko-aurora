@@ -74,7 +74,11 @@ func New(ctx context.Context, store *ledger.Store, stateDir string, opt Options)
 	var model Model = AIFromEnv()
 	if Env("AI_BASE_URL") == "" {
 		if c := CoreFromEnv(stateDir); c != nil {
-			model = c
+			if Env("RUNTIME") == "core" {
+				model = c
+			} else {
+				model = &Hybrid{Fast: model.(*AI), Core: c}
+			}
 		}
 	}
 	v, err := vault.Open(stateDir)

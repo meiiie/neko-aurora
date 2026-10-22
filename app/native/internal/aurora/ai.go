@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log"
 	"net/http"
 	"os"
 	"strings"
@@ -50,10 +51,45 @@ var ErrNoAI = errors.New("ai_not_configured")
 
 // Stream sends messages and calls onDelta for each content token. It returns
 // the full content.
+// Stream runs one streamed completion. A transient failure that happens before
+// any text (unreachable, 429, 5xx, broken stream) is retried once after a short
+// back-off; time-to-first-token is logged for latency tracking.
 func (a *AI) Stream(ctx context.Context, msgs []ChatMsg, onDelta func(string)) (string, error) {
 	if !a.Configured() {
 		return "", ErrNoAI
 	}
+	t0 := time.Now()
+	var first time.Duration
+	wrap := func(d string) {
+		if first == 0 {
+			first = time.Since(t0)
+		}
+		onDelta(d)
+	}
+	var out string
+	var err error
+	for try := 0; try < 2; try++ {
+		out, err = a.streamOnce(ctx, msgs, wrap)
+		if err == nil || first > 0 || ctx.Err() != nil || !retryable(err) {
+			break
+		}
+		select {
+		case <-ctx.Done():
+		case <-time.After(retryDelay):
+		}
+	}
+	log.Printf("aurora ai model=%s ttft_ms=%d total_ms=%d chars=%d err=%v", a.Model, first.Milliseconds(), time.Since(t0).Milliseconds(), len(out), err != nil)
+	return out, err
+}
+
+var retryDelay = 1500 * time.Millisecond
+
+func retryable(err error) bool {
+	e := err.Error()
+	return e == "ai_unreachable" || e == "ai_stream_broken" || strings.HasPrefix(e, "ai_http_429") || strings.HasPrefix(e, "ai_http_5")
+}
+
+func (a *AI) streamOnce(ctx context.Context, msgs []ChatMsg, onDelta func(string)) (string, error) {
 	body, _ := json.Marshal(map[string]any{
 		"model": a.Model, "messages": msgs, "stream": true, "temperature": 0.6,
 		"thinking": map[string]string{"type": "disabled"},
