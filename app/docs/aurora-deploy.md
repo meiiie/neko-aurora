@@ -1,7 +1,7 @@
 # Neko Aurora — triển khai (deploy readiness, chưa tốn tiền)
 
 ## Biến môi trường
-> Tên cũ `DUET_*` vẫn được đọc nếu chưa đặt `AURORA_*`.
+> Các tên cũ `DUET_*` đã bị bỏ (2026-10-22): hãy đổi sang `AURORA_*`, nếu không chúng bị bỏ qua.
 
 | Biến | Bắt buộc | Ý nghĩa |
 |---|---|---|
@@ -18,11 +18,13 @@
 An toàn: khi bind 0.0.0.0, mọi kết nối không phải loopback chỉ tới được host công khai `/app/` (sau đăng nhập mã chủ) và `/healthz`; toàn bộ control plane khác trả 403. Email chỉ gửi khi chủ bấm **Duyệt** trên thẻ, và chỉ tới địa chỉ chính chủ đã gõ trong luồng đó.
 
 ## Railway (gói miễn phí / trial, không cần thẻ để thử)
-1. railway.com → New Project → Deploy from GitHub repo `meiiie/neko-aurora` (nhánh `feat/neko-aurora-mobile` hoặc sau khi merge). `railway.json` + `Dockerfile` ở gốc repo tự được dùng.
+1. railway.com → New Project → Deploy from GitHub repo `meiiie/neko-aurora` (nhánh `feat/neko-duet-mobile` hoặc sau khi merge). `railway.json` + `Dockerfile` ở gốc repo tự được dùng.
 2. Settings → Networking → **Generate Domain** → chép tên miền vào `AURORA_PUBLIC_HOST`.
 3. Variables: thêm `ZAI_API_KEY`, `AURORA_OWNER_CODE`, (tuỳ chọn) `AURORA_SMTP_*`.
 4. Add Volume, mount path `/data` (giữ agent, lịch sử, khoá VAPID).
 5. Deploy → mở `https://<domain>/app/` trên iPhone → nhập mã chủ → Chia sẻ → "Thêm vào MH chính" để có push.
+
+Image có sẵn Bun + Neko Core (`/opt/neko-core`), nên mỗi lượt chạy qua Core với GLM-5.3; đặt `AURORA_RUNTIME=http` để gọi z.ai trực tiếp.
 
 Chạy local bằng Docker:
 ```

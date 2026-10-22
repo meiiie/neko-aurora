@@ -440,9 +440,3 @@ func (m *Manager) failed(w ledger.Work, code string) {
 		_ = m.store.Finish(w.RequestID, w.Epoch, "recovery_required", code)
 	}
 }
-func (m *Manager) prompt(w ledger.Work) string {
-	if w.Core != nil {
-		return "Continue the existing request from its durable Core task. Use recorded results; do not repeat completed effects. Preserve denied or unknown outcomes."
-	}
-	return w.RuntimePrompt()
-}

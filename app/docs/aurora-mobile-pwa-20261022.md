@@ -5,30 +5,18 @@ Neko Aurora is a mobile-first, installable surface at `/app/`. The Go control pl
 You hand work to agents by message. They keep working in the background, and nothing goes out without your OK.
 
 ## Server (`app/native/internal/aurora`)
-- **Store:** `state/app/duet.json` (0600, atomic rename). It holds:
-  - agents (CRUD, pin, archive, pixel avatar spec);
-  - messages;
-  - activity log;
-  - approvals;
-  - morning brief;
-  - push subscriptions.
-- **AI:** z.ai GLM Coding Plan, OpenAI-compatible at `https://api.z.ai/api/coding/paas/v4`, model `glm-5.3`.
-  - The key comes from `ZAI_API_KEY` in the server environment only. It is never sent to the client, and error text is scrubbed of it.
-  - Overrides: `AURORA_AI_BASE_URL` and `AURORA_AI_MODEL`.
-  - Thinking is disabled for latency.
-- **Background tasks:** each agent has one worker. A message that arrives while the agent is running is picked up right after the current turn (steering).
-  - Replies stream token by token over SSE (`delta` events), then persist as a `message`.
-  - A server restart marks interrupted tasks as `error` honestly.
-- **Approvals:** the model must end its reply with an `APPROVAL: {json}` line for any outbound action (send, post, pay). That becomes a pending approval card.
-  - `POST /app/api/approvals/{id}` records exactly one decision. A repeat or racing decision gets 409.
-  - **Nothing is ever sent externally.** Approval only records the decision; there is no outbound channel yet, and the agent says so.
-- **Morning brief:** AI-generated JSON summary of agent status, pending approvals and recent activity.
-  - Runs daily at 05:30 server-local time, on first start, and on demand (`POST /app/api/brief`).
-  - Without AI it falls back to a deterministic summary.
-- **Notifications:** Web Push (RFC 8291 aes128gcm, VAPID RFC 8292), stdlib only. The VAPID key is in `state/app/duet-vapid.pem`.
-  - Pushes go out for: an approval is needed, a task is done, the brief is ready.
-  - Fallback: the service worker shows a notification from the SSE `notify` event while the app is open.
-- **SSE:** `GET /app/api/events` with a 15 s heartbeat. It clears the server read deadline so the long stream survives `ReadTimeout`. The client resyncs `/state` on reconnect or when the app becomes visible.
+- **One model:** the control-plane ledger (`state/transactions.jsonl`, hash-chained, replay-validated). There is no Aurora store.
+  - Agents are ledger bots; a message is a ledger work item; the reply, plan, choices and approval are `work.direct_*` events on that work.
+  - Avatar, pin and tag are `aurora.look` records; Web Push subscriptions are `aurora.push` records; the activity log is an append-only `aurora.activity` journal.
+- **Turns:** run through Neko Core (`bun core/bin/neko.ts --profile zai --no-tools run`, GLM-5.3 on z.ai). Without Core the same provider is called over HTTP (`AURORA_AI_BASE_URL`, `AURORA_AI_MODEL`, or `AURORA_RUNTIME=http`).
+  - `ZAI_API_KEY` stays in the server environment; it never reaches the client.
+  - Work queued from the desktop is run by the same runner, so both UIs show one task.
+  - A restart marks interrupted turns failed (`interrupted_by_restart`).
+- **Approvals:** an `APPROVAL: {json}` line becomes a pending card; only the owner's journaled decision moves it, and repeat/racing decisions get 409.
+- **Outbound (`internal/outbound`):** after approval the card goes to a channel adapter. Email over SMTP (`AURORA_SMTP_*`) is the first adapter. The router refuses any recipient the owner did not type in the thread; an unconfigured channel queues the card instead of sending.
+- **Morning brief:** a ledger task on the brief bot; daily 05:30, on first start and on demand (`POST /app/api/brief`); deterministic fallback without AI.
+- **Notifications:** Web Push (RFC 8291 aes128gcm, VAPID RFC 8292), stdlib only. VAPID key: `state/aurora/vapid.pem`.
+- **SSE:** `GET /app/api/events` with a 15 s heartbeat; the client resyncs `/state` on reconnect or when visible.
 
 ### API
 | Method and path | Purpose |

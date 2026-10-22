@@ -6,12 +6,12 @@ License headers are kept in the files that carry derived code.
 ## AG-UI protocol — MIT
 - Source: https://github.com/ag-ui-protocol/ag-ui (commit 8aa86867fb2918001dca1c64db3976cd37f50703)
 - Used: `EventType` enum from `sdks/typescript/packages/core/src/generated/types.ts`
-- In: `app/native/internal/app/agui.go` (Go translation), `app/native/internal/web/assets/app/agui.js`
+- In: `app/native/internal/aurora/agui.go` (Go translation; the server emits AG-UI run/step events on the `/app/api/events` stream)
 
 ## OpenMuse (CopilotKit) — MIT, Copyright (c) 2026 OpenMuse contributors
 - Source: https://github.com/CopilotKit/openmuse (commit 1ac68f3909f2478ab6280883f1ab5ea65eb5719d)
 - Used: `TaskStatus`, `TaskStep`, `RunEvent` shapes from `packages/domain/src/agent.ts`
-- In: `app/native/internal/app/agui.go`, `app/native/internal/ledger/direct_runtime.go` (step statuses)
+- In: `app/native/internal/aurora/agui.go`, `app/native/internal/ledger/direct_runtime.go` (step statuses)
 
 ## OpenDots (CopilotKit) — MIT
 - Source: https://github.com/CopilotKit/OpenDots

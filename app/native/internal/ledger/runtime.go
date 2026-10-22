@@ -684,7 +684,7 @@ func validRuntimeReplay(s *Store, e Event) bool {
 		if w.RuntimeStopReceipt == nil || (e.Type == "work.runtime_never_launched") != (w.RuntimeStopReceipt.Version == 2) {
 			return false
 		}
-		if w.RuntimeStopped != true || old.RuntimeStopped || old.AttemptID == "" || w.RuntimeStopReceipt == nil || !validStoppedReceipt(old, *w.RuntimeStopReceipt) {
+		if !w.RuntimeStopped || old.RuntimeStopped || old.AttemptID == "" || w.RuntimeStopReceipt == nil || !validStoppedReceipt(old, *w.RuntimeStopReceipt) {
 			return false
 		}
 		expected.RuntimeStopped = true
