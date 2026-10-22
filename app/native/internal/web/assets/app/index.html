@@ -3,8 +3,8 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<meta name="theme-color" media="(prefers-color-scheme: light)" content="#f4efe4">
-<meta name="theme-color" media="(prefers-color-scheme: dark)" content="#131018">
+<meta name="theme-color" media="(prefers-color-scheme: light)" content="#f7f7f7">
+<meta name="theme-color" media="(prefers-color-scheme: dark)" content="#000000">
 <meta name="color-scheme" content="light dark">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="mobile-web-app-capable" content="yes">
@@ -43,20 +43,45 @@
     </div>
   </section>
   <section class="screen thread off" id="thread" aria-label="Hội thoại">
-    <header class="top glass-bar">
-      <button class="icon-btn" id="backBtn" aria-label="Quay lại"></button>
-      <span class="face-slot" id="threadAvatar" aria-hidden="true"></span>
-      <div class="title"><b id="threadName"></b><small id="threadState"></small></div>
-      <button class="icon-btn" id="activityBtn" aria-label="Xem bot đang làm gì"></button>
+    <header class="float-top">
+      <button class="fab" id="backBtn" aria-label="Quay lại"></button>
+      <button class="who" id="whoBtn" aria-label="Xem hồ sơ"><span class="face-slot" id="threadAvatar" aria-hidden="true"></span><span class="title"><b id="threadName"></b><small id="threadState"></small></span></button>
+      <button class="fab" id="threadMore" aria-label="Thêm" aria-haspopup="menu"></button>
     </header>
     <div class="scroll" id="messages"></div>
     <form class="composer" id="composer">
-      <textarea id="input" rows="1" placeholder="Nhắn tin…" enterkeyhint="send"></textarea>
-      <button type="button" class="mic" id="micBtn" aria-label="Nói để nhập"></button>
-      <button class="send" aria-label="Gửi"></button>
+      <button type="button" class="fab plus" id="plusBtn" aria-label="Thêm" aria-haspopup="menu"></button>
+      <div class="ask">
+        <textarea id="input" rows="1" placeholder="Hỏi bot" enterkeyhint="send"></textarea>
+        <button type="button" class="mic" id="micBtn" aria-label="Nói để nhập"></button>
+        <button class="send" aria-label="Gửi"></button>
+      </div>
     </form>
   </section>
+  <section class="screen profile off" id="profile" aria-label="Hồ sơ bot">
+    <header class="float-top">
+      <button class="fab" id="profBack" aria-label="Quay lại"></button>
+      <span class="spacer"></span>
+      <button class="fab" id="profShare" aria-label="Chia sẻ"></button>
+      <button class="fab" id="profMore" aria-label="Thêm" aria-haspopup="menu"></button>
+    </header>
+    <div class="scroll" id="profBody"></div>
+  </section>
   <div class="scrim hidden" id="scrim"></div>
+  <div class="menu glass hidden" id="threadMenu" role="menu">
+    <button role="menuitem" id="tmProfile"><span class="mi" data-i="circle-user"></span>Xem hồ sơ</button>
+    <button role="menuitem" id="tmFind"><span class="mi" data-i="search"></span>Tìm trong chat</button>
+    <button role="menuitem" id="tmShare"><span class="mi" data-i="share"></span>Chia sẻ</button>
+  </div>
+  <div class="menu glass hidden" id="profMenu" role="menu">
+    <button role="menuitem" id="pmCopy"><span class="mi" data-i="copy"></span>Sao chép ID</button>
+    <button role="menuitem" id="pmPin"><span class="mi" data-i="star"></span><span id="pmPinT">Ghim</span></button>
+  </div>
+  <div class="menu glass hidden up" id="plusMenu" role="menu">
+    <button role="menuitem" id="activityBtn"><span class="mi" data-i="list-checks"></span>Đang làm gì</button>
+    <button role="menuitem" id="pmGroup"><span class="mi" data-i="users"></span>Nhóm chat mới</button>
+  </div>
+  <div class="findbar glass hidden" id="findBar"><span class="mi" data-i="search"></span><input id="findInput" type="search" placeholder="Tìm trong chat" aria-label="Tìm trong chat"><span id="findCount"></span><button class="text-btn" id="findClose">Xong</button></div>
   <div class="menu glass hidden" id="newMenu" role="menu">
     <button role="menuitem" id="menuBot"><span class="mi" data-i="plus"></span>Bot mới</button>
     <button role="menuitem" id="menuGroup"><span class="mi" data-i="users"></span>Nhóm chat mới</button>
@@ -64,7 +89,7 @@
 
   <section class="sheet hidden" id="sheet" role="dialog" aria-label="Bot mới">
     <div class="grip" id="grip"></div>
-    <header class="sheet-top"><button class="icon-btn close" id="cancelBtn" aria-label="Đóng"></button><b>Bot mới</b><span class="w44"></span></header>
+    <header class="sheet-top"><button class="icon-btn close" id="cancelBtn" aria-label="Đóng"></button><b id="sheetTitle">Bot mới</b><span class="w44"></span></header>
     <div class="scroll sheet-body" id="sheetBody">
       <div class="stage" id="preview"></div>
       <input class="field" id="agentName" maxlength="28" placeholder="Đặt tên cho bot" aria-label="Tên bot" autocomplete="off">

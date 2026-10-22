@@ -111,6 +111,32 @@ for(const w of (process.env.WIDTHS||'360,390,430').split(',').map(Number)){let p
  ok(w,'user msg persisted once (double Enter)',ms1.filter(m=>m.role==='user').length===1);
  const reply=ms1.filter(m=>m.role==='agent').at(-1);ok(w,'AI reply streamed and persisted',sawDraft&&reply&&reply.text.length>10,`deltas=${deltas} `+(reply?.text||'').slice(0,70).replace(/\n/g,' '));
  await p.screenshot({path:`${O}${w}-4-thread-reply.png`});
+ // Grok-like look: neutral default theme, system font, black user bubble, plain assistant text
+ const look=await p.evaluate(()=>{const cs=getComputedStyle(document.body);const u=document.querySelector('.msg.mine'),g=document.querySelector('.msg:not(.mine):not(.sys):not(.typing)');return{theme:document.documentElement.dataset.theme||'',bg:cs.backgroundColor,font:cs.fontFamily,ub:u&&getComputedStyle(u).backgroundColor,uc:u&&getComputedStyle(u).color,gb:g&&getComputedStyle(g).backgroundColor}});
+ ok(w,'default neutral theme + system font stack',!look.theme&&look.bg==='rgb(247, 247, 247)'&&/^-apple-system/.test(look.font),look.bg+' '+look.font.slice(0,40));
+ ok(w,'black user bubble, white text; assistant text has no bubble',look.ub==='rgb(13, 13, 13)'&&look.uc==='rgb(247, 247, 247)'&&look.gb==='rgba(0, 0, 0, 0)',JSON.stringify([look.ub,look.uc,look.gb]));
+ ok(w,'composer: + button, "Hỏi <bot>" pill, black voice button',await p.$eval('#input',(e,n)=>e.placeholder==='Hỏi '+n,name)&&await p.$eval('#composer .send',e=>e.classList.contains('voice')&&getComputedStyle(e).backgroundColor==='rgb(13, 13, 13)')&&!!(await p.$('#plusBtn')));
+ // header popover → find in chat
+ await tap('#threadMore');await sleep(350);ok(w,'thread ⋯ opens frosted popover (Xem hồ sơ / Tìm / Chia sẻ)',await p.$eval('#threadMenu',e=>!e.classList.contains('hidden')&&getComputedStyle(e).backdropFilter.includes('blur')&&e.querySelectorAll('button').length===3));
+ sm=await small();ok(w,'touch>=44 thread popover',!sm.length,sm.join(','));
+ await p.screenshot({path:`${O}${w}-4b-chat-popover.png`});
+ await tap('#tmFind');await sleep(250);await p.keyboard.type('Neko');await sleep(250);ok(w,'Tìm trong chat highlights matches',(await p.$$('.msg.hit')).length>=1,await p.$eval('#findCount',e=>e.textContent));await tap('#findClose');await sleep(150);
+ // profile page
+ await tap('#threadMore');await sleep(300);await tap('#tmProfile');await sleep(500);
+ ok(w,'Xem hồ sơ opens bot profile',await p.$eval('#profile',e=>!e.classList.contains('off'))&&await p.$eval('#profBody h2',(e,n)=>e.textContent===n,name));
+ ok(w,'profile rows carry real values',await p.$eval('#prChat .cell-v',e=>/\d+ tin/.test(e.textContent))&&await p.$eval('#prPend .cell-v',e=>/\d+ chờ/.test(e.textContent))&&!!(await p.$('#prRun .cell-v')));
+ ok(w,'no-h-overflow profile',!(await overflow()));sm=await small();ok(w,'touch>=44 profile',!sm.length,sm.join(','));
+ await p.screenshot({path:`${O}${w}-4c-profile.png`});
+ const pid=await p.evaluate(()=>__AURORA.current());await tap('#prNotify .switch');await sleep(150);
+ ok(w,'profile notifications toggle mutes this bot on device',await p.$eval('#prNotify .switch',e=>e.getAttribute('aria-checked')==='false')&&await p.evaluate(id=>JSON.parse(localStorage.getItem('neko-aurora-muted')||'[]').includes(id),pid));
+ await tap('#prNotify .switch');await sleep(150);
+ await tap('#profMore');await sleep(300);ok(w,'profile ⋯ popover (Sao chép ID, Ghim)',await p.$eval('#profMenu',e=>!e.classList.contains('hidden')));
+ await p.screenshot({path:`${O}${w}-4d-profile-popover.png`});
+ await tap('#pmCopy');await sleep(300);ok(w,'Sao chép ID gives feedback',/ID/.test(await p.$eval('#toast',e=>e.textContent)));
+ await tap('#profEdit');await sleep(500);ok(w,'Sửa opens editor prefilled',await p.$eval('#sheetTitle',e=>e.textContent==='Sửa bot')&&await p.$eval('#agentName',(e,n)=>e.value===n,name));
+ const desc='Soạn bài và lịch '+w;await p.$eval('#agentDesc',e=>e.value='');await tap('#agentDesc');await p.keyboard.type(desc);for(let i=0;i<3;i++){await tap('#createBtn');await sleep(10)}await sleep(700);
+ ok(w,'Lưu patches the bot on server',(await srv('/state')).agents.find(a=>a.id===pid)?.desc===desc&&await p.$eval('#profBody .hero p',(e,d)=>e.textContent===d,desc));
+ await tap('#profBack');await sleep(450);ok(w,'profile back returns to the chat',await p.$eval('#profile',e=>e.classList.contains('off'))&&await p.$eval('#thread',e=>!e.classList.contains('off')));
  await tap('#input');await p.keyboard.type('Gửi email cho elena@example.com kèm deck cho buổi họp thứ Năm');await p.keyboard.press('Enter');
  let ap=null;for(let i=0;i<(REAL?600:100);i++){ap=await p.$('.approval:not(.done) .go');if(ap)break;await sleep(100)}
  ok(w,'outbound request gates on approval card',!!ap);await sleep(200);
@@ -133,7 +159,7 @@ for(const w of (process.env.WIDTHS||'360,390,430').split(',').map(Number)){let p
   await tap('#composer .send');await sleep(900);const ag=await p.evaluate(()=>__AURORA.state().agents.find(x=>x.id===__AURORA.current()));ok(w,'stop halts the running turn',ag&&ag.status==='idle',ag&&ag.status);
   ok(w,'send button back after stop',await p.$eval('#composer .send',e=>!e.classList.contains('stop')))}
  // activity sheet
- await tap('#activityBtn');await sleep(900);const logN=await p.$$eval('#log li',l=>l.length);ok(w,'activity log loads from server',logN>3,'items='+logN);
+ await tap('#plusBtn');await sleep(300);await tap('#activityBtn');await sleep(900);const logN=await p.$$eval('#log li',l=>l.length);ok(w,'activity log loads from server',logN>3,'items='+logN);
  await p.screenshot({path:`${O}${w}-7-activity.png`});await tap('#closeActivity');await sleep(450);
  // edge swipe back
  await swipe(5,400,w*0.8,410,5,6);await sleep(450);ok(w,'edge swipe back closes thread',await p.$eval('#thread',e=>e.classList.contains('off')));
