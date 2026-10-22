@@ -13,6 +13,12 @@ var contentTypes = map[string]string{
 	"/app.js":                              "text/javascript; charset=utf-8",
 	"/connections.js":                      "text/javascript; charset=utf-8",
 	"/style.css":                           "text/css; charset=utf-8",
+	"/duet/":                               "text/html; charset=utf-8",
+	"/duet/app.js":                         "text/javascript; charset=utf-8",
+	"/duet/style.css":                      "text/css; charset=utf-8",
+	"/duet/sw.js":                          "text/javascript; charset=utf-8",
+	"/duet/icon.svg":                       "image/svg+xml",
+	"/duet/manifest.webmanifest":           "application/manifest+json",
 	"/fonts/geist-latin-wght-normal.woff2": "font/woff2",
 	"/fonts/geist-latin-ext-wght-normal.woff2":  "font/woff2",
 	"/fonts/geist-vietnamese-wght-normal.woff2": "font/woff2",
@@ -30,8 +36,8 @@ func Serve(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	name := r.URL.Path
-	if name == "/" {
-		name = "/index.html"
+	if name == "/" || name == "/duet/" {
+		name += "index.html"
 	}
 	body, err := assets.ReadFile("assets" + name)
 	if err != nil {
@@ -39,5 +45,9 @@ func Serve(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.Header().Set("Content-Type", contentType)
+	if name == "/duet/sw.js" {
+		w.Header().Set("Service-Worker-Allowed", "/duet/")
+		w.Header().Set("Cache-Control", "no-cache")
+	}
 	_, _ = w.Write(body)
 }
