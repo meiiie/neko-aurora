@@ -94,3 +94,20 @@ func TestScriptDriftIsRepairedBeforeApproval(t *testing.T) {
 	}
 	t.Fatal("no approval")
 }
+
+func TestLanguageDriftHelpers(t *testing.T) {
+	for _, c := range []struct {
+		s  string
+		en bool
+	}{{"giảm 2,75% so with 5 phiên", true}, {"Mở file in ra giấy, to và rõ", false}, {"Xem `the config` tại https://x.com/the-and", false}} {
+		if hasStrayEnglish(c.s) != c.en {
+			t.Fatalf("%q", c.s)
+		}
+	}
+	if ackText("Vàng sáng nay: em cần giá", false, []toolCall{{"gold_price", ""}}) == "Vàng sáng nay: em cần giá" {
+		t.Fatal("name-prefixed ack kept")
+	}
+	if ackText("Để mình tra.", false, nil) != "Để mình tra." || ackText("Để mình tra.", true, nil) == "Để mình tra." {
+		t.Fatal("ack rules")
+	}
+}

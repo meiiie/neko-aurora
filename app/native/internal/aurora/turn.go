@@ -416,11 +416,7 @@ func (s *Service) runTurn(ctx context.Context, w ledger.Work) (*Approval, []stri
 		arg := d.Tool.Q + d.Tool.URL
 		s.publish("draft_end", map[string]string{"id": w.RequestID, "agentId": threadOf(w)})
 		if cur, _ := s.L.Get(w.RequestID); cur.Direct != nil && cur.Direct.Ack == "" {
-			a := strings.TrimSpace(strings.TrimLeft(strings.TrimSpace(d.Text), "-•* "))
-			if a == "" {
-				a = ackFor([]toolCall{{d.Tool.Name, arg}})
-			}
-			s.ack(w, a)
+			s.ack(w, ackText(d.Text, threadOf(w) != w.BotID, []toolCall{{d.Tool.Name, arg}}))
 		}
 		s.runTool(ctx, w, tc, d.Tool.Name, arg)
 		d, err = s.call(ctx, w, tc.inject(s.history(w.BotID, w.RequestID)))
@@ -515,12 +511,13 @@ func (s *Service) fixScript(ctx context.Context, w ledger.Work, d *directives) {
 	if len(h) > 0 && hasHan(h[len(h)-1].Content) {
 		return
 	}
+	en := hasStrayEnglish(h[len(h)-1].Content)
 	fix := func(t string) string {
-		if !hasHan(t) {
+		if !hasHan(t) && (en || !hasStrayEnglish(t)) {
 			return t
 		}
-		out, err := s.AI.Stream(ctx, []ChatMsg{{"system", "Bạn là biên tập viên tiếng Việt. Viết lại nguyên văn đoạn sau, chỉ thay các cụm chữ Hán/Nhật/Hàn bằng tiếng Việt tự nhiên đúng nghĩa. Giữ nguyên mọi thứ khác (xuống dòng, số liệu, [n]). Chỉ trả về đoạn đã sửa."}, {"user", t}}, func(string) {})
-		if out = strings.TrimSpace(out); err != nil || out == "" || hasHan(out) {
+		out, err := s.AI.Stream(ctx, []ChatMsg{{"system", "Bạn là biên tập viên tiếng Việt. Viết lại nguyên văn đoạn sau, chỉ thay các cụm chữ Hán/Nhật/Hàn và các từ nối tiếng Anh lạc vào câu (with, the, and, however…) bằng tiếng Việt tự nhiên đúng nghĩa. Giữ nguyên tên riêng, thuật ngữ, mã, URL, số liệu, xuống dòng và [n]. Chỉ trả về đoạn đã sửa."}, {"user", t}}, func(string) {})
+		if out = strings.TrimSpace(out); err != nil || out == "" || hasHan(out) || len(out) < len(t)/2 {
 			out = stripHan(t)
 		}
 		log.Printf("aurora repaired script drift (%d→%d chars)", len(t), len(out))
@@ -530,4 +527,28 @@ func (s *Service) fixScript(ctx context.Context, w ledger.Work, d *directives) {
 	if d.Approval != nil {
 		d.Approval.Body, d.Approval.Subject, d.Approval.Title = fix(d.Approval.Body), fix(d.Approval.Subject), fix(d.Approval.Title)
 	}
+}
+
+// ackText keeps the model's pre-tool sentence only when it reads like a clean
+// one-line acknowledgement; group turns, lists, "Name: …" prefixes and long or
+// multi-line text fall back to the server template.
+func ackText(t string, group bool, calls []toolCall) string {
+	t = strings.TrimSpace(t)
+	if group || t == "" || len([]rune(t)) > 160 || strings.ContainsAny(t, "\n[|") || strings.HasPrefix(t, "-") || strings.HasPrefix(t, "•") || strings.HasPrefix(t, "*") || strings.HasPrefix(t, "#") {
+		return ackFor(calls)
+	}
+	if i := strings.Index(t, ":"); i > 0 && i < 30 && strings.Count(t[:i], " ") < 4 {
+		return ackFor(calls)
+	}
+	return t
+}
+
+// strayEnglish are English function words that never appear in normal
+// Vietnamese prose (unlike "in", "to", "on"); one of them in a Vietnamese
+// reply ("-2,75% so with 5 phiên") means the model drifted mid-sentence.
+var strayEnglish = regexp.MustCompile(`(?i)(^|[\s(,])(with|the|and|however|which|because|although|should|would|into|than|about|from)(\s|[,.)]|$)`)
+var codeOrURL = regexp.MustCompile("`[^`]*`|https?://\\S+|\"[^\"]*\"")
+
+func hasStrayEnglish(t string) bool {
+	return strayEnglish.MatchString(codeOrURL.ReplaceAllString(t, " "))
 }
