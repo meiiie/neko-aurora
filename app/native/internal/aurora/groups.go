@@ -92,7 +92,7 @@ func (v *view) group(c ledger.Channel, pinned bool) *Agent {
 	}
 	if a.Status == "idle" {
 		for i := len(l) - 1; i >= 0; i-- {
-			if r := firstLine(visibleText(l[i].Reply)); r != "" {
+			if r := plainMD(firstLine(visibleText(l[i].Reply))); r != "" {
 				b, _ := v.bot(l[i].BotID)
 				a.Status, a.Snip = "done", clean(displayName(b)+": "+r, 140)
 				break

@@ -4,6 +4,7 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"errors"
+	"regexp"
 	"sort"
 	"strings"
 	"time"
@@ -29,6 +30,22 @@ func clean(v string, n int) string {
 		v = string(r[:n])
 	}
 	return v
+}
+
+var (
+	mdLead  = regexp.MustCompile(`^\s*(#{1,6}\s+|>\s*|[-*+]\s+|\d+[.)]\s+)`)
+	mdLink  = regexp.MustCompile(`\[([^\]]+)\]\([^)]*\)`)
+	mdCite  = regexp.MustCompile(`\s?\[\d+\]`)
+	mdMarks = strings.NewReplacer("**", "", "__", "", "`", "")
+)
+
+// plainMD turns one markdown line into list-preview text: no heading hashes,
+// bullets, emphasis marks, citation markers or link URLs.
+func plainMD(v string) string {
+	v = mdLead.ReplaceAllString(v, "")
+	v = mdLink.ReplaceAllString(v, "$1")
+	v = mdCite.ReplaceAllString(v, "")
+	return strings.TrimSpace(mdMarks.Replace(v))
 }
 
 // ---- views: the mobile JSON shapes, projected from ledger bots and work ----
@@ -222,7 +239,7 @@ func (v *view) agent(b ledger.Bot, prefs botPrefs) *Agent {
 	case TaskWaitingInput:
 		a.Status, a.Snip = "waiting", "Cần bạn chọn để tiếp tục"
 	case TaskSucceeded:
-		a.Status, a.Snip = "done", clean(firstLine(visibleText(last.Reply)), 140)
+		a.Status, a.Snip = "done", clean(plainMD(firstLine(visibleText(last.Reply))), 140)
 		if a.Snip == "" {
 			a.Snip = "Đã xong"
 		}
