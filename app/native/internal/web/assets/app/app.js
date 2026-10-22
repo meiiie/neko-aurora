@@ -1,7 +1,7 @@
 "use strict";
 (()=>{
 const $=s=>document.querySelector(s);
-const SHELLS=["#e0261f","#e2827c","#eda12c","#f7b551","#96590a","#2c7f52","#74cfc6","#506c62","#8b8496","#e8bd63"]; // brand-derived, see docs/aurora-palette
+const SHELLS=["#e0261f","#e2827c","#eda12c","#f7b551","#96590a","#2c7f52","#74cfc6","#506c62","#8b8496","#e8bd63"]; // avatar shell colours, brand-derived (design tokens live in /app/aurora/aurora.css)
 const HATS=["none","beanie","cap","top","crown"],EYES=["none","round","shades","visor","mono"],EXTRAS=["none","bow","flower","antenna","scarf"];
 const VN={none:"Không",beanie:"Mũ len",cap:"Mũ lưỡi trai",top:"Mũ chóp",crown:"Vương miện",round:"Kính tròn",shades:"Kính râm",visor:"Kính visor",mono:"Kính một tròng",bow:"Nơ",flower:"Hoa",antenna:"Ăng-ten",scarf:"Khăn"};
 const shade=(h,k)=>{const n=parseInt(h.slice(1),16),f=c=>Math.max(0,Math.min(255,Math.round(c*k)));return`rgb(${f(n>>16)},${f(n>>8&255)},${f(n&255)})`};
@@ -217,5 +217,5 @@ function buzz(k){try{if(matchMedia("(prefers-reduced-motion: reduce)").matches||
 [["#themeBtn","sun-moon"],["#bellBtn","bell"],["#searchBtn","search"],["#newBtn","plus"],["#backBtn","chevron-left"],["#activityBtn","list-checks"],["#micBtn","mic"]].forEach(([q,n])=>{const b=$(q);if(b)b.replaceChildren(I(n))});
 {const sb=$("#surpriseBtn");if(sb)sb.replaceChildren(I("dices",18),document.createTextNode(" Ngẫu nhiên"))}
 setSendMode();
-window.__DUET={state:()=>S,reload:loadState,current:()=>cur&&cur.id};
+window.__AURORA={state:()=>S,reload:loadState,current:()=>cur&&cur.id};
 })();

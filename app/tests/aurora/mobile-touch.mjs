@@ -1,7 +1,7 @@
 // Real-touch mobile test for /app/ against a running neko-aurora.
-// npm i puppeteer-core ; DUET_URL=http://127.0.0.1:8765/app/ OUT=./aurora-shots/ node mobile-touch.mjs
+// npm i puppeteer-core ; AURORA_URL=http://127.0.0.1:8765/app/ OUT=./aurora-shots/ node mobile-touch.mjs
 import puppeteer from 'puppeteer-core';
-const U=(process.env.AURORA_URL||process.env.DUET_URL)||'http://127.0.0.1:8765/app/',O=process.env.OUT||'./aurora-shots/';
+const U=process.env.AURORA_URL||'http://127.0.0.1:8765/app/',O=process.env.OUT||'./aurora-shots/';
 const REAL=!!process.env.REAL_AI; // stricter timeouts off for a real model
 const sleep=ms=>new Promise(r=>setTimeout(r,ms));
 const b=await puppeteer.launch({executablePath:process.env.CHROME||'/usr/bin/google-chrome',args:['--no-sandbox','--hide-scrollbars']});
@@ -10,7 +10,7 @@ const ok=(w,name,cond,extra='')=>{results.push(`${cond?'PASS':'FAIL'} ${w} ${nam
 for(const w of (process.env.WIDTHS||'360,390,430').split(',').map(Number)){let p;try{
  const ctx=await b.createBrowserContext();await ctx.overridePermissions(new URL(U).origin,['notifications']);p=await ctx.newPage();const errs=[];p.on('pageerror',e=>errs.push(String(e)));
  await p.setViewport({width:w,height:Math.round(w*2.165),deviceScaleFactor:2,isMobile:true,hasTouch:true});
- await p.goto(U,{waitUntil:'domcontentloaded'});await p.waitForFunction('window.__DUET&&__DUET.state().agents.length>0',{timeout:10000});await sleep(300);
+ await p.goto(U,{waitUntil:'domcontentloaded'});await p.waitForFunction('window.__AURORA&&__AURORA.state().agents.length>0',{timeout:10000});await sleep(300);
  const T=p.touchscreen;
  const swipe=async(x1,y1,x2,y2,steps=6,dt=8)=>{await T.touchStart(x1,y1);for(let i=1;i<=steps;i++){await T.touchMove(x1+(x2-x1)*i/steps,y1+(y2-y1)*i/steps);await sleep(dt)}await T.touchEnd()};
  const box=async s=>p.$eval(s,e=>{const b=e.getBoundingClientRect();return[b.x+b.width/2,b.y+b.height/2]});
@@ -56,9 +56,9 @@ for(const w of (process.env.WIDTHS||'360,390,430').split(',').map(Number)){let p
  ok(w,'tap row opens thread',await p.$eval('#thread',e=>!e.classList.contains('off')));
  ok(w,'no-h-overflow thread',!(await overflow()));sm=await small();ok(w,'touch>=44 thread',!sm.length,sm.join(','));
  const mic=await p.$eval('#micBtn',e=>!e.classList.contains('hidden'));results.push(`INFO ${w} voice button ${mic?'shown (Web Speech available)':'hidden (unsupported)'}`);
- const d0=await p.evaluate(()=>__DUET.state().deltaCount||0);await tap('#input');await p.keyboard.type('Soạn giúp mình 2 câu giới thiệu Neko Aurora');await p.keyboard.press('Enter');await p.keyboard.press('Enter');
- let sawDraft=false;for(let i=0;i<(REAL?600:100);i++){if(await p.$('.msg.draft'))sawDraft=true;const done=await p.evaluate(n=>{const a=__DUET.state().agents.find(x=>x.name===n);const L=(__DUET.state().msgs[a.id]||[]);return a&&a.status!=='working'&&L.filter(m=>m.role==='agent').length>=2&&!document.querySelector('.msg.draft')&&!document.querySelector('.msg.typing')},name);if(done&&i>3)break;await sleep(100)}
- const deltas=(await p.evaluate(()=>__DUET.state().deltaCount||0))-d0;sawDraft=sawDraft||deltas>1;const ms1=await srv('/agents/'+(await p.evaluate(()=>__DUET.current()))+'/messages');
+ const d0=await p.evaluate(()=>__AURORA.state().deltaCount||0);await tap('#input');await p.keyboard.type('Soạn giúp mình 2 câu giới thiệu Neko Aurora');await p.keyboard.press('Enter');await p.keyboard.press('Enter');
+ let sawDraft=false;for(let i=0;i<(REAL?600:100);i++){if(await p.$('.msg.draft'))sawDraft=true;const done=await p.evaluate(n=>{const a=__AURORA.state().agents.find(x=>x.name===n);const L=(__AURORA.state().msgs[a.id]||[]);return a&&a.status!=='working'&&L.filter(m=>m.role==='agent').length>=2&&!document.querySelector('.msg.draft')&&!document.querySelector('.msg.typing')},name);if(done&&i>3)break;await sleep(100)}
+ const deltas=(await p.evaluate(()=>__AURORA.state().deltaCount||0))-d0;sawDraft=sawDraft||deltas>1;const ms1=await srv('/agents/'+(await p.evaluate(()=>__AURORA.current()))+'/messages');
  ok(w,'user msg persisted once (double Enter)',ms1.filter(m=>m.role==='user').length===1);
  const reply=ms1.filter(m=>m.role==='agent').at(-1);ok(w,'AI reply streamed and persisted',sawDraft&&reply&&reply.text.length>10,`deltas=${deltas} `+(reply?.text||'').slice(0,70).replace(/\n/g,' '));
  await p.screenshot({path:`${O}${w}-4-thread-reply.png`});
@@ -67,7 +67,7 @@ for(const w of (process.env.WIDTHS||'360,390,430').split(',').map(Number)){let p
  ok(w,'outbound request gates on approval card',!!ap);await sleep(200);
  await p.screenshot({path:`${O}${w}-5-approval.png`});
  if(ap){for(let i=0;i<5;i++){try{await tap('.approval:not(.done) .go')}catch{}await sleep(8)}await sleep(900);
-  const ms2=await srv('/agents/'+(await p.evaluate(()=>__DUET.current()))+'/messages');const apps=ms2.filter(m=>m.approval);
+  const ms2=await srv('/agents/'+(await p.evaluate(()=>__AURORA.current()))+'/messages');const apps=ms2.filter(m=>m.approval);
   ok(w,'5 fast taps on Duyệt → 1 server decision',apps.length>=1&&apps.at(-1).approval.state==='approved'&&ms2.filter(m=>m.text.startsWith('Đã ghi nhận bạn duyệt')).length===1);
   ok(w,'approved item not sent externally (honest follow-up)',ms2.some(m=>m.text.includes('chưa gửi')));
   await p.screenshot({path:`${O}${w}-6-approved.png`})}
@@ -77,11 +77,11 @@ for(const w of (process.env.WIDTHS||'360,390,430').split(',').map(Number)){let p
  ok(w,'plan card steps run live (done or paused for owner)',planOk,await p.$$eval('.plan .step',l=>l.map(x=>x.className.replace('step ','')).join(',')));
  const hasChoice=await p.$('.choice:not([disabled])');if(!REAL)ok(w,'quick-choice buttons rendered',!!hasChoice);
  await p.screenshot({path:`${O}${w}-6b-plan.png`});
- if(hasChoice){for(let i=0;i<4;i++){try{await tap('.choice')}catch{}await sleep(10)}await sleep(600);const n=(await srv('/agents/'+(await p.evaluate(()=>__DUET.current()))+'/messages')).filter(m=>m.role==='user'&&(m.text==='Thân mật'||m.text==='Trang trọng')).length;if(!REAL)ok(w,'4 fast taps on a choice send it once',n===1,'n='+n)}
- if(!REAL){for(let i=0;i<60;i++){if(await p.evaluate(()=>{const a=__DUET.state().agents.find(x=>x.id===__DUET.current());return a&&a.status!=='working'}))break;await sleep(100)}
+ if(hasChoice){for(let i=0;i<4;i++){try{await tap('.choice')}catch{}await sleep(10)}await sleep(600);const n=(await srv('/agents/'+(await p.evaluate(()=>__AURORA.current()))+'/messages')).filter(m=>m.role==='user'&&(m.text==='Thân mật'||m.text==='Trang trọng')).length;if(!REAL)ok(w,'4 fast taps on a choice send it once',n===1,'n='+n)}
+ if(!REAL){for(let i=0;i<60;i++){if(await p.evaluate(()=>{const a=__AURORA.state().agents.find(x=>x.id===__AURORA.current());return a&&a.status!=='working'}))break;await sleep(100)}
   await tap('#input');await p.keyboard.type('Viết thật chậm');await p.keyboard.press('Enter');await sleep(600);
   const isStop=await p.$eval('#composer .send',e=>e.classList.contains('stop'));ok(w,'send turns into stop while working',isStop);
-  await tap('#composer .send');await sleep(900);const ag=await p.evaluate(()=>__DUET.state().agents.find(x=>x.id===__DUET.current()));ok(w,'stop halts the running turn',ag&&ag.status==='idle',ag&&ag.status);
+  await tap('#composer .send');await sleep(900);const ag=await p.evaluate(()=>__AURORA.state().agents.find(x=>x.id===__AURORA.current()));ok(w,'stop halts the running turn',ag&&ag.status==='idle',ag&&ag.status);
   ok(w,'send button back after stop',await p.$eval('#composer .send',e=>!e.classList.contains('stop')))}
  // activity sheet
  await tap('#activityBtn');await sleep(900);const logN=await p.$$eval('#log li',l=>l.length);ok(w,'activity log loads from server',logN>3,'items='+logN);
@@ -97,12 +97,12 @@ for(const w of (process.env.WIDTHS||'360,390,430').split(',').map(Number)){let p
  ok(w,'10 rapid open/back cycles end on list, still in app',st.off&&!st.lt&&st.url==='/app/');ok(w,'frame avg',avg<25,`avg=${avg.toFixed(1)}ms long>50ms=${long}`);
  await p.screenshot({path:`${O}${w}-8-after-stress.png`});
  // SSE reconnect: reload keeps server state
- await p.reload({waitUntil:'domcontentloaded'});await p.waitForFunction('window.__DUET&&__DUET.state().agents.length>0');ok(w,'state survives reload (server-side)',await p.evaluate(n=>__DUET.state().agents.some(a=>a.name===n),name));
+ await p.reload({waitUntil:'domcontentloaded'});await p.waitForFunction('window.__AURORA&&__AURORA.state().agents.length>0');ok(w,'state survives reload (server-side)',await p.evaluate(n=>__AURORA.state().agents.some(a=>a.name===n),name));
  ok(w,'no page errors',!errs.length,errs.join('|').slice(0,200));
  await ctx.close();
 }catch(e){ok(w,'EXC',false,e.message.slice(0,160));try{await p.screenshot({path:O+w+'-exc.png'})}catch{}}}
 // brief
-{const p=await b.newPage();await p.goto(U,{waitUntil:'domcontentloaded'});await p.waitForFunction('window.__DUET');
+{const p=await b.newPage();await p.goto(U,{waitUntil:'domcontentloaded'});await p.waitForFunction('window.__AURORA');
  const br=await p.evaluate(async()=>(await fetch('/app/api/brief',{method:'POST',headers:{'Content-Type':'application/json'},body:'{}'})).json());
  ok('all','morning brief generated',!!br.text,`source=${br.source} "${(br.text||'').slice(0,80)}"`);
  const man=await p.evaluate(async()=>(await fetch('/app/manifest.webmanifest')).json());ok('all','manifest standalone',man.display==='standalone'&&man.start_url==='/app/');
