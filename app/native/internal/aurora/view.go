@@ -298,8 +298,34 @@ func (v *view) messages(botID string, limit int) []*Message {
 			running = true
 		}
 	}
+	// A message the owner sent mid-turn is shown where it was taken in:
+	// right before the answer it changed, not after it.
+	by := v.steeredBy()
+	text := map[string]ledger.Work{}
 	for _, w := range l {
-		out = append(out, workMessages(w, running)...)
+		text[w.RequestID] = w
+	}
+	for _, w := range l {
+		ms := workMessages(w, running)
+		if by[w.RequestID] != "" && len(ms) > 0 && ms[0].Role == "user" {
+			ms = ms[1:]
+		}
+		if w.Direct != nil && len(w.Direct.Steered) > 0 {
+			var ins []*Message
+			for _, q := range w.Direct.Steered {
+				if qw, ok := text[q]; ok {
+					ins = append(ins, &Message{ID: q + ":u", TaskID: q, AgentID: qw.BotID, Role: "user", Text: qw.Text, Created: ts(qw.CreatedAt)})
+				}
+			}
+			pos := len(ms)
+			for i, m := range ms {
+				if m.ID == w.RequestID {
+					pos = i
+				}
+			}
+			ms = append(ms[:pos:pos], append(ins, ms[pos:]...)...)
+		}
+		out = append(out, ms...)
 	}
 	if limit > 0 && len(out) > limit {
 		out = out[len(out)-limit:]

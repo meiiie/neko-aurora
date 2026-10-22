@@ -24,13 +24,14 @@ import (
 
 const systemPrompt = `Bạn là "%s", một agent trong Neko Aurora làm việc cho Darren (HoLiLiHu). Vai trò: %s
 Quy tắc:
+- Xưng "mình", gọi Darren là "bạn" (không bao giờ "tôi", không gọi tên Darren hay kể về Darren ở ngôi thứ ba).
 - Trả lời bằng tiếng Việt, ngắn gọn, cụ thể, như một đồng nghiệp đáng tin. Chỉ dùng chữ Latin tiếng Việt: tuyệt đối không chèn chữ Hán/Nhật/Hàn. Markdown gọn (tiêu đề ngắn, gạch đầu dòng, bảng) chỉ khi giúp dễ đọc.
 - Bạn KHÔNG tự gửi, đăng, thanh toán hay liên hệ ai bên ngoài. Không bao giờ nói là đã gửi.
 - Cuối câu trả lời, bạn có thể thêm các dòng chỉ thị (mỗi loại tối đa một dòng, đúng JSON):
 PLAN: ["bước 1","bước 2"]   ← khi việc gồm nhiều phần (tra nhiều thứ, so sánh rồi viết báo cáo, lên lịch nhiều hạng mục): 3-6 bước ngắn, bước cuối là tổng hợp kết quả; khi đó phần trả lời chỉ cần 1 câu nêu cách làm, chưa tra cứu.
 CHOICES: ["lựa chọn A","lựa chọn B"]   ← khi cần Darren chọn nhanh (2-4 lựa chọn ngắn).
 APPROVAL: {"title":"<việc cần duyệt>","kind":"email|send|post|pay|other","to":"<email nếu là email>","subject":"<tiêu đề nếu là email>","body":"<toàn bộ nội dung đã soạn>"}   ← bắt buộc cho mọi hành động ra bên ngoài.
-SECRET: {"name":"TEN_IN_HOA","label":"<tên hiển thị>","desc":"<vì sao cần, lấy ở đâu>"}   ← khi cần Darren cung cấp mật khẩu/khoá API. Darren nhập vào thẻ ẩn, giá trị vào kho bí mật, bạn không bao giờ thấy. Không bao giờ xin Darren dán bí mật vào chat. Mật khẩu ứng dụng Gmail dùng tên GMAIL_APP_PASSWORD.
+SECRET: {"name":"TEN_IN_HOA","label":"<tên hiển thị>","desc":"<vì sao cần, lấy ở đâu>"}   ← khi cần Darren cung cấp mật khẩu/khoá API. Darren nhập vào thẻ ẩn, giá trị vào kho bí mật, bạn không bao giờ thấy. Không bao giờ xin Darren dán bí mật vào chat. Khi việc cần một mật khẩu/khoá chưa có, LUÔN thêm dòng SECRET (không chỉ mô tả bằng lời). Mật khẩu ứng dụng Gmail dùng tên GMAIL_APP_PASSWORD.
 TOOL: {"name":"web_search","q":"<truy vấn>"} | {"name":"web_fetch","url":"https://..."} | {"name":"gold_price"}   ← công cụ đọc dữ liệu thật trên máy chủ. Khi cần số liệu/tin tức hiện tại mà chưa có trong KẾT QUẢ CÔNG CỤ, in dòng TOOL rồi dừng; nhiều tra cứu độc lập (vd. giá từng mặt hàng) thì in tối đa 3 dòng TOOL cùng lúc, hệ thống chạy song song rồi gọi lại bạn.
 MEMORY: {"text":"<một sở thích/bối cảnh lâu dài Darren vừa nói rõ hoặc xác nhận>"}   ← chỉ khi Darren nói rõ muốn bạn nhớ hoặc nêu sở thích lâu dài; không bao giờ ghi bí mật, mật khẩu.
 - Số liệu (giá, tỷ giá, ngày, phần trăm) chỉ được lấy từ KẾT QUẢ CÔNG CỤ, ghi nguồn dạng [1], [2]. Tuyệt đối không bịa hay ước đoán số; thiếu dữ liệu thì nói rõ thiếu. Khi đã có KẾT QUẢ CÔNG CỤ thì trả lời thẳng, không dùng PLAN.
@@ -161,10 +162,15 @@ func eligible(w ledger.Work) bool {
 func (s *Service) runLoop() {
 	t := time.NewTicker(150 * time.Millisecond)
 	defer t.Stop()
+	sweep := time.NewTicker(heartbeat)
+	defer sweep.Stop()
 	for {
 		select {
 		case <-s.ctx.Done():
 			return
+		case <-sweep.C:
+			s.sweepLeases()
+			continue
 		case <-t.C:
 		case <-s.wake:
 		}
@@ -212,7 +218,8 @@ func (s *Service) poke() {
 	}
 }
 
-// recoverInterrupted closes direct runs a crash left open.
+// recoverInterrupted requeues direct runs a crash or restart left open
+// (bounded by ledger.MaxDirectResumes, then failed) and closes stops.
 func (s *Service) recoverInterrupted() {
 	for _, w := range s.L.Snapshot().Work {
 		if w.Direct == nil {
@@ -220,9 +227,63 @@ func (s *Service) recoverInterrupted() {
 		}
 		switch w.Status {
 		case "running":
-			_, _ = s.L.DirectFinish(w.RequestID, w.Epoch, "failed", "interrupted_by_restart", nil)
+			s.resumeOrFail(w)
 		case "cancelling":
 			_, _ = s.L.DirectStopped(w.RequestID)
+		}
+	}
+}
+
+func (s *Service) resumeOrFail(w ledger.Work) {
+	if _, err := s.L.DirectResume(w.RequestID); err == nil {
+		log.Printf("aurora resumed %s after interruption (attempt %d)", w.RequestID, w.DirectResumes+1)
+		s.record(w.BotID, w.RequestID, "step", "Tiếp tục việc bị gián đoạn")
+		s.poke()
+		return
+	}
+	_, _ = s.L.DirectFinish(w.RequestID, w.Epoch, "failed", "interrupted_by_restart", nil)
+}
+
+// Lease/heartbeat (OpenMuse worker.ts pattern, MIT): a running turn renews
+// its lease; the sweeper requeues any run whose lease lapsed while no
+// goroutine in this process owns its bot (a hung or lost run).
+var (
+	leaseFor  = 90 * time.Second
+	heartbeat = 30 * time.Second
+)
+
+func (s *Service) leaseUntil() string { return s.Now().Add(leaseFor).UTC().Format(time.RFC3339) }
+
+func (s *Service) holdLease(ctx context.Context, id string) {
+	t := time.NewTicker(heartbeat)
+	defer t.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-t.C:
+			if cur, err := s.L.Get(id); err == nil && cur.Status == "running" {
+				_, _ = s.L.DirectUpdate(id, cur.Epoch, func(r *ledger.DirectRun) { r.LeaseUntil = s.leaseUntil() })
+			}
+		}
+	}
+}
+
+func (s *Service) sweepLeases() {
+	now := s.Now()
+	for _, w := range s.L.Snapshot().Work {
+		if w.Status != "running" || w.Direct == nil || w.Direct.LeaseUntil == "" {
+			continue
+		}
+		until, err := time.Parse(time.RFC3339, w.Direct.LeaseUntil)
+		if err != nil || now.Before(until) {
+			continue
+		}
+		s.mu.Lock()
+		owned := s.running[w.BotID]
+		s.mu.Unlock()
+		if !owned {
+			s.resumeOrFail(w)
 		}
 	}
 }
@@ -307,7 +368,7 @@ func (s *Service) runWork(w ledger.Work) {
 		s.runBrief(w)
 		return
 	}
-	run := ledger.DirectRun{Runtime: s.AI.Runtime(), Model: s.AI.ModelName()}
+	run := ledger.DirectRun{Runtime: s.AI.Runtime(), Model: s.AI.ModelName(), LeaseUntil: s.leaseUntil()}
 	if !s.AI.Configured() {
 		run.Model = ""
 	}
@@ -321,6 +382,7 @@ func (s *Service) runWork(w ledger.Work) {
 	ctx, cancel := context.WithTimeout(s.ctx, 6*time.Minute)
 	defer cancel()
 	go s.watchCancel(ctx, cancel, w.RequestID)
+	go s.holdLease(ctx, w.RequestID)
 	appr, choices, err := s.runTurn(ctx, w)
 	if err != nil {
 		cur, gerr := s.L.Get(w.RequestID)
@@ -457,8 +519,10 @@ func (s *Service) runTurn(ctx context.Context, w ledger.Work) (*Approval, []stri
 			s.runTool(ctx, w, tc, c.name, c.arg)
 		}
 	}
-	if n := s.absorbedNote(w.RequestID); n != "" {
-		tc.note(n)
+	if s.absorbed(w.RequestID) {
+		// Already folded into the previous run (shown above its answer):
+		// finish silently instead of a second, redundant reply.
+		return nil, nil, nil
 	}
 	var d directives
 	var err error

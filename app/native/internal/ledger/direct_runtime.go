@@ -21,7 +21,7 @@ import (
 
 type DirectStep struct {
 	Title  string `json:"title"`
-	Status string `json:"status"` // pending|running|done|waiting|failed|cancelled
+	Status string `json:"status"`         // pending|running|done|waiting|failed|cancelled
 	Note   string `json:"note,omitempty"` // short milestone update once the step is done
 }
 
@@ -63,6 +63,11 @@ type DirectRun struct {
 	Secret     *DirectSecret   `json:"secret,omitempty"`
 	Tools      []DirectTool    `json:"tools,omitempty"`
 	Sources    []DirectSource  `json:"sources,omitempty"`
+	// LeaseUntil is the heartbeat deadline of the process running this turn
+	// (lease pattern from CopilotKit/openmuse worker.ts, MIT).
+	LeaseUntil string `json:"leaseUntil,omitempty"`
+	// Steered lists queued owner messages folded into this run mid-turn.
+	Steered []string `json:"steered,omitempty"`
 }
 
 // DirectTool is one read-only data tool call made during the turn.
@@ -158,7 +163,7 @@ func validDirectRun(d *DirectRun) bool {
 	if d == nil || d.Version != 1 || (d.Runtime != "neko-core-cli" && d.Runtime != "direct-http" && d.Runtime != "imported") || (d.Kind != "" && d.Kind != "brief" && d.Kind != "note") {
 		return false
 	}
-	if !directText(d.Model, 128) || d.StartedAt == "" || !directText(d.PlanIntro, 2000) || !directText(d.Ack, 600) || len(d.Plan) > 8 || len(d.Choices) > 4 || len(d.Items) > 8 {
+	if !directText(d.Model, 128) || d.StartedAt == "" || !directText(d.PlanIntro, 2000) || !directText(d.Ack, 600) || len(d.Plan) > 8 || len(d.Steered) > 4 || len(d.Choices) > 4 || len(d.Items) > 8 {
 		return false
 	}
 	for _, st := range d.Plan {
@@ -231,6 +236,34 @@ func validDirectReplay(old, w Work, typ string) bool {
 		return reflect.DeepEqual(a, b)
 	}
 	return false
+}
+
+// MaxDirectResumes bounds automatic restarts of one direct run so a turn
+// that crashes the process cannot loop forever.
+const MaxDirectResumes = 2
+
+// DirectResume puts an unfinished direct run (its process died or its lease
+// expired) back in the queue: the partial run and reply are dropped and the
+// work restarts from waiting_host on the next dispatch.
+func (s *Store) DirectResume(id string) (Work, error) {
+	cur, err := s.Get(id)
+	if err != nil {
+		return Work{}, err
+	}
+	return s.update(id, cur.Epoch, "work.direct_resumed", func(w *Work) error {
+		if w.Status != "running" || w.Direct == nil || w.Direct.FinishedAt != "" || w.DesiredState != "running" || w.DirectResumes >= MaxDirectResumes {
+			return ErrConflict
+		}
+		w.Status, w.Direct, w.Reply, w.AttemptID, w.Failure = "waiting_host", nil, "", "", ""
+		w.DirectResumes++
+		return nil
+	})
+}
+
+func validDirectResumed(old, w Work) bool {
+	return old.Status == "running" && old.Direct != nil && old.Direct.FinishedAt == "" && old.DesiredState == "running" && old.Core == nil &&
+		w.Status == "waiting_host" && w.Direct == nil && w.Reply == "" && w.AttemptID == "" && w.Failure == "" &&
+		w.Epoch == old.Epoch && w.DesiredState == old.DesiredState && w.DirectResumes == old.DirectResumes+1 && w.DirectResumes <= MaxDirectResumes
 }
 
 func directNow() string { return time.Now().UTC().Format(time.RFC3339Nano) }

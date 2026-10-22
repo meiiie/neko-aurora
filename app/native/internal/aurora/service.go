@@ -44,8 +44,7 @@ type Service struct {
 	ctx      context.Context
 	wake     chan struct{}
 
-	running map[string]bool   // botID → turn in flight
-	steered map[string]string // queued request → run that absorbed it mid-turn
+	running map[string]bool // botID → turn in flight
 	seen    map[string]string
 	seenSeq uint64
 	syncMu  sync.Mutex

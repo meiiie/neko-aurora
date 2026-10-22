@@ -80,7 +80,7 @@ func TestGoldReportsMissingInsteadOfGuessing(t *testing.T) {
 	defer srv.Close()
 	k := New()
 	k.Client = srv.Client()
-	k.GoldAPI, k.Yahoo, k.SJC = srv.URL, srv.URL, srv.URL
+	k.GoldAPI, k.Yahoo, k.SJC, k.PNJ = srv.URL, srv.URL, srv.URL, srv.URL
 	r, err := k.Gold(context.Background())
 	if err == nil || !strings.Contains(r.Text, "không lấy được") || strings.Contains(r.Text, "Quy đổi") {
 		t.Fatalf("%v %s", err, r.Text)
@@ -129,5 +129,30 @@ func TestFetchFoundOnlyExactSearchHits(t *testing.T) {
 	// a search hit passes the host check (then the dial guard still refuses private targets)
 	if _, err := k.FetchFound(ctx, "https://127.0.0.1/x", []string{"https://127.0.0.1/x"}); err == nil {
 		t.Fatal("private address must not be fetched")
+	}
+}
+
+func TestGoldFallsBackToPNJWhenSJCBlocked(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if strings.Contains(r.URL.Path, "get-gold-price") {
+			fmt.Fprint(w, `{"data":[{"masp":"SJC","tensp":"Vàng miếng SJC 999.9","giaban":14230,"giamua":13930},{"masp":"N24K","tensp":"Nhẫn Trơn PNJ 999.9","giaban":14140,"giamua":13840}]}`)
+			return
+		}
+		w.WriteHeader(403) // Cloudflare challenge on sjc.com.vn
+	}))
+	defer srv.Close()
+	k := New()
+	k.Client = srv.Client()
+	k.GoldAPI, k.Yahoo, k.SJC, k.PNJ = srv.URL, srv.URL, srv.URL, srv.URL
+	r, _ := k.Gold(context.Background())
+	if !strings.Contains(r.Text, "bán 142.30 triệu") || !strings.Contains(r.Text, "Nhẫn Trơn PNJ") {
+		t.Fatal(r.Text)
+	}
+	found := false
+	for _, s := range r.Sources {
+		found = found || strings.Contains(s.Title, "PNJ")
+	}
+	if !found {
+		t.Fatal("PNJ source must be cited", r.Sources)
 	}
 }

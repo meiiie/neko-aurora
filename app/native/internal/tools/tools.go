@@ -47,7 +47,7 @@ type Kit struct {
 	Client *http.Client
 	Now    func() time.Time
 	// Base URLs, overridable in tests.
-	GoldAPI, Yahoo, SJC, Search string
+	GoldAPI, Yahoo, SJC, PNJ, Search string
 }
 
 func blockPrivate(_, address string, _ syscall.RawConn) error {
@@ -100,7 +100,7 @@ func New() *Kit {
 			}
 		}
 	}
-	k := &Kit{Allow: allow, Now: time.Now, GoldAPI: "https://api.gold-api.com", Yahoo: "https://query1.finance.yahoo.com", SJC: "https://sjc.com.vn", Search: "https://html.duckduckgo.com"}
+	k := &Kit{Allow: allow, Now: time.Now, GoldAPI: "https://api.gold-api.com", Yahoo: "https://query1.finance.yahoo.com", SJC: "https://sjc.com.vn", PNJ: "https://edge-api.pnj.io", Search: "https://html.duckduckgo.com"}
 	d := &net.Dialer{Timeout: 8 * time.Second, Control: blockPrivate}
 	k.Client = &http.Client{Timeout: 15 * time.Second, Transport: &http.Transport{DialContext: d.DialContext, TLSHandshakeTimeout: 8 * time.Second, MaxResponseHeaderBytes: 64 << 10}}
 	k.Client.CheckRedirect = func(r *http.Request, via []*http.Request) error {

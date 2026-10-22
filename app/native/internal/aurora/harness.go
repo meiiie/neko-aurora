@@ -224,50 +224,56 @@ func (s *Service) memoryRoutes() {
 // steer picks up messages the owner sent to this bot while the turn is still
 // running (Grok Bot / Claude Code style: a new message mid-work steers the
 // current task rather than waiting in a queue). The text is injected into
-// the next model call; the queued turn still runs afterwards but is told it
-// was already absorbed so it only answers what is left.
+// the next model call and the request id is journaled on this run
+// (DirectRun.Steered), so the thread shows it before the rewritten answer
+// and the queued turn later only confirms.
 func (s *Service) steer(w ledger.Work, tc *toolCtx) bool {
 	if threadOf(w) != w.BotID {
 		return false
 	}
-	got := false
 	v := newView(s.L.Snapshot())
-	after := false
+	taken := v.steeredBy()
+	after, got := false, false
 	for _, q := range v.byBot[w.BotID] {
 		if q.RequestID == w.RequestID {
 			after = true
 			continue
 		}
-		if !after || !eligible(q) || strings.HasPrefix(q.ClientNonce, "brief-") {
+		if !after || !eligible(q) || strings.HasPrefix(q.ClientNonce, "brief-") || taken[q.RequestID] != "" {
 			continue
 		}
-		s.mu.Lock()
-		if s.steered == nil {
-			s.steered = map[string]string{}
-		}
-		_, done := s.steered[q.RequestID]
-		if !done {
-			s.steered[q.RequestID] = w.RequestID
-		}
-		s.mu.Unlock()
-		if done {
+		id := q.RequestID
+		ok := false
+		s.update(w.RequestID, func(r *ledger.DirectRun) {
+			if len(r.Steered) < 4 {
+				r.Steered, ok = append(r.Steered, id), true
+			}
+		})
+		if !ok {
 			continue
 		}
-		tc.note("DARREN VỪA NHẮN THÊM GIỮA CHỪNG (điều chỉnh việc đang làm theo tin này; nói thẳng với Darren bằng “bạn”, không thuật lại kiểu “Darren đổi ý”): " + clean(q.Text, 1500))
+		tc.note("DARREN VỪA NHẮN THÊM GIỮA CHỪNG (điều chỉnh việc đang làm theo tin này; nói thẳng với Darren bằng “bạn”, không thuật lại kiểu “Darren đổi ý” hay “bạn đổi ý”; vẫn trích nguồn [n]): " + clean(q.Text, 1500))
 		s.record(w.BotID, w.RequestID, "step", "Nhận chỉ dẫn mới giữa chừng")
 		got = true
 	}
 	return got
 }
 
-// absorbedNote is added to a queued turn whose text was already steered
-// into the previous run.
-func (s *Service) absorbedNote(id string) string {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	if _, ok := s.steered[id]; !ok {
-		return ""
+// steeredBy maps a steered request id to the run that absorbed it.
+func (v *view) steeredBy() map[string]string {
+	out := map[string]string{}
+	for _, l := range v.byBot {
+		for _, w := range l {
+			if w.Direct != nil {
+				for _, q := range w.Direct.Steered {
+					out[q] = w.RequestID
+				}
+			}
+		}
 	}
-	delete(s.steered, id)
-	return "Tin nhắn mới nhất của Darren đã được đưa vào lượt làm việc ngay trước đó (xem câu trả lời trước). Chỉ trả lời phần còn thiếu, thật ngắn; nếu đã đủ thì xác nhận 1 câu là đã điều chỉnh."
+	return out
 }
+
+// absorbed reports a queued turn whose text was already steered into an
+// earlier run.
+func (s *Service) absorbed(id string) bool { return newView(s.L.Snapshot()).steeredBy()[id] != "" }

@@ -1,9 +1,71 @@
 package ledger
-import("errors";"os";"path/filepath";"testing";"time";"nekoaurora.local/native/internal/connections")
-func TestIndependentGroupRecoveryReplayRejectsAccountPreIssueTime(t *testing.T){
- s,_,g,w,_:=groupRecoveryFixture(t,2,func(s *Store,in *CollaborationInput){c,e:=connections.Open(filepath.Join(t.TempDir(),"owned-accounts"),authorityVault{});if e!=nil{t.Fatal(e)};a,_,e:=c.SaveAccount(connections.AccountInput{Name:"Owned fixture",Provider:"openai-compatible",Endpoint:"https://example.invalid/v1",Model:"fixture-model",Secret:"owned-fixture-only-canary",ClientNonce:"independent-group-account-create"});if e!=nil{t.Fatal(e)};s.EnableAccounts(c);in.AccountID,in.AccountRevision=a.ID,a.Revision})
- in:=groupRecoverInput(g,w,"independent-group-account-recover");if _,_,e:=s.RecoverCollaboration(g.ID,in);e!=nil{t.Fatal("positive recovery",e)};event:=s.events[len(s.events)-1];s.collaborations[g.ID]=g;s.work[w.RequestID]=w;delete(s.collaborationActions,in.ClientNonce);if !validReplay(s,event){t.Fatal("positive replay")};at:=mustIssued(w.AccountLease).Add(-time.Nanosecond);if !groupBudgetAt(g,at){t.Fatal("probe does not isolate lease window")};s.now=func()time.Time{return at};before:=len(s.events);if _,_,e:=s.RecoverCollaboration(g.ID,in);!errors.Is(e,ErrConflict)||len(s.events)!=before{t.Fatal("live pre-issued recovery boundary",e)};typed:=*event.CollaborationRecovery;typed.IssuedAt=at.UTC().Format(time.RFC3339Nano);event.CollaborationRecovery=&typed;if validReplay(s,event){t.Fatal("account-backed recovery replay accepted issuedAt before original account lease was issued, while live recovery denies exact same time")}
+
+import (
+	"errors"
+	"nekoaurora.local/native/internal/connections"
+	"os"
+	"path/filepath"
+	"testing"
+	"time"
+)
+
+func TestIndependentGroupRecoveryReplayRejectsAccountPreIssueTime(t *testing.T) {
+	s, _, g, w, _ := groupRecoveryFixture(t, 2, func(s *Store, in *CollaborationInput) {
+		c, e := connections.Open(filepath.Join(t.TempDir(), "owned-accounts"), authorityVault{})
+		if e != nil {
+			t.Fatal(e)
+		}
+		a, _, e := c.SaveAccount(connections.AccountInput{Name: "Owned fixture", Provider: "openai-compatible", Endpoint: "https://example.invalid/v1", Model: "fixture-model", Secret: "owned-fixture-only-canary", ClientNonce: "independent-group-account-create"})
+		if e != nil {
+			t.Fatal(e)
+		}
+		s.EnableAccounts(c)
+		in.AccountID, in.AccountRevision = a.ID, a.Revision
+	})
+	in := groupRecoverInput(g, w, "independent-group-account-recover")
+	if _, _, e := s.RecoverCollaboration(g.ID, in); e != nil {
+		t.Fatal("positive recovery", e)
+	}
+	event := s.events[len(s.events)-1]
+	s.collaborations[g.ID] = g
+	s.work[w.RequestID] = w
+	delete(s.collaborationActions, in.ClientNonce)
+	if !validReplay(s, event) {
+		t.Fatal("positive replay")
+	}
+	at := mustIssued(w.AccountLease).Add(-time.Nanosecond)
+	if !groupBudgetAt(g, at) {
+		t.Fatal("probe does not isolate lease window")
+	}
+	s.now = func() time.Time { return at }
+	before := len(s.events)
+	if _, _, e := s.RecoverCollaboration(g.ID, in); !errors.Is(e, ErrConflict) || len(s.events) != before {
+		t.Fatal("live pre-issued recovery boundary", e)
+	}
+	typed := *event.CollaborationRecovery
+	typed.IssuedAt = at.UTC().Format(time.RFC3339Nano)
+	event.CollaborationRecovery = &typed
+	if validReplay(s, event) {
+		t.Fatal("account-backed recovery replay accepted issuedAt before original account lease was issued, while live recovery denies exact same time")
+	}
 }
-func TestIndependentGroupRecoveryWrongKindKnownNonceIsNotMissing(t *testing.T){
- s,_,g,_,_:=groupRecoveryFixture(t,1);other,_,e:=s.Accept(input("independent-group-receipt-task","foreground"));if e!=nil{t.Fatal(e)};nonce:="independent-group-known-task-nonce";if _,_,e=s.ControlTask(controlInput(other,"pause",nonce));e!=nil{t.Fatal(e)};before,_:=os.ReadFile(s.file.Name());out,e:=s.CommandReceipt("collaboration_recover",nonce,g.ID);if !errors.Is(e,ErrConflict){t.Fatalf("known task_control nonce reported as missing collaboration_recover: found=%v err=%v",out.Found,e)};after,_:=os.ReadFile(s.file.Name());if string(before)!=string(after){t.Fatal("lookup mutated journal")}
+func TestIndependentGroupRecoveryWrongKindKnownNonceIsNotMissing(t *testing.T) {
+	s, _, g, _, _ := groupRecoveryFixture(t, 1)
+	other, _, e := s.Accept(input("independent-group-receipt-task", "foreground"))
+	if e != nil {
+		t.Fatal(e)
+	}
+	nonce := "independent-group-known-task-nonce"
+	if _, _, e = s.ControlTask(controlInput(other, "pause", nonce)); e != nil {
+		t.Fatal(e)
+	}
+	before, _ := os.ReadFile(s.file.Name())
+	out, e := s.CommandReceipt("collaboration_recover", nonce, g.ID)
+	if !errors.Is(e, ErrConflict) {
+		t.Fatalf("known task_control nonce reported as missing collaboration_recover: found=%v err=%v", out.Found, e)
+	}
+	after, _ := os.ReadFile(s.file.Name())
+	if string(before) != string(after) {
+		t.Fatal("lookup mutated journal")
+	}
 }

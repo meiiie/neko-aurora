@@ -85,6 +85,7 @@ type Work struct {
 	CreatedAt                  string                      `json:"createdAt"`
 	CreatedSequence            uint64                      `json:"createdSequence"`
 	AttemptID                  string                      `json:"attemptId,omitempty"`
+	DirectResumes              int                         `json:"directResumes,omitempty"` // restarts survived by a direct run
 	Reply                      string                      `json:"reply,omitempty"`
 	Failure                    string                      `json:"failure,omitempty"`
 	Core                       *CoreBinding                `json:"core,omitempty"`

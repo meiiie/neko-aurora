@@ -718,6 +718,11 @@ func validRuntimeReplay(s *Store, e Event) bool {
 		expected.ContextRevision = w.ContextRevision
 		expected.ContextAttempts = w.ContextAttempts
 		expected.Failure = ""
+	case "work.direct_resumed":
+		if !validDirectResumed(old, w) {
+			return false
+		}
+		expected.Status, expected.Failure, expected.Direct, expected.Reply, expected.AttemptID, expected.DirectResumes = w.Status, w.Failure, nil, "", "", w.DirectResumes
 	case "work.direct_started", "work.direct_updated", "work.direct_finished", "work.direct_decided":
 		if !validDirectReplay(old, w, e.Type) {
 			return false

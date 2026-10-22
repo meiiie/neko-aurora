@@ -89,10 +89,3 @@ func TestDoingShowsPlanStep(t *testing.T) {
 		t.Fatal(got)
 	}
 }
-
-func TestAbsorbedNoteOnce(t *testing.T) {
-	s := &Service{steered: map[string]string{"q1": "r0"}}
-	if s.absorbedNote("q1") == "" || s.absorbedNote("q1") != "" || s.absorbedNote("zz") != "" {
-		t.Fatal("absorbed note must fire exactly once for a steered request")
-	}
-}

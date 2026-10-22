@@ -28,10 +28,10 @@ Partly. Before this pass Aurora had: Grok-style ack → status → separate resu
 | 5 | No per-bot memory | OpenMuse remember_fact, OpenDots preferences | **done**: `MEMORY:` directive, user-stated facts only, secret-shaped text refused, 30 per bot, 0600 `memory.json`, GET/DELETE API |
 | 6 | Single retry, fixed delay | SDK retry policies | **done**: 3 attempts, exponential back-off with jitter, never after first token |
 | 7 | `agent.doing` blind during plans | Grok status line | **done**: shows "Bước i/n · title" |
-| 8 | Restart = failed run ("interrupted_by_restart") | OpenMuse lease + requeue | **gap**: needs a new ledger event (`work.direct_resumed`) with replay validation; designed, not shipped (ledger is append-only and replay-validated, so this needs its own reviewed change) |
-| 9 | Native function calling instead of text directives | OpenAI/Anthropic tool APIs | gap: GLM 5.3 supports `tools`; switching would remove the regex directive parser. Deferred: large prompt/test churn, current parser is robust in dogfood |
+| 8 | Restart = failed run ("interrupted_by_restart") | OpenMuse lease + requeue | **done**: `work.direct_resumed` ledger event (replay-validated, max 2 resumes then failed); 90 s lease renewed every 30 s; sweeper requeues lapsed unowned runs. Resume restarts the turn from scratch (finished steps are redone) |
+| 9 | Native function calling instead of text directives | OpenAI/Anthropic tool APIs | **measured, rejected**: z.ai GLM 5.3 supports `tools` (incl. parallel). Bench `app/tests/aurora/glm-fc-bench.py`, 6 tasks: both 6/6 correct tool choice; directives 12.8 s total vs native 28.3 s (≈2.2× slower). Kept directives |
 | 10 | Subagents / orchestrator-workers | Anthropic, OpenMuse delegate_task | gap: plan steps run sequentially in one context; parallel independent steps would be the next step |
-| 11 | Tracing / eval harness | Agents SDK tracing | partial: ttft/total logged; `app/tests/aurora/harness-dogfood.mjs` is a scripted live eval; no scored eval set yet |
+| 11 | Tracing / eval harness | Agents SDK tracing | **done**: 14 scored Vietnamese tasks `app/tests/aurora/eval/` (12 checks each: answered, Vietnamese only, no internal names, addresses “bạn”, tools, citations, must-contain, approval, secret card, plan, memory, steering order). Live: 14/14, mean 7.6 s |
 | 12 | Memory UI | OpenMuse personal context | gap: API exists, no settings screen yet (another worker owns the web assets) |
 
 ## 4. Design notes
@@ -39,3 +39,10 @@ Partly. Before this pass Aurora had: Grok-style ack → status → separate resu
 - Parallel tools keep the OpenMuse invariant: network work concurrent, ledger cards/source numbers/context blocks committed serially in order so footnotes are deterministic.
 - Steering text is labelled as an owner instruction, separate from untrusted web data.
 - Memory is preference/context, explicitly "not an action instruction", never secrets (vault only). Account deletion wipes it with the state dir.
+
+## 5. Follow-up (same day)
+
+- Steering message is now journaled on the absorbing run (`DirectRun.Steered`) and rendered before the rewritten answer; the absorbed queued turn finishes silently.
+- Prompt: bot says “mình” and calls the owner “bạn”; eval check `addressesBan` passes on all 14 tasks.
+- SJC price: sjc.com.vn sits behind a Cloudflare challenge from the server; `gold_price` falls back to PNJ’s public price feed (lists SJC bars), cited as its own source.
+- Live restart test: 4-step plan, server killed during step 3, restarted → `resumed … (attempt 1)` → all 4 steps + final result delivered.
