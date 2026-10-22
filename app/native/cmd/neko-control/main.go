@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"flag"
 	"fmt"
+	"nekobot.local/native/internal/duet"
 	"net"
 	"net/http"
 	"os"
@@ -221,6 +222,11 @@ func main() {
 			fmt.Fprintln(os.Stderr, "desktop_launch_unavailable")
 			return
 		}
+	}
+	if duetService, e := duet.New(ctx, filepath.Join(*state, "duet")); e != nil {
+		fmt.Fprintln(os.Stderr, "duet_unavailable")
+	} else {
+		handler.EnableDuet(duetService)
 	}
 	if profiles != nil {
 		handler.EnableCoreProfiles(profiles)

@@ -42,8 +42,9 @@ h1{font:600 34px/1.1 Georgia,"Times New Roman",serif;margin:4px 0 2px}
 .actions{position:absolute;inset:0 0 0 auto;display:flex}
 .actions button{width:80px;border:0;color:#fff;font-size:14px}
 .actions .pin{background:#6b7280}.actions .arch{background:var(--acc)}
-.msg{width:fit-content;max-width:84%;margin:8px 0;padding:10px 14px;border-radius:18px;background:var(--card);border:1px solid var(--line);overflow-wrap:break-word;word-break:break-word;animation:in .25s ease}
-.msg.me{margin-left:auto;background:var(--ink);color:#fff;border-color:var(--ink)}
+.msg{width:fit-content;max-width:84%;margin:8px 0;padding:10px 14px;border-radius:18px;background:var(--card);border:1px solid var(--line);overflow-wrap:break-word;word-break:break-word}
+.msg.draft{animation:in .25s ease}
+.msg.mine{margin-left:auto;background:var(--ink);color:#fff;border-color:var(--ink)}
 @keyframes in{from{opacity:0;transform:translateY(6px)}}
 .approval{border:1px solid var(--acc);border-radius:16px;background:var(--card);padding:12px;margin:10px 0}
 .approval small{color:var(--mute)}.approval pre{white-space:pre-wrap;font:inherit;background:#f3ece2;border-radius:10px;padding:10px;margin:8px 0}
@@ -81,3 +82,17 @@ h1{font:600 34px/1.1 Georgia,"Times New Roman",serif;margin:4px 0 2px}
 .toast{position:fixed;left:50%;bottom:calc(var(--sb) + 80px);transform:translate(-50%,20px);opacity:0;background:var(--ink);color:#fff;padding:10px 16px;border-radius:20px;font-size:14px;z-index:9;pointer-events:none;transition:.25s;max-width:calc(100vw - 32px)}
 .toast.show{opacity:1;transform:translate(-50%,0)}
 @media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
+
+.brief-h{display:flex;align-items:center;justify-content:space-between}.brief-h h2{margin:0}
+.text-btn.small{font-size:14px;color:var(--acc)}
+.brief .meta{display:block;color:var(--mute);font-size:12px;margin:-4px 0 6px}
+.brief li.note{color:var(--mute);font-size:14px}
+.warn{color:var(--warn)}.snip.err{color:#b91c1c}
+.msg.sys{background:#fdf2e9;border-color:#f3c9a8;color:#7c2d12;font-size:14px}
+.msg.draft{border-style:dashed}
+.msg.typing{color:var(--mute);font-size:14px}
+.mic{width:44px;height:44px;border-radius:22px;border:1px solid var(--line);background:var(--card);font-size:18px;flex:none}
+.mic.on{background:#fee2e2;border-color:#ef4444;animation:pulse 1.2s infinite}
+#bellBtn{font-size:18px}#bellBtn.on{background:#fbe9e1}
+button:disabled{opacity:.5}
+.ap-title{font-weight:600}

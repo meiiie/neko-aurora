@@ -30,41 +30,59 @@ function draw(cv,a,part){const g=cv.getContext("2d");g.clearRect(0,0,16,16);cons
  if(X==="scarf"){p(3,11,10,1,"#e5a428");p(10,12,2,3,"#e5a428")}
 }
 const thumb=(a)=>{const cv=document.createElement("canvas");cv.width=cv.height=16;draw(cv,a);return cv};
-// ---------- state ----------
-const KEY="neko-duet-v1";const now=Date.now(),H=3600e3,D=24*H;
-const seed=()=>({agents:[
- {id:"a1",name:"Morning Brief",tag:"Mỗi sáng",av:{shell:0,hat:"none",eyes:"round",extra:"none"},t:now-2*H,status:"done",snip:"Đã gửi bản tin 5:30. 2 việc cần bạn.",msgs:[{me:0,t:"Chào buổi sáng. 5 việc đang chạy, 2 việc cần bạn: hợp đồng Northfield và giấy phép mở cửa hàng."}]},
- {id:"a2",name:"Posting Buddy",av:{shell:6,hat:"cap",eyes:"shades",extra:"none"},t:now,status:"drafting",snip:"Đang soạn",msgs:[{me:1,t:"Viết giúp mình một bài giới thiệu Neko Bot."},{me:0,t:"Mình đã soạn bản nháp theo giọng của bạn. Đăng giúp không?"},{approval:1,title:"Đăng lên X",body:"Neko Bot: nhiều đồng nghiệp AI, một luồng việc, bạn duyệt trước khi gửi.",state:"pending"}]},
- {id:"a3",name:"Inbox Zero",av:{shell:3,hat:"beanie",eyes:"none",extra:"antenna"},t:now-5*H,status:"waiting",snip:"Có 3 thư cần bạn trả lời trước 18:00.",msgs:[{me:0,t:"Mình đã lưu trữ 83 bản tin, giữ lại 4 thư quan trọng. 3 thư cần bạn trả lời."},{approval:1,title:"Gửi trả lời cho Elena",body:"Chào Elena,\nĐây là deck cho buổi họp thứ Năm kèm link data room.\nDarren",state:"pending"}]},
- {id:"a4",name:"Research",tag:"Thiết kế",av:{shell:7,hat:"top",eyes:"mono",extra:"none"},t:now-D,status:"done",snip:"Bản tóm tắt thứ Ba đã sẵn sàng. Giữ lại 41/960 nguồn.",msgs:[{me:0,t:"Bản tóm tắt nghiên cứu đã xong: 41 nguồn liên quan trên 960."}]},
- {id:"a5",name:"Shop Bot",av:{shell:9,hat:"none",eyes:"none",extra:"bow"},t:now-3*D,status:"paused",snip:"Tạm dừng làm mới listing qua đêm cho tới khi bạn duyệt.",msgs:[{me:0,t:"Mình tạm dừng làm mới listing qua đêm. Tiếp tục không?"}]},
- {id:"a6",name:"Design Buddy",av:{shell:4,hat:"crown",eyes:"visor",extra:"scarf"},t:now-6*D,status:"done",snip:"Đã dựng lại màn cài đặt theo mẫu của bạn.",msgs:[{me:0,t:"Đã dựng lại màn cài đặt."}]}
-],log:[{t:now-2*H,x:"Morning Brief đọc lịch, hộp thư và 6 kênh"},{t:now-H,x:"Inbox Zero lưu trữ 83 bản tin"},{t:now,x:"Posting Buddy soạn bản nháp, chờ bạn duyệt"}]});
-let S;try{S=JSON.parse(localStorage.getItem(KEY))}catch{}if(!S||!Array.isArray(S.agents))S=seed();
-const save=()=>{try{localStorage.setItem(KEY,JSON.stringify(S))}catch{}};
-const waiting=a=>a.msgs.some(m=>m.approval&&m.state==="pending");
-const ago=t=>{const s=(Date.now()-t)/1e3;if(s<60)return"bây giờ";if(s<3600)return Math.floor(s/60)+" phút";if(s<86400)return new Date(t).toLocaleTimeString("vi-VN",{hour:"2-digit",minute:"2-digit"});return new Date(t).toLocaleDateString("vi-VN",{day:"numeric",month:"numeric"})};
+// ---------- server state (real Go control plane at /duet/api) ----------
+const S={agents:[],pending:[],brief:null,ai:{},vapid:"",msgs:{},drafts:{}};
+const API="/duet/api";
+async function api(path,body){const r=await fetch(API+path,{method:body===undefined?"GET":"POST",credentials:"same-origin",cache:"no-store",headers:body===undefined?{}:{"Content-Type":"application/json"},body:body===undefined?undefined:JSON.stringify(body)});
+ if(!r.ok){const e=new Error(String(r.status));e.status=r.status;throw e}return r.json()}
+const T=x=>new Date(x).getTime();
+const waiting=a=>S.pending.some(m=>m.agentId===a.id)||a.status==="waiting";
+const ago=t=>{t=T(t);const s=(Date.now()-t)/1e3;if(s<60)return"bây giờ";if(s<3600)return Math.floor(s/60)+" phút";if(s<86400&&new Date(t).getDate()===new Date().getDate())return new Date(t).toLocaleTimeString("vi-VN",{hour:"2-digit",minute:"2-digit"});return new Date(t).toLocaleDateString("vi-VN",{day:"numeric",month:"numeric"})};
 const el=(t,c,x)=>{const e=document.createElement(t);if(c)e.className=c;if(x!=null)e.textContent=x;return e};
-let toastT;const toast=m=>{const t=$("#toast");t.textContent=m;t.classList.add("show");clearTimeout(toastT);toastT=setTimeout(()=>t.classList.remove("show"),1800)};
-const log=x=>{S.log.push({t:Date.now(),x});S.log=S.log.slice(-60)};
+let toastT;const toast=m=>{const t=$("#toast");t.textContent=m;t.classList.add("show");clearTimeout(toastT);toastT=setTimeout(()=>t.classList.remove("show"),2200)};
+const upsert=a=>{const i=S.agents.findIndex(x=>x.id===a.id);if(i<0)S.agents.push(a);else S.agents[i]=a};
+let listQueued=false;const renderListSoon=()=>{if(listQueued)return;listQueued=true;requestAnimationFrame(()=>{listQueued=false;renderList()})};
+async function loadState(){const st=await api("/state");S.agents=st.agents;S.pending=st.pending;S.brief=st.brief;S.ai=st.ai;S.vapid=st.vapidPublicKey;renderList();if(cur){const a=S.agents.find(x=>x.id===cur.id);if(a){cur=a;await loadMsgs(a.id)}}}
+async function loadMsgs(id){S.msgs[id]=await api(`/agents/${id}/messages`);if(cur&&cur.id===id)renderThread()}
+// ---------- live events (SSE) ----------
+let es,esDown=false;
+function connect(){es=new EventSource(API+"/events");
+ es.onopen=()=>{if(esDown){esDown=false;loadState().catch(()=>{})}};
+ es.onerror=()=>{esDown=true};
+ es.addEventListener("agent",e=>{const a=JSON.parse(e.data);upsert(a);if(cur&&cur.id===a.id){cur=a;renderThread()}renderListSoon()});
+ es.addEventListener("archived",e=>{const {id}=JSON.parse(e.data);S.agents=S.agents.filter(a=>a.id!==id);S.pending=S.pending.filter(m=>m.agentId!==id);renderListSoon()});
+ es.addEventListener("message",e=>{const m=JSON.parse(e.data);const L=S.msgs[m.agentId];delete S.drafts[m.id];
+  if(L){const i=L.findIndex(x=>x.id===m.id);if(i<0)L.push(m);else L[i]=m}
+  S.pending=S.pending.filter(x=>x.id!==m.id);if(m.approval&&m.approval.state==="pending")S.pending.push(m);
+  if(cur&&cur.id===m.agentId)renderThread();renderListSoon()});
+ es.addEventListener("delta",e=>{const d=JSON.parse(e.data);const x=S.drafts[d.id]||(S.drafts[d.id]={agentId:d.agentId,text:""});x.text+=d.delta;if(cur&&cur.id===d.agentId)paintDraft(d.id)});
+ es.addEventListener("activity",e=>{if(sheetOpen===$("#activity"))renderLog([JSON.parse(e.data)],true)});
+ es.addEventListener("brief",e=>{S.brief=JSON.parse(e.data);renderListSoon()});
+ es.addEventListener("notify",e=>{const n=JSON.parse(e.data);if(document.hidden&&!pushOn&&"Notification"in window&&Notification.permission==="granted")navigator.serviceWorker?.ready.then(r=>r.showNotification(n.title,{body:n.body,data:{url:n.url},tag:n.url}))});
+}
 // ---------- list ----------
 let filter="";
 function renderList(){
- const ags=[...S.agents].sort((a,b)=>(b.pin|0)-(a.pin|0)||(waiting(b)-waiting(a))||b.t-a.t);const w=ags.filter(waiting).length;
- $("#summary").innerHTML="";$("#summary").append(`${ags.length} agent · `);const b=el("b",0,`${w} đang chờ bạn`);$("#summary").append(b);
- const br=$("#brief");br.innerHTML="";br.append(el("h2",0,"Bản tin sáng"),el("p",0,`Chào Darren. ${ags.filter(a=>a.status==="drafting"||a.status==="working").length+3} việc đang chạy, ${w} việc cần bạn.`));
- const ol=el("ol");ags.filter(waiting).forEach(a=>{const li=el("li"),bt=el("button",0,`${a.name}: ${a.msgs.find(m=>m.approval&&m.state==="pending").title}`);bt.onclick=()=>openThread(a.id);li.append(bt);ol.append(li)});if(!w)ol.append(el("li",0,"Không có gì cần bạn lúc này."));br.append(ol);
+ const ags=[...S.agents].sort((a,b)=>(b.pin|0)-(a.pin|0)||(waiting(b)-waiting(a))||T(b.t)-T(a.t));const w=ags.filter(waiting).length;
+ const sum=$("#summary");sum.textContent=`${ags.length} agent · `;sum.append(el("b",0,`${w} đang chờ bạn`));
+ if(!S.ai.configured)sum.append(el("span","warn"," · AI chưa cấu hình"));
+ const br=$("#brief");br.innerHTML="";const h=el("div","brief-h");h.append(el("h2",0,"Bản tin sáng"));const rf=el("button","text-btn small","Làm mới");rf.setAttribute("aria-label","Tạo lại bản tin sáng");rf.onclick=refreshBrief;h.append(rf);br.append(h);
+ const b=S.brief;br.append(el("p",0,b?b.text:"Chưa có bản tin."));if(b)br.append(el("small","meta",`${b.source==="ai"?"AI · "+(S.ai.model||""):"Tự động"} · ${ago(b.generated)}`));
+ const ol=el("ol");S.pending.forEach(m=>{const a=S.agents.find(x=>x.id===m.agentId);if(!a)return;const li=el("li"),bt=el("button",0,`${a.name}: ${m.approval.title}`);bt.onclick=()=>openThread(a.id);li.append(bt);ol.append(li)});
+ if(b&&b.items)b.items.filter(it=>!S.pending.some(m=>it.includes(m.approval.title))).slice(0,4).forEach(it=>ol.append(el("li","note",it)));
+ if(!ol.children.length)ol.append(el("li","note","Không có gì cần bạn lúc này."));br.append(ol);
  const ul=$("#rows");ul.innerHTML="";
  ags.filter(a=>!filter||a.name.toLowerCase().includes(filter)).forEach(a=>{
   const li=el("li","row");li.dataset.id=a.id;const acts=el("div","actions"),pin=el("button","pin",a.pin?"Bỏ ghim":"Ghim"),ar=el("button","arch","Lưu trữ");acts.append(pin,ar);
-  pin.onclick=e=>{e.stopPropagation();a.pin=!a.pin;save();renderList()};
-  ar.onclick=e=>{e.stopPropagation();S.agents=S.agents.filter(x=>x!==a);log(`Đã lưu trữ ${a.name}`);save();renderList();toast("Đã lưu trữ "+a.name)};
+  pin.onclick=e=>{e.stopPropagation();suppress=performance.now()+600;api(`/agents/${a.id}`,{pin:!a.pin}).then(upsert).then(renderList).catch(()=>toast("Không ghim được"))};
+  ar.onclick=e=>{e.stopPropagation();suppress=performance.now()+600;if(ar.disabled)return;ar.disabled=true;api(`/agents/${a.id}`,{archived:true}).then(()=>{S.agents=S.agents.filter(x=>x.id!==a.id);S.pending=S.pending.filter(m=>m.agentId!==a.id);renderList();toast("Đã lưu trữ "+a.name)}).catch(()=>{ar.disabled=false;toast("Không lưu trữ được")})};
   const inn=el("div","rowin");inn.setAttribute("role","button");inn.tabIndex=0;inn.append(thumb(a.av));const tx=el("div","rowtxt"),h=el("div","rowh");h.append(el("b",0,a.name));if(a.tag)h.append(el("span","tag",a.tag));
-  const tm=el("span","time"+(a.status==="drafting"?" now":""),a.status==="drafting"?"bây giờ":ago(a.t));h.append(tm);
-  const sn=el("div","snip"+(waiting(a)?" wait":"")+(a.status==="drafting"||a.status==="working"?" dots":""),a.snip);tx.append(h,sn);inn.append(tx);li.append(acts,inn);ul.append(li);
+  const live=a.status==="working";h.append(el("span","time"+(live?" now":""),live?"bây giờ":ago(a.t)));
+  tx.append(h,el("div","snip"+(waiting(a)?" wait":"")+(live?" dots":"")+(a.status==="error"?" err":""),a.snip));inn.append(tx);li.append(acts,inn);ul.append(li);
   inn.onclick=()=>{if(performance.now()<suppress)return;if(li.dataset.open){closeRow(li);return}openThread(a.id)};inn.onkeydown=e=>{if(e.key==="Enter")openThread(a.id)};
   swipeRow(li,inn)});
 }
+let briefBusy=false;async function refreshBrief(){if(briefBusy)return;briefBusy=true;toast("Đang tạo bản tin…");try{S.brief=await api("/brief",{});renderList();toast("Đã cập nhật bản tin")}catch{toast("Không tạo được bản tin")}finally{briefBusy=false}}
 let openRow=null,suppress=0;const closeRow=li=>{li.querySelector(".rowin").style.transform="";delete li.dataset.open;if(openRow===li)openRow=null};
 function swipeRow(li,inn){let x0,y0,dx=0,mode=null,base=0;
  li.addEventListener("touchstart",e=>{const t=e.touches[0];if(cur){mode="skip";x0=null;return}x0=t.clientX;y0=t.clientY;dx=0;mode=null;base=li.dataset.open?-160:0;if(openRow&&openRow!==li)closeRow(openRow)},{passive:true});
@@ -74,21 +92,28 @@ function swipeRow(li,inn){let x0,y0,dx=0,mode=null,base=0;
  li.addEventListener("touchcancel",()=>{li.classList.remove("drag");closeRow(li)});
 }
 // ---------- thread ----------
-let cur=null,busy=false;
-function openThread(id){const a=S.agents.find(x=>x.id===id);if(!a)return;cur=a;draw($("#threadAvatar"),a.av);$("#threadName").textContent=a.name;renderThread();$("#thread").classList.remove("off");$("#list").classList.add("under");const hs=history.state;if(hs&&hs.spent)history.replaceState({t:1},"");else if(!(hs&&hs.t))history.pushState({t:1},"")}
-function closeThread(fromPop){if(!cur)return;cur=null;$("#thread").classList.add("off");$("#list").classList.remove("under");$("#thread").style.transform="";$("#list").style.transform="";renderList();if(!fromPop&&history.state&&history.state.t)history.replaceState({spent:1},"")}
-const stateTxt={drafting:"Đang soạn…",working:"Đang làm việc…",waiting:"Chờ bạn duyệt",paused:"Tạm dừng",done:"Đã xong"};
-function renderThread(){const a=cur;if(!a)return;$("#threadState").textContent=waiting(a)?"Chờ bạn duyệt":stateTxt[a.status]||"";const box=$("#messages");box.innerHTML="";
- a.msgs.forEach((m,i)=>{if(m.approval){const c=el("div","approval"+(m.state!=="pending"?" done":""));c.append(el("small",0,"Cần bạn duyệt · không gửi khi chưa có OK"),el("div",0,m.title),el("pre",0,m.body));
-  if(m.state==="pending"){const bs=el("div","btns"),no=el("button",0,"Để sau"),go=el("button","go","Duyệt");no.onclick=()=>decide(a,i,"later");go.onclick=()=>decide(a,i,"ok");bs.append(no,go);c.append(bs)}else c.append(el("small",0,m.state==="ok"?"✓ Bạn đã duyệt (bản demo: không gửi ra ngoài)":"Đã hoãn"));box.append(c)}
-  else box.append(el("div","msg"+(m.me?" me":""),m.t))});
- requestAnimationFrame(()=>box.scrollTop=box.scrollHeight)}
-function decide(a,i,v){const m=a.msgs[i];if(!m||m.state!=="pending")return;m.state=v;a.t=Date.now();a.status=v==="ok"?"done":"paused";a.snip=v==="ok"?"Đã duyệt: "+m.title:"Đã hoãn: "+m.title;a.msgs.push({me:0,t:v==="ok"?"Xong. Mình đã ghi nhận bạn duyệt.":"Ok, mình giữ lại và sẽ nhắc bạn sau."});log(`${a.name}: ${v==="ok"?"bạn duyệt":"bạn hoãn"} “${m.title}”`);save();renderThread()}
-function sendMsg(text){const a=cur;if(!a||!text.trim())return;a.msgs.push({me:1,t:text.trim()});a.status="working";a.snip="Đang làm việc";a.t=Date.now();log(`Bạn giao cho ${a.name}: ${text.trim().slice(0,60)}`);save();renderThread();
- const id=a.id;setTimeout(()=>{const b=S.agents.find(x=>x.id===id);if(!b)return;const risky=/gửi|send|đăng|post|trả|pay|thanh toán/i.test(text);
-  b.msgs.push({me:0,t:risky?"Mình đã chuẩn bị xong. Việc này đi ra ngoài nên cần bạn duyệt trước.":"Mình nhận việc rồi. Sẽ báo khi xong hoặc khi cần bạn quyết định."});
-  if(risky)b.msgs.push({approval:1,title:"Gửi theo yêu cầu",body:text.trim(),state:"pending"});b.status=risky?"waiting":"working";b.snip=risky?"Cần bạn duyệt: Gửi theo yêu cầu":"Đang làm việc";b.t=Date.now();log(`${b.name}: ${risky?"chờ bạn duyệt":"đang làm"}`);save();if(cur===b)renderThread();else renderList()},700)}
-// edge-swipe back (iOS style)
+let cur=null;
+const stateTxt={working:"Đang làm việc…",waiting:"Chờ bạn duyệt",idle:"Sẵn sàng",done:"Đã xong",error:"Có lỗi"};
+const stateLine=a=>waiting(a)?"Chờ bạn duyệt":stateTxt[a.status]||"";
+function openThread(id){const a=S.agents.find(x=>x.id===id);if(!a)return;cur=a;draw($("#threadAvatar"),a.av);$("#threadName").textContent=a.name;$("#threadState").textContent=stateLine(a);renderThread();loadMsgs(id).catch(()=>toast("Không tải được hội thoại"));$("#thread").classList.remove("off");$("#list").classList.add("under");const hs=history.state;if(hs&&hs.spent)history.replaceState({t:1},"","#"+id);else if(!(hs&&hs.t))history.pushState({t:1},"","#"+id)}
+function closeThread(fromPop){if(!cur)return;cur=null;stopVoice();$("#thread").classList.add("off");$("#list").classList.remove("under");$("#thread").style.transform="";$("#list").style.transform="";renderList();if(!fromPop&&history.state&&history.state.t)history.replaceState({spent:1},"",location.pathname)}
+const deciding=new Set();
+function renderThread(){const a=cur;if(!a)return;$("#threadState").textContent=stateLine(a);const box=$("#messages");const atBottom=box.scrollHeight-box.scrollTop-box.clientHeight<80;box.innerHTML="";
+ (S.msgs[a.id]||[]).forEach(m=>{if(m.text)box.append(el("div","msg"+(m.role==="user"?" mine":m.role==="system"?" sys":""),m.text));
+  if(m.approval){const ap=m.approval,c=el("div","approval"+(ap.state!=="pending"?" done":""));c.dataset.id=m.id;c.append(el("small",0,"Cần bạn duyệt · không gửi khi chưa có OK"),el("div","ap-title",ap.title),el("pre",0,ap.body));
+   if(ap.state==="pending"){const bs=el("div","btns"),no=el("button",0,"Để sau"),go=el("button","go","Duyệt");no.onclick=()=>decide(m,"declined",bs);go.onclick=()=>decide(m,"approved",bs);if(deciding.has(m.id)){no.disabled=go.disabled=true}bs.append(no,go);c.append(bs)}
+   else c.append(el("small",0,ap.state==="approved"?"✓ Bạn đã duyệt · chưa gửi ra ngoài (kênh gửi chưa kết nối)":"Đã hoãn"));box.append(c)}});
+ Object.entries(S.drafts).forEach(([id,d])=>{if(d.agentId===a.id){const b=el("div","msg draft",visible(d.text));b.id="d_"+id;box.append(b)}});
+ if(a.status==="working"&&!Object.values(S.drafts).some(d=>d.agentId===a.id))box.append(el("div","msg typing dots","Đang nghĩ"));
+ if(atBottom||true)requestAnimationFrame(()=>box.scrollTop=box.scrollHeight)}
+const visible=t=>{const i=t.indexOf("APPROVAL:");return(i>=0?t.slice(0,i):t).trim()||"…"};
+function paintDraft(id){const n=document.getElementById("d_"+id);if(!n){renderThread();return}n.textContent=visible(S.drafts[id].text);const box=$("#messages");box.scrollTop=box.scrollHeight}
+async function decide(m,v,bs){if(deciding.has(m.id))return;deciding.add(m.id);bs.querySelectorAll("button").forEach(b=>b.disabled=true);
+ try{await api(`/approvals/${m.id}`,{decision:v})}catch(e){if(e.status!==409){deciding.delete(m.id);toast("Không ghi nhận được, thử lại");bs.querySelectorAll("button").forEach(b=>b.disabled=false)}}}
+let sending=false;
+async function sendMsg(text){const a=cur;text=text.trim();if(!a||!text||sending)return false;sending=true;
+ try{await api(`/agents/${a.id}/messages`,{text});return true}catch{toast("Không gửi được, thử lại");return false}finally{sending=false}}
+// edge-swipe back (iOS style), anywhere on screen while a thread is open
 (()=>{const th=$("#thread"),ls=$("#list"),root=$("#app");let x0=null,y0,dx=0,on=false;
  root.addEventListener("touchstart",e=>{const t=e.touches[0];if(!cur||sheetOpen||t.clientX>28){x0=null;return}x0=t.clientX;y0=t.clientY;dx=0;on=false},{passive:true});
  root.addEventListener("touchmove",e=>{if(x0==null)return;const t=e.touches[0];dx=Math.max(0,t.clientX-x0);if(!on&&dx>10&&dx>Math.abs(t.clientY-y0))on=true;if(!on)return;e.preventDefault();th.classList.add("drag");ls.classList.add("drag");th.style.transform=`translate3d(${dx}px,0,0)`;ls.style.transform=`translate3d(${-24+24*dx/innerWidth}%,0,0)`},{passive:false});
@@ -108,23 +133,43 @@ function closeSheet(){const s=sheetOpen;if(!s||performance.now()-openedAt<350)re
 $("#newBtn").onclick=()=>{if(sheetOpen)return;draft=newDraft();$("#agentName").value="Posting Buddy";$("#agentDesc").value="Soạn bài theo giọng tôi. Không bao giờ tự đăng.";renderPickers();$("#sheetBody").scrollTop=0;openSheet(sheet)};
 $("#cancelBtn").onclick=closeSheet;scrim.onclick=closeSheet;
 $("#surpriseBtn").onclick=()=>{const r=l=>l[Math.random()*l.length|0];draft={shell:Math.random()*SHELLS.length|0,hat:r(HATS),eyes:r(EYES),extra:r(EXTRAS)};renderPickers()};
-$("#createBtn").onclick=()=>{if(sheetOpen!==sheet)return;const name=$("#agentName").value.trim()||"Agent mới",desc=$("#agentDesc").value.trim();const a={id:"a"+Date.now().toString(36)+Math.random().toString(36).slice(2,5),name,av:{...draft},t:Date.now(),status:"done",snip:desc||"Sẵn sàng nhận việc.",msgs:[{me:0,t:`Chào, mình là ${name}. ${desc} Nhắn mình việc cần làm nhé.`}]};S.agents.unshift(a);log(`Đã tạo agent ${name}`);save();closeSheet();renderList();toast("Đã tạo "+name)};
-document.querySelectorAll(".sheet").forEach(s=>{let y0=null,dy=0;const start=e=>{if(e.target.closest(".scroll")&&e.target.closest(".scroll").scrollTop>0)return;y0=e.touches[0].clientY;dy=0};
+let creating=false;
+$("#createBtn").onclick=async()=>{if(sheetOpen!==sheet||creating)return;creating=true;const name=$("#agentName").value.trim()||"Agent mới",desc=$("#agentDesc").value.trim();
+ try{const a=await api("/agents",{name,desc,av:{...draft}});upsert(a);closeSheet();renderList();toast("Đã tạo "+a.name)}catch{toast("Không tạo được agent")}finally{creating=false}};
+document.querySelectorAll(".sheet").forEach(s=>{let y0=null,dy=0;const start=e=>{const sc=e.target.closest(".scroll");if(sc&&sc.scrollTop>0)return;y0=e.touches[0].clientY;dy=0};
  s.addEventListener("touchstart",start,{passive:true});
  s.addEventListener("touchmove",e=>{if(y0==null)return;dy=e.touches[0].clientY-y0;if(dy<=0){s.style.transform="";return}if(e.target.closest(".scroll")&&dy<12)return;e.preventDefault();s.classList.add("drag");s.style.transform=`translate3d(0,${dy}px,0)`},{passive:false});
  const end=()=>{if(y0==null)return;s.classList.remove("drag");if(dy>120)closeSheet();else s.style.transform="";y0=null};s.addEventListener("touchend",end);s.addEventListener("touchcancel",end)});
 // ---------- activity ----------
-$("#activityBtn").onclick=()=>{if(sheetOpen)return;const L=$("#log");L.innerHTML="";[...S.log].reverse().forEach(x=>{const li=el("li"),t=el("time",0,ago(x.t));li.append(t,x.x);L.append(li)});openSheet($("#activity"))};$("#closeActivity").onclick=closeSheet;
+function renderLog(items,prepend){const L=$("#log");if(!prepend)L.innerHTML="";items.forEach(x=>{const li=el("li"),t=el("time",0,ago(x.t));li.append(t,x.text);prepend?L.prepend(li):L.append(li)})}
+$("#activityBtn").onclick=()=>{if(sheetOpen)return;renderLog([]);openSheet($("#activity"));api("/activity?limit=80").then(x=>renderLog(x)).catch(()=>toast("Không tải được hoạt động"))};$("#closeActivity").onclick=closeSheet;
+// ---------- notifications (Web Push via VAPID; falls back to SW notifications while the app is open) ----------
+let pushOn=false;
+const u8=b=>{const s=atob((b+"=".repeat((4-b.length%4)%4)).replace(/-/g,"+").replace(/_/g,"/"));return Uint8Array.from(s,c=>c.charCodeAt(0))};
+async function enableNotify(){if(!("Notification"in window)||!("serviceWorker"in navigator)){toast("Thiết bị này chưa hỗ trợ thông báo. Trên iPhone: thêm vào Màn hình chính trước.");return}
+ const p=await Notification.requestPermission();if(p!=="granted"){toast("Bạn chưa cho phép thông báo");return}
+ const reg=await navigator.serviceWorker.ready;
+ if("PushManager"in window&&S.vapid){try{const sub=(await reg.pushManager.getSubscription())||await reg.pushManager.subscribe({userVisibleOnly:true,applicationServerKey:u8(S.vapid)});await api("/push/subscribe",sub.toJSON());pushOn=true;toast("Đã bật thông báo đẩy")}catch{toast("Bật thông báo khi app đang mở (push chưa khả dụng)")}}
+ else toast("Bật thông báo khi app đang mở");$("#bellBtn").classList.add("on")}
+$("#bellBtn").onclick=()=>{enableNotify().catch(()=>toast("Không bật được thông báo"))};
+// ---------- voice input (Web Speech API where supported) ----------
+const SR=window.SpeechRecognition||window.webkitSpeechRecognition;let rec=null;
+function stopVoice(){if(rec){try{rec.stop()}catch{}rec=null;$("#micBtn").classList.remove("on")}}
+if(!SR)$("#micBtn").classList.add("hidden");
+$("#micBtn").onclick=()=>{if(rec){stopVoice();return}rec=new SR();rec.lang="vi-VN";rec.interimResults=true;rec.continuous=false;const base=inp.value?inp.value+" ":"";
+ rec.onresult=e=>{let t="";for(const r of e.results)t+=r[0].transcript;inp.value=base+t;inp.oninput()};rec.onend=()=>{rec=null;$("#micBtn").classList.remove("on")};rec.onerror=e=>{toast(e.error==="not-allowed"?"Chưa cho phép micro":"Không nghe được, thử lại")};
+ try{rec.start();$("#micBtn").classList.add("on")}catch{rec=null}};
 // ---------- misc ----------
 $("#backBtn").onclick=()=>closeThread();
 addEventListener("popstate",()=>{if(sheetOpen)closeSheet();else if(cur)closeThread(true)});
 $("#searchBtn").onclick=()=>{const s=$("#search");s.classList.toggle("hidden");if(!s.classList.contains("hidden"))s.focus();else{filter="";s.value="";renderList()}};
 $("#search").oninput=e=>{filter=e.target.value.toLowerCase();renderList()};
 const inp=$("#input");inp.oninput=()=>{inp.style.height="auto";inp.style.height=Math.min(140,inp.scrollHeight)+"px"};
-$("#composer").onsubmit=e=>{e.preventDefault();if(busy)return;busy=true;sendMsg(inp.value);inp.value="";inp.style.height="";setTimeout(()=>busy=false,150)};
+$("#composer").onsubmit=async e=>{e.preventDefault();stopVoice();const v=inp.value;if(!v.trim())return;inp.value="";inp.style.height="";if(!(await sendMsg(v)))inp.value=v};
 inp.onkeydown=e=>{if(e.key==="Enter"&&!e.shiftKey&&!e.isComposing){e.preventDefault();$("#composer").requestSubmit()}};
+document.addEventListener("visibilitychange",()=>{if(!document.hidden)loadState().catch(()=>{})});
 draw($("#meAvatar"),{shell:2,hat:"none",eyes:"none",extra:"flower"});
-renderList();
-if("serviceWorker"in navigator&&location.protocol!=="file:")navigator.serviceWorker.register("/duet/sw.js",{scope:"/duet/"}).catch(()=>{});
-window.__DUET={state:()=>S,reset:()=>{S=seed();save();renderList()}};
+if("serviceWorker"in navigator)navigator.serviceWorker.register("/duet/sw.js",{scope:"/duet/"}).then(r=>r.pushManager?.getSubscription()).then(s=>{if(s){pushOn=true;$("#bellBtn").classList.add("on")}}).catch(()=>{});
+loadState().then(()=>{const h=location.hash.slice(1);if(h)openThread(h)}).catch(()=>toast("Không kết nối được máy chủ"));connect();
+window.__DUET={state:()=>S,reload:loadState,current:()=>cur&&cur.id};
 })();

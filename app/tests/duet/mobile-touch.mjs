@@ -1,73 +1,100 @@
-import puppeteer from 'puppeteer-core'; // npm i puppeteer-core; CHROME=/path/to/chrome
+// Real-touch mobile test for /duet/ against a running neko-control.
+// npm i puppeteer-core ; DUET_URL=http://127.0.0.1:8765/duet/ OUT=./duet-shots/ node mobile-touch.mjs
+import puppeteer from 'puppeteer-core';
 const U=process.env.DUET_URL||'http://127.0.0.1:8765/duet/',O=process.env.OUT||'./duet-shots/';
+const REAL=!!process.env.REAL_AI; // stricter timeouts off for a real model
 const sleep=ms=>new Promise(r=>setTimeout(r,ms));
 const b=await puppeteer.launch({executablePath:process.env.CHROME||'/usr/bin/google-chrome',args:['--no-sandbox','--hide-scrollbars']});
 const results=[];let fail=0;
 const ok=(w,name,cond,extra='')=>{results.push(`${cond?'PASS':'FAIL'} ${w} ${name} ${extra}`);if(!cond)fail++};
-for(const w of [360,390,430]){try{
- const ctx=await b.createBrowserContext();const p=await ctx.newPage();globalThis.P=p;const errs=[];p.on('pageerror',e=>errs.push(String(e)));
+for(const w of [360,390,430]){let p;try{
+ const ctx=await b.createBrowserContext();await ctx.overridePermissions(new URL(U).origin,['notifications']);p=await ctx.newPage();const errs=[];p.on('pageerror',e=>errs.push(String(e)));
  await p.setViewport({width:w,height:Math.round(w*2.165),deviceScaleFactor:2,isMobile:true,hasTouch:true});
- await p.goto(U,{waitUntil:'domcontentloaded'});await p.waitForFunction('window.__DUET');await p.evaluate(()=>{localStorage.clear();__DUET.reset()});await sleep(300);
+ await p.goto(U,{waitUntil:'domcontentloaded'});await p.waitForFunction('window.__DUET&&__DUET.state().agents.length>0',{timeout:10000});await sleep(300);
  const T=p.touchscreen;
  const swipe=async(x1,y1,x2,y2,steps=6,dt=8)=>{await T.touchStart(x1,y1);for(let i=1;i<=steps;i++){await T.touchMove(x1+(x2-x1)*i/steps,y1+(y2-y1)*i/steps);await sleep(dt)}await T.touchEnd()};
- const box=async s=>{const r=await p.$eval(s,e=>{const b=e.getBoundingClientRect();return[b.x+b.width/2,b.y+b.height/2]});return r};
+ const box=async s=>p.$eval(s,e=>{const b=e.getBoundingClientRect();return[b.x+b.width/2,b.y+b.height/2]});
  const tap=async s=>{const [x,y]=await box(s);await T.tap(x,y)};
+ const srv=path=>p.evaluate(async q=>(await fetch('/duet/api'+q,{cache:'no-store'})).json(),path);
  const overflow=()=>p.evaluate(()=>document.documentElement.scrollWidth>innerWidth||document.body.scrollWidth>innerWidth);
- const small=()=>p.evaluate(()=>[...document.querySelectorAll('button,input,textarea,[role=button]')].filter(e=>{const r=e.getBoundingClientRect();const s=getComputedStyle(e);return r.width&&r.height&&s.visibility!=='hidden'&&r.bottom>0&&r.top<innerHeight&&r.right>0&&r.left<innerWidth&&(r.width<43.5||r.height<43.5)}).map(e=>(e.className||e.tagName)+':'+e.getBoundingClientRect().width.toFixed(2)+'x'+e.getBoundingClientRect().height.toFixed(2)));
+ const small=()=>p.evaluate(()=>[...document.querySelectorAll('button,input,textarea,[role=button]')].filter(e=>{const r=e.getBoundingClientRect();const s=getComputedStyle(e);return r.width&&r.height&&s.visibility!=='hidden'&&r.bottom>0&&r.top<innerHeight&&r.right>0&&r.left<innerWidth&&(r.width<43.5||r.height<43.5)}).map(e=>(e.id||e.className||e.tagName)+':'+e.getBoundingClientRect().width.toFixed(1)+'x'+e.getBoundingClientRect().height.toFixed(1)));
+ const rowOf=name=>p.evaluate(n=>{const r=[...document.querySelectorAll('.row')].find(e=>e.querySelector('.rowh b').textContent===n);if(!r)return null;r.scrollIntoView({block:'center'});const b=r.querySelector('.rowin').getBoundingClientRect();return[b.x+b.width/2,b.y+b.height/2]},name);
+ ok(w,'loaded from server',(await srv('/state')).agents.length>0);
  ok(w,'no-h-overflow list',!(await overflow()));let sm=await small();ok(w,'touch>=44 list',!sm.length,sm.join(','));
  await p.screenshot({path:`${O}${w}-1-list.png`});
- // fast repeated taps on +
+ // notifications: permission granted, bell → subscribe or in-app fallback
+ await tap('#bellBtn');await sleep(1500);const bell=await p.$eval('#bellBtn',e=>e.classList.contains('on'));const toastTxt=await p.$eval('#toast',e=>e.textContent);
+ ok(w,'bell enables notifications (push or fallback)',bell,toastTxt);
+ // creator
  for(let i=0;i<6;i++){await tap('#newBtn');await sleep(15)}
  await sleep(400);ok(w,'sheet opens once after 6 fast taps',await p.$eval('#sheet',e=>!e.classList.contains('closed')&&!e.classList.contains('hidden')));
  for(let i=0;i<12;i++){await tap('#surpriseBtn');await sleep(10)}
- await p.$eval('#sheetBody',e=>e.scrollTop=0);await sleep(100);
- // pick explicit options like screenshot
  const pick=async(sel)=>{await p.$eval(sel,e=>e.scrollIntoView({block:'center'}));await sleep(60);await tap(sel)};
  await pick('.swatches .sw:nth-child(6)');await pick('.group:nth-child(2) .opt:nth-child(3)');await pick('.group:nth-child(3) .opt:nth-child(3)');await pick('.group:nth-child(4) .opt:nth-child(1)');
  await p.$eval('#sheetBody',e=>e.scrollTop=0);await sleep(150);
  ok(w,'no-h-overflow sheet',!(await overflow()));sm=await small();ok(w,'touch>=44 sheet',!sm.length,sm.join(','));
  await p.screenshot({path:`${O}${w}-2-creator.png`});
- // drag-to-dismiss via grip
  const [gx,gy]=await box('#grip');await swipe(gx,gy,gx,gy+260,8,10);await sleep(450);
  ok(w,'drag grip down dismisses sheet',await p.$eval('#sheet',e=>e.classList.contains('hidden')));
- // create
- const n0=await p.evaluate(()=>__DUET.state().agents.length);
- await tap('#newBtn');await sleep(400);await p.$eval('#agentName',e=>e.value='Neko Tester');for(let i=0;i<5;i++){await tap('#createBtn');await sleep(10)}await sleep(450);
- const n1=await p.evaluate(()=>__DUET.state().agents.length);ok(w,'5 fast taps on Create make exactly 1 agent',n1===n0+1,`${n0}->${n1}`);
- ok(w,'pre-swipe on list',await p.$eval('#thread',e=>e.classList.contains('off')));await p.screenshot({path:O+w+'-pre.png'});// swipe row left
- const [rx,ry]=await box('.row:nth-child(2) .rowin');await swipe(rx+100,ry,rx-120,ry,6,8);await sleep(350);
- ok(w,'row swipe reveals actions',await p.$eval('.row:nth-child(2)',e=>!!e.dataset.open));await p.screenshot({path:`${O}${w}-3-rowswipe.png`});
- await T.tap(rx-80,ry);await sleep(300);ok(w,'tap closes open row (no nav)',await p.$eval('#thread',e=>e.classList.contains('off')));
- // vertical fast flicks in list shouldn't open rows
+ const name='Tester '+w;const n0=(await srv('/state')).agents.length;
+ await tap('#newBtn');await sleep(400);await p.$eval('#agentName',(e,n)=>e.value=n,name);for(let i=0;i<5;i++){await tap('#createBtn');await sleep(10)}await sleep(800);
+ const st1=await srv('/state');ok(w,'5 fast taps on Create → exactly 1 agent on server',st1.agents.length===n0+1&&st1.agents.filter(a=>a.name===name).length===1,`${n0}->${st1.agents.length}`);
+ // row swipe + archive a throwaway agent
+ await p.evaluate(async n=>{await fetch('/duet/api/agents',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({name:n,desc:'x',av:{shell:1,hat:'none',eyes:'none',extra:'none'}})})},'Trash '+w);await sleep(500);
+ let rp=await rowOf('Trash '+w);await sleep(100);rp=await rowOf('Trash '+w);
+ await swipe(rp[0]+100,rp[1],rp[0]-120,rp[1],6,8);await sleep(350);
+ const opened=await p.evaluate(n=>!![...document.querySelectorAll('.row')].find(e=>e.querySelector('.rowh b').textContent===n)?.dataset.open,'Trash '+w);
+ ok(w,'row swipe reveals actions',opened);await p.screenshot({path:`${O}${w}-3-rowswipe.png`});
+ const arch=await p.evaluate(n=>{const r=[...document.querySelectorAll('.row')].find(e=>e.querySelector('.rowh b').textContent===n);const b=r.querySelector('.arch').getBoundingClientRect();return[b.x+b.width/2,b.y+b.height/2]},'Trash '+w);
+ for(let i=0;i<3;i++){await T.tap(arch[0],arch[1]);await sleep(10)}await sleep(700);
+ ok(w,'archive via swipe persists server-side',!(await srv('/state')).agents.some(a=>a.name==='Trash '+w));
+ ok(w,'thread not opened by swipe/archive',await p.$eval('#thread',e=>e.classList.contains('off')));
  for(let i=0;i<4;i++){await swipe(w/2,600,w/2+6,200,4,5);await swipe(w/2,200,w/2-6,600,4,5)}await sleep(300);
  ok(w,'vertical flicks do not open rows',await p.$$eval('.row',r=>r.every(e=>!e.dataset.open)));
- await p.$eval('#listScroll',e=>e.scrollTop=0);
- // open thread Posting Buddy
- await p.evaluate(()=>{const r=[...document.querySelectorAll('.row')].find(e=>e.textContent.includes('Posting Buddy'));r.scrollIntoView({block:'center'})});await sleep(100);
- const pb=await p.evaluate(()=>{const r=[...document.querySelectorAll('.row')].find(e=>e.textContent.includes('Posting Buddy')).querySelector('.rowin').getBoundingClientRect();return[r.x+r.width/2,r.y+r.height/2]});
- await T.tap(pb[0],pb[1]);await sleep(400);ok(w,'tap row opens thread',await p.$eval('#thread',e=>!e.classList.contains('off')));
+ // thread + streaming AI reply + approval gate
+ rp=await rowOf(name);await sleep(80);rp=await rowOf(name);await T.tap(rp[0],rp[1]);await sleep(450);
+ ok(w,'tap row opens thread',await p.$eval('#thread',e=>!e.classList.contains('off')));
  ok(w,'no-h-overflow thread',!(await overflow()));sm=await small();ok(w,'touch>=44 thread',!sm.length,sm.join(','));
- await p.screenshot({path:`${O}${w}-4-thread.png`});
- // fast approve taps
- for(let i=0;i<5;i++){const g=await p.$('.approval .go');if(g){await tap('.approval .go')}await sleep(8)}await sleep(200);
- const dec=await p.evaluate(()=>__DUET.state().agents.find(a=>a.name==='Posting Buddy').msgs.filter(m=>m.t==='Xong. Mình đã ghi nhận bạn duyệt.').length);ok(w,'5 fast taps on Approve -> 1 decision',dec===1,'n='+dec);
- // send risky message
- await tap('#input');await p.keyboard.type('Gửi bản nháp cho Elena');await p.keyboard.press('Enter');await p.keyboard.press('Enter');await sleep(1000);
- const ap=await p.$$eval('.approval:not(.done)',e=>e.length);ok(w,'outbound request gates on approval',ap===1,'pending='+ap);
+ const mic=await p.$eval('#micBtn',e=>!e.classList.contains('hidden'));results.push(`INFO ${w} voice button ${mic?'shown (Web Speech available)':'hidden (unsupported)'}`);
+ await tap('#input');await p.keyboard.type('Soạn giúp mình 2 câu giới thiệu Neko Duet');await p.keyboard.press('Enter');await p.keyboard.press('Enter');
+ let sawDraft=false;for(let i=0;i<(REAL?600:100);i++){if(await p.$('.msg.draft'))sawDraft=true;const done=await p.evaluate(n=>{const a=__DUET.state().agents.find(x=>x.name===n);return a&&a.status!=='working'&&!document.querySelector('.msg.draft')&&!document.querySelector('.msg.typing')},name);if(done&&i>3)break;await sleep(100)}
+ const ms1=await srv('/agents/'+(await p.evaluate(()=>__DUET.current()))+'/messages');
+ ok(w,'user msg persisted once (double Enter)',ms1.filter(m=>m.role==='user').length===1);
+ const reply=ms1.filter(m=>m.role==='agent').at(-1);ok(w,'AI reply streamed and persisted',sawDraft&&reply&&reply.text.length>10,(reply?.text||'').slice(0,70).replace(/\n/g,' '));
+ await p.screenshot({path:`${O}${w}-4-thread-reply.png`});
+ await tap('#input');await p.keyboard.type('Gửi email cho Elena kèm deck cho buổi họp thứ Năm');await p.keyboard.press('Enter');
+ let ap=null;for(let i=0;i<(REAL?600:100);i++){ap=await p.$('.approval:not(.done) .go');if(ap)break;await sleep(100)}
+ ok(w,'outbound request gates on approval card',!!ap);await sleep(200);
  await p.screenshot({path:`${O}${w}-5-approval.png`});
- // edge swipe back fast
+ if(ap){for(let i=0;i<5;i++){try{await tap('.approval:not(.done) .go')}catch{}await sleep(8)}await sleep(900);
+  const ms2=await srv('/agents/'+(await p.evaluate(()=>__DUET.current()))+'/messages');const apps=ms2.filter(m=>m.approval);
+  ok(w,'5 fast taps on Duyệt → 1 server decision',apps.length>=1&&apps.at(-1).approval.state==='approved'&&ms2.filter(m=>m.text.startsWith('Đã ghi nhận bạn duyệt')).length===1);
+  ok(w,'approved item not sent externally (honest follow-up)',ms2.some(m=>m.text.includes('chưa gửi')));
+  await p.screenshot({path:`${O}${w}-6-approved.png`})}
+ // activity sheet
+ await tap('#activityBtn');await sleep(900);const logN=await p.$$eval('#log li',l=>l.length);ok(w,'activity log loads from server',logN>3,'items='+logN);
+ await p.screenshot({path:`${O}${w}-7-activity.png`});await tap('#closeActivity');await sleep(450);
+ // edge swipe back
  await swipe(5,400,w*0.8,410,5,6);await sleep(450);ok(w,'edge swipe back closes thread',await p.$eval('#thread',e=>e.classList.contains('off')));
- // stress: 10 rapid open/back cycles mixing tap-back and edge swipe; measure frames
+ // stress
  await p.evaluate(()=>{window.__f=[];let l=performance.now();const f=t=>{__f.push(t-l);l=t;if(__f.length<4000)requestAnimationFrame(f)};requestAnimationFrame(f)});
- for(let i=0;i<10;i++){const [x,y]=await box('.row:nth-child(3) .rowin');await T.tap(x,y);await sleep(i%2?340:60);const o1=await p.$eval('#thread',e=>e.classList.contains('off'));if(i%2)await tap('#backBtn');else await swipe(4,400,w*.9,400,4,5);await sleep(340);}
+ for(let i=0;i<10;i++){const [x,y]=await box('.row:nth-child(3) .rowin');await T.tap(x,y);await sleep(i%2?340:60);if(i%2)await tap('#backBtn');else await swipe(4,400,w*.9,400,4,5);await sleep(340)}
  await sleep(500);
- const st=await p.evaluate(()=>({off:document.querySelector('#thread').classList.contains('off'),lt:document.querySelector('#list').style.transform,f:__f.slice(5)}));
+ const st=await p.evaluate(()=>({off:document.querySelector('#thread').classList.contains('off'),lt:document.querySelector('#list').style.transform,url:location.pathname,f:__f.slice(5)}));
  const avg=st.f.reduce((a,b)=>a+b,0)/st.f.length,long=st.f.filter(x=>x>50).length;
- ok(w,'10 rapid open/back cycles end on list, consistent',st.off&&!st.lt);ok(w,'frame avg',avg<25,`avg=${avg.toFixed(1)}ms long>50ms=${long}`);
- ok(w,'no page errors',!errs.length,errs.join('|'));
- await p.screenshot({path:`${O}${w}-6-after-stress.png`});
-}catch(e){ok(w,"EXC",false,e.message.slice(0,120));await P.screenshot({path:O+w+"-exc.png"});console.log(P.url())} 
-}
-// manifest check
-const p=await b.newPage();await p.goto(U);const man=await p.evaluate(async()=>{const r=await fetch('/duet/manifest.webmanifest');return r.json()});ok('all','manifest standalone',man.display==='standalone'&&man.start_url==='/duet/');
-await b.close();console.log(results.join('\n'));console.log('FAILS',fail);
+ ok(w,'10 rapid open/back cycles end on list, still in app',st.off&&!st.lt&&st.url==='/duet/');ok(w,'frame avg',avg<25,`avg=${avg.toFixed(1)}ms long>50ms=${long}`);
+ await p.screenshot({path:`${O}${w}-8-after-stress.png`});
+ // SSE reconnect: reload keeps server state
+ await p.reload({waitUntil:'domcontentloaded'});await p.waitForFunction('window.__DUET&&__DUET.state().agents.length>0');ok(w,'state survives reload (server-side)',await p.evaluate(n=>__DUET.state().agents.some(a=>a.name===n),name));
+ ok(w,'no page errors',!errs.length,errs.join('|').slice(0,200));
+ await ctx.close();
+}catch(e){ok(w,'EXC',false,e.message.slice(0,160));try{await p.screenshot({path:O+w+'-exc.png'})}catch{}}}
+// brief
+{const p=await b.newPage();await p.goto(U,{waitUntil:'domcontentloaded'});await p.waitForFunction('window.__DUET');
+ const br=await p.evaluate(async()=>(await fetch('/duet/api/brief',{method:'POST',headers:{'Content-Type':'application/json'},body:'{}'})).json());
+ ok('all','morning brief generated',!!br.text,`source=${br.source} "${(br.text||'').slice(0,80)}"`);
+ const man=await p.evaluate(async()=>(await fetch('/duet/manifest.webmanifest')).json());ok('all','manifest standalone',man.display==='standalone'&&man.start_url==='/duet/');
+ const sw=await p.evaluate(async()=>{const r=await navigator.serviceWorker.getRegistration('/duet/');return !!r});ok('all','service worker registered',sw);
+ const leak=await p.evaluate(async()=>{const t=await (await fetch('/duet/api/state')).text();return /api[_-]?key|bearer/i.test(t)});ok('all','no API key material in client payloads',!leak);
+ await p.close()}
+await b.close();console.log(results.join('\n'));console.log('FAILS',fail);process.exit(fail?1:0);

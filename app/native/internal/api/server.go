@@ -29,7 +29,11 @@ type Server struct {
 	connections *connections.Store
 	fixture     *identity.Authority
 	desktop     *desktopLaunchReceipt
+	duet        http.Handler
 }
+
+// EnableDuet mounts the /duet/api/ surface behind the same local session.
+func (s *Server) EnableDuet(h http.Handler) { s.duet = h }
 
 func (s *Server) EnableConnections(c *connections.Store) {
 	s.connections = c
@@ -59,7 +63,10 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if r.Method == http.MethodGet && web.IsPublicAsset(r.URL.Path) {
-		if r.URL.Path == "/" && s.fixture == nil {
+		if strings.HasPrefix(r.URL.Path, "/duet/") {
+			w.Header().Set("Content-Security-Policy", "default-src 'none'; script-src 'self'; style-src 'self'; connect-src 'self'; img-src 'self' data:; font-src 'self'; manifest-src 'self'; worker-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'")
+		}
+		if (r.URL.Path == "/" || r.URL.Path == "/duet/") && s.fixture == nil {
 			http.SetCookie(w, &http.Cookie{Name: "neko_local", Value: s.session, Path: "/", HttpOnly: true, SameSite: http.SameSiteStrictMode})
 		}
 		web.Serve(w, r)
@@ -106,6 +113,10 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 	if r.Method != "GET" && r.Header.Get("Content-Type") != "application/json" {
 		http.Error(w, "json_required", http.StatusUnsupportedMediaType)
+		return
+	}
+	if s.duet != nil && strings.HasPrefix(r.URL.Path, "/duet/api/") {
+		s.duet.ServeHTTP(w, r)
 		return
 	}
 	if r.URL.Path == "/v1/session" && r.Method == http.MethodGet {
