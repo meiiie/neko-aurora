@@ -230,7 +230,7 @@ func main() {
 			return
 		}
 	}
-	if duetService, e := duet.New(ctx, filepath.Join(*state, "duet")); e != nil {
+	if duetService, e := duet.New(ctx, store, filepath.Join(*state, "duet"), duet.Options{RunTurns: fixture == nil}); e != nil {
 		fmt.Fprintln(os.Stderr, "duet_unavailable")
 	} else {
 		handler.EnableDuet(duetService)

@@ -1,7 +1,6 @@
 package duet
 
 import (
-	"bufio"
 	"context"
 	"crypto/aes"
 	"crypto/cipher"
@@ -13,9 +12,12 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
+
+	"nekobot.local/native/internal/ledger"
 )
 
 func TestMain(m *testing.M) {
@@ -33,43 +35,6 @@ func TestSplitApproval(t *testing.T) {
 	}
 	if _, a := SplitApproval("APPROVAL: {broken"); a != nil {
 		t.Fatal("broken json must not create approval")
-	}
-}
-
-func TestDecideOnce(t *testing.T) {
-	s, err := OpenStore(t.TempDir())
-	if err != nil {
-		t.Fatal(err)
-	}
-	ag := s.Agents()[0]
-	m := &Message{AgentID: ag.ID, Role: "agent", Text: "x", Approval: &Approval{Title: "t", Body: "b", State: "pending"}}
-	if err := s.AddMessage(m); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := s.Decide(m.ID, "approved"); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := s.Decide(m.ID, "declined"); err != ErrConflict {
-		t.Fatalf("second decision must conflict, got %v", err)
-	}
-	if len(s.Pending()) != 0 {
-		t.Fatal("pending left")
-	}
-}
-
-func TestPersistence(t *testing.T) {
-	dir := t.TempDir()
-	s, _ := OpenStore(dir)
-	a, err := s.CreateAgent("Tester", "d", Avatar{1, "cap", "round", "bow"})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, err := s.CreateAgent("bad", "", Avatar{99, "x", "y", "z"}); err != ErrInvalid {
-		t.Fatal("invalid avatar accepted")
-	}
-	s2, _ := OpenStore(dir)
-	if _, err := s2.Agent(a.ID); err != nil {
-		t.Fatal("not persisted")
 	}
 }
 
@@ -116,104 +81,6 @@ func fakeAI(t *testing.T, reply string) *httptest.Server {
 	}))
 }
 
-func TestTurnStreamsAndGates(t *testing.T) {
-	fa := fakeAI(t, "Mình đã soạn thư.\nAPPROVAL: {\"title\":\"Gửi thư cho Elena\",\"kind\":\"send\",\"body\":\"Chào Elena\"}")
-	defer fa.Close()
-	t.Setenv("ZAI_API_KEY", "test-key")
-	t.Setenv("DUET_AI_BASE_URL", fa.URL)
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-	svc, err := New(ctx, t.TempDir())
-	if err != nil {
-		t.Fatal(err)
-	}
-	srv := httptest.NewServer(svc)
-	defer srv.Close()
-	res, err := http.Get(srv.URL + "/duet/api/events")
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer res.Body.Close()
-	ag := svc.Store.Agents()[0]
-	r2, _ := http.Post(srv.URL+"/duet/api/agents/"+ag.ID+"/messages", "application/json", strings.NewReader(`{"text":"Gửi thư cho Elena"}`))
-	if r2.StatusCode != 202 {
-		t.Fatal(r2.StatusCode)
-	}
-	sc := bufio.NewScanner(res.Body)
-	deltas, gotMsg := 0, false
-	deadline := time.After(5 * time.Second)
-	done := make(chan struct{})
-	go func() {
-		for sc.Scan() {
-			l := sc.Text()
-			if l == "event: delta" {
-				deltas++
-			}
-			if strings.HasPrefix(l, "data:") && strings.Contains(l, `"approval"`) && strings.Contains(l, "pending") {
-				gotMsg = true
-				close(done)
-				return
-			}
-		}
-	}()
-	select {
-	case <-done:
-	case <-deadline:
-		t.Fatal("no approval message over SSE")
-	}
-	if deltas < 2 || !gotMsg {
-		t.Fatalf("deltas=%d", deltas)
-	}
-	p := svc.Store.Pending()
-	if len(p) != 1 || strings.Contains(p[0].Text, "APPROVAL") {
-		t.Fatalf("pending %+v", p)
-	}
-	ok, _ := http.Post(srv.URL+"/duet/api/approvals/"+p[0].ID, "application/json", strings.NewReader(`{"decision":"approved"}`))
-	dup, _ := http.Post(srv.URL+"/duet/api/approvals/"+p[0].ID, "application/json", strings.NewReader(`{"decision":"declined"}`))
-	if ok.StatusCode != 200 || dup.StatusCode != 409 {
-		t.Fatalf("decide %d dup %d", ok.StatusCode, dup.StatusCode)
-	}
-}
-
-func TestNoKeyIsHonest(t *testing.T) {
-	t.Setenv("ZAI_API_KEY", "")
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-	svc, _ := New(ctx, t.TempDir())
-	ag := svc.Store.Agents()[0]
-	svc.Store.AddMessage(&Message{AgentID: ag.ID, Role: "user", Text: "hi"})
-	svc.runTurn(context.Background(), ag.ID)
-	ms, _ := svc.Store.Messages(ag.ID, 0)
-	if last := ms[len(ms)-1]; last.Role != "system" || !strings.Contains(last.Text, "ZAI_API_KEY") {
-		t.Fatalf("%+v", last)
-	}
-}
-
-func TestEmailApprovalGuards(t *testing.T) {
-	t.Setenv("DUET_SMTP_HOST", "")
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-	svc, _ := New(ctx, t.TempDir())
-	ag := svc.Store.Agents()[0]
-	_, a := SplitApproval("ok\nAPPROVAL: {\"title\":\"Chào\",\"kind\":\"email\",\"to\":\"x@example.com\",\"subject\":\"Hi\",\"body\":\"Xin chào\"}")
-	if a == nil || a.To != "x@example.com" || a.Subject != "Hi" {
-		t.Fatalf("%+v", a)
-	}
-	m := &Message{AgentID: ag.ID, Role: "agent", Approval: a}
-	svc.Store.AddMessage(m)
-	svc.Store.Decide(m.ID, "approved")
-	if txt := svc.deliverEmail(m); !strings.Contains(txt, "không phải do bạn nhập") {
-		t.Fatal("recipient guard missing: " + txt)
-	}
-	svc.Store.AddMessage(&Message{AgentID: ag.ID, Role: "user", Text: "gửi cho x@example.com"})
-	if txt := svc.deliverEmail(m); !strings.Contains(txt, "hàng đợi") {
-		t.Fatal("expected queued: " + txt)
-	}
-	if ob := svc.Store.Outbox(); len(ob) != 1 || ob[0].Approval.Delivery.Status != "queued" {
-		t.Fatalf("%+v", ob)
-	}
-}
-
 func scriptedAI(t *testing.T, replies ...string) *httptest.Server {
 	n := 0
 	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -231,14 +98,98 @@ func scriptedAI(t *testing.T, replies ...string) *httptest.Server {
 	}))
 }
 
-func waitIdle(t *testing.T, svc *Service, id string) {
-	for i := 0; i < 200; i++ {
-		if !svc.isRunning(id) {
+func newSvc(t *testing.T) (*Service, *ledger.Store) {
+	t.Helper()
+	dir := t.TempDir()
+	st, err := ledger.Open(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { st.Close() })
+	ctx, cancel := context.WithCancel(context.Background())
+	t.Cleanup(cancel)
+	svc, err := New(ctx, st, filepath.Join(dir, "duet"), Options{RunTurns: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return svc, st
+}
+
+func firstBot(svc *Service) string { return svc.L.Snapshot().Bots[0].ID }
+
+func waitTask(t *testing.T, svc *Service, bot string) {
+	t.Helper()
+	for i := 0; i < 400; i++ {
+		busy := false
+		for _, w := range svc.view().byBot[bot] {
+			if active(w) {
+				busy = true
+			}
+		}
+		if !busy {
 			return
 		}
 		time.Sleep(20 * time.Millisecond)
 	}
 	t.Fatal("still running")
+}
+
+func post(t *testing.T, url, body string) *http.Response {
+	r, err := http.Post(url, "application/json", strings.NewReader(body))
+	if err != nil {
+		t.Fatal(err)
+	}
+	return r
+}
+
+func TestTurnIsLedgerWorkAndGates(t *testing.T) {
+	fa := scriptedAI(t, "Mình đã soạn thư.\nAPPROVAL: {\"title\":\"Gửi thư cho Elena\",\"kind\":\"send\",\"body\":\"Chào Elena\"}")
+	defer fa.Close()
+	t.Setenv("ZAI_API_KEY", "test-key")
+	t.Setenv("DUET_AI_BASE_URL", fa.URL)
+	svc, st := newSvc(t)
+	srv := httptest.NewServer(svc)
+	defer srv.Close()
+	bot := firstBot(svc)
+	if r := post(t, srv.URL+"/duet/api/agents/"+bot+"/messages", `{"text":"Gửi thư cho Elena"}`); r.StatusCode != 202 {
+		t.Fatal(r.StatusCode)
+	}
+	waitTask(t, svc, bot)
+	// the turn is the control plane's own task: desktop sees the same reply
+	var w ledger.Work
+	for _, x := range st.Snapshot().Work {
+		if x.BotID == bot {
+			w = x
+		}
+	}
+	if w.Status != "completed" || w.Direct == nil || w.Direct.Runtime != "direct-http" || !strings.Contains(w.Reply, "soạn thư") || strings.Contains(w.Reply, "APPROVAL") {
+		t.Fatalf("%+v", w)
+	}
+	p := svc.view().pending()
+	if len(p) != 1 {
+		t.Fatalf("pending %+v", p)
+	}
+	ok := post(t, srv.URL+"/duet/api/approvals/"+p[0].ID, `{"decision":"approved"}`)
+	dup := post(t, srv.URL+"/duet/api/approvals/"+p[0].ID, `{"decision":"declined"}`)
+	if ok.StatusCode != 200 || dup.StatusCode != 409 {
+		t.Fatalf("decide %d dup %d", ok.StatusCode, dup.StatusCode)
+	}
+}
+
+func TestNoKeyIsHonest(t *testing.T) {
+	t.Setenv("ZAI_API_KEY", "")
+	t.Setenv("DUET_AI_BASE_URL", "http://127.0.0.1:1")
+	svc, _ := newSvc(t)
+	bot := firstBot(svc)
+	if _, _, err := svc.L.Accept(ledger.Input{BotID: bot, ClientNonce: "nokey-12345678", Text: "hi"}); err != nil {
+		t.Fatal(err)
+	}
+	svc.poke()
+	waitTask(t, svc, bot)
+	ms := svc.view().messages(bot, 0)
+	if last := ms[len(ms)-1]; last.Role != "system" || !strings.Contains(last.Text, "ZAI_API_KEY") {
+		t.Fatalf("%+v", last)
+	}
 }
 
 func TestPlanStepsAndEditApprove(t *testing.T) {
@@ -250,16 +201,14 @@ func TestPlanStepsAndEditApprove(t *testing.T) {
 	t.Setenv("ZAI_API_KEY", "k")
 	t.Setenv("DUET_AI_BASE_URL", fa.URL)
 	t.Setenv("DUET_SMTP_HOST", "")
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-	svc, _ := New(ctx, t.TempDir())
-	ag := svc.Store.Agents()[0]
-	svc.Store.AddMessage(&Message{AgentID: ag.ID, Role: "user", Text: "gửi thư cho a@b.co"})
-	svc.kick(ag.ID)
-	waitIdle(t, svc, ag.ID)
-	ms, _ := svc.Store.Messages(ag.ID, 0)
+	svc, _ := newSvc(t)
+	srv := httptest.NewServer(svc)
+	defer srv.Close()
+	bot := firstBot(svc)
+	post(t, srv.URL+"/duet/api/agents/"+bot+"/messages", `{"text":"gửi thư cho a@b.co"}`)
+	waitTask(t, svc, bot)
 	var plan *Message
-	for _, m := range ms {
+	for _, m := range svc.view().messages(bot, 0) {
 		if m.Plan != nil {
 			plan = m
 		}
@@ -267,26 +216,44 @@ func TestPlanStepsAndEditApprove(t *testing.T) {
 	if plan == nil || plan.Plan.Steps[0].Status != "done" || plan.Plan.Steps[1].Status != "waiting" {
 		t.Fatalf("plan %+v", plan)
 	}
-	p := svc.Store.Pending()
+	p := svc.view().pending()
 	if len(p) != 1 || p[0].Approval.To != "a@b.co" {
 		t.Fatalf("pending %+v", p)
 	}
-	srv := httptest.NewServer(svc)
-	defer srv.Close()
-	r, _ := http.Post(srv.URL+"/duet/api/approvals/"+p[0].ID, "application/json", strings.NewReader(`{"decision":"approved","body":"Nội dung đã sửa","subject":"Chào bạn"}`))
-	if r.StatusCode != 200 {
+	if r := post(t, srv.URL+"/duet/api/approvals/"+p[0].ID, `{"decision":"approved","body":"Nội dung đã sửa","subject":"Chào bạn"}`); r.StatusCode != 200 {
 		t.Fatal(r.StatusCode)
 	}
-	ob := svc.Store.Outbox()
-	if ob[0].Approval.Body != "Nội dung đã sửa" || ob[0].Approval.Subject != "Chào bạn" || ob[0].Approval.Delivery.Status != "queued" {
-		t.Fatalf("%+v", ob[0].Approval)
+	w, _ := svc.L.Get(p[0].TaskID)
+	a := w.Direct.Approval
+	if a.Body != "Nội dung đã sửa" || a.Subject != "Chào bạn" || a.Delivery == nil || a.Delivery.Status != "queued" {
+		t.Fatalf("%+v", a)
+	}
+}
+
+func TestEmailRecipientGuard(t *testing.T) {
+	fa := scriptedAI(t, "ok\nAPPROVAL: {\"title\":\"Chào\",\"kind\":\"email\",\"to\":\"x@example.com\",\"subject\":\"Hi\",\"body\":\"Xin chào\"}")
+	defer fa.Close()
+	t.Setenv("ZAI_API_KEY", "k")
+	t.Setenv("DUET_AI_BASE_URL", fa.URL)
+	t.Setenv("DUET_SMTP_HOST", "")
+	svc, _ := newSvc(t)
+	srv := httptest.NewServer(svc)
+	defer srv.Close()
+	bot := firstBot(svc)
+	post(t, srv.URL+"/duet/api/agents/"+bot+"/messages", `{"text":"chào ai đó giúp mình"}`)
+	waitTask(t, svc, bot)
+	p := svc.view().pending()
+	post(t, srv.URL+"/duet/api/approvals/"+p[0].ID, `{"decision":"approved"}`)
+	w, _ := svc.L.Get(p[0].TaskID)
+	if d := w.Direct.Approval.Delivery; d == nil || d.Status != "failed" || d.Detail != "recipient_not_from_owner" {
+		t.Fatalf("%+v", d)
 	}
 }
 
 func TestSteeringSupersedesAndStop(t *testing.T) {
 	slow := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/event-stream")
-		for i := 0; i < 100; i++ {
+		for i := 0; i < 200; i++ {
 			fmt.Fprintf(w, "data: {\"choices\":[{\"delta\":{\"content\":\"x \"}}]}\n\n")
 			w.(http.Flusher).Flush()
 			select {
@@ -299,30 +266,107 @@ func TestSteeringSupersedesAndStop(t *testing.T) {
 	defer slow.Close()
 	t.Setenv("ZAI_API_KEY", "k")
 	t.Setenv("DUET_AI_BASE_URL", slow.URL)
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-	svc, _ := New(ctx, t.TempDir())
-	ag := svc.Store.Agents()[0]
-	m := &Message{AgentID: ag.ID, Role: "agent", Approval: &Approval{Title: "t", Body: "b", State: "pending"}}
-	svc.Store.AddMessage(m)
+	svc, _ := newSvc(t)
 	srv := httptest.NewServer(svc)
 	defer srv.Close()
-	http.Post(srv.URL+"/duet/api/agents/"+ag.ID+"/messages", "application/json", strings.NewReader(`{"text":"đổi ý"}`))
-	time.Sleep(150 * time.Millisecond)
-	q, _ := http.Post(srv.URL+"/duet/api/agents/"+ag.ID+"/messages", "application/json", strings.NewReader(`{"text":"thêm việc"}`))
-	q.Body.Close()
-	if len(svc.Store.Pending()) != 0 {
+	bot := firstBot(svc)
+	post(t, srv.URL+"/duet/api/agents/"+bot+"/messages", `{"text":"việc dài"}`)
+	time.Sleep(400 * time.Millisecond)
+	post(t, srv.URL+"/duet/api/agents/"+bot+"/messages", `{"text":"thêm việc"}`)
+	ms := svc.view().messages(bot, 0)
+	if !ms[len(ms)-1].Queued {
+		t.Fatalf("follow-up not marked queued %+v", ms[len(ms)-1])
+	}
+	post(t, srv.URL+"/duet/api/agents/"+bot+"/stop", `{}`)
+	waitTask(t, svc, bot)
+	v := svc.view()
+	b, _ := v.bot(bot)
+	if a := v.agent(b, botPrefs{}); a.Status != "idle" {
+		t.Fatalf("status %s %s", a.Status, a.Snip)
+	}
+}
+
+func TestSupersedePending(t *testing.T) {
+	fa := scriptedAI(t, "ok\nAPPROVAL: {\"title\":\"t\",\"kind\":\"send\",\"body\":\"b\"}", "đã đổi")
+	defer fa.Close()
+	t.Setenv("ZAI_API_KEY", "k")
+	t.Setenv("DUET_AI_BASE_URL", fa.URL)
+	svc, _ := newSvc(t)
+	srv := httptest.NewServer(svc)
+	defer srv.Close()
+	bot := firstBot(svc)
+	post(t, srv.URL+"/duet/api/agents/"+bot+"/messages", `{"text":"soạn"}`)
+	waitTask(t, svc, bot)
+	post(t, srv.URL+"/duet/api/agents/"+bot+"/messages", `{"text":"đổi ý"}`)
+	if len(svc.view().pending()) != 0 {
 		t.Fatal("stale approval not superseded")
 	}
-	ms, _ := svc.Store.Messages(ag.ID, 0)
-	if !ms[len(ms)-1].Queued {
-		t.Fatal("follow-up not marked queued")
+}
+
+func TestLegacyImport(t *testing.T) {
+	t.Setenv("ZAI_API_KEY", "")
+	dir := t.TempDir()
+	os.MkdirAll(filepath.Join(dir, "duet"), 0o700)
+	legacy := `{"agents":[{"id":"ag_0011223344556677","name":"Thư ký Neko","desc":"Soạn thư","av":{"shell":2,"hat":"cap","eyes":"round","extra":"none"},"pin":true}],
+"messages":[{"id":"m_a1","agentId":"ag_0011223344556677","role":"agent","text":"Chào, mình là Thư ký Neko.","t":"2026-10-22T01:00:00Z"},
+{"id":"m_a2","agentId":"ag_0011223344556677","role":"user","text":"Gửi email cho hungkhp888@gmail.com","t":"2026-10-22T01:01:00Z"},
+{"id":"m_a3","agentId":"ag_0011223344556677","role":"agent","text":"Đã soạn.","approval":{"title":"Gửi email","kind":"email","to":"hungkhp888@gmail.com","subject":"Chào","body":"Nội dung","state":"pending"},"t":"2026-10-22T01:02:00Z"}]}`
+	os.WriteFile(filepath.Join(dir, "duet", "duet.json"), []byte(legacy), 0o600)
+	for round := 0; round < 2; round++ {
+		st, err := ledger.Open(dir)
+		if err != nil {
+			t.Fatal(err)
+		}
+		ctx, cancel := context.WithCancel(context.Background())
+		svc, err := New(ctx, st, filepath.Join(dir, "duet"), Options{})
+		if err != nil {
+			t.Fatal(err)
+		}
+		v := svc.view()
+		var bot string
+		for _, b := range v.snap.Bots {
+			if b.Name == "Thư ký Neko" {
+				bot = b.ID
+			}
+		}
+		p := v.pending()
+		if bot == "" || len(p) != 1 || p[0].Approval.To != "hungkhp888@gmail.com" || p[0].Approval.State != "pending" || !svc.Prefs.Bot(bot).Pinned {
+			t.Fatalf("round %d bot=%q pending=%+v", round, bot, p)
+		}
+		if n := len(v.byBot[bot]); n != 2 {
+			t.Fatalf("round %d tasks %d", round, n)
+		}
+		cancel()
+		st.Close()
 	}
-	r, _ := http.Post(srv.URL+"/duet/api/agents/"+ag.ID+"/stop", "application/json", strings.NewReader(`{}`))
-	r.Body.Close()
-	waitIdle(t, svc, ag.ID)
-	a, _ := svc.Store.Agent(ag.ID)
-	if a.Status != "idle" {
-		t.Fatalf("status %s", a.Status)
+	if _, err := os.Stat(filepath.Join(dir, "duet", "duet.json.migrated")); err != nil {
+		t.Fatal("legacy file not retained as .migrated")
+	}
+}
+
+func TestAlias(t *testing.T) {
+	if a := alias("Thư ký Neko", map[string]bool{}); a != "thu-ky-neko" {
+		t.Fatal(a)
+	}
+	if a := alias("Thư ký Neko", map[string]bool{"thu-ky-neko": true}); a != "thu-ky-neko-2" {
+		t.Fatal(a)
+	}
+	if a := alias("123", map[string]bool{}); a != "agent-123" {
+		t.Fatal(a)
+	}
+}
+
+func TestCoreStreamStripsUsage(t *testing.T) {
+	dir := t.TempDir()
+	script := filepath.Join(dir, "bun")
+	os.WriteFile(script, []byte("#!/bin/sh\nprintf 'Xong.\\nAPPROVAL: {\"title\":\"t\",\"kind\":\"send\",\"body\":\"b\"}\\n[session cumulative: 9 tokens]\\nmore\\n'\n"), 0o755)
+	c := &Core{Bun: script, Entry: "x", Home: dir, Model: "glm-5.3", Profile: "zai", key: "k"}
+	var streamed strings.Builder
+	out, err := c.Stream(context.Background(), []ChatMsg{{"user", "hi"}}, func(d string) { streamed.WriteString(d) })
+	if err != nil || strings.Contains(out, "session cumulative") || strings.Contains(streamed.String(), "session") {
+		t.Fatalf("%v %q %q", err, out, streamed.String())
+	}
+	if d := ParseDirectives(out); d.Approval == nil || d.Text != "Xong." {
+		t.Fatalf("%+v", d)
 	}
 }

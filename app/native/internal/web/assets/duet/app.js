@@ -56,6 +56,7 @@ function connect(){es=new EventSource(API+"/events");
   S.pending=S.pending.filter(x=>x.id!==m.id);if(m.approval&&m.approval.state==="pending")S.pending.push(m);
   if(cur&&cur.id===m.agentId)renderThread();renderListSoon()});
  es.addEventListener("delta",e=>{const d=JSON.parse(e.data);S.deltaCount=(S.deltaCount||0)+1;const x=S.drafts[d.id]||(S.drafts[d.id]={agentId:d.agentId,text:""});x.text+=d.delta;if(cur&&cur.id===d.agentId)paintDraft(d.id)});
+ es.addEventListener("draft_end",e=>{const d=JSON.parse(e.data);if(S.drafts[d.id]){delete S.drafts[d.id];if(cur&&cur.id===d.agentId)renderThread()}});
  es.addEventListener("activity",e=>{if(sheetOpen===$("#activity"))renderLog([JSON.parse(e.data)],true)});
  es.addEventListener("brief",e=>{S.brief=JSON.parse(e.data);renderListSoon()});
  es.addEventListener("notify",e=>{const n=JSON.parse(e.data);if(document.hidden&&!pushOn&&"Notification"in window&&Notification.permission==="granted")navigator.serviceWorker?.ready.then(r=>r.showNotification(n.title,{body:n.body,data:{url:n.url},tag:n.url}))});

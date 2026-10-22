@@ -107,6 +107,7 @@ type Work struct {
 	Adapter                    *AdapterPin                 `json:"adapterPin,omitempty"`
 	TaskRevision               uint64                      `json:"taskRevision,omitempty"`
 	TaskLink                   *TaskLink                   `json:"taskLink,omitempty"`
+	Direct                     *DirectRun                  `json:"direct,omitempty"`
 }
 type Event struct {
 	CoreProfile                    *CoreProfileEvent           `json:"coreProfile,omitempty"`
@@ -574,7 +575,7 @@ func validReplayWithArchive(s *Store, e Event, linkedControl bool) bool {
 				return false
 			}
 		}
-		if w.Core != nil || len(w.Operations) > 0 || len(w.Artifacts) > 0 || w.Reply != "" || w.AttemptID != "" || w.Failure != "" || w.ContextAccess != nil || w.RuntimeStopped || w.RuntimeStopReceipt != nil || w.RuntimeAttemptBinding != nil || w.ContextRevision != 0 || len(w.ContextAttempts) != 0 {
+		if w.Direct != nil || w.Core != nil || len(w.Operations) > 0 || len(w.Artifacts) > 0 || w.Reply != "" || w.AttemptID != "" || w.Failure != "" || w.ContextAccess != nil || w.RuntimeStopped || w.RuntimeStopReceipt != nil || w.RuntimeAttemptBinding != nil || w.ContextRevision != 0 || len(w.ContextAttempts) != 0 {
 			return false
 		}
 		if s.validInput(Input{w.BotID, w.ClientNonce, w.Text, w.Lane}) != nil || !s.validRoute(w) || w.Status != "waiting_host" || w.DesiredState != "running" || w.Epoch != 1 {

@@ -47,6 +47,10 @@ type Operation struct {
 }
 
 func copyWork(w Work) Work {
+	if w.Direct != nil {
+		d := copyDirectRun(*w.Direct)
+		w.Direct = &d
+	}
 	if w.CoreProfileGroupBinding != nil {
 		p := *w.CoreProfileGroupBinding
 		w.CoreProfileGroupBinding = &p
@@ -714,6 +718,14 @@ func validRuntimeReplay(s *Store, e Event) bool {
 		expected.ContextRevision = w.ContextRevision
 		expected.ContextAttempts = w.ContextAttempts
 		expected.Failure = ""
+	case "work.direct_started", "work.direct_updated", "work.direct_finished", "work.direct_decided":
+		if !validDirectReplay(old, w, e.Type) {
+			return false
+		}
+		expected.Status, expected.Failure, expected.Direct, expected.Reply = w.Status, w.Failure, w.Direct, w.Reply
+		if e.Type == "work.direct_started" {
+			expected.AttemptID = w.AttemptID
+		}
 	default:
 		return false
 	}
