@@ -30,6 +30,7 @@ func botText(value string, limit int) bool {
 	}
 	return true
 }
+
 // MaxActiveBots caps live (non-archived) bots; archived ones only count toward
 // the much larger MaxTotalBots bound that keeps the ledger finite.
 const (
