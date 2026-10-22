@@ -94,22 +94,48 @@ function swipeRow(li,inn){let x0,y0,dx=0,mode=null,base=0;
 // ---------- thread ----------
 let cur=null;
 const stateTxt={working:"Đang làm việc…",waiting:"Chờ bạn duyệt",idle:"Sẵn sàng",done:"Đã xong",error:"Có lỗi"};
-const stateLine=a=>waiting(a)?"Chờ bạn duyệt":stateTxt[a.status]||"";
+const stateLine=a=>a.status==="working"&&a.snip&&a.snip.startsWith("Bước")?a.snip:waiting(a)?"Chờ bạn duyệt":stateTxt[a.status]||"";
 function openThread(id){const a=S.agents.find(x=>x.id===id);if(!a)return;cur=a;draw($("#threadAvatar"),a.av);$("#threadName").textContent=a.name;$("#threadState").textContent=stateLine(a);renderThread();loadMsgs(id).catch(()=>toast("Không tải được hội thoại"));$("#thread").classList.remove("off");$("#list").classList.add("under");const hs=history.state;if(hs&&hs.spent)history.replaceState({t:1},"","#"+id);else if(!(hs&&hs.t))history.pushState({t:1},"","#"+id)}
 function closeThread(fromPop){if(!cur)return;cur=null;stopVoice();$("#thread").classList.add("off");$("#list").classList.remove("under");$("#thread").style.transform="";$("#list").style.transform="";renderList();if(!fromPop&&history.state&&history.state.t)history.replaceState({spent:1},"",location.pathname)}
 const deciding=new Set();
-function renderThread(){const a=cur;if(!a)return;$("#threadState").textContent=stateLine(a);const box=$("#messages");const atBottom=box.scrollHeight-box.scrollTop-box.clientHeight<80;box.innerHTML="";
- (S.msgs[a.id]||[]).forEach(m=>{if(m.text)box.append(el("div","msg"+(m.role==="user"?" mine":m.role==="system"?" sys":""),m.text));
-  if(m.approval){const ap=m.approval,c=el("div","approval"+(ap.state!=="pending"?" done":""));c.dataset.id=m.id;c.append(el("small",0,"Cần bạn duyệt · không gửi khi chưa có OK"),el("div","ap-title",ap.title));if(ap.to){const meta=el("div","ap-meta");meta.append(el("span",0,"Tới: "),el("b",0,ap.to));c.append(meta)}if(ap.subject){const meta=el("div","ap-meta");meta.append(el("span",0,"Tiêu đề: "),el("b",0,ap.subject));c.append(meta)}c.append(el("pre",0,ap.body));
-   if(ap.state==="pending"){const bs=el("div","btns"),no=el("button",0,"Để sau"),go=el("button","go","Duyệt");no.onclick=()=>decide(m,"declined",bs);go.onclick=()=>decide(m,"approved",bs);if(deciding.has(m.id)){no.disabled=go.disabled=true}bs.append(no,go);c.append(bs)}
-   else{const dv=ap.delivery,DS={queued:"đang chờ kênh email",sending:"đang gửi…",sent:"đã gửi"+(dv&&dv.from?" từ "+dv.from:""),failed:"gửi thất bại"+(dv&&dv.detail?": "+dv.detail:"")};c.append(el("small",0,ap.state==="approved"?(dv?"✓ Bạn đã duyệt · "+DS[dv.status]:"✓ Bạn đã duyệt · chưa gửi ra ngoài (kênh gửi chưa kết nối)"):"Đã hoãn"))}box.append(c)}});
+const ICON={pending:"○",running:"◐",done:"✓",waiting:"⏸",failed:"✕",cancelled:"–"};
+const editing=new Set(),usedChoice=new Set();
+function planCard(m){const c=el("div","plan");const st=m.plan.steps,done=st.filter(x=>x.status==="done").length;
+ const h=el("div","plan-h");h.append(el("b",0,"Kế hoạch"),el("span",0,`${done}/${st.length}`));c.append(h);
+ const bar=el("div","bar");const f=el("i");f.style.width=(100*done/st.length)+"%";bar.append(f);c.append(bar);
+ const ol=el("ol");st.forEach((x,i)=>{const li=el("li","step "+x.status);li.append(el("span","ic",ICON[x.status]||"○"),el("span",0,x.title));ol.append(li)});c.append(ol);return c}
+function approvalCard(m){const ap=m.approval,c=el("div","approval"+(ap.state!=="pending"?" done":""));c.dataset.id=m.id;
+ c.append(el("small",0,ap.state==="superseded"?"Đã thay bằng yêu cầu mới":"Cần bạn duyệt · không gửi khi chưa có OK"),el("div","ap-title",ap.title));
+ if(ap.to){const meta=el("div","ap-meta");meta.append(el("span",0,"Tới: "),el("b",0,ap.to));c.append(meta)}
+ const ed=ap.state==="pending"&&editing.has(m.id);
+ if(ap.subject||(ed&&ap.kind==="email")){if(ed){const i=el("input","ap-subject");i.value=ap.subject||"";i.setAttribute("aria-label","Tiêu đề");c.append(i)}else{const meta=el("div","ap-meta");meta.append(el("span",0,"Tiêu đề: "),el("b",0,ap.subject));c.append(meta)}}
+ if(ed){const t=el("textarea","ap-body");t.value=ap.body;t.rows=8;t.setAttribute("aria-label","Nội dung");c.append(t)}else c.append(el("pre",0,ap.body));
+ if(ap.state==="pending"){const bs=el("div","btns"),no=el("button",0,"Để sau"),e=el("button",0,ed?"Huỷ sửa":"Sửa"),go=el("button","go",ed?"Lưu & duyệt":"Duyệt");
+  no.onclick=()=>decide(m,"declined",bs);e.onclick=()=>{ed?editing.delete(m.id):editing.add(m.id);renderThread()};
+  go.onclick=()=>{const ex={};if(ed){ex.body=c.querySelector(".ap-body").value;const sj=c.querySelector(".ap-subject");if(sj)ex.subject=sj.value;if(!ex.body.trim()){toast("Nội dung trống");return}}decide(m,"approved",bs,ex)};
+  if(deciding.has(m.id))no.disabled=e.disabled=go.disabled=true;bs.append(no,e,go);c.append(bs);
+  c.append(el("small","hint","Muốn đổi hướng? Nhắn yêu cầu mới, bản nháp này sẽ được thay."))}
+ else if(ap.state!=="superseded"){const dv=ap.delivery,DS={queued:"đang chờ kênh email",sending:"đang gửi…",sent:"đã gửi"+(dv&&dv.from?" từ "+dv.from:""),failed:"gửi thất bại"+(dv&&dv.detail?": "+dv.detail:"")};c.append(el("small",0,ap.state==="approved"?(dv?"✓ Bạn đã duyệt · "+DS[dv.status]:"✓ Bạn đã duyệt · chưa gửi ra ngoài (kênh gửi chưa kết nối)"):"Đã hoãn"))}
+ return c}
+function renderThread(){const a=cur;if(!a)return;$("#threadState").textContent=stateLine(a);const box=$("#messages");
+ const keepEdit=[...box.querySelectorAll(".ap-body")].map(t=>[t.closest(".approval").dataset.id,t.value,t.closest(".approval").querySelector(".ap-subject")?.value]);
+ box.innerHTML="";const L=S.msgs[a.id]||[];
+ L.forEach((m,idx)=>{if(m.text){const b=el("div","msg"+(m.role==="user"?" mine":m.role==="system"?" sys":""),m.text);if(m.queued){b.append(el("span","chip","Đang chờ lượt"))}box.append(b)}
+  if(m.plan)box.append(planCard(m));
+  if(m.choices&&m.choices.length){const wrap=el("div","choices");const later=L.slice(idx+1).some(x=>x.role==="user");m.choices.forEach(ch=>{const b=el("button","choice",ch);b.disabled=later||usedChoice.has(m.id);b.onclick=async()=>{if(usedChoice.has(m.id))return;usedChoice.add(m.id);renderThread();if(!(await sendMsg(ch)))usedChoice.delete(m.id)};wrap.append(b)});box.append(wrap)}
+  if(m.approval)box.append(approvalCard(m))});
+ keepEdit.forEach(([id,v,sj])=>{const c=box.querySelector(`.approval[data-id="${id}"]`);if(c){const t=c.querySelector(".ap-body");if(t)t.value=v;const s2=c.querySelector(".ap-subject");if(s2&&sj!=null)s2.value=sj}});
  Object.entries(S.drafts).forEach(([id,d])=>{if(d.agentId===a.id){const b=el("div","msg draft",visible(d.text));b.id="d_"+id;box.append(b)}});
  if(a.status==="working"&&!Object.values(S.drafts).some(d=>d.agentId===a.id))box.append(el("div","msg typing dots","Đang nghĩ"));
- if(atBottom||true)requestAnimationFrame(()=>box.scrollTop=box.scrollHeight)}
-const visible=t=>{const i=t.indexOf("APPROVAL:");return(i>=0?t.slice(0,i):t).trim()||"…"};
+ setSendMode();
+ if(!box.contains(document.activeElement)||document.activeElement===box)requestAnimationFrame(()=>box.scrollTop=box.scrollHeight)}
+const visible=t=>{const i=t.search(/(^|\n)\s*(APPROVAL|PLAN|CHOICES):/);return(i>=0?t.slice(0,i):t).trim()||"…"};
 function paintDraft(id){const n=document.getElementById("d_"+id);if(!n){renderThread();return}n.textContent=visible(S.drafts[id].text);const box=$("#messages");box.scrollTop=box.scrollHeight}
-async function decide(m,v,bs){if(deciding.has(m.id))return;deciding.add(m.id);bs.querySelectorAll("button").forEach(b=>b.disabled=true);
- try{await api(`/approvals/${m.id}`,{decision:v})}catch(e){if(e.status!==409){deciding.delete(m.id);toast("Không ghi nhận được, thử lại");bs.querySelectorAll("button").forEach(b=>b.disabled=false)}}}
+async function decide(m,v,bs,extra){if(deciding.has(m.id))return;deciding.add(m.id);bs.querySelectorAll("button").forEach(b=>b.disabled=true);
+ try{await api(`/approvals/${m.id}`,{decision:v,...(extra||{})});editing.delete(m.id)}catch(e){if(e.status!==409){deciding.delete(m.id);toast("Không ghi nhận được, thử lại");bs.querySelectorAll("button").forEach(b=>b.disabled=false)}}}
+// send ↔ stop in the same spot while the agent works (stopping holds queued follow-ups)
+function setSendMode(){const b=$("#composer .send");const run=!!(cur&&cur.status==="working")&&!$("#input").value.trim();b.classList.toggle("stop",run);b.textContent=run?"■":"↑";b.setAttribute("aria-label",run?"Dừng":"Gửi")}
+let stopping=false;async function stopAgent(){if(!cur||stopping)return;stopping=true;try{await api(`/agents/${cur.id}/stop`,{});toast("Đã dừng")}catch{toast("Không dừng được")}finally{stopping=false}}
 let sending=false;
 async function sendMsg(text){const a=cur;text=text.trim();if(!a||!text||sending)return false;sending=true;
  try{await api(`/agents/${a.id}/messages`,{text});return true}catch{toast("Không gửi được, thử lại");return false}finally{sending=false}}
@@ -173,8 +199,8 @@ $("#backBtn").onclick=()=>closeThread();
 addEventListener("popstate",()=>{if(sheetOpen)closeSheet();else if(cur)closeThread(true)});
 $("#searchBtn").onclick=()=>{const s=$("#search");s.classList.toggle("hidden");if(!s.classList.contains("hidden"))s.focus();else{filter="";s.value="";renderList()}};
 $("#search").oninput=e=>{filter=e.target.value.toLowerCase();renderList()};
-const inp=$("#input");inp.oninput=()=>{inp.style.height="auto";inp.style.height=Math.min(140,inp.scrollHeight)+"px"};
-$("#composer").onsubmit=async e=>{e.preventDefault();stopVoice();const v=inp.value;if(!v.trim())return;inp.value="";inp.style.height="";if(!(await sendMsg(v)))inp.value=v};
+const inp=$("#input");inp.oninput=()=>{inp.style.height="auto";inp.style.height=Math.min(140,inp.scrollHeight)+"px";setSendMode()};
+$("#composer").onsubmit=async e=>{e.preventDefault();stopVoice();const v=inp.value;if(!v.trim()){if(cur&&cur.status==="working")stopAgent();return}inp.value="";inp.style.height="";if(!(await sendMsg(v)))inp.value=v};
 inp.onkeydown=e=>{if(e.key==="Enter"&&!e.shiftKey&&!e.isComposing){e.preventDefault();$("#composer").requestSubmit()}};
 document.addEventListener("visibilitychange",()=>{if(!document.hidden&&es)loadState().catch(()=>{})});
 draw($("#meAvatar"),{shell:2,hat:"none",eyes:"none",extra:"flower"});

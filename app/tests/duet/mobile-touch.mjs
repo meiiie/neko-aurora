@@ -7,7 +7,7 @@ const sleep=ms=>new Promise(r=>setTimeout(r,ms));
 const b=await puppeteer.launch({executablePath:process.env.CHROME||'/usr/bin/google-chrome',args:['--no-sandbox','--hide-scrollbars']});
 const results=[];let fail=0;
 const ok=(w,name,cond,extra='')=>{results.push(`${cond?'PASS':'FAIL'} ${w} ${name} ${extra}`);if(!cond)fail++};
-for(const w of [360,390,430]){let p;try{
+for(const w of (process.env.WIDTHS||'360,390,430').split(',').map(Number)){let p;try{
  const ctx=await b.createBrowserContext();await ctx.overridePermissions(new URL(U).origin,['notifications']);p=await ctx.newPage();const errs=[];p.on('pageerror',e=>errs.push(String(e)));
  await p.setViewport({width:w,height:Math.round(w*2.165),deviceScaleFactor:2,isMobile:true,hasTouch:true});
  await p.goto(U,{waitUntil:'domcontentloaded'});await p.waitForFunction('window.__DUET&&__DUET.state().agents.length>0',{timeout:10000});await sleep(300);
@@ -57,12 +57,12 @@ for(const w of [360,390,430]){let p;try{
  ok(w,'no-h-overflow thread',!(await overflow()));sm=await small();ok(w,'touch>=44 thread',!sm.length,sm.join(','));
  const mic=await p.$eval('#micBtn',e=>!e.classList.contains('hidden'));results.push(`INFO ${w} voice button ${mic?'shown (Web Speech available)':'hidden (unsupported)'}`);
  const d0=await p.evaluate(()=>__DUET.state().deltaCount||0);await tap('#input');await p.keyboard.type('Soạn giúp mình 2 câu giới thiệu Neko Duet');await p.keyboard.press('Enter');await p.keyboard.press('Enter');
- let sawDraft=false;for(let i=0;i<(REAL?600:100);i++){if(await p.$('.msg.draft'))sawDraft=true;const done=await p.evaluate(n=>{const a=__DUET.state().agents.find(x=>x.name===n);return a&&a.status!=='working'&&!document.querySelector('.msg.draft')&&!document.querySelector('.msg.typing')},name);if(done&&i>3)break;await sleep(100)}
+ let sawDraft=false;for(let i=0;i<(REAL?600:100);i++){if(await p.$('.msg.draft'))sawDraft=true;const done=await p.evaluate(n=>{const a=__DUET.state().agents.find(x=>x.name===n);const L=(__DUET.state().msgs[a.id]||[]);return a&&a.status!=='working'&&L.filter(m=>m.role==='agent').length>=2&&!document.querySelector('.msg.draft')&&!document.querySelector('.msg.typing')},name);if(done&&i>3)break;await sleep(100)}
  const deltas=(await p.evaluate(()=>__DUET.state().deltaCount||0))-d0;sawDraft=sawDraft||deltas>1;const ms1=await srv('/agents/'+(await p.evaluate(()=>__DUET.current()))+'/messages');
  ok(w,'user msg persisted once (double Enter)',ms1.filter(m=>m.role==='user').length===1);
  const reply=ms1.filter(m=>m.role==='agent').at(-1);ok(w,'AI reply streamed and persisted',sawDraft&&reply&&reply.text.length>10,`deltas=${deltas} `+(reply?.text||'').slice(0,70).replace(/\n/g,' '));
  await p.screenshot({path:`${O}${w}-4-thread-reply.png`});
- await tap('#input');await p.keyboard.type('Gửi email cho Elena kèm deck cho buổi họp thứ Năm');await p.keyboard.press('Enter');
+ await tap('#input');await p.keyboard.type('Gửi email cho elena@example.com kèm deck cho buổi họp thứ Năm');await p.keyboard.press('Enter');
  let ap=null;for(let i=0;i<(REAL?600:100);i++){ap=await p.$('.approval:not(.done) .go');if(ap)break;await sleep(100)}
  ok(w,'outbound request gates on approval card',!!ap);await sleep(200);
  await p.screenshot({path:`${O}${w}-5-approval.png`});
@@ -71,6 +71,18 @@ for(const w of [360,390,430]){let p;try{
   ok(w,'5 fast taps on Duyệt → 1 server decision',apps.length>=1&&apps.at(-1).approval.state==='approved'&&ms2.filter(m=>m.text.startsWith('Đã ghi nhận bạn duyệt')).length===1);
   ok(w,'approved item not sent externally (honest follow-up)',ms2.some(m=>m.text.includes('chưa gửi')));
   await p.screenshot({path:`${O}${w}-6-approved.png`})}
+ // generative UI: multi-step plan card + quick choices + stop
+ await tap('#input');await p.keyboard.type('Lập kế hoạch viết bài giới thiệu');await p.keyboard.press('Enter');
+ let planOk=false;for(let i=0;i<(REAL?900:150);i++){planOk=await p.evaluate(()=>{const s=[...document.querySelectorAll('.plan .step')];const c=x=>x.classList;const allDone=s.length>=2&&s.every(x=>c(x).contains('done')||c(x).contains('waiting'));const paused=s.length>=2&&s.some(x=>c(x).contains('waiting'))&&s.every(x=>!c(x).contains('running')&&!c(x).contains('pending'))&&!!document.querySelector('.choices button,.approval');return allDone||paused});if(planOk)break;await sleep(100)}
+ ok(w,'plan card steps run live (done or paused for owner)',planOk,await p.$$eval('.plan .step',l=>l.map(x=>x.className.replace('step ','')).join(',')));
+ const hasChoice=await p.$('.choice:not([disabled])');if(!REAL)ok(w,'quick-choice buttons rendered',!!hasChoice);
+ await p.screenshot({path:`${O}${w}-6b-plan.png`});
+ if(hasChoice){for(let i=0;i<4;i++){try{await tap('.choice')}catch{}await sleep(10)}await sleep(600);const n=(await srv('/agents/'+(await p.evaluate(()=>__DUET.current()))+'/messages')).filter(m=>m.role==='user'&&(m.text==='Thân mật'||m.text==='Trang trọng')).length;if(!REAL)ok(w,'4 fast taps on a choice send it once',n===1,'n='+n)}
+ if(!REAL){for(let i=0;i<60;i++){if(await p.evaluate(()=>{const a=__DUET.state().agents.find(x=>x.id===__DUET.current());return a&&a.status!=='working'}))break;await sleep(100)}
+  await tap('#input');await p.keyboard.type('Viết thật chậm');await p.keyboard.press('Enter');await sleep(600);
+  const isStop=await p.$eval('#composer .send',e=>e.classList.contains('stop'));ok(w,'send turns into stop while working',isStop);
+  await tap('#composer .send');await sleep(900);const ag=await p.evaluate(()=>__DUET.state().agents.find(x=>x.id===__DUET.current()));ok(w,'stop halts the running turn',ag&&ag.status==='idle',ag&&ag.status);
+  ok(w,'send button back after stop',await p.$eval('#composer .send',e=>!e.classList.contains('stop')))}
  // activity sheet
  await tap('#activityBtn');await sleep(900);const logN=await p.$$eval('#log li',l=>l.length);ok(w,'activity log loads from server',logN>3,'items='+logN);
  await p.screenshot({path:`${O}${w}-7-activity.png`});await tap('#closeActivity');await sleep(450);

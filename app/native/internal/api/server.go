@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"mime"
+	"net"
 	"net/http"
 	"net/url"
 	"strconv"
@@ -31,6 +32,7 @@ type Server struct {
 	desktop     *desktopLaunchReceipt
 	duet        http.Handler
 	duetPub     *duetPublic
+	exposed     bool // bound beyond loopback (container); only the public Duet host is reachable remotely
 }
 
 // EnableDuet mounts the /duet/api/ surface behind the same local session.
@@ -57,6 +59,14 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Security-Policy", "default-src 'none'; script-src 'self'; style-src 'self'; connect-src 'self'; img-src 'self'; font-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'")
 	if s.duetPub != nil && strings.EqualFold(r.Host, s.duetPub.host) {
 		s.servePublicDuet(w, r)
+		return
+	}
+	if s.exposed && r.URL.Path == "/healthz" {
+		w.Write([]byte("ok"))
+		return
+	}
+	if s.exposed && !loopbackRemote(r.RemoteAddr) {
+		http.Error(w, "invalid_host", http.StatusForbidden)
 		return
 	}
 	if r.Host != s.host {
@@ -965,4 +975,17 @@ func (s *Server) stream(w http.ResponseWriter, r *http.Request) {
 			flusher.Flush()
 		}
 	}
+}
+
+// SetExposed marks the listener as bound beyond loopback (e.g. 0.0.0.0 in a
+// container). Remote peers then reach only the public Duet host.
+func (s *Server) SetExposed() { s.exposed = true }
+
+func loopbackRemote(addr string) bool {
+	h, _, err := net.SplitHostPort(addr)
+	if err != nil {
+		return false
+	}
+	ip := net.ParseIP(h)
+	return ip != nil && ip.IsLoopback()
 }

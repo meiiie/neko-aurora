@@ -7,7 +7,7 @@ import (
 	"fmt"
 	"log"
 	"net/http"
-	"regexp"
+	"os"
 	"strconv"
 	"strings"
 	"sync"
@@ -34,7 +34,10 @@ type Service struct {
 	Now func() time.Time
 }
 
-type worker struct{ running, again bool }
+type worker struct {
+	running, again bool
+	cancel         context.CancelFunc
+}
 
 func New(ctx context.Context, stateDir string) (*Service, error) {
 	st, err := OpenStore(stateDir)
@@ -47,7 +50,9 @@ func New(ctx context.Context, stateDir string) (*Service, error) {
 	}
 	s := &Service{Store: st, AI: AIFromEnv(), Push: p, Mail: MailerFromEnv(), subs: map[chan Event]struct{}{}, work: map[string]*worker{}, ctx: ctx, Now: time.Now}
 	s.routes()
-	go s.briefLoop()
+	if os.Getenv("DUET_BRIEF_LOOP") != "off" {
+		go s.briefLoop()
+	}
 	return s, nil
 }
 
@@ -86,134 +91,6 @@ func (s *Service) notify(title, body, url string) {
 				log.Printf("duet push failed: %v", err)
 			}
 		}(sub)
-	}
-}
-
-// ---------- background agent tasks ----------
-
-func (s *Service) kick(agentID string) {
-	s.mu.Lock()
-	w := s.work[agentID]
-	if w == nil {
-		w = &worker{}
-		s.work[agentID] = w
-	}
-	if w.running {
-		w.again = true // steer: new message picked up right after the current turn
-		s.mu.Unlock()
-		return
-	}
-	w.running = true
-	s.mu.Unlock()
-	go func() {
-		for {
-			s.runTurn(agentID)
-			s.mu.Lock()
-			if !w.again {
-				w.running = false
-				s.mu.Unlock()
-				return
-			}
-			w.again = false
-			s.mu.Unlock()
-		}
-	}()
-}
-
-const systemPrompt = `Bạn là "%s", một agent trong Neko Duet làm việc cho Darren (HoLiLiHu). Vai trò: %s
-Quy tắc:
-- Trả lời bằng tiếng Việt, ngắn gọn, cụ thể, như một đồng nghiệp đáng tin. Không dùng markdown nặng.
-- Bạn KHÔNG tự gửi, đăng, thanh toán hay liên hệ ai bên ngoài. Không bao giờ nói là đã gửi.
-- Khi việc cần một hành động ra bên ngoài (gửi email/tin nhắn, đăng bài, thanh toán, mời họp), hãy soạn sẵn nội dung rồi kết thúc câu trả lời bằng đúng MỘT dòng cuối:
-APPROVAL: {"title":"<việc cần duyệt>","kind":"email|send|post|pay|other","to":"<địa chỉ email nếu là email>","subject":"<tiêu đề nếu là email>","body":"<nội dung đã soạn>"}
-- Với email: kind phải là "email", điền đúng địa chỉ người nhận Darren đưa, tiêu đề và toàn bộ nội dung thư trong body (không lặp lại thư ở phần trả lời phía trên; chỉ tóm tắt 1 câu).
-- Nếu không cần duyệt thì không viết dòng APPROVAL.`
-
-var approvalRe = regexp.MustCompile(`(?s)\n?\s*APPROVAL:\s*(\{.*\})\s*$`)
-
-func SplitApproval(text string) (string, *Approval) {
-	m := approvalRe.FindStringSubmatchIndex(text)
-	if m == nil {
-		return strings.TrimSpace(text), nil
-	}
-	var a Approval
-	if json.Unmarshal([]byte(text[m[2]:m[3]]), &a) != nil || strings.TrimSpace(a.Body) == "" {
-		return strings.TrimSpace(text), nil
-	}
-	a.Title, a.Body, a.Kind = clean(a.Title, 80), clean(a.Body, 4000), clean(a.Kind, 12)
-	a.Subject = clean(a.Subject, 160)
-	if a.Kind == "email" {
-		if to, ok := ValidEmail(a.To); ok {
-			a.To = to
-		} else {
-			a.To = ""
-		}
-	} else {
-		a.To, a.Subject = "", ""
-	}
-	if a.Title == "" {
-		a.Title = "Hành động cần bạn duyệt"
-	}
-	a.State = "pending"
-	return strings.TrimSpace(text[:m[0]]), &a
-}
-
-func (s *Service) runTurn(agentID string) {
-	ag, err := s.Store.Agent(agentID)
-	if err != nil {
-		return
-	}
-	hist, _ := s.Store.Messages(agentID, 30)
-	msgs := []ChatMsg{{Role: "system", Content: fmt.Sprintf(systemPrompt, ag.Name, ag.Desc)}}
-	for _, m := range hist {
-		switch {
-		case m.Role == "user":
-			msgs = append(msgs, ChatMsg{"user", m.Text})
-		case m.Role == "agent":
-			c := m.Text
-			if m.Approval != nil {
-				c += fmt.Sprintf("\n[Đề xuất cần duyệt: %s — trạng thái: %s]", m.Approval.Title, m.Approval.State)
-			}
-			msgs = append(msgs, ChatMsg{"assistant", c})
-		case m.Role == "system":
-			msgs = append(msgs, ChatMsg{"user", "[Hệ thống] " + m.Text})
-		}
-	}
-	s.status(agentID, "working", "Đang làm việc")
-	s.logAct(agentID, ag.Name+" bắt đầu xử lý yêu cầu")
-	draft := newID("m_")
-	ctx, cancel := context.WithTimeout(s.ctx, 3*time.Minute)
-	defer cancel()
-	full, err := s.AI.Stream(ctx, msgs, func(d string) {
-		s.publish("delta", map[string]string{"agentId": agentID, "id": draft, "delta": d})
-	})
-	if err != nil {
-		text := "Mình chưa xử lý được: " + err.Error()
-		if errors.Is(err, ErrNoAI) {
-			text = "Chưa cấu hình AI trên máy chủ (thiếu ZAI_API_KEY). Mình đã lưu yêu cầu, hãy nhắn lại sau khi cấu hình."
-		}
-		m := &Message{ID: draft, AgentID: agentID, Role: "system", Text: text}
-		if s.Store.AddMessage(m) == nil {
-			s.publish("message", m)
-		}
-		s.status(agentID, "error", text)
-		s.logAct(agentID, ag.Name+": lỗi — "+err.Error())
-		return
-	}
-	text, appr := SplitApproval(full)
-	m := &Message{ID: draft, AgentID: agentID, Role: "agent", Text: text, Approval: appr}
-	if err := s.Store.AddMessage(m); err != nil {
-		return
-	}
-	s.publish("message", m)
-	if appr != nil {
-		s.status(agentID, "waiting", "Cần bạn duyệt: "+appr.Title)
-		s.logAct(agentID, ag.Name+" soạn xong, chờ bạn duyệt “"+appr.Title+"”")
-		s.notify(ag.Name+" cần bạn duyệt", appr.Title, "/duet/#"+agentID)
-	} else {
-		s.status(agentID, "done", text)
-		s.logAct(agentID, ag.Name+" đã trả lời")
-		s.notify(ag.Name, clean(text, 120), "/duet/#"+agentID)
 	}
 }
 
@@ -395,12 +272,16 @@ func (s *Service) routes() {
 			fail(w, ErrInvalid)
 			return
 		}
-		msg := &Message{AgentID: id, Role: "user", Text: text}
+		msg := &Message{AgentID: id, Role: "user", Text: text, Queued: s.isRunning(id)}
 		if err := s.Store.AddMessage(msg); err != nil {
 			fail(w, err)
 			return
 		}
 		s.publish("message", msg)
+		// steering: a new instruction supersedes any stale draft awaiting approval
+		for _, m := range s.Store.Supersede(id) {
+			s.publish("message", m)
+		}
 		a, _ := s.Store.Agent(id)
 		s.logAct(id, "Bạn giao cho "+a.Name+": "+clean(text, 80))
 		s.kick(id)
@@ -408,11 +289,35 @@ func (s *Service) routes() {
 	})
 	m.HandleFunc("POST /duet/api/approvals/{id}", func(w http.ResponseWriter, r *http.Request) {
 		var in struct {
-			Decision string `json:"decision"`
+			Decision string  `json:"decision"`
+			Body     *string `json:"body"`
+			Subject  *string `json:"subject"`
 		}
 		if err := decode(r, &in); err != nil {
 			fail(w, err)
 			return
+		}
+		// edit-before-approve: the owner's edits replace the draft atomically
+		if in.Body != nil || in.Subject != nil {
+			if _, err := s.Store.UpdateMessage(r.PathValue("id"), func(m *Message) error {
+				if m.Approval == nil || m.Approval.State != "pending" {
+					return ErrConflict
+				}
+				if in.Body != nil {
+					if b := clean(*in.Body, 4000); b != "" {
+						m.Approval.Body = b
+					} else {
+						return ErrInvalid
+					}
+				}
+				if in.Subject != nil && m.Approval.Kind == "email" {
+					m.Approval.Subject = clean(*in.Subject, 160)
+				}
+				return nil
+			}); err != nil {
+				fail(w, err)
+				return
+			}
 		}
 		msg, err := s.Store.Decide(r.PathValue("id"), in.Decision)
 		if err != nil {
@@ -440,6 +345,9 @@ func (s *Service) routes() {
 			s.publish("message", f)
 		}
 		writeJSON(w, 200, msg)
+	})
+	m.HandleFunc("POST /duet/api/agents/{id}/stop", func(w http.ResponseWriter, r *http.Request) {
+		writeJSON(w, 200, map[string]bool{"stopped": s.Stop(r.PathValue("id"))})
 	})
 	m.HandleFunc("GET /duet/api/outbox", func(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, 200, map[string]any{"email": map[string]any{"configured": s.Mail.Configured(), "from": s.Mail.From}, "items": s.Store.Outbox()})

@@ -101,6 +101,9 @@ func (a *AI) Stream(ctx context.Context, msgs []ChatMsg, onDelta func(string)) (
 			onDelta(d)
 		}
 	}
+	if ctx.Err() != nil {
+		return full.String(), ctx.Err()
+	}
 	if err := sc.Err(); err != nil && full.Len() == 0 {
 		return "", errors.New("ai_stream_broken")
 	}

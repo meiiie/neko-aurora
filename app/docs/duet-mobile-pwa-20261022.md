@@ -91,3 +91,13 @@ cloudflared tunnel --url http://127.0.0.1:8765
 - There are no outbound channels (email, X, payments), so approved items are stored, not delivered.
 - Duet agents are separate from ledger bots and channels in `/v1/*`; they are not merged yet.
 - Duet has single-owner local auth only (the same cookie). Fixture or multi-actor identity is not applied to Duet.
+
+## Học từ CopilotKit OpenMuse / OpenDots (MIT) — chỉ học pattern, không chép mã
+- OpenMuse: React Native + AG-UI, server/worker/computer; task bền vững có plan, approval, receipt; nút gửi→dừng, hàng đợi follow-up.
+- OpenDots: agent "Dots" bền vững; thẻ review HITL (useHumanInTheLoop), thẻ do tool render (useRenderTool), Spaces, voice. Cả hai cần khoá CopilotKit Intelligence.
+- Neko Duet: Go + vanilla JS tự chứa, không phụ thuộc SaaS.
+Đã áp dụng (viết lại từ đầu, ghi công trong `internal/duet/turn.go`):
+1. Kế hoạch nhiều bước với trạng thái sống (PLAN: 2–4 bước, mỗi bước 1 lần gọi model; pending/running/done/waiting/failed/cancelled). Bước cần Darren chọn sẽ tạm dừng kế hoạch.
+2. Thẻ trong luồng: CHOICES (nút chọn, chỉ gửi 1 lần), thẻ duyệt có Sửa → Lưu & duyệt.
+3. Nút gửi thành ■ dừng khi agent đang chạy; tin nhắn mới vào hàng đợi "Đang chờ lượt" và thay thế (supersede) thẻ duyệt đang chờ.
+Xem triển khai: `duet-deploy.md`.

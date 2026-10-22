@@ -61,7 +61,19 @@ type Message struct {
 	Role     string    `json:"role"` // user|agent|system
 	Text     string    `json:"text"`
 	Approval *Approval `json:"approval,omitempty"`
+	Plan     *Plan     `json:"plan,omitempty"`
+	Choices  []string  `json:"choices,omitempty"`
+	Queued   bool      `json:"queued,omitempty"`
 	Created  time.Time `json:"t"`
+}
+
+type Step struct {
+	Title  string `json:"title"`
+	Status string `json:"status"` // pending|running|done|waiting|failed|cancelled
+}
+
+type Plan struct {
+	Steps []Step `json:"steps"`
 }
 
 type Activity struct {
@@ -283,11 +295,7 @@ func (s *Store) Messages(agentID string, limit int) ([]*Message, error) {
 	out := []*Message{}
 	for _, m := range s.d.Messages {
 		if m.AgentID == agentID {
-			c := cp(m)
-			if m.Approval != nil {
-				c.Approval = cp(m.Approval)
-			}
-			out = append(out, c)
+			out = append(out, deepCopy(m))
 		}
 	}
 	if limit > 0 && len(out) > limit {
@@ -478,6 +486,71 @@ func (s *Store) Outbox() []*Message {
 			c.Approval = cp(m.Approval)
 			out = append(out, c)
 		}
+	}
+	return out
+}
+
+func deepCopy(m *Message) *Message {
+	c := cp(m)
+	if m.Approval != nil {
+		c.Approval = cp(m.Approval)
+		if m.Approval.Delivery != nil {
+			c.Approval.Delivery = cp(m.Approval.Delivery)
+		}
+	}
+	if m.Plan != nil {
+		c.Plan = &Plan{Steps: append([]Step(nil), m.Plan.Steps...)}
+	}
+	c.Choices = append([]string(nil), m.Choices...)
+	return c
+}
+
+// UpdateMessage mutates one message under the lock and persists it.
+func (s *Store) UpdateMessage(id string, fn func(*Message) error) (*Message, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for _, m := range s.d.Messages {
+		if m.ID == id {
+			if err := fn(m); err != nil {
+				return nil, err
+			}
+			return deepCopy(m), s.saveLocked()
+		}
+	}
+	return nil, ErrNotFound
+}
+
+// TakeQueued clears the queued flag on this agent's user messages and returns them.
+func (s *Store) TakeQueued(agentID string) []*Message {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	out := []*Message{}
+	for _, m := range s.d.Messages {
+		if m.AgentID == agentID && m.Queued {
+			m.Queued = false
+			out = append(out, deepCopy(m))
+		}
+	}
+	if len(out) > 0 {
+		_ = s.saveLocked()
+	}
+	return out
+}
+
+// Supersede marks this agent's pending approvals as superseded (the owner
+// steered with a new message, so a stale draft can no longer be approved).
+func (s *Store) Supersede(agentID string) []*Message {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	out := []*Message{}
+	for _, m := range s.d.Messages {
+		if m.AgentID == agentID && m.Approval != nil && m.Approval.State == "pending" {
+			m.Approval.State = "superseded"
+			out = append(out, deepCopy(m))
+		}
+	}
+	if len(out) > 0 {
+		_ = s.saveLocked()
 	}
 	return out
 }

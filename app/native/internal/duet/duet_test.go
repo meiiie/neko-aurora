@@ -12,10 +12,16 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"strings"
 	"testing"
 	"time"
 )
+
+func TestMain(m *testing.M) {
+	os.Setenv("DUET_BRIEF_LOOP", "off")
+	os.Exit(m.Run())
+}
 
 func TestSplitApproval(t *testing.T) {
 	txt, a := SplitApproval("Đã soạn xong.\nAPPROVAL: {\"title\":\"Gửi Elena\",\"kind\":\"send\",\"body\":\"Chào Elena\"}")
@@ -176,7 +182,7 @@ func TestNoKeyIsHonest(t *testing.T) {
 	svc, _ := New(ctx, t.TempDir())
 	ag := svc.Store.Agents()[0]
 	svc.Store.AddMessage(&Message{AgentID: ag.ID, Role: "user", Text: "hi"})
-	svc.runTurn(ag.ID)
+	svc.runTurn(context.Background(), ag.ID)
 	ms, _ := svc.Store.Messages(ag.ID, 0)
 	if last := ms[len(ms)-1]; last.Role != "system" || !strings.Contains(last.Text, "ZAI_API_KEY") {
 		t.Fatalf("%+v", last)
@@ -205,5 +211,118 @@ func TestEmailApprovalGuards(t *testing.T) {
 	}
 	if ob := svc.Store.Outbox(); len(ob) != 1 || ob[0].Approval.Delivery.Status != "queued" {
 		t.Fatalf("%+v", ob)
+	}
+}
+
+func scriptedAI(t *testing.T, replies ...string) *httptest.Server {
+	n := 0
+	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		rep := replies[len(replies)-1]
+		if n < len(replies) {
+			rep = replies[n]
+		}
+		n++
+		w.Header().Set("Content-Type", "text/event-stream")
+		for _, part := range strings.SplitAfter(rep, " ") {
+			fmt.Fprintf(w, "data: {\"choices\":[{\"delta\":{\"content\":%q}}]}\n\n", part)
+			w.(http.Flusher).Flush()
+		}
+		fmt.Fprint(w, "data: [DONE]\n\n")
+	}))
+}
+
+func waitIdle(t *testing.T, svc *Service, id string) {
+	for i := 0; i < 200; i++ {
+		if !svc.isRunning(id) {
+			return
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	t.Fatal("still running")
+}
+
+func TestPlanStepsAndEditApprove(t *testing.T) {
+	fa := scriptedAI(t,
+		"Mình sẽ làm 2 bước.\nPLAN: [\"Tìm ý chính\",\"Soạn thư\"]",
+		"Ý chính: giới thiệu sản phẩm.",
+		"Thư đã soạn.\nAPPROVAL: {\"title\":\"Gửi thư\",\"kind\":\"email\",\"to\":\"a@b.co\",\"subject\":\"Chào\",\"body\":\"Nội dung\"}")
+	defer fa.Close()
+	t.Setenv("ZAI_API_KEY", "k")
+	t.Setenv("DUET_AI_BASE_URL", fa.URL)
+	t.Setenv("DUET_SMTP_HOST", "")
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	svc, _ := New(ctx, t.TempDir())
+	ag := svc.Store.Agents()[0]
+	svc.Store.AddMessage(&Message{AgentID: ag.ID, Role: "user", Text: "gửi thư cho a@b.co"})
+	svc.kick(ag.ID)
+	waitIdle(t, svc, ag.ID)
+	ms, _ := svc.Store.Messages(ag.ID, 0)
+	var plan *Message
+	for _, m := range ms {
+		if m.Plan != nil {
+			plan = m
+		}
+	}
+	if plan == nil || plan.Plan.Steps[0].Status != "done" || plan.Plan.Steps[1].Status != "waiting" {
+		t.Fatalf("plan %+v", plan)
+	}
+	p := svc.Store.Pending()
+	if len(p) != 1 || p[0].Approval.To != "a@b.co" {
+		t.Fatalf("pending %+v", p)
+	}
+	srv := httptest.NewServer(svc)
+	defer srv.Close()
+	r, _ := http.Post(srv.URL+"/duet/api/approvals/"+p[0].ID, "application/json", strings.NewReader(`{"decision":"approved","body":"Nội dung đã sửa","subject":"Chào bạn"}`))
+	if r.StatusCode != 200 {
+		t.Fatal(r.StatusCode)
+	}
+	ob := svc.Store.Outbox()
+	if ob[0].Approval.Body != "Nội dung đã sửa" || ob[0].Approval.Subject != "Chào bạn" || ob[0].Approval.Delivery.Status != "queued" {
+		t.Fatalf("%+v", ob[0].Approval)
+	}
+}
+
+func TestSteeringSupersedesAndStop(t *testing.T) {
+	slow := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		for i := 0; i < 100; i++ {
+			fmt.Fprintf(w, "data: {\"choices\":[{\"delta\":{\"content\":\"x \"}}]}\n\n")
+			w.(http.Flusher).Flush()
+			select {
+			case <-r.Context().Done():
+				return
+			case <-time.After(30 * time.Millisecond):
+			}
+		}
+	}))
+	defer slow.Close()
+	t.Setenv("ZAI_API_KEY", "k")
+	t.Setenv("DUET_AI_BASE_URL", slow.URL)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	svc, _ := New(ctx, t.TempDir())
+	ag := svc.Store.Agents()[0]
+	m := &Message{AgentID: ag.ID, Role: "agent", Approval: &Approval{Title: "t", Body: "b", State: "pending"}}
+	svc.Store.AddMessage(m)
+	srv := httptest.NewServer(svc)
+	defer srv.Close()
+	http.Post(srv.URL+"/duet/api/agents/"+ag.ID+"/messages", "application/json", strings.NewReader(`{"text":"đổi ý"}`))
+	time.Sleep(150 * time.Millisecond)
+	q, _ := http.Post(srv.URL+"/duet/api/agents/"+ag.ID+"/messages", "application/json", strings.NewReader(`{"text":"thêm việc"}`))
+	q.Body.Close()
+	if len(svc.Store.Pending()) != 0 {
+		t.Fatal("stale approval not superseded")
+	}
+	ms, _ := svc.Store.Messages(ag.ID, 0)
+	if !ms[len(ms)-1].Queued {
+		t.Fatal("follow-up not marked queued")
+	}
+	r, _ := http.Post(srv.URL+"/duet/api/agents/"+ag.ID+"/stop", "application/json", strings.NewReader(`{}`))
+	r.Body.Close()
+	waitIdle(t, svc, ag.ID)
+	a, _ := svc.Store.Agent(ag.ID)
+	if a.Status != "idle" {
+		t.Fatalf("status %s", a.Status)
 	}
 }

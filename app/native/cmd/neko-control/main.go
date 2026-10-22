@@ -98,8 +98,15 @@ func main() {
 		json.NewEncoder(os.Stdout).Encode(map[string]any{"status": "PASS", "operation": operation, "version": manifest.Version, "snapshotId": manifest.SnapshotID, "files": len(manifest.Files), "bytes": total, "sequence": manifest.Sequence, "executionDisabled": true, "protection": manifest.Protection, "scope": "Local offline Windows-user-bound snapshot; restored state is read-only, no runtime or provider"})
 		return
 	}
+	// Container mode: DUET_PUBLIC_HOST + a strong DUET_OWNER_CODE allow binding
+	// 0.0.0.0 (PORT from the platform); remote peers then see only /duet/.
+	publicReady := os.Getenv("DUET_PUBLIC_HOST") != "" && len(os.Getenv("DUET_OWNER_CODE")) >= 12
+	if p := os.Getenv("PORT"); publicReady && p != "" && *listen == "127.0.0.1:8765" {
+		*listen = "0.0.0.0:" + p
+	}
 	host, _, err := net.SplitHostPort(*listen)
-	if err != nil || host != "127.0.0.1" {
+	exposed := host == "0.0.0.0" && publicReady
+	if err != nil || (host != "127.0.0.1" && !exposed) {
 		fmt.Fprintln(os.Stderr, "Only 127.0.0.1 is permitted")
 		os.Exit(2)
 	}
@@ -227,6 +234,9 @@ func main() {
 		fmt.Fprintln(os.Stderr, "duet_unavailable")
 	} else {
 		handler.EnableDuet(duetService)
+		if exposed {
+			handler.SetExposed()
+		}
 		// Optional HTTPS exposure of /duet/ only (e.g. a tunnel). The owner
 		// passcode comes from the environment and is never logged.
 		if host, code := os.Getenv("DUET_PUBLIC_HOST"), os.Getenv("DUET_OWNER_CODE"); host != "" {
