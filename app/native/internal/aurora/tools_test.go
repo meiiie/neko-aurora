@@ -76,3 +76,28 @@ func TestFailedToolIsHonest(t *testing.T) {
 	}
 	t.Fatal("no tool card")
 }
+
+func TestRepeatedToolIsNotRefetched(t *testing.T) {
+	fa := scriptedAI(t, "Tra.\nTOOL: {\"name\":\"web_search\",\"q\":\"Fed\"}", "Lại.\nTOOL: {\"name\":\"web_search\",\"q\":\"Fed\"}", "Xong [1].")
+	defer fa.Close()
+	hits := 0
+	search := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		hits++
+		fmt.Fprint(w, `<a class="result__a" href="//duckduckgo.com/l/?uddg=https%3A%2F%2Fwww.reuters.com%2Ffed">Fed</a><a class="result__snippet" href="#">x</a>`)
+	}))
+	defer search.Close()
+	t.Setenv("ZAI_API_KEY", "k")
+	t.Setenv("AURORA_AI_BASE_URL", fa.URL)
+	svc, _ := newSvc(t)
+	k := tools.New()
+	k.Client, k.Search = search.Client(), search.URL
+	svc.Tools = k
+	srv := httptest.NewServer(svc)
+	defer srv.Close()
+	bot := firstBot(svc)
+	post(t, srv.URL+"/app/api/agents/"+bot+"/messages", `{"text":"Fed?"}`)
+	waitTask(t, svc, bot)
+	if hits != 1 {
+		t.Fatalf("search hit %d times", hits)
+	}
+}

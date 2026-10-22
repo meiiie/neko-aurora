@@ -29,18 +29,19 @@ type Event struct {
 // no bot, message or task model: agents are ledger bots, messages are ledger
 // work items, plans and approvals are journaled on that work.
 type Service struct {
-	L     *ledger.Store
-	AI    Model
-	Push  *Pusher
-	Out   *outbound.Router
-	Prefs *Prefs
-	V     *vault.Vault
-	Tools *tools.Kit
-	mux   *http.ServeMux
-	mu    sync.Mutex
-	subs  map[chan Event]struct{}
-	ctx   context.Context
-	wake  chan struct{}
+	sendRate rate
+	L        *ledger.Store
+	AI       Model
+	Push     *Pusher
+	Out      *outbound.Router
+	Prefs    *Prefs
+	V        *vault.Vault
+	Tools    *tools.Kit
+	mux      *http.ServeMux
+	mu       sync.Mutex
+	subs     map[chan Event]struct{}
+	ctx      context.Context
+	wake     chan struct{}
 
 	running map[string]bool // botID → turn in flight
 	seen    map[string]string
@@ -605,6 +606,11 @@ func (s *Service) routes() {
 		}
 		if err := decode(r, &in); err != nil {
 			fail(w, err)
+			return
+		}
+		if !s.sendRate.allow(time.Now()) {
+			w.Header().Set("Retry-After", "10")
+			http.Error(w, `{"error":"rate_limited"}`, http.StatusTooManyRequests)
 			return
 		}
 		id := r.PathValue("id")

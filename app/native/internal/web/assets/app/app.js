@@ -49,9 +49,12 @@ const markSeen=id=>{if(!seen)seen={};seen[id]=Date.now();store.set("neko-aurora-
 const unread=a=>!(cur&&cur.id===a.id)&&a.status!=="working"&&T(a.t)>(seen&&seen[a.id]!=null?seen[a.id]:0);
 // ---------- live events (SSE) ----------
 let es,esDown=false;
+// offline state: one quiet pill; EventSource reconnects on its own and state reloads on reopen
+let netT=null;function net(){const off=!navigator.onLine||(esDown&&es&&es.readyState!==1);const b=$("#netBanner");if(!b)return;b.textContent=!navigator.onLine?"Ngoại tuyến · tin nhắn sẽ chưa gửi được":"Mất kết nối · đang thử lại…";b.classList.toggle("hidden",!off)}
+addEventListener("online",()=>{net();if(es&&es.readyState===2)connect()});addEventListener("offline",net);
 function connect(){es=new EventSource(API+"/events");
- es.onopen=()=>{if(esDown){esDown=false;loadState().catch(()=>{})}};
- es.onerror=()=>{esDown=true};
+ es.onopen=()=>{if(esDown){esDown=false;loadState().catch(()=>{})}net()};
+ es.onerror=()=>{esDown=true;setTimeout(net,2500)};
  es.addEventListener("agent",e=>{const a=JSON.parse(e.data);if(seen&&seen[a.id]==null)markSeen(a.id);upsert(a);if(cur&&cur.id===a.id){cur=a;markSeen(a.id);renderThread()}renderListSoon()});
  es.addEventListener("archived",e=>{const {id}=JSON.parse(e.data);S.agents=S.agents.filter(a=>a.id!==id);S.pending=S.pending.filter(m=>m.agentId!==id);renderListSoon()});
  es.addEventListener("message",e=>{const m=JSON.parse(e.data);const L=S.msgs[m.agentId];delete S.drafts[m.id];
@@ -208,7 +211,7 @@ function setSendMode(){const b=$("#composer .send");const empty=!$("#input").val
 let stopping=false;async function stopAgent(){if(!cur||stopping)return;stopping=true;try{await api(`/agents/${cur.id}/stop`,{});buzz("soft");toast("Đã dừng")}catch{toast("Không dừng được")}finally{stopping=false}}
 let sending=false;
 async function sendMsg(text){const a=cur;text=text.trim();if(!a||!text||sending)return false;sending=true;
- try{await api(`/agents/${a.id}/messages`,{text});buzz("tap");return true}catch{toast("Không gửi được, thử lại");return false}finally{sending=false}}
+ try{await api(`/agents/${a.id}/messages`,{text});buzz("tap");return true}catch(e){toast(e.status===429?"Bạn gửi nhanh quá, đợi vài giây rồi gửi lại nhé":!navigator.onLine?"Đang ngoại tuyến, tin chưa gửi":"Không gửi được, thử lại");return false}finally{sending=false}}
 // edge-swipe back (iOS style), anywhere on screen while a thread is open
 (()=>{const th=$("#thread"),ls=$("#list"),root=$("#app");let x0=null,y0,dx=0,on=false;
  root.addEventListener("touchstart",e=>{const t=e.touches[0];if(!cur||sheetOpen||profId||t.clientX>28){x0=null;return}x0=t.clientX;y0=t.clientY;dx=0;on=false},{passive:true});
@@ -415,11 +418,13 @@ function renderProfile(){const a=byId(profId);const B=$("#profBody");if(!a){B.in
  B.append(card(null,...rows));
  const on=!muted.includes(a.id);const nc=card(null,cell("bell","Thông báo",{id:"prNotify",toggle:on,onToggle:sw=>{const now=sw.getAttribute("aria-checked")!=="true";muted=now?muted.filter(x=>x!==a.id):[...muted,a.id];store.set("neko-aurora-muted",muted);sw.setAttribute("aria-checked",now);buzz("tap");if(now&&!pushOn&&!notifOn)enableNotify().catch(()=>{})}}));
  B.append(nc,el("p","caption","Báo khi bot này xong việc hoặc đang chờ bạn (trên máy này)."));
- $("#pmPinT").textContent=a.pin?"Bỏ ghim":"Ghim";$("#pmPin").classList.toggle("hidden",isGroup(a))}
+ $("#pmPinT").textContent=a.pin?"Bỏ ghim":"Ghim";$("#pmPin").classList.toggle("hidden",isGroup(a));$("#pmArch").classList.toggle("hidden",isGroup(a))}
 $("#profBack").onclick=()=>closeProfile();
 $("#profShare").onclick=()=>{const a=byId(profId);if(a)shareLink(a)};
 $("#profMore").onclick=e=>{e.stopPropagation();toggleMenu($("#profMenu"),$("#profMore"))};
 $("#pmCopy").onclick=async()=>{closeMenu();const id=profId;try{await navigator.clipboard.writeText(id);toast("Đã sao chép ID")}catch{toast("ID: "+id)}};
+// non-drag alternative to swipe-to-archive (WCAG 2.5.7)
+$("#pmArch").onclick=()=>{closeMenu();const a=byId(profId);if(!a)return;api(`/agents/${a.id}`,{archived:true}).then(()=>{S.agents=S.agents.filter(x=>x.id!==a.id);renderList();history.back();toast("Đã lưu trữ")}).catch(()=>toast("Không lưu trữ được"))};
 $("#pmPin").onclick=()=>{closeMenu();const a=byId(profId);if(!a)return;api(`/agents/${a.id}`,{pin:!a.pin}).then(x=>{upsert(x);renderList();renderProfile();toast(x.pin?"Đã ghim":"Đã bỏ ghim")}).catch(()=>toast("Không ghim được"))};
 // ---------- thread header menu, find, share, + menu ----------
 $("#threadMore").onclick=e=>{e.stopPropagation();toggleMenu($("#threadMenu"),$("#threadMore"))};

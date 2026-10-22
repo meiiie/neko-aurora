@@ -36,6 +36,8 @@ func (c *toolCtx) inject(msgs []ChatMsg) []ChatMsg {
 	return out
 }
 
+func (c *toolCtx) note(s string) { c.blocks = append(c.blocks, s) }
+
 type toolCall struct{ name, arg string }
 
 // autoTools prefetches clear data intents (gold prices) and owner-typed
@@ -70,6 +72,14 @@ func (s *Service) runTool(ctx context.Context, w ledger.Work, tc *toolCtx, name,
 	cur, _ := s.L.Get(w.RequestID)
 	if cur.Direct != nil && len(cur.Direct.Tools) >= 6 {
 		return
+	}
+	if cur.Direct != nil { // same tool+arg already ran this turn: reuse its result, don't refetch
+		for _, t := range cur.Direct.Tools {
+			if t.Name == name && t.Arg == clean(arg, 200) && t.Status == "done" {
+				tc.note("(Dữ liệu " + toolLabel[name] + " đã có ở trên, dùng lại thay vì tra lần nữa.)")
+				return
+			}
+		}
 	}
 	idx := 0
 	s.update(w.RequestID, func(r *ledger.DirectRun) {

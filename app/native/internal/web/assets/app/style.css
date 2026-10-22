@@ -322,3 +322,6 @@ button.cell:active{background:var(--sunk)}
 #thread .who{flex:none;margin:0 auto;padding:0 16px 0 6px;border-radius:24px;background:var(--glass);box-shadow:0 0 0 .5px var(--glass-line);-webkit-backdrop-filter:blur(18px) saturate(1.6);backdrop-filter:blur(18px) saturate(1.6)}
 #thread .who small{display:none}
 #input::placeholder{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+
+@media (prefers-reduced-transparency:reduce){.glass,.fab,.jump,#thread .who,.composer,.float-top .who{-webkit-backdrop-filter:none!important;backdrop-filter:none!important;background:var(--bg)!important}}
+.net{position:fixed;z-index:60;left:50%;top:calc(var(--st) + 60px);transform:translateX(-50%);padding:7px 14px;border-radius:18px;font-size:13px;color:var(--fg);background:var(--glass);box-shadow:0 0 0 .5px var(--glass-line),0 4px 14px rgba(0,0,0,.08);-webkit-backdrop-filter:blur(18px);backdrop-filter:blur(18px);white-space:nowrap}

@@ -1,5 +1,5 @@
 # Neko Aurora — container build: Go control plane + /app/ PWA + Neko Core (Bun)
-# so agent turns run through Core (GLM-5.3 on z.ai) inside the container.
+# (GLM-5.3 on z.ai; Core is the fallback runtime) inside the container.
 # Free to build locally; deploy target is any container host (Railway, Fly, Render...).
 FROM golang:1.27-alpine AS build
 WORKDIR /src/app/native
@@ -26,6 +26,7 @@ VOLUME ["/data"]
 EXPOSE 8080
 # Binds 0.0.0.0:$PORT only when AURORA_PUBLIC_HOST and AURORA_OWNER_CODE (>=12 chars) are set;
 # remote peers can then reach only the owner-login /app/ surface.
-# Set AURORA_RUNTIME=http to skip Core and call z.ai over HTTP instead.
+# Turns stream straight from z.ai over HTTP; Core is the fallback. AURORA_RUNTIME=core forces Core, =http skips it.
+# AURORA_SEND_PER_MIN caps model-spending messages (default 20/min).
 ENTRYPOINT []
 CMD ["neko-aurora", "-state", "/data"]
