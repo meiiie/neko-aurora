@@ -29,7 +29,8 @@ npm run open        # Xcode 26+: pick Team, then Product → Archive
 | Privacy policy URL `/app/privacy.html`, Terms `/app/terms.html` (public, vi+en) | ✅ |
 | Usage strings: microphone, speech recognition | ✅ |
 | Export compliance `ITSAppUsesNonExemptEncryption=false` (only HTTPS/standard crypto) | ✅ (re-check when filing) |
-| Account deletion (5.1.1(v)) | ℹ️ No account signup (owner code on a self-hosted server). If multi-user signup is added, an in-app delete flow is required |
+| Screenshots | ✅ `screenshots/` 6.9" 1320×2868 and 6.5" 1284×2778, seeded content (see screenshots/README.md) |
+| Account deletion (5.1.1(v)) | ✅ Settings → "Xoá tài khoản & dữ liệu": typed XOÁ/DELETE confirmation, `POST /app/api/account/delete` wipes ledger, vault (+key), connections and backups, then the server restarts empty |
 | Sign in for review: demo host + owner code for App Review notes | ⏳ needs a deploy host |
 | Icon 1024 opaque, no alpha | ✅ from the 1254 px Wiii mascot master (downscaled, `brand/make-icon-1024.py`) |
 | Screenshots 6.9" + 6.5" | ⏳ take from the simulator after deploy |

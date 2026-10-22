@@ -292,8 +292,16 @@ function renderSettings(){const B=$("#settingsBody");B.innerHTML="";
   cell("sun-moon","Giao diện",{id:"openThemes",value:(THEMES.find(t=>t.id===curTheme())||THEMES[0]).name,onClick:()=>{renderThemes();swapSheet($("#themes"))}})));
  const link=(icon,label,href)=>cell(icon,label,{ext:1,onClick:()=>window.open(href,"_blank","noopener")});
  B.append(card("Trợ giúp",link("message-circle","Trung tâm trợ giúp","https://github.com/meiiie/neko-aurora#readme"),link("check","Quyền riêng tư","/app/privacy.html"),link("list-checks","Điều khoản sử dụng","/app/terms.html"),link("git-branch","Giấy phép mã nguồn mở","/app/aurora/lucide-LICENSE.txt")));
- B.append(card(null,cell("log-out","Đăng xuất",{id:"logoutBtn",danger:1,onClick:logout})));
+ B.append(card(null,cell("log-out","Đăng xuất",{id:"logoutBtn",danger:1,onClick:logout}),cell("x","Xoá tài khoản & dữ liệu",{id:"delAcctBtn",danger:1,onClick:()=>{renderDelAcct();swapSheet($("#delAcct"))}})));
  const ft=el("footer","about");const lg=el("img");lg.src="/app/icon.svg";lg.alt="";lg.width=lg.height=36;ft.append(lg,el("b",0,"Neko Aurora"),el("small",0,"Phiên bản "+VERSION));B.append(ft)}
+function renderDelAcct(){const B=$("#delAcctBody");B.innerHTML="";
+ B.append(el("p","del-warn","Thao tác này xoá vĩnh viễn mọi bot, nhóm, tin nhắn, bản nháp chờ duyệt, khoá trong kho bí mật, kết nối và bản sao lưu trên máy chủ này. Không thể hoàn tác."));
+ const f=field("Gõ XOÁ để xác nhận",{autocomplete:"off",autocapitalize:"characters",spellcheck:false});f.i.id="delAcctInput";
+ const go=el("button","pill wide danger","Xoá vĩnh viễn");go.id="delAcctGo";go.disabled=true;
+ f.i.oninput=()=>{go.disabled=!/^(xoá|xóa|delete)$/i.test(f.i.value.trim())};
+ go.onclick=async()=>{go.disabled=true;go.textContent="Đang xoá…";try{await api("/account/delete",{confirm:f.i.value.trim().normalize("NFC").replace(/xóa/i,"XOÁ")});buzz("confirm");try{localStorage.clear()}catch{}if(es){es.close();es=null}closeSheet(true);toast("Đã xoá tài khoản và dữ liệu");setTimeout(()=>location.reload(),2500)}catch{go.disabled=false;go.textContent="Xoá vĩnh viễn";toast("Không xoá được, thử lại")}};
+ B.append(f.w,go)}
+$("#closeDelAcct").onclick=()=>closeSheet(true);
 async function logout(){try{await fetch("/app/logout",{method:"POST",credentials:"same-origin",headers:{"Content-Type":"application/json"},body:"{}"})}catch{}closeSheet(true);if(es){es.close();es=null}const r=await fetch(API+"/state",{credentials:"same-origin",cache:"no-store"}).catch(()=>null);if(r&&r.status===401)$("#login").classList.remove("hidden");else toast("Máy chủ cục bộ: phiên luôn mở trên máy này")}
 $("#meBtn").onclick=()=>{if(sheetOpen)return;renderSettings();openSheet($("#settings"))};$("#closeSettings").onclick=()=>closeSheet(true);
 // ---------- connectors (sheet + setup; credentials live in the server vault) ----------

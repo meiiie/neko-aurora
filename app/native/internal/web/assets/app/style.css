@@ -328,3 +328,4 @@ button.cell:active{background:var(--sunk)}
 .ask.multi{flex-wrap:wrap;border-radius:26px;padding:4px 4px 4px 16px}.ask.multi textarea{flex-basis:100%;max-height:160px;padding:10px 12px 2px 0}.ask.multi .mic{margin-left:auto}
 /* Dynamic Type (iOS): chat text follows the system text-size setting; layout chrome stays fixed */
 @supports (font:-apple-system-body){html{font:-apple-system-body;font-family:var(--na-font-family-sans)}body{font-size:17px}.msg,.ask textarea,.md h4{font-size:max(15px,1rem)}.md h3{font-size:calc(max(15px,1rem) + 2px)}.md code{font-size:calc(max(15px,1rem) - 2px)}}
+#delAcctBody{padding:8px 20px 28px}.del-warn{color:var(--ink);line-height:1.45;margin:6px 0 16px}#delAcctBody .pill.wide{width:100%;margin-top:14px}.pill.danger{background:var(--danger);color:#fff}.pill.danger:disabled{opacity:.4}

@@ -13,6 +13,8 @@ import (
 	"os/signal"
 	"path/filepath"
 	"runtime/debug"
+	"sync/atomic"
+	"syscall"
 	"time"
 
 	"nekoaurora.local/native/internal/api"
@@ -133,6 +135,12 @@ func main() {
 			os.Exit(2)
 		}
 	}
+	if wiped, e := auroraback.WipeIfRequested(*state); e != nil {
+		fmt.Fprintln(os.Stderr, "account_delete_incomplete; retrying on next start")
+		os.Exit(1)
+	} else if wiped {
+		fmt.Println("aurora account deleted: state wiped")
+	}
 	documentClient, err := documentworker.NewSelf()
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "document_worker_unavailable")
@@ -157,6 +165,7 @@ func main() {
 		os.Exit(2)
 	}
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
+	var deleteAccount atomic.Bool
 	defer stop()
 	trustedHost := *hostExecutable
 	if trustedHost == "" {
@@ -242,6 +251,16 @@ func main() {
 	if auroraService, e := aurora.New(ctx, store, filepath.Join(*state, "aurora"), aurora.Options{RunTurns: fixture == nil}); e != nil {
 		fmt.Fprintln(os.Stderr, "aurora_unavailable")
 	} else {
+		auroraService.OnDeleteAccount = func() error {
+			if e := auroraback.RequestWipe(*state); e != nil {
+				return e
+			}
+			deleteAccount.Store(true)
+			// Let the 202 reach the client, then shut down; the wipe runs
+			// after the ledger is closed and the binary re-executes itself.
+			time.AfterFunc(300*time.Millisecond, stop)
+			return nil
+		}
 		handler.EnableAurora(auroraService)
 		if exposed {
 			handler.SetExposed()
@@ -281,6 +300,22 @@ func main() {
 	if err = server.Serve(listener); err != nil && err != http.ErrServerClosed {
 		fmt.Fprintln(os.Stderr, "HTTP service stopped")
 	}
+	if deleteAccount.Load() {
+		store.Close()
+		documentClient.Close()
+		restartFresh()
+	}
+}
+
+// restartFresh re-executes this binary with the same arguments; startup sees
+// the wipe marker, erases state and serves an empty account.
+func restartFresh() {
+	exe, err := os.Executable()
+	if err == nil {
+		err = syscall.Exec(exe, os.Args, os.Environ())
+	}
+	fmt.Fprintln(os.Stderr, "account_delete_restart_failed; state wipes on next start")
+	os.Exit(1)
 }
 
 func envOr(k, d string) string {

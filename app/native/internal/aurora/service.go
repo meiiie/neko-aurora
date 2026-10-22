@@ -50,6 +50,9 @@ type Service struct {
 	briefM  sync.Mutex
 	// Now is overridable in tests.
 	Now func() time.Time
+	// OnDeleteAccount, when set, erases every bot, message, secret and backup
+	// on this server (the host wipes the state directory and restarts fresh).
+	OnDeleteAccount func() error
 }
 
 type Options struct {
@@ -736,6 +739,26 @@ func (s *Service) routes() {
 		s.record(c.BotIDs[0], "", "agent", "Bạn tạo nhóm "+c.Name)
 		s.resync()
 		writeJSON(w, 201, s.view().group(c, false))
+	})
+	// Account deletion (App Store 5.1.1(v)): irreversible, needs the typed
+	// confirmation word so a stray tap or replayed request cannot trigger it.
+	m.HandleFunc("POST /app/api/account/delete", func(w http.ResponseWriter, r *http.Request) {
+		var in struct {
+			Confirm string `json:"confirm"`
+		}
+		if decode(r, &in) != nil || !strings.EqualFold(strings.TrimSpace(in.Confirm), "XOÁ") && !strings.EqualFold(strings.TrimSpace(in.Confirm), "DELETE") {
+			writeJSON(w, 400, map[string]string{"error": "confirm_required"})
+			return
+		}
+		if s.OnDeleteAccount == nil {
+			writeJSON(w, 501, map[string]string{"error": "delete_unavailable"})
+			return
+		}
+		if err := s.OnDeleteAccount(); err != nil {
+			writeJSON(w, 500, map[string]string{"error": "delete_failed"})
+			return
+		}
+		writeJSON(w, 202, map[string]bool{"deleting": true})
 	})
 	m.HandleFunc("POST /app/api/agents/{id}/stop", func(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, 200, map[string]bool{"stopped": s.Stop(r.PathValue("id"))})
