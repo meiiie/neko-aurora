@@ -38,11 +38,13 @@ type Agent struct {
 	Name    string    `json:"name"`
 	Desc    string    `json:"desc"`
 	Tag     string    `json:"tag,omitempty"`
-	Avatar  Avatar    `json:"av"`
+	Face    *Face     `json:"av,omitempty"`
 	Status  string    `json:"status"` // idle|working|waiting|done|error
 	Task    string    `json:"task"`   // OpenMuse-style TaskStatus of the latest task
 	Snip    string    `json:"snip"`
 	Pinned  bool      `json:"pin"`
+	Kind    string    `json:"kind,omitempty"` // ""|group
+	Members []string  `json:"members,omitempty"`
 	Updated time.Time `json:"t"`
 }
 
@@ -62,6 +64,7 @@ type Message struct {
 	Plan     *Plan     `json:"plan,omitempty"`
 	Choices  []string  `json:"choices,omitempty"`
 	Queued   bool      `json:"queued,omitempty"`
+	From     string    `json:"from,omitempty"` // speaking bot, in group threads
 	Created  time.Time `json:"t"`
 }
 
@@ -90,10 +93,16 @@ type view struct {
 	archived map[string]bool
 	profiles map[string]ledger.BotProfile
 	byBot    map[string][]ledger.Work
+	byConv   map[string][]ledger.Work // group (ledger channel) threads
+	allBot   map[string][]ledger.Work // a bot's own thread plus its group turns
+	channels map[string]ledger.Channel
 }
 
 func newView(snap ledger.Snapshot) *view {
-	v := &view{snap: snap, archived: map[string]bool{}, profiles: map[string]ledger.BotProfile{}, byBot: map[string][]ledger.Work{}}
+	v := &view{snap: snap, archived: map[string]bool{}, profiles: map[string]ledger.BotProfile{}, byBot: map[string][]ledger.Work{}, byConv: map[string][]ledger.Work{}, allBot: map[string][]ledger.Work{}, channels: map[string]ledger.Channel{}}
+	for _, c := range snap.Channels {
+		v.channels[c.ID] = c
+	}
 	for _, st := range snap.BotStates {
 		if st.Archived {
 			v.archived[st.BotID] = true
@@ -103,12 +112,21 @@ func newView(snap ledger.Snapshot) *view {
 		v.profiles[p.BotID] = p
 	}
 	for _, w := range snap.Work {
-		if w.ConversationID == "conversation-"+w.BotID && w.Collaboration == nil {
+		if w.Collaboration != nil {
+			continue
+		}
+		if w.ConversationID == "conversation-"+w.BotID {
 			v.byBot[w.BotID] = append(v.byBot[w.BotID], w)
+			v.allBot[w.BotID] = append(v.allBot[w.BotID], w)
+		} else if _, ok := v.channels[w.ConversationID]; ok {
+			v.byConv[w.ConversationID] = append(v.byConv[w.ConversationID], w)
+			v.allBot[w.BotID] = append(v.allBot[w.BotID], w)
 		}
 	}
-	for _, l := range v.byBot {
-		sort.SliceStable(l, func(i, j int) bool { return l[i].CreatedSequence < l[j].CreatedSequence })
+	for _, m := range []map[string][]ledger.Work{v.byBot, v.byConv, v.allBot} {
+		for _, l := range m {
+			sort.SliceStable(l, func(i, j int) bool { return l[i].CreatedSequence < l[j].CreatedSequence })
+		}
 	}
 	return v
 }
@@ -157,11 +175,12 @@ func taskStatus(w ledger.Work) TaskStatus {
 
 func (v *view) agent(b ledger.Bot, prefs botPrefs) *Agent {
 	a := &Agent{ID: b.ID, Name: displayName(b), Desc: v.desc(b), Tag: prefs.Tag, Pinned: prefs.Pinned, Status: "idle", Snip: "Sẵn sàng nhận việc.", Task: ""}
+	av := defaultAvatar(b.ID)
 	if prefs.Avatar != nil {
-		a.Avatar = *prefs.Avatar
-	} else {
-		a.Avatar = defaultAvatar(b.ID)
+		av = *prefs.Avatar
 	}
+	f := faceOf(av)
+	a.Face = &f
 	l := v.byBot[b.ID]
 	if len(l) == 0 {
 		return a
@@ -320,6 +339,13 @@ func (v *view) pending() []*Message {
 						out = append(out, m)
 					}
 				}
+			}
+		}
+	}
+	for id := range v.channels {
+		for _, m := range v.groupMessages(id, 0) {
+			if m.Approval != nil && m.Approval.State == "pending" {
+				out = append(out, m)
 			}
 		}
 	}

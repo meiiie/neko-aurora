@@ -104,7 +104,7 @@ func SplitApproval(text string) (string, *Approval) {
 // collaboration requirements (those stay with the host/executor pipeline).
 // Default plugin pins are fine: a direct run grants no tools at all.
 func eligible(w ledger.Work) bool {
-	return w.Status == "waiting_host" && w.DesiredState == "running" && w.Direct == nil && w.Core == nil && w.CoreProfilePin == nil && w.CoreProfileSelection == nil && w.Collaboration == nil && w.Account == nil && w.Resources == nil && w.RequesterPin == nil && w.ConversationID == "conversation-"+w.BotID
+	return w.Status == "waiting_host" && w.DesiredState == "running" && w.Direct == nil && w.Core == nil && w.CoreProfilePin == nil && w.CoreProfileSelection == nil && w.Collaboration == nil && w.Account == nil && w.Resources == nil && w.RequesterPin == nil && (w.ConversationID == "conversation-"+w.BotID || isGroupID(w.ConversationID))
 }
 
 // runLoop dispatches queued work one turn per bot, oldest first.
@@ -120,7 +120,7 @@ func (s *Service) runLoop() {
 		}
 		snap := s.L.Snapshot()
 		v := newView(snap)
-		for botID, l := range v.byBot {
+		for botID, l := range v.allBot {
 			if v.archived[botID] {
 				continue
 			}
@@ -182,6 +182,9 @@ func (s *Service) history(botID, current string) []ChatMsg {
 	b, _ := v.bot(botID)
 	msgs := []ChatMsg{{Role: "system", Content: fmt.Sprintf(systemPrompt, b.Name, v.desc(b))}}
 	l := v.byBot[botID]
+	if cw, err := s.L.Get(current); err == nil && isGroupID(cw.ConversationID) {
+		return s.groupHistory(v, b, cw, msgs)
+	}
 	if len(l) > 30 {
 		l = l[len(l)-30:]
 	}
@@ -221,7 +224,7 @@ func (s *Service) agui(e AGUIEvent) { s.publish("agui", e) }
 func (s *Service) call(ctx context.Context, w ledger.Work, msgs []ChatMsg) (directives, error) {
 	s.agui(AGUIEvent{Type: TEXT_MESSAGE_START, ThreadID: w.BotID, RunID: w.RequestID, MessageID: w.RequestID})
 	full, err := s.AI.Stream(ctx, msgs, func(d string) {
-		s.publish("delta", map[string]any{"type": TEXT_MESSAGE_CONTENT, "agentId": w.BotID, "id": w.RequestID, "messageId": w.RequestID, "delta": d})
+		s.publish("delta", map[string]any{"type": TEXT_MESSAGE_CONTENT, "agentId": threadOf(w), "from": w.BotID, "id": w.RequestID, "messageId": w.RequestID, "delta": d})
 	})
 	return ParseDirectives(full), err
 }
@@ -229,7 +232,7 @@ func (s *Service) call(ctx context.Context, w ledger.Work, msgs []ChatMsg) (dire
 func (s *Service) endDraft(w ledger.Work) {
 	s.sync()
 	s.agui(AGUIEvent{Type: TEXT_MESSAGE_END, ThreadID: w.BotID, RunID: w.RequestID, MessageID: w.RequestID})
-	s.publish("draft_end", map[string]string{"id": w.RequestID, "agentId": w.BotID})
+	s.publish("draft_end", map[string]string{"id": w.RequestID, "agentId": threadOf(w)})
 }
 
 func (s *Service) runWork(w ledger.Work) {
@@ -298,11 +301,11 @@ func (s *Service) runWork(w ledger.Work) {
 	}
 	switch {
 	case appr != nil:
-		s.notify(name+" cần bạn duyệt", appr.Title, "/app/#"+w.BotID)
+		s.notify(name+" cần bạn duyệt", appr.Title, "/app/#"+threadOf(w))
 	case len(choices) > 0:
-		s.notify(name+" cần bạn chọn", "Chọn một phương án để tiếp tục", "/app/#"+w.BotID)
+		s.notify(name+" cần bạn chọn", "Chọn một phương án để tiếp tục", "/app/#"+threadOf(w))
 	default:
-		s.notify(name, "Đã xong việc bạn giao.", "/app/#"+w.BotID)
+		s.notify(name, "Đã xong việc bạn giao.", "/app/#"+threadOf(w))
 	}
 }
 

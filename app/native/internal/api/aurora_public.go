@@ -69,6 +69,11 @@ func (s *Server) servePublicAurora(w http.ResponseWriter, r *http.Request) {
 		p.login(w, r)
 		return
 	}
+	if path == "/app/logout" && r.Method == http.MethodPost {
+		http.SetCookie(w, &http.Cookie{Name: auroraCookie, Value: "", Path: "/app/", HttpOnly: true, Secure: true, SameSite: http.SameSiteStrictMode, MaxAge: -1})
+		send(w, 200, map[string]bool{"ok": true})
+		return
+	}
 	if !p.authed(r) {
 		http.Error(w, "owner_login_required", http.StatusUnauthorized)
 		return

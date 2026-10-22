@@ -8,12 +8,15 @@ import (
 	"crypto/hkdf"
 	"crypto/rand"
 	"crypto/sha256"
+	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -356,5 +359,68 @@ func TestCoreStreamStripsUsage(t *testing.T) {
 	}
 	if d := ParseDirectives(out); d.Approval == nil || d.Text != "Xong." {
 		t.Fatalf("%+v", d)
+	}
+}
+
+func TestGroupChatFansOutToMembers(t *testing.T) {
+	var seen []string
+	var mu sync.Mutex
+	fa := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		b, _ := io.ReadAll(r.Body)
+		mu.Lock()
+		seen = append(seen, string(b))
+		mu.Unlock()
+		w.Header().Set("Content-Type", "text/event-stream")
+		fmt.Fprint(w, "data: {\"choices\":[{\"delta\":{\"content\":\"Phần của mình xong.\"}}]}\n\ndata: [DONE]\n\n")
+	}))
+	defer fa.Close()
+	t.Setenv("ZAI_API_KEY", "test-key")
+	t.Setenv("AURORA_AI_BASE_URL", fa.URL)
+	svc, st := newSvc(t)
+	srv := httptest.NewServer(svc)
+	defer srv.Close()
+	bots := st.Snapshot().Bots
+	r := post(t, srv.URL+"/app/api/groups", `{"name":"Đội ra mắt","bots":["`+bots[0].ID+`","`+bots[1].ID+`"]}`)
+	var g Agent
+	json.NewDecoder(r.Body).Decode(&g)
+	if r.StatusCode != 201 || g.Kind != "group" || len(g.Members) != 2 {
+		t.Fatalf("create %d %+v", r.StatusCode, g)
+	}
+	if r := post(t, srv.URL+"/app/api/agents/"+g.ID+"/messages", `{"text":"Lên kế hoạch ra mắt"}`); r.StatusCode != 202 {
+		t.Fatal(r.StatusCode)
+	}
+	for i := 0; i < 300; i++ {
+		busy := false
+		for _, w := range svc.view().byConv[g.ID] {
+			busy = busy || active(w)
+		}
+		if !busy {
+			break
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	msgs := svc.view().groupMessages(g.ID, 0)
+	users, from := 0, map[string]bool{}
+	for _, m := range msgs {
+		if m.Role == "user" {
+			users++
+		}
+		if m.Role == "agent" {
+			from[m.From] = true
+		}
+		if m.AgentID != g.ID {
+			t.Fatal("message not in group thread")
+		}
+	}
+	if users != 1 || len(from) != 2 {
+		t.Fatalf("users=%d from=%v msgs=%+v", users, from, msgs)
+	}
+	// a second message lets each bot see the other's reply
+	post(t, srv.URL+"/app/api/agents/"+g.ID+"/messages", `{"text":"Tiếp tục"}`)
+	time.Sleep(600 * time.Millisecond)
+	mu.Lock()
+	defer mu.Unlock()
+	if !strings.Contains(strings.Join(seen, "\n"), "trong nhóm]") {
+		t.Fatal("group history missing other bots' replies")
 	}
 }

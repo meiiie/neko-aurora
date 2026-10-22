@@ -148,6 +148,21 @@ func (s *Service) sync() {
 			}
 		}
 	}
+	for _, c := range v.groups() {
+		a := v.group(c, s.Prefs.GroupPinned(c.ID))
+		j, _ := json.Marshal(a)
+		next["a:"+c.ID] = string(j)
+		if s.seen["a:"+c.ID] != string(j) && !first {
+			s.publish("agent", a)
+		}
+		for _, m := range v.groupMessages(c.ID, 0) {
+			j, _ := json.Marshal(m)
+			next["m:"+m.ID] = string(j)
+			if s.seen["m:"+m.ID] != string(j) && !first {
+				s.publish("message", m)
+			}
+		}
+	}
 	if br := v.brief(); br != nil {
 		j, _ := json.Marshal(br)
 		next["brief"] = string(j)
@@ -428,17 +443,21 @@ func (s *Service) routes() {
 				agents = append(agents, v.agent(b, s.Prefs.Bot(b.ID)))
 			}
 		}
+		for _, c := range v.groups() {
+			agents = append(agents, v.group(c, s.Prefs.GroupPinned(c.ID)))
+		}
 		writeJSON(w, 200, map[string]any{
 			"agents": agents, "pending": v.pending(), "brief": v.brief(),
 			"ai":             map[string]any{"configured": s.AI.Configured(), "model": s.AI.ModelName(), "provider": "z.ai", "runtime": s.AI.Runtime()},
 			"vapidPublicKey": s.Push.Pub, "pushSubscriptions": len(s.Prefs.PushSubs()),
+			"outbound": s.outboundInfo(),
 		})
 	})
 	m.HandleFunc("POST /app/api/agents", func(w http.ResponseWriter, r *http.Request) {
 		var in struct {
 			Name   string `json:"name"`
 			Desc   string `json:"desc"`
-			Avatar Avatar `json:"av"`
+			Face   Face   `json:"av"`
 			Nonce  string `json:"clientNonce"`
 		}
 		if err := decode(r, &in); err != nil {
@@ -446,7 +465,8 @@ func (s *Service) routes() {
 			return
 		}
 		name, desc := clean(in.Name, 28), clean(in.Desc, 240)
-		if name == "" || !validAvatar(in.Avatar) {
+		av, okAv := avatarOf(in.Face)
+		if name == "" || !okAv {
 			fail(w, ErrInvalid)
 			return
 		}
@@ -459,7 +479,6 @@ func (s *Service) routes() {
 			fail(w, err)
 			return
 		}
-		av := in.Avatar
 		_ = s.Prefs.SetBot(b.ID, func(p *botPrefs) { p.Avatar = &av })
 		s.resync()
 		writeJSON(w, 201, s.view().agent(b, s.Prefs.Bot(b.ID)))
@@ -468,7 +487,7 @@ func (s *Service) routes() {
 		var p struct {
 			Name     *string `json:"name"`
 			Desc     *string `json:"desc"`
-			Avatar   *Avatar `json:"av"`
+			Face     *Face   `json:"av"`
 			Pinned   *bool   `json:"pin"`
 			Archived *bool   `json:"archived"`
 		}
@@ -483,9 +502,14 @@ func (s *Service) routes() {
 			fail(w, ErrNotFound)
 			return
 		}
-		if p.Avatar != nil && !validAvatar(*p.Avatar) {
-			fail(w, ErrInvalid)
-			return
+		var newAv *Avatar
+		if p.Face != nil {
+			a, ok := avatarOf(*p.Face)
+			if !ok {
+				fail(w, ErrInvalid)
+				return
+			}
+			newAv = &a
 		}
 		if p.Name != nil {
 			n := clean(*p.Name, 28)
@@ -507,11 +531,10 @@ func (s *Service) routes() {
 				return
 			}
 		}
-		if p.Avatar != nil || p.Pinned != nil {
+		if newAv != nil || p.Pinned != nil {
 			_ = s.Prefs.SetBot(id, func(x *botPrefs) {
-				if p.Avatar != nil {
-					a := *p.Avatar
-					x.Avatar = &a
+				if newAv != nil {
+					x.Avatar = newAv
 				}
 				if p.Pinned != nil {
 					x.Pinned = *p.Pinned
@@ -541,11 +564,16 @@ func (s *Service) routes() {
 	})
 	m.HandleFunc("GET /app/api/agents/{id}/messages", func(w http.ResponseWriter, r *http.Request) {
 		v := s.view()
-		if _, ok := v.bot(r.PathValue("id")); !ok {
+		id := r.PathValue("id")
+		if _, ok := v.channels[id]; ok {
+			writeJSON(w, 200, v.groupMessages(id, 200))
+			return
+		}
+		if _, ok := v.bot(id); !ok {
 			fail(w, ErrNotFound)
 			return
 		}
-		writeJSON(w, 200, v.messages(r.PathValue("id"), 200))
+		writeJSON(w, 200, v.messages(id, 200))
 	})
 	m.HandleFunc("POST /app/api/agents/{id}/messages", func(w http.ResponseWriter, r *http.Request) {
 		var in struct {
@@ -562,13 +590,24 @@ func (s *Service) routes() {
 			fail(w, ErrInvalid)
 			return
 		}
+		nonce := in.Nonce
+		if len(nonce) < 8 || len(nonce) > 100 {
+			nonce = newID("aurora-")
+		}
+		if isGroupID(id) {
+			msg, err := s.sendGroup(id, text, nonce)
+			if err != nil {
+				fail(w, err)
+				return
+			}
+			s.sync()
+			s.poke()
+			writeJSON(w, 202, msg)
+			return
+		}
 		if _, ok := s.view().bot(id); !ok {
 			fail(w, ErrNotFound)
 			return
-		}
-		nonce := in.Nonce
-		if len(nonce) < 8 {
-			nonce = newID("aurora-")
 		}
 		// steering: a new instruction supersedes any stale draft awaiting approval
 		s.supersede(id)
@@ -651,6 +690,24 @@ func (s *Service) routes() {
 		}
 		writeJSON(w, 200, map[string]string{"taskId": work.RequestID})
 	})
+	m.HandleFunc("POST /app/api/groups", func(w http.ResponseWriter, r *http.Request) {
+		var in struct {
+			Name string   `json:"name"`
+			Bots []string `json:"bots"`
+		}
+		if err := decode(r, &in); err != nil {
+			fail(w, err)
+			return
+		}
+		c, err := s.createGroup(in.Name, in.Bots)
+		if err != nil {
+			fail(w, err)
+			return
+		}
+		s.record(c.BotIDs[0], "", "agent", "Bạn tạo nhóm "+c.Name)
+		s.resync()
+		writeJSON(w, 201, s.view().group(c, false))
+	})
 	m.HandleFunc("POST /app/api/agents/{id}/stop", func(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, 200, map[string]bool{"stopped": s.Stop(r.PathValue("id"))})
 	})
@@ -718,7 +775,7 @@ func (s *Service) routes() {
 }
 
 func (s *Service) isRunning(botID string) bool {
-	for _, w := range s.view().byBot[botID] {
+	for _, w := range s.view().thread(botID) {
 		if w.Status == "running" || w.Status == "starting" {
 			return true
 		}
@@ -730,14 +787,14 @@ func (s *Service) isRunning(botID string) bool {
 // control (the same Cancel the desktop uses).
 func (s *Service) Stop(botID string) bool {
 	stopped := false
-	for _, w := range s.view().byBot[botID] {
+	for _, w := range s.view().thread(botID) {
 		if w.Status == "running" || w.Status == "waiting_host" || w.Status == "starting" {
 			if _, err := s.L.Cancel(w.RequestID); err == nil {
 				stopped = true
 			}
 		}
 	}
-	if stopped {
+	if stopped && !isGroupID(botID) {
 		s.record(botID, "", "stop", "Bạn dừng "+s.botName(botID))
 	}
 	s.sync()
@@ -745,13 +802,13 @@ func (s *Service) Stop(botID string) bool {
 }
 
 func (s *Service) supersede(botID string) {
-	for _, w := range s.view().byBot[botID] {
+	for _, w := range s.view().thread(botID) {
 		if w.Direct != nil && w.Direct.Approval != nil && w.Direct.Approval.State == "pending" {
 			_, _ = s.L.DirectDecide(w.RequestID, func(a *ledger.DirectApproval, d *ledger.DirectRun) error {
 				a.State, a.DecidedAt = "superseded", time.Now().UTC().Format(time.RFC3339Nano)
 				return nil
 			})
-			s.record(botID, w.RequestID, "decision", "Thay thế bản nháp “"+w.Direct.Approval.Title+"” của "+s.botName(botID))
+			s.record(w.BotID, w.RequestID, "decision", "Thay thế bản nháp “"+w.Direct.Approval.Title+"” của "+s.botName(w.BotID))
 		}
 	}
 }
@@ -759,7 +816,7 @@ func (s *Service) supersede(botID string) {
 // userMentioned reports whether the owner typed needle in this bot's thread.
 func (s *Service) userMentioned(botID, needle string) bool {
 	n := strings.ToLower(needle)
-	for _, w := range s.view().byBot[botID] {
+	for _, w := range s.view().allBot[botID] {
 		if (w.Direct == nil || w.Direct.Kind == "") && strings.Contains(strings.ToLower(w.Text), n) {
 			return true
 		}
@@ -848,4 +905,14 @@ func (s *Service) events(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
+}
+
+// outboundInfo lists the real delivery channels for the connectors sheet.
+func (s *Service) outboundInfo() []map[string]any {
+	out := []map[string]any{}
+	if a, ok := s.Out.Adapter("email"); ok {
+		out = append(out, map[string]any{"id": "email", "configured": a.Configured(), "from": a.Sender()})
+	}
+	out = append(out, map[string]any{"id": "push", "configured": s.Push != nil && s.Push.Pub != "", "subscriptions": len(s.Prefs.PushSubs())})
+	return out
 }
