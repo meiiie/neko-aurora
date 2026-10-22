@@ -1,6 +1,8 @@
+import {notLive} from './guard.mjs';
 // Long-press context menu e2e at 390 (fake server 8799): preview, unread, sections, hide, submenu, escape.
 import {chromium} from 'playwright-core';
 const U=process.env.AURORA_URL||'http://127.0.0.1:8799/app/';const sl=ms=>new Promise(r=>setTimeout(r,ms));let fail=0;const ok=(c,m)=>{console.log(c?'PASS':'FAIL',m);if(!c)fail++};
+notLive(U);
 const b=await chromium.launch({executablePath:'/usr/bin/google-chrome',args:['--no-sandbox']});
 const p=await (await b.newContext({viewport:{width:390,height:844},isMobile:true,hasTouch:true,locale:'vi-VN'})).newPage();const errs=[];p.on('pageerror',e=>errs.push(String(e)));
 await p.addInitScript(()=>{try{localStorage.setItem('neko-aurora-lang','vi');localStorage.removeItem('neko-aurora-hidden');localStorage.removeItem('neko-aurora-sections')}catch{}});

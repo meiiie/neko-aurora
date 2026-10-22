@@ -1,6 +1,8 @@
+import {notLive} from './guard.mjs';
 // Accessibility audit at 390: names, 44px targets, text contrast, reduced motion, across main screens.
 import {chromium} from 'playwright-core';
 const U=process.env.AURORA_URL||'http://127.0.0.1:8799/app/';const sl=ms=>new Promise(r=>setTimeout(r,ms));
+notLive(U);
 const b=await chromium.launch({executablePath:'/usr/bin/google-chrome',args:['--no-sandbox']});
 const p=await (await b.newContext({viewport:{width:390,height:844},isMobile:true,hasTouch:true,locale:'vi-VN',reducedMotion:'reduce'})).newPage();
 await p.addInitScript(t=>{try{localStorage.setItem('neko-aurora-lang','vi');if(t)localStorage.setItem('neko-aurora-theme',t)}catch{}},process.env.THEME||'');

@@ -1,6 +1,8 @@
+import {notLive} from './guard.mjs';
 // Dogfood: real user flow at 390 on the live server, video + per-stage screenshots.
 import {chromium} from 'playwright-core';
-const U=process.env.AURORA_URL||'http://127.0.0.1:8765/app/',O=process.env.OUT||'/workspace/neko-bot-shots/aurora/dogfood/',TAG=process.env.TAG||'run1';
+const U=process.env.AURORA_URL||'http://127.0.0.1:8798/app/',O=process.env.OUT||'/workspace/neko-bot-shots/aurora/dogfood/',TAG=process.env.TAG||'run1';
+notLive(U);
 const BOT=process.env.BOT||'Phân tích vàng',Q=process.env.Q||'Phân tích giá vàng hôm nay (thế giới XAU/USD và SJC Việt Nam), xu hướng tuần qua và nhận định ngắn hạn';
 const b=await chromium.launch({executablePath:'/usr/bin/google-chrome',args:['--no-sandbox']});
 const ctx=await b.newContext({viewport:{width:390,height:844},deviceScaleFactor:2,isMobile:true,hasTouch:true,locale:'vi-VN',recordVideo:{dir:O+'raw/',size:{width:390,height:844}}});

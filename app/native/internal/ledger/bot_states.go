@@ -121,7 +121,7 @@ func (s *Store) validBotStateEvent(e Event) bool {
 		return false
 	}
 	next, err := botControlMutation(prior, *e.BotControlInput)
-	return err == nil && next == *e.BotState
+	return err == nil && next == *e.BotState && !(prior.Archived && !next.Archived && s.activeBotCount() >= MaxActiveBots)
 }
 func (s *Store) ControlBot(in BotControlInput) (BotState, bool, error) {
 	s.mu.Lock()
@@ -158,6 +158,9 @@ func (s *Store) controlBotLocked(in BotControlInput) (BotState, bool, error) {
 	next, err := botControlMutation(prior, in)
 	if err != nil {
 		return BotState{}, false, err
+	}
+	if prior.Archived && !next.Archived && s.activeBotCount() >= MaxActiveBots {
+		return BotState{}, false, ErrConflict
 	}
 	commit := func() error {
 		return s.commit(Event{Type: "bot.state_updated", BotState: &next, BotControlInput: &in, Nonce: in.ClientNonce})

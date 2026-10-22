@@ -1,6 +1,8 @@
+import {notLive} from './guard.mjs';
 // Long multi-step task at 390: milestones stream in, the app is closed mid-run, reopened, final result checked.
 import {chromium} from 'playwright-core';
-const U=process.env.AURORA_URL||'http://127.0.0.1:8765/app/',O=process.env.OUT||'/workspace/neko-bot-shots/aurora/dogfood/',TAG=process.env.TAG||'long';
+const U=process.env.AURORA_URL||'http://127.0.0.1:8798/app/',O=process.env.OUT||'/workspace/neko-bot-shots/aurora/dogfood/',TAG=process.env.TAG||'long';
+notLive(U);
 const BOT=process.env.BOT||'Trợ lý chuyến đi',Q=process.env.Q;const sl=ms=>new Promise(r=>setTimeout(r,ms));
 const b=await chromium.launch({executablePath:'/usr/bin/google-chrome',args:['--no-sandbox']});
 const ctx=await b.newContext({viewport:{width:390,height:844},deviceScaleFactor:2,isMobile:true,hasTouch:true,locale:'vi-VN',recordVideo:{dir:O+'raw/',size:{width:390,height:844}}});

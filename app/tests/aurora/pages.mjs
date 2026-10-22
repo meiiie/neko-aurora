@@ -1,6 +1,8 @@
+import {notLive} from './guard.mjs';
 // Every screen/state at 390 for before/after review. PH=before|after OUT=dir URL=server
 import {chromium} from 'playwright-core';
 const U=process.env.URL||'http://127.0.0.1:8812/app/',O=process.env.OUT||'/workspace/neko-bot-shots/aurora/pro/',PH=process.env.PH||'before';const sl=ms=>new Promise(r=>setTimeout(r,ms));
+notLive(U);
 const b=await chromium.launch({executablePath:'/usr/bin/google-chrome',args:['--no-sandbox','--hide-scrollbars']});
 const ctx=await b.newContext({viewport:{width:390,height:844},deviceScaleFactor:2,isMobile:true,hasTouch:true,locale:'vi-VN'});
 const p=await ctx.newPage();const errs=[];p.on('pageerror',e=>errs.push(String(e)));

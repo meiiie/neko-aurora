@@ -1,0 +1,23 @@
+import {notLive} from './guard.mjs';
+// Redesign screens at 390, each from a fresh load: home, chat, secret card, connectors, Gmail setup, groups, new bot, login.
+import {chromium} from 'playwright-core';
+const U=process.env.URL||'http://127.0.0.1:8812/app/',O=process.env.OUT||'/workspace/neko-bot-shots/aurora/pro/',PH=process.env.PH||'after';notLive(U);
+const sl=ms=>new Promise(r=>setTimeout(r,ms));
+const b=await chromium.launch({executablePath:'/usr/bin/google-chrome',args:['--no-sandbox','--hide-scrollbars']});
+const ctx=await b.newContext({viewport:{width:390,height:844},deviceScaleFactor:2,isMobile:true,hasTouch:true,locale:'vi-VN'});
+const errs=[];const S=async(p,n)=>{await sl(500);await p.screenshot({path:`${O}${PH}-s-${n}.png`})};
+const fresh=async(route)=>{const p=await ctx.newPage();p.on('pageerror',e=>errs.push(String(e)));await p.addInitScript(()=>{try{localStorage.setItem('neko-aurora-lang','vi')}catch{}});if(route)await route(p);await p.goto(U);if(!route||!route.login)await p.waitForFunction(()=>window.__AURORA&&__AURORA.state().agents.length);await sl(800);return p};
+const openChat=async(p,name)=>{const id=await p.evaluate(n=>(__AURORA.state().agents.find(a=>a.name===n)||__AURORA.state().agents.find(a=>a.kind!=='group')).id,name);await p.locator(`[data-id="${id}"]`).first().tap();await sl(1300);return id};
+let p=await fresh();await S(p,'01-home');await p.close();
+p=await fresh();await openChat(p,'Phân tích vàng');await S(p,'02-chat');await p.evaluate(()=>{const m=document.querySelector('#messages');m.scrollTop=0});await S(p,'03-chat-top');await p.close();
+const sec=async p=>{await p.route('**/app/api/agents/*/messages',async r=>{if(r.request().method()!=='GET')return r.continue();const res=await r.fetch();const j=await res.json();const t=new Date().toISOString();j.push({id:'x:secret',role:'agent',t,text:'Để gửi thư từ Gmail, mình cần mật khẩu ứng dụng. Bạn nhập vào ô bên dưới nhé, giá trị chỉ vào kho mã hoá.',secret:{name:'GMAIL_APP_PASSWORD',label:'Mật khẩu ứng dụng Gmail',desc:'16 ký tự, tạo tại myaccount.google.com/apppasswords'}});r.fulfill({response:res,json:j})})};
+p=await fresh(sec);await openChat(p,'Thư ký Neko');await p.evaluate(()=>{const m=document.querySelector('#messages');m.scrollTop=m.scrollHeight});await S(p,'04-secret-card');await p.close();
+p=await fresh();await p.locator('#appsBtn').tap();await sl(700);await S(p,'05-connectors');
+const gm=p.locator('.conn[data-id="gmail"] .pt, .conn .pt').first();if(await gm.count()){await gm.tap();await sl(800);await S(p,'06-connector-setup')}await p.close();
+p=await fresh();await p.locator('#newBtn').tap();await sl(500);await p.locator('#menuGroup').tap();await sl(800);await S(p,'07-group-sheet');
+const opts=p.locator('#groupList button, #groupList li');if(await opts.count()>1){await opts.nth(0).tap();await opts.nth(1).tap();await sl(300);await S(p,'08-group-picked')}await p.close();
+p=await fresh();const gid=await p.evaluate(()=>__AURORA.state().agents.find(a=>a.kind==='group')?.id);if(gid){await p.locator(`[data-id="${gid}"]`).first().tap();await sl(1300);await S(p,'09-group-chat')}await p.close();
+p=await fresh();await p.locator('#newBtn').tap();await sl(500);await p.locator('#menuBot').tap();await sl(800);await S(p,'10-new-bot');await p.close();
+const login=async p=>{await p.route('**/app/api/state',r=>r.fulfill({status:401,json:{error:'unauthorized'}}))};login.login=1;
+p=await fresh(login);await sl(800);await S(p,'11-login');await p.close();
+console.log('errs',errs);await b.close();

@@ -102,10 +102,23 @@ func (v *view) group(c ledger.Channel, pinned bool) *Agent {
 	return a
 }
 
+// liveMembers counts a group's bots that still exist and aren't archived; a
+// group left with fewer than two (e.g. after its test bot was archived) is
+// retired from the list, matching the "needs 2 bots" rule at creation.
+func (v *view) liveMembers(c ledger.Channel) int {
+	n := 0
+	for _, b := range c.BotIDs {
+		if _, ok := v.bot(b); ok && !v.archived[b] {
+			n++
+		}
+	}
+	return n
+}
+
 func (v *view) groups() []ledger.Channel {
 	out := []ledger.Channel{}
 	for _, c := range v.channels {
-		if c.HumanACL == nil {
+		if c.HumanACL == nil && v.liveMembers(c) >= 2 {
 			out = append(out, c)
 		}
 	}
