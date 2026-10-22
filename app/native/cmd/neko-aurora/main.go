@@ -6,6 +6,7 @@ import (
 	"flag"
 	"fmt"
 	"nekoaurora.local/native/internal/aurora"
+	"nekoaurora.local/native/internal/auroraback"
 	"net"
 	"net/http"
 	"os"
@@ -46,7 +47,16 @@ func main() {
 	backupVerify := flag.String("backup-verify", "", "Verify a local encrypted snapshot without restoring")
 	restoreBackup := flag.String("restore-dry-run", "", "Restore this snapshot into a new read-only local directory")
 	restoreTarget := flag.String("restore-target", "", "Nonexistent isolated destination for restore-dry-run")
+	auroraRestore := flag.String("aurora-restore", "", "Restore an Aurora snapshot (state/backups/aurora-*.tar.gz) into an empty -state directory, then exit; copy aurora/vault.key separately")
 	flag.Parse()
+	if *auroraRestore != "" {
+		if err := auroraback.Restore(*auroraRestore, *state); err != nil {
+			fmt.Fprintln(os.Stderr, "aurora_restore_failed:", err)
+			os.Exit(1)
+		}
+		fmt.Println("aurora_restored")
+		return
+	}
 	operations := 0
 	for _, p := range []string{*backupCreate, *backupVerify, *restoreBackup} {
 		if p != "" {
@@ -257,6 +267,9 @@ func main() {
 			return
 		}
 	}
+	if every, err := time.ParseDuration(envOr("AURORA_BACKUP_EVERY", "6h")); err == nil && every >= time.Minute {
+		go auroraback.Loop(ctx, *state, every, 14)
+	}
 	server := &http.Server{Handler: handler, ReadHeaderTimeout: 5 * time.Second, ReadTimeout: 10 * time.Second, IdleTimeout: 60 * time.Second, MaxHeaderBytes: 8192}
 	go func() {
 		<-ctx.Done()
@@ -268,4 +281,11 @@ func main() {
 	if err = server.Serve(listener); err != nil && err != http.ErrServerClosed {
 		fmt.Fprintln(os.Stderr, "HTTP service stopped")
 	}
+}
+
+func envOr(k, d string) string {
+	if v := os.Getenv(k); v != "" {
+		return v
+	}
+	return d
 }

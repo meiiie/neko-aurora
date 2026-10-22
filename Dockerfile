@@ -28,5 +28,7 @@ EXPOSE 8080
 # remote peers can then reach only the owner-login /app/ surface.
 # Turns stream straight from z.ai over HTTP; Core is the fallback. AURORA_RUNTIME=core forces Core, =http skips it.
 # AURORA_SEND_PER_MIN caps model-spending messages (default 20/min).
+# Snapshots: /data/backups/aurora-*.tar.gz every AURORA_BACKUP_EVERY (default 6h, "off" disables), newest 14 kept.
+# vault.key is never archived; restore: neko-aurora -state /new/dir -aurora-restore <archive>, then copy aurora/vault.key.
 ENTRYPOINT []
 CMD ["neko-aurora", "-state", "/data"]
