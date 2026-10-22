@@ -227,6 +227,15 @@ func main() {
 		fmt.Fprintln(os.Stderr, "duet_unavailable")
 	} else {
 		handler.EnableDuet(duetService)
+		// Optional HTTPS exposure of /duet/ only (e.g. a tunnel). The owner
+		// passcode comes from the environment and is never logged.
+		if host, code := os.Getenv("DUET_PUBLIC_HOST"), os.Getenv("DUET_OWNER_CODE"); host != "" {
+			if len(code) < 12 {
+				fmt.Fprintln(os.Stderr, "duet_public_requires_owner_code")
+			} else {
+				handler.EnableDuetPublic(host, code)
+			}
+		}
 	}
 	if profiles != nil {
 		handler.EnableCoreProfiles(profiles)

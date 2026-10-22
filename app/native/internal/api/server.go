@@ -30,6 +30,7 @@ type Server struct {
 	fixture     *identity.Authority
 	desktop     *desktopLaunchReceipt
 	duet        http.Handler
+	duetPub     *duetPublic
 }
 
 // EnableDuet mounts the /duet/api/ surface behind the same local session.
@@ -54,6 +55,10 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Referrer-Policy", "no-referrer")
 	w.Header().Set("Cache-Control", "no-store")
 	w.Header().Set("Content-Security-Policy", "default-src 'none'; script-src 'self'; style-src 'self'; connect-src 'self'; img-src 'self'; font-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'")
+	if s.duetPub != nil && strings.EqualFold(r.Host, s.duetPub.host) {
+		s.servePublicDuet(w, r)
+		return
+	}
 	if r.Host != s.host {
 		http.Error(w, "invalid_host", http.StatusForbidden)
 		return

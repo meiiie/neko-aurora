@@ -96,3 +96,9 @@ h1{font:600 34px/1.1 Georgia,"Times New Roman",serif;margin:4px 0 2px}
 #bellBtn{font-size:18px}#bellBtn.on{background:#fbe9e1}
 button:disabled{opacity:.5}
 .ap-title{font-weight:600}
+
+.login{position:fixed;inset:0;z-index:20;background:var(--bg);display:grid;place-items:center;padding:calc(var(--st) + 24px) 24px calc(var(--sb) + 24px)}
+.login form{width:min(100%,360px);display:flex;flex-direction:column;gap:12px;align-items:stretch;text-align:center}
+.login canvas{width:72px;height:72px;margin:0 auto}
+.login input{height:48px;border:1px solid var(--line);border-radius:14px;padding:0 14px;font-size:16px;background:var(--card)}
+.pill.wide{height:48px;font-size:16px}

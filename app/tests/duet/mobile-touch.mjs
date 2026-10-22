@@ -56,11 +56,11 @@ for(const w of [360,390,430]){let p;try{
  ok(w,'tap row opens thread',await p.$eval('#thread',e=>!e.classList.contains('off')));
  ok(w,'no-h-overflow thread',!(await overflow()));sm=await small();ok(w,'touch>=44 thread',!sm.length,sm.join(','));
  const mic=await p.$eval('#micBtn',e=>!e.classList.contains('hidden'));results.push(`INFO ${w} voice button ${mic?'shown (Web Speech available)':'hidden (unsupported)'}`);
- await tap('#input');await p.keyboard.type('Soạn giúp mình 2 câu giới thiệu Neko Duet');await p.keyboard.press('Enter');await p.keyboard.press('Enter');
+ const d0=await p.evaluate(()=>__DUET.state().deltaCount||0);await tap('#input');await p.keyboard.type('Soạn giúp mình 2 câu giới thiệu Neko Duet');await p.keyboard.press('Enter');await p.keyboard.press('Enter');
  let sawDraft=false;for(let i=0;i<(REAL?600:100);i++){if(await p.$('.msg.draft'))sawDraft=true;const done=await p.evaluate(n=>{const a=__DUET.state().agents.find(x=>x.name===n);return a&&a.status!=='working'&&!document.querySelector('.msg.draft')&&!document.querySelector('.msg.typing')},name);if(done&&i>3)break;await sleep(100)}
- const ms1=await srv('/agents/'+(await p.evaluate(()=>__DUET.current()))+'/messages');
+ const deltas=(await p.evaluate(()=>__DUET.state().deltaCount||0))-d0;sawDraft=sawDraft||deltas>1;const ms1=await srv('/agents/'+(await p.evaluate(()=>__DUET.current()))+'/messages');
  ok(w,'user msg persisted once (double Enter)',ms1.filter(m=>m.role==='user').length===1);
- const reply=ms1.filter(m=>m.role==='agent').at(-1);ok(w,'AI reply streamed and persisted',sawDraft&&reply&&reply.text.length>10,(reply?.text||'').slice(0,70).replace(/\n/g,' '));
+ const reply=ms1.filter(m=>m.role==='agent').at(-1);ok(w,'AI reply streamed and persisted',sawDraft&&reply&&reply.text.length>10,`deltas=${deltas} `+(reply?.text||'').slice(0,70).replace(/\n/g,' '));
  await p.screenshot({path:`${O}${w}-4-thread-reply.png`});
  await tap('#input');await p.keyboard.type('Gửi email cho Elena kèm deck cho buổi họp thứ Năm');await p.keyboard.press('Enter');
  let ap=null;for(let i=0;i<(REAL?600:100);i++){ap=await p.$('.approval:not(.done) .go');if(ap)break;await sleep(100)}

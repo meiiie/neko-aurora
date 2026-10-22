@@ -68,6 +68,24 @@ You hand work to agents by message. They keep working in the background, and not
   - Use `app/tests/duet/fake-ai.mjs` with `DUET_AI_BASE_URL=http://127.0.0.1:8901 ZAI_API_KEY=fake-test-key` for a deterministic run.
   - Use `REAL_AI=1` with the real key for an end-to-end run.
 
+## HTTPS exposure for a phone (`/duet/` only)
+Set `DUET_PUBLIC_HOST=<https host>` and `DUET_OWNER_CODE=<at least 12 chars>` in the server environment. Requests with that `Host`:
+- reach only `/duet/` (`/` redirects there; `/v1/*` and the desktop UI return 404);
+- never receive the loopback `neko_local` cookie;
+- need an owner login (`POST /duet/login`) that sets an HttpOnly, Secure, SameSite=Strict cookie for 30 days;
+- are rate-limited on login (5 failures lock it for 5 minutes);
+- must have Origin equal to `https://<host>`;
+- get HSTS.
+
+Put a TLS-terminating tunnel in front of it, for example:
+```
+cloudflared tunnel --url http://127.0.0.1:8765
+```
+
+## Real AI run (2026-10-22)
+- `/models` on the coding endpoint lists `glm-4.5`, `glm-4.5-air`, `glm-4.6`, `glm-4.7`, `glm-5`, `glm-5-turbo`, `glm-5.1`, `glm-5.2`, `glm-5.3`, `glm-5.3-flash` and `glm-5.3-flashx`. The default is `glm-5.3`.
+- `REAL_AI=1` touch run at 360, 390 and 430: 85/85 PASS. This covered real streaming (80–141 deltas per reply), a real approval card, a single decision, and an AI morning brief.
+
 ## Known gaps
 - The control plane only accepts its loopback `Host`. To use it from a phone you need HTTPS plus a host allow-list or tunnel. iOS Web Push additionally requires HTTPS and the app installed to the Home Screen (iOS 16.4+).
 - There are no outbound channels (email, X, payments), so approved items are stored, not delivered.

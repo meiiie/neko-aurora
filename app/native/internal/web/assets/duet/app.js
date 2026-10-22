@@ -55,7 +55,7 @@ function connect(){es=new EventSource(API+"/events");
   if(L){const i=L.findIndex(x=>x.id===m.id);if(i<0)L.push(m);else L[i]=m}
   S.pending=S.pending.filter(x=>x.id!==m.id);if(m.approval&&m.approval.state==="pending")S.pending.push(m);
   if(cur&&cur.id===m.agentId)renderThread();renderListSoon()});
- es.addEventListener("delta",e=>{const d=JSON.parse(e.data);const x=S.drafts[d.id]||(S.drafts[d.id]={agentId:d.agentId,text:""});x.text+=d.delta;if(cur&&cur.id===d.agentId)paintDraft(d.id)});
+ es.addEventListener("delta",e=>{const d=JSON.parse(e.data);S.deltaCount=(S.deltaCount||0)+1;const x=S.drafts[d.id]||(S.drafts[d.id]={agentId:d.agentId,text:""});x.text+=d.delta;if(cur&&cur.id===d.agentId)paintDraft(d.id)});
  es.addEventListener("activity",e=>{if(sheetOpen===$("#activity"))renderLog([JSON.parse(e.data)],true)});
  es.addEventListener("brief",e=>{S.brief=JSON.parse(e.data);renderListSoon()});
  es.addEventListener("notify",e=>{const n=JSON.parse(e.data);if(document.hidden&&!pushOn&&"Notification"in window&&Notification.permission==="granted")navigator.serviceWorker?.ready.then(r=>r.showNotification(n.title,{body:n.body,data:{url:n.url},tag:n.url}))});
@@ -167,9 +167,11 @@ $("#search").oninput=e=>{filter=e.target.value.toLowerCase();renderList()};
 const inp=$("#input");inp.oninput=()=>{inp.style.height="auto";inp.style.height=Math.min(140,inp.scrollHeight)+"px"};
 $("#composer").onsubmit=async e=>{e.preventDefault();stopVoice();const v=inp.value;if(!v.trim())return;inp.value="";inp.style.height="";if(!(await sendMsg(v)))inp.value=v};
 inp.onkeydown=e=>{if(e.key==="Enter"&&!e.shiftKey&&!e.isComposing){e.preventDefault();$("#composer").requestSubmit()}};
-document.addEventListener("visibilitychange",()=>{if(!document.hidden)loadState().catch(()=>{})});
+document.addEventListener("visibilitychange",()=>{if(!document.hidden&&es)loadState().catch(()=>{})});
 draw($("#meAvatar"),{shell:2,hat:"none",eyes:"none",extra:"flower"});
 if("serviceWorker"in navigator)navigator.serviceWorker.register("/duet/sw.js",{scope:"/duet/"}).then(r=>r.pushManager?.getSubscription()).then(s=>{if(s){pushOn=true;$("#bellBtn").classList.add("on")}}).catch(()=>{});
-loadState().then(()=>{const h=location.hash.slice(1);if(h)openThread(h)}).catch(()=>toast("Không kết nối được máy chủ"));connect();
+function boot(){return loadState().then(()=>{$("#login").classList.add("hidden");if(!es)connect();const h=location.hash.slice(1);if(h)openThread(h)}).catch(e=>{if(e.status===401){draw($("#loginAvatar"),{shell:0,hat:"cap",eyes:"shades",extra:"none"});$("#login").classList.remove("hidden")}else toast("Không kết nối được máy chủ")})}
+let logging=false;$("#loginForm").onsubmit=async e=>{e.preventDefault();if(logging)return;logging=true;try{const r=await fetch("/duet/login",{method:"POST",credentials:"same-origin",headers:{"Content-Type":"application/json"},body:JSON.stringify({code:$("#loginCode").value})});if(!r.ok){toast(r.status===429?"Thử quá nhiều lần, đợi 5 phút":"Mã không đúng");return}$("#loginCode").value="";await boot()}catch{toast("Không kết nối được")}finally{logging=false}};
+boot();
 window.__DUET={state:()=>S,reload:loadState,current:()=>cur&&cur.id};
 })();
