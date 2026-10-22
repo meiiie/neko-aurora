@@ -1,6 +1,7 @@
-package aurora
+package outbound
 
 import (
+	"context"
 	"crypto/tls"
 	"errors"
 	"fmt"
@@ -8,11 +9,12 @@ import (
 	"net"
 	"net/mail"
 	"net/smtp"
+	"os"
 	"strings"
 	"time"
 )
 
-// Mailer delivers APPROVED email cards over SMTP. Configured only from the
+// Mailer is the email adapter: it delivers APPROVED email cards over SMTP. Configured only from the
 // server environment (AURORA_SMTP_HOST, AURORA_SMTP_PORT, AURORA_SMTP_USER,
 // AURORA_SMTP_PASS, AURORA_SMTP_FROM); credentials never reach the client.
 type Mailer struct {
@@ -20,7 +22,8 @@ type Mailer struct {
 }
 
 func MailerFromEnv() *Mailer {
-	m := &Mailer{host: Env("SMTP_HOST"), port: Env("SMTP_PORT"), user: Env("SMTP_USER"), pass: Env("SMTP_PASS"), From: Env("SMTP_FROM")}
+	env := func(k string) string { return os.Getenv("AURORA_SMTP_" + k) }
+	m := &Mailer{host: env("HOST"), port: env("PORT"), user: env("USER"), pass: env("PASS"), From: env("FROM")}
 	if m.port == "" {
 		m.port = "587"
 	}
@@ -31,6 +34,24 @@ func MailerFromEnv() *Mailer {
 }
 
 func (m *Mailer) Configured() bool { return m != nil && m.host != "" && m.From != "" }
+
+func (m *Mailer) Kind() string   { return "email" }
+func (m *Mailer) Sender() string { return m.From }
+
+func (m *Mailer) Validate(r Request) error {
+	if _, ok := ValidEmail(r.To); !ok {
+		return errors.New("invalid_recipient")
+	}
+	return nil
+}
+
+func (m *Mailer) Deliver(_ context.Context, r Request) error {
+	subj := r.Subject
+	if subj == "" {
+		subj = r.Title
+	}
+	return m.Send(r.To, subj, r.Body)
+}
 
 func ValidEmail(a string) (string, bool) {
 	p, err := mail.ParseAddress(strings.TrimSpace(a))

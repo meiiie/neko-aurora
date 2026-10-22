@@ -35,7 +35,10 @@ type Pusher struct {
 }
 
 func LoadPusher(dir string) (*Pusher, error) {
-	path := filepath.Join(dir, "duet-vapid.pem")
+	path := filepath.Join(dir, "vapid.pem")
+	if _, err := os.Stat(path); os.IsNotExist(err) {
+		_ = os.Rename(filepath.Join(dir, "duet-vapid.pem"), path) // pre-rename key; keeps existing subscriptions valid
+	}
 	var k *ecdsa.PrivateKey
 	if b, err := os.ReadFile(path); err == nil {
 		blk, _ := pem.Decode(b)

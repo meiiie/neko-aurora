@@ -201,7 +201,6 @@ func main() {
 	if fixture != nil {
 		config := *fixture
 		manager, e := runtime.New(store, config, *state)
-		trustedHost = config.HostExecutable
 		if e != nil {
 			fmt.Fprintln(os.Stderr, "Core state requires recovery")
 			os.Exit(1)
@@ -228,12 +227,6 @@ func main() {
 			listener.Close()
 			fmt.Fprintln(os.Stderr, "desktop_launch_unavailable")
 			return
-		}
-	}
-	// pre-rename state lived in <state>/duet; move it once, never copy.
-	if _, e := os.Stat(filepath.Join(*state, "aurora")); os.IsNotExist(e) {
-		if st, e := os.Stat(filepath.Join(*state, "duet")); e == nil && st.IsDir() {
-			_ = os.Rename(filepath.Join(*state, "duet"), filepath.Join(*state, "aurora"))
 		}
 	}
 	if auroraService, e := aurora.New(ctx, store, filepath.Join(*state, "aurora"), aurora.Options{RunTurns: fixture == nil}); e != nil {

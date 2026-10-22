@@ -124,6 +124,7 @@ type Event struct {
 	Conversation                   *Conversation               `json:"conversation,omitempty"`
 	ConversationInput              *ConversationCommand        `json:"conversationInput,omitempty"`
 	BotProfile                     *BotProfile                 `json:"botProfile,omitempty"`
+	Aurora                         *AuroraRecord               `json:"aurora,omitempty"`
 	CollaborationRecovery          *CollaborationRecoveryEvent `json:"collaborationRecovery,omitempty"`
 	ContextClaimVersion            int                         `json:"contextClaimVersion,omitempty"`
 	ExecutorClaimVersion           int                         `json:"executorClaimVersion,omitempty"`
@@ -199,6 +200,9 @@ type Store struct {
 	conversationNonces       map[string]Event
 	syncID                   string
 	botProfiles              map[string]BotProfile
+	auroraLooks              map[string]AuroraLook
+	auroraPush               []AuroraPush
+	auroraActivity           []AuroraActivity
 	botProfileNonces         map[string]Event
 	contextAdmissionRequired bool
 	executorRequired         bool
@@ -297,6 +301,7 @@ func openStore(dir string, readOnly, inspect bool) (*Store, error) {
 	s.botCreationInputs = map[string]BotInput{}
 	s.botNameNonces = map[string]Event{}
 	s.botProfiles = map[string]BotProfile{}
+	s.auroraLooks = map[string]AuroraLook{}
 	s.botProfileNonces = map[string]Event{}
 	s.botStates = map[string]BotState{}
 	s.challenges = map[string]SecureChallenge{}
@@ -406,6 +411,9 @@ func validReplay(s *Store, e Event) bool {
 func validReplayWithArchive(s *Store, e Event, linkedControl bool) bool {
 	if e.Type == "adapter.reply_clear_checkpoint" {
 		return s.validAdapterReplyClearEvent(e)
+	}
+	if e.Aurora != nil || strings.HasPrefix(e.Type, "aurora.") {
+		return s.validAuroraEvent(e)
 	}
 	if e.CoreProfile != nil || strings.HasPrefix(e.Type, "core_profile.") {
 		return s.validCoreProfileEvent(e)
@@ -605,6 +613,10 @@ func validReplayWithArchive(s *Store, e Event, linkedControl bool) bool {
 	}
 }
 func (s *Store) apply(e Event) {
+	if e.Aurora != nil {
+		s.applyAurora(e)
+		return
+	}
 	if e.Type == "adapter.reply_clear_checkpoint" {
 		s.events = append(s.events, e)
 		return

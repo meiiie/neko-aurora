@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"os"
 	"strconv"
 	"strings"
 	"sync"
@@ -14,6 +15,7 @@ import (
 	"unicode"
 
 	"nekoaurora.local/native/internal/ledger"
+	"nekoaurora.local/native/internal/outbound"
 )
 
 type Event struct {
@@ -28,7 +30,7 @@ type Service struct {
 	L     *ledger.Store
 	AI    Model
 	Push  *Pusher
-	Mail  *Mailer
+	Out   *outbound.Router
 	Prefs *Prefs
 	mux   *http.ServeMux
 	mu    sync.Mutex
@@ -52,9 +54,14 @@ type Options struct {
 }
 
 func New(ctx context.Context, store *ledger.Store, stateDir string, opt Options) (*Service, error) {
-	prefs, err := OpenPrefs(stateDir)
-	if err != nil {
+	if err := os.MkdirAll(stateDir, 0o700); err != nil {
 		return nil, err
+	}
+	prefs := &Prefs{L: store}
+	if !store.ReadOnly() {
+		if err := importPrefsFile(prefs, stateDir); err != nil {
+			log.Printf("aurora prefs import failed: %v", err)
+		}
 	}
 	p, err := LoadPusher(stateDir)
 	if err != nil {
@@ -66,10 +73,7 @@ func New(ctx context.Context, store *ledger.Store, stateDir string, opt Options)
 			model = c
 		}
 	}
-	s := &Service{L: store, AI: model, Push: p, Mail: MailerFromEnv(), Prefs: prefs, subs: map[chan Event]struct{}{}, ctx: ctx, wake: make(chan struct{}, 1), running: map[string]bool{}, seen: map[string]string{}, Now: time.Now}
-	if err := s.migrateLegacy(stateDir); err != nil {
-		log.Printf("aurora legacy import failed: %v", err)
-	}
+	s := &Service{L: store, AI: model, Push: p, Out: outbound.FromEnv(), Prefs: prefs, subs: map[chan Event]struct{}{}, ctx: ctx, wake: make(chan struct{}, 1), running: map[string]bool{}, seen: map[string]string{}, Now: time.Now}
 	s.routes()
 	s.sync()
 	go s.watch()
@@ -151,7 +155,7 @@ func (s *Service) sync() {
 			s.publish("brief", br)
 		}
 	}
-	for _, a := range v.activity(5) {
+	for _, a := range s.activity(5) {
 		k := "act:" + a.ID
 		next[k] = "1"
 		if s.seen[k] == "" && !first {
@@ -269,7 +273,7 @@ func (s *Service) runBrief(w ledger.Work) {
 		items = append(items, clean(s.botName(p.AgentID)+": "+p.Approval.Title, 160))
 	}
 	sb.WriteString("Hoạt động gần đây:\n")
-	for _, a := range v.activity(15) {
+	for _, a := range s.activity(15) {
 		fmt.Fprintf(&sb, "- %s\n", a.Text)
 	}
 	text := fmt.Sprintf("Chào Darren. %d agent đang hoạt động, %d việc cần bạn.", n, len(pend))
@@ -314,6 +318,7 @@ func (s *Service) runBrief(w ledger.Work) {
 	}
 	_ = s.L.AppendText(w.RequestID, w.Epoch, text)
 	_, _ = s.L.DirectFinish(w.RequestID, w.Epoch, "completed", "", func(d *ledger.DirectRun) { d.Items = items })
+	s.record(w.BotID, w.RequestID, "reply", "Đã tạo bản tin sáng")
 	s.sync()
 	s.notify("Bản tin sáng", text, "/app/")
 }
@@ -617,7 +622,7 @@ func (s *Service) routes() {
 			switch {
 			case in.Decision == "declined":
 				a.Outcome = "Ok, mình giữ lại “" + a.Title + "” và không làm gì thêm."
-			case a.Kind != "email" || a.To == "":
+			case !s.hasChannel(a.Kind) || a.To == "":
 				a.Outcome = "Đã ghi nhận bạn duyệt “" + a.Title + "”. Kênh gửi ra ngoài chưa được kết nối nên mình chưa gửi gì; bản đã duyệt được lưu để gửi khi kênh sẵn sàng."
 			}
 			return nil
@@ -629,8 +634,13 @@ func (s *Service) routes() {
 			fail(w, err)
 			return
 		}
-		if in.Decision == "approved" && work.Direct.Approval.Kind == "email" && work.Direct.Approval.To != "" {
-			work = s.deliverEmail(work)
+		{
+			ap := work.Direct.Approval
+			verb := map[string]string{"approved": "Bạn duyệt", "declined": "Bạn hoãn"}[ap.State]
+			s.record(work.BotID, work.RequestID, "decision", verb+" “"+ap.Title+"” của "+s.botName(work.BotID))
+		}
+		if ap := work.Direct.Approval; in.Decision == "approved" && s.hasChannel(ap.Kind) && ap.To != "" {
+			work = s.deliver(work)
 		}
 		s.sync()
 		for _, msg := range workMessages(work, false) {
@@ -656,14 +666,15 @@ func (s *Service) routes() {
 				}
 			}
 		}
-		writeJSON(w, 200, map[string]any{"email": map[string]any{"configured": s.Mail.Configured(), "from": s.Mail.From}, "items": items})
+		mail, _ := s.Out.Adapter("email")
+		writeJSON(w, 200, map[string]any{"email": map[string]any{"configured": mail.Configured(), "from": mail.Sender()}, "items": items})
 	})
 	m.HandleFunc("GET /app/api/activity", func(w http.ResponseWriter, r *http.Request) {
 		n, _ := strconv.Atoi(r.URL.Query().Get("limit"))
 		if n <= 0 || n > 200 {
 			n = 60
 		}
-		writeJSON(w, 200, s.view().activity(n))
+		writeJSON(w, 200, s.activity(n))
 	})
 	m.HandleFunc("POST /app/api/brief", func(w http.ResponseWriter, r *http.Request) {
 		work, err := s.RequestBrief()
@@ -726,6 +737,9 @@ func (s *Service) Stop(botID string) bool {
 			}
 		}
 	}
+	if stopped {
+		s.record(botID, "", "stop", "Bạn dừng "+s.botName(botID))
+	}
 	s.sync()
 	return stopped
 }
@@ -737,6 +751,7 @@ func (s *Service) supersede(botID string) {
 				a.State, a.DecidedAt = "superseded", time.Now().UTC().Format(time.RFC3339Nano)
 				return nil
 			})
+			s.record(botID, w.RequestID, "decision", "Thay thế bản nháp “"+w.Direct.Approval.Title+"” của "+s.botName(botID))
 		}
 	}
 }
@@ -764,33 +779,40 @@ func (s *Service) setDelivery(id string, d ledger.DirectDelivery, outcome string
 	return w
 }
 
-// deliverEmail runs only after an owner approval was journaled. The recipient
-// must be an address the owner typed in this thread, so model output alone
-// can never choose who receives mail.
-func (s *Service) deliverEmail(w ledger.Work) ledger.Work {
+func (s *Service) hasChannel(kind string) bool { _, ok := s.Out.Adapter(kind); return ok }
+
+// deliver hands an approved card to the outbound layer. It runs only after
+// the owner's approval was journaled; the router refuses any recipient the
+// owner did not type in this thread, so model output alone never picks one.
+func (s *Service) deliver(w ledger.Work) ledger.Work {
 	ap := *w.Direct.Approval
-	if !s.userMentioned(w.BotID, ap.To) {
+	req := outbound.Request{Kind: ap.Kind, To: ap.To, Subject: ap.Subject, Title: ap.Title, Body: ap.Body}
+	a, err := s.Out.Check(req, func(n string) bool { return s.userMentioned(w.BotID, n) })
+	switch {
+	case errors.Is(err, outbound.ErrRecipientGuard):
+		s.record(w.BotID, w.RequestID, "delivery", "Chặn gửi tới "+ap.To+": địa chỉ không do bạn nhập")
 		return s.setDelivery(w.RequestID, ledger.DirectDelivery{Status: "failed", Detail: "recipient_not_from_owner"}, "Mình không gửi: địa chỉ "+ap.To+" không phải do bạn nhập trong hội thoại này.")
+	case errors.Is(err, outbound.ErrNotConfigured):
+		s.record(w.BotID, w.RequestID, "delivery", "“"+ap.Title+"” chờ trong hàng đợi: kênh "+ap.Kind+" chưa cấu hình")
+		return s.setDelivery(w.RequestID, ledger.DirectDelivery{Status: "queued", Detail: ap.Kind + "_channel_not_configured"}, "Đã ghi nhận bạn duyệt. Kênh "+ap.Kind+" của máy chủ chưa được cấu hình (AURORA_SMTP_*), nên thư tới "+ap.To+" đang nằm trong hàng đợi, chưa gửi.")
+	case err != nil:
+		return s.setDelivery(w.RequestID, ledger.DirectDelivery{Status: "failed", Detail: clean(err.Error(), 160)}, "Mình không gửi được “"+ap.Title+"”: "+clean(err.Error(), 160))
 	}
-	if !s.Mail.Configured() {
-		return s.setDelivery(w.RequestID, ledger.DirectDelivery{Status: "queued", Detail: "email_channel_not_configured"}, "Đã ghi nhận bạn duyệt. Kênh email của máy chủ chưa được cấu hình (AURORA_SMTP_*), nên thư tới "+ap.To+" đang nằm trong hàng đợi, chưa gửi.")
-	}
-	out := s.setDelivery(w.RequestID, ledger.DirectDelivery{Status: "sending", From: s.Mail.From}, "Đã ghi nhận bạn duyệt. Đang gửi thư tới "+ap.To+"…")
+	out := s.setDelivery(w.RequestID, ledger.DirectDelivery{Status: "sending", From: a.Sender()}, "Đã ghi nhận bạn duyệt. Đang gửi tới "+ap.To+"…")
 	go func() {
-		subj := ap.Subject
-		if subj == "" {
-			subj = ap.Title
-		}
-		err := s.Mail.Send(ap.To, subj, ap.Body)
-		d := ledger.DirectDelivery{Status: "sent", From: s.Mail.From}
-		text := "Đã gửi thư tới " + ap.To + " từ " + s.Mail.From + "."
+		ctx, cancel := context.WithTimeout(s.ctx, 2*time.Minute)
+		defer cancel()
+		err := a.Deliver(ctx, req)
+		d := ledger.DirectDelivery{Status: "sent", From: a.Sender()}
+		text := "Đã gửi tới " + ap.To + " từ " + a.Sender() + "."
 		if err != nil {
-			d = ledger.DirectDelivery{Status: "failed", From: s.Mail.From, Detail: clean(err.Error(), 160)}
-			text = "Gửi thư tới " + ap.To + " thất bại: " + d.Detail
+			d = ledger.DirectDelivery{Status: "failed", From: a.Sender(), Detail: clean(err.Error(), 160)}
+			text = "Gửi tới " + ap.To + " thất bại: " + d.Detail
 		}
 		s.setDelivery(w.RequestID, d, text)
+		s.record(w.BotID, w.RequestID, "delivery", text)
 		s.sync()
-		s.notify("Email", text, "/app/#"+w.BotID)
+		s.notify(ap.Kind, text, "/app/#"+w.BotID)
 	}()
 	return out
 }

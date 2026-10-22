@@ -65,22 +65,6 @@ func TestPushEncryptRoundTrip(t *testing.T) {
 	}
 }
 
-// fake OpenAI-compatible streaming endpoint
-func fakeAI(t *testing.T, reply string) *httptest.Server {
-	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.Header.Get("Authorization") != "Bearer test-key" {
-			w.WriteHeader(401)
-			return
-		}
-		w.Header().Set("Content-Type", "text/event-stream")
-		for _, part := range strings.SplitAfter(reply, " ") {
-			fmt.Fprintf(w, "data: {\"choices\":[{\"delta\":{\"content\":%q}}]}\n\n", part)
-			w.(http.Flusher).Flush()
-		}
-		fmt.Fprint(w, "data: [DONE]\n\n")
-	}))
-}
-
 func scriptedAI(t *testing.T, replies ...string) *httptest.Server {
 	n := 0
 	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -303,44 +287,48 @@ func TestSupersedePending(t *testing.T) {
 	}
 }
 
-func TestLegacyImport(t *testing.T) {
-	t.Setenv("ZAI_API_KEY", "")
+func TestLooksPushAndActivityAreJournaled(t *testing.T) {
+	fa := scriptedAI(t, "Xong việc.")
+	defer fa.Close()
+	t.Setenv("ZAI_API_KEY", "test-key")
+	t.Setenv("AURORA_AI_BASE_URL", fa.URL)
 	dir := t.TempDir()
 	os.MkdirAll(filepath.Join(dir, "aurora"), 0o700)
-	legacy := `{"agents":[{"id":"ag_0011223344556677","name":"Thư ký Neko","desc":"Soạn thư","av":{"shell":2,"hat":"cap","eyes":"round","extra":"none"},"pin":true}],
-"messages":[{"id":"m_a1","agentId":"ag_0011223344556677","role":"agent","text":"Chào, mình là Thư ký Neko.","t":"2026-10-22T01:00:00Z"},
-{"id":"m_a2","agentId":"ag_0011223344556677","role":"user","text":"Gửi email cho hungkhp888@gmail.com","t":"2026-10-22T01:01:00Z"},
-{"id":"m_a3","agentId":"ag_0011223344556677","role":"agent","text":"Đã soạn.","approval":{"title":"Gửi email","kind":"email","to":"hungkhp888@gmail.com","subject":"Chào","body":"Nội dung","state":"pending"},"t":"2026-10-22T01:02:00Z"}]}`
-	os.WriteFile(filepath.Join(dir, "aurora", "duet.json"), []byte(legacy), 0o600)
+	var bot string
 	for round := 0; round < 2; round++ {
 		st, err := ledger.Open(dir)
 		if err != nil {
 			t.Fatal(err)
 		}
+		if round == 0 {
+			bot = st.Snapshot().Bots[0].ID
+			// a pre-ledger prefs.json is imported once
+			os.WriteFile(filepath.Join(dir, "aurora", "prefs.json"), []byte(`{"bots":{"`+bot+`":{"av":{"shell":2,"hat":"cap","eyes":"round","extra":"none"},"pin":true,"tag":"thư"}},"push":[{"endpoint":"https://push.example/x","keys":{"p256dh":"BAAA","auth":"q1"}}]}`), 0o600)
+		}
 		ctx, cancel := context.WithCancel(context.Background())
-		svc, err := New(ctx, st, filepath.Join(dir, "aurora"), Options{})
+		svc, err := New(ctx, st, filepath.Join(dir, "aurora"), Options{RunTurns: round == 0})
 		if err != nil {
 			t.Fatal(err)
 		}
-		v := svc.view()
-		var bot string
-		for _, b := range v.snap.Bots {
-			if b.Name == "Thư ký Neko" {
-				bot = b.ID
-			}
+		p := svc.Prefs.Bot(bot)
+		if !p.Pinned || p.Tag != "thư" || p.Avatar == nil || p.Avatar.Hat != "cap" || len(svc.Prefs.PushSubs()) != 1 {
+			t.Fatalf("round %d look %+v push %d", round, p, len(svc.Prefs.PushSubs()))
 		}
-		p := v.pending()
-		if bot == "" || len(p) != 1 || p[0].Approval.To != "hungkhp888@gmail.com" || p[0].Approval.State != "pending" || !svc.Prefs.Bot(bot).Pinned {
-			t.Fatalf("round %d bot=%q pending=%+v", round, bot, p)
+		if round == 0 {
+			srv := httptest.NewServer(svc)
+			post(t, srv.URL+"/app/api/agents/"+bot+"/messages", `{"text":"Làm giúp mình"}`)
+			waitTask(t, svc, bot)
+			srv.Close()
 		}
-		if n := len(v.byBot[bot]); n != 2 {
-			t.Fatalf("round %d tasks %d", round, n)
+		acts := svc.activity(10)
+		if len(acts) < 2 || !strings.Contains(acts[len(acts)-1].Text, "Bạn giao cho") {
+			t.Fatalf("round %d activity %+v", round, acts)
 		}
 		cancel()
 		st.Close()
 	}
-	if _, err := os.Stat(filepath.Join(dir, "aurora", "duet.json.migrated")); err != nil {
-		t.Fatal("legacy file not retained as .migrated")
+	if _, err := os.Stat(filepath.Join(dir, "aurora", "prefs.json")); !os.IsNotExist(err) {
+		t.Fatal("prefs.json still live")
 	}
 }
 

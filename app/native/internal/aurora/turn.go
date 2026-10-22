@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"nekoaurora.local/native/internal/ledger"
+	"nekoaurora.local/native/internal/outbound"
 )
 
 // Agent turns. Each turn is a ledger Work item (the same task the desktop
@@ -83,7 +84,7 @@ func SplitApproval(text string) (string, *Approval) {
 	a.Title, a.Body, a.Kind = clean(a.Title, 80), clean(a.Body, 4000), clean(a.Kind, 12)
 	a.Subject = clean(a.Subject, 160)
 	if a.Kind == "email" {
-		if to, ok := ValidEmail(a.To); ok {
+		if to, ok := outbound.ValidEmail(a.To); ok {
 			a.To = to
 		} else {
 			a.To = ""
@@ -244,6 +245,8 @@ func (s *Service) runWork(w ledger.Work) {
 	if err != nil {
 		return
 	}
+	name := s.botName(w.BotID)
+	s.record(w.BotID, w.RequestID, "message", "Bạn giao cho "+name+": "+w.Text)
 	s.agui(AGUIEvent{Type: RUN_STARTED, ThreadID: w.BotID, RunID: w.RequestID})
 	ctx, cancel := context.WithTimeout(s.ctx, 6*time.Minute)
 	defer cancel()
@@ -264,6 +267,7 @@ func (s *Service) runWork(w ledger.Work) {
 		if gerr == nil && cur.Status == "running" {
 			_, _ = s.L.DirectFinish(w.RequestID, cur.Epoch, "failed", code, nil)
 		}
+		s.record(w.BotID, w.RequestID, "error", name+": "+failureText(code))
 		s.endDraft(w)
 		s.agui(AGUIEvent{Type: RUN_ERROR, ThreadID: w.BotID, RunID: w.RequestID, Message: code})
 		return
@@ -284,7 +288,14 @@ func (s *Service) runWork(w ledger.Work) {
 	})
 	s.endDraft(w)
 	s.agui(AGUIEvent{Type: RUN_FINISHED, ThreadID: w.BotID, RunID: w.RequestID})
-	name := s.botName(w.BotID)
+	if done, _ := s.L.Get(w.RequestID); done.Direct != nil && len(done.Direct.Plan) > 0 {
+		s.record(w.BotID, w.RequestID, "plan", name+" chạy kế hoạch "+itoa(len(done.Direct.Plan))+" bước")
+	} else {
+		s.record(w.BotID, w.RequestID, "reply", name+" đã xong")
+	}
+	if appr != nil {
+		s.record(w.BotID, w.RequestID, "approval", name+" xin duyệt “"+appr.Title+"”")
+	}
 	switch {
 	case appr != nil:
 		s.notify(name+" cần bạn duyệt", appr.Title, "/app/#"+w.BotID)
