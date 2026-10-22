@@ -3,7 +3,7 @@ package api
 import (
 	"bytes"
 	"io"
-	"nekobot.local/native/internal/ledger"
+	"nekoaurora.local/native/internal/ledger"
 	"net/http"
 	"net/http/cookiejar"
 	"net/http/httptest"

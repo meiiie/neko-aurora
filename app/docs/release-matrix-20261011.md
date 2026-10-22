@@ -1,4 +1,4 @@
-# Historical Neko Bot baseline delivery matrix, 2026-10-11
+# Historical Neko Aurora baseline delivery matrix, 2026-10-11
 
 This matrix records the restored 84f7db7/a656 baseline. Subsequent project/file, task-control, finite-collaboration, Core2360 and Wiii integration is recorded separately in [the local integration checkpoint](product-local-integration-20261011.md); [the current status index](product-local-current-20261011.md) records the newer primary and candidates. Counts and pending items below remain historical evidence for their named commits.
 

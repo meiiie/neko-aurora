@@ -4,8 +4,8 @@ import (
 	"reflect"
 	"sort"
 
-	"nekobot.local/native/internal/historyexport"
-	"nekobot.local/native/internal/retentionplan"
+	"nekoaurora.local/native/internal/historyexport"
+	"nekoaurora.local/native/internal/retentionplan"
 )
 
 type RetentionPreference struct {

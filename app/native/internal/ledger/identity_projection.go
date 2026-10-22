@@ -3,8 +3,8 @@ package ledger
 import (
 	"bytes"
 	"encoding/json"
-	"nekobot.local/native/internal/identity"
-	"nekobot.local/native/internal/syncstream"
+	"nekoaurora.local/native/internal/identity"
+	"nekoaurora.local/native/internal/syncstream"
 	"sort"
 )
 

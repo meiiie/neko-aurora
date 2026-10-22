@@ -1,6 +1,6 @@
 package ledger
 
-import "nekobot.local/native/internal/historyexport"
+import "nekoaurora.local/native/internal/historyexport"
 
 func sensitiveHistory(h historyexport.History) bool {
 	if hasSecret([]byte(h.Title)) {

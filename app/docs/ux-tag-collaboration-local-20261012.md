@@ -10,7 +10,7 @@ Unknown aliases, duplicate aliases, a third leading tag, a malformed second tag,
 
 The composer reuses `createGroup` and the bounded durable command journal. An equivalent unresolved group body found in that journal keeps its original nonce and directs the owner to read-only reconciliation or the explicit original retry in Work; pressing Send again does not POST or manufacture a new nonce. A matching applied receipt may retire the pending intent after reload; an unadmitted missing receipt permits the existing explicit exact-body retry only while its original scope, counters, authority and local lifetime still match. Reload performs no group POST. Accepted work is still restored from the service's journal rather than browser storage.
 
-A late group ACK updates its original group. It clears the composer draft only if the original view, bot, navigation generation and exact draft still match. It does not select another bot/channel, restore focus, change a newer selection, close a newer dialog or clear a newer draft. The approved Neko Bot identity, light layout, stylesheet, canonical brand, fonts and Connections secure card remain unchanged.
+A late group ACK updates its original group. It clears the composer draft only if the original view, bot, navigation generation and exact draft still match. It does not select another bot/channel, restore focus, change a newer selection, close a newer dialog or clear a newer draft. The approved Neko Aurora identity, light layout, stylesheet, canonical brand, fonts and Connections secure card remain unchanged.
 
 ## Verification
 

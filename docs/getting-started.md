@@ -1,4 +1,4 @@
-# Bắt đầu với Neko Bot
+# Bắt đầu với Neko Aurora
 
 [← Tổng quan](../README.md) · [Trạng thái hỗ trợ](project-status.md) · [Đóng góp](../CONTRIBUTING.md)
 
@@ -9,13 +9,13 @@
 Hướng dẫn sau dùng PowerShell, từ root repository. Cần Git, Go **1.27+** theo `app/native/go.mod`, Rust/Cargo với toolchain MSVC và Windows SDK. Tauri cần Microsoft Edge WebView2 Runtime. Dependency Rust có thể cần tải ở lần build đầu; Go module hiện không có dependency bên thứ ba.
 
 ```powershell
-git clone https://github.com/meiiie/neko-bot.git
+git clone https://github.com/meiiie/neko-aurora.git
 Set-Location neko-bot
 New-Item -ItemType Directory -Force app/.build | Out-Null
 
 Push-Location app/native
 try {
-    go build -o ../.build/neko-control.exe ./cmd/neko-control
+    go build -o ../.build/neko-aurora.exe ./cmd/neko-aurora
     if ($LASTEXITCODE -ne 0) { throw 'Go build failed' }
 } finally { Pop-Location }
 
@@ -27,7 +27,7 @@ Copy-Item app/.build/host-target/debug/neko-host.exe app/.build/neko-host.exe
 Chạy Go và mở `http://127.0.0.1:8765` trong trình duyệt:
 
 ```powershell
-./app/.build/neko-control.exe --state ./app/.state/local --listen 127.0.0.1:8765
+./app/.build/neko-aurora.exe --state ./app/.state/local --listen 127.0.0.1:8765
 ```
 
 Port phải còn trống; Ctrl+C dừng service. Dữ liệu được ghi dưới state đã chọn. Khi không có cấu hình Core được chấp thuận, tin nhắn được lưu và chờ runtime (`waiting_host`), không tự gọi provider. Lưu tài khoản không đồng nghĩa với cấp quyền hoặc xác minh tài khoản đó. Không đưa state, receipt chứa challenge hay credentials vào Git.
@@ -54,7 +54,7 @@ $localManifest = @{
     scope = 'local-journal'
     appCommit = (git rev-parse HEAD).Trim()
     desktopLaunchContract = 1
-    control = Get-LocalBinaryEntry 'neko-control.exe'
+    control = Get-LocalBinaryEntry 'neko-aurora.exe'
     host = Get-LocalBinaryEntry 'neko-host.exe'
     desktop = Get-LocalBinaryEntry 'neko-desktop.exe'
 }

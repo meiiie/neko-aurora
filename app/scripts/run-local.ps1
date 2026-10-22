@@ -5,7 +5,7 @@ $buildDir = Join-Path $repoDir ".build"
 New-Item -ItemType Directory -Path $buildDir -Force | Out-Null
 Push-Location (Join-Path $repoDir "native")
 try {
-    & $GoExe build -o (Join-Path $buildDir "neko-control.exe") ./cmd/neko-control
+    & $GoExe build -o (Join-Path $buildDir "neko-aurora.exe") ./cmd/neko-aurora
     if ($LASTEXITCODE -ne 0) { throw "Go build failed" }
 } finally { Pop-Location }
 Push-Location (Join-Path $repoDir "host")
@@ -22,7 +22,7 @@ if ($Desktop) {
         cargo build --locked
         if ($LASTEXITCODE -ne 0) { throw "Desktop build failed" }
     } finally { Pop-Location }
-    $service = Start-Process -FilePath (Join-Path $buildDir "neko-control.exe") -ArgumentList $serviceArgs -WindowStyle Hidden -PassThru
+    $service = Start-Process -FilePath (Join-Path $buildDir "neko-aurora.exe") -ArgumentList $serviceArgs -WindowStyle Hidden -PassThru
     try {
         $ready = $false
         for ($i=0; $i -lt 40; $i++) {
@@ -35,6 +35,6 @@ if ($Desktop) {
         $window.WaitForExit()
     } finally { if (-not $service.HasExited) { $service.Kill(); $service.WaitForExit() } }
 } else {
-    Write-Output "Neko Bot local: http://127.0.0.1:8765"
-    & (Join-Path $buildDir "neko-control.exe") @serviceArgs
+    Write-Output "Neko Aurora local: http://127.0.0.1:8765"
+    & (Join-Path $buildDir "neko-aurora.exe") @serviceArgs
 }

@@ -11,7 +11,7 @@ import (
 	"strings"
 	"testing"
 
-	"nekobot.local/native/internal/syncstream"
+	"nekoaurora.local/native/internal/syncstream"
 )
 
 func TestReportDeliveryBoundedHumanClarificationAndReceipt(t *testing.T) {

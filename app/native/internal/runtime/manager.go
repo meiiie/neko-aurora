@@ -5,9 +5,10 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"nekobot.local/native/internal/executors"
-	"nekobot.local/native/internal/ledger"
-	"nekobot.local/native/internal/protocol"
+	"fmt"
+	"nekoaurora.local/native/internal/executors"
+	"nekoaurora.local/native/internal/ledger"
+	"nekoaurora.local/native/internal/protocol"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -120,10 +121,14 @@ func New(store *ledger.Store, c Config, state string) (*Manager, error) {
 	}
 	m := &Manager{store: store, config: c, state: absolute, tasks: tasks, active: map[string]bool{}, stopIssues: map[string]string{}}
 	store.ConfigureExecutor(nil)
-	d, e := configuredDescriptor(c, absolute)
-	if e == nil {
+	// A missing descriptor means no attested executor is configured. A
+	// configured descriptor whose registry cannot be opened must fail closed
+	// instead of silently running without the executor boundary.
+	if d, de := configuredDescriptor(c, absolute); de == nil {
 		m.descriptor = d
-		m.executor, e = executors.Open(filepath.Join(absolute, "executors"), d)
+		if m.executor, e = executors.Open(filepath.Join(absolute, "executors"), d); e != nil {
+			return nil, fmt.Errorf("executor registry: %w", e)
+		}
 	}
 	store.ConfigureExecutor(m.executor)
 	store.ConfigureContextAdmission(protocol.CoreContextAdmission(m.descriptor.CoreSHA256))
@@ -439,10 +444,4 @@ func (m *Manager) failed(w ledger.Work, code string) {
 	if current.Epoch == w.Epoch && (current.Status == "starting" || current.Status == "running") {
 		_ = m.store.Finish(w.RequestID, w.Epoch, "recovery_required", code)
 	}
-}
-func (m *Manager) prompt(w ledger.Work) string {
-	if w.Core != nil {
-		return "Continue the existing request from its durable Core task. Use recorded results; do not repeat completed effects. Preserve denied or unknown outcomes."
-	}
-	return w.RuntimePrompt()
 }

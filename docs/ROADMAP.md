@@ -23,4 +23,4 @@ Checklist này theo dependency và gate, không phải lịch phát hành hoặc
 - [ ] Nghiệm thu điện thoại/keyboard/AT thật.
 - [ ] Tạo release được ký/kiểm tra và kế hoạch rollback/support phù hợp.
 
-Theo dõi đề xuất/reproducer qua [Issues](https://github.com/meiiie/neko-bot/issues). Checklist không tự tạo grant, mua dịch vụ, deploy hoặc cho phép gửi dữ liệu riêng tư. [CONTRIBUTING](../CONTRIBUTING.md) mô tả bằng chứng cần cho thay đổi; chưa có CI tự động ở root để thay các gate trên.
+Theo dõi đề xuất/reproducer qua [Issues](https://github.com/meiiie/neko-aurora/issues). Checklist không tự tạo grant, mua dịch vụ, deploy hoặc cho phép gửi dữ liệu riêng tư. [CONTRIBUTING](../CONTRIBUTING.md) mô tả bằng chứng cần cho thay đổi; chưa có CI tự động ở root để thay các gate trên.

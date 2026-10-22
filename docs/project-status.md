@@ -2,7 +2,7 @@
 
 [← Tài liệu](README.md) · [Roadmap](ROADMAP.md)
 
-Neko Bot là development snapshot. Các binary và capture cũ không được phân phối cùng repo. Commit snapshot gom source khác commit nguồn; dùng `migration/source-manifest.json` để đối chiếu provenance.
+Neko Aurora là development snapshot. Các binary và capture cũ không được phân phối cùng repo. Commit snapshot gom source khác commit nguồn; dùng `migration/source-manifest.json` để đối chiếu provenance.
 
 | Bề mặt | Trạng thái | Chưa được suy ra |
 |---|---|---|

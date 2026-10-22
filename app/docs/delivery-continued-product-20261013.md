@@ -1,4 +1,4 @@
-# Continued Neko Bot delivery, 2026-10-13
+# Continued Neko Aurora delivery, 2026-10-13
 
 Tested compiled code: `5d405b723e45501c12054a8733f103c925ac8553`. Control-plane SHA-256: `93866214935c44c533dac4d8904a56310a611974b61adab0c2d459a5a7ab3c83`, embedded VCS exact and unmodified. Base Main was `e2597a99e444f134c3a665f6f6b7cba874259f2c`. The delivery commit adds documentation only; its exact identity and preservation receipt are in the sealed packet.
 

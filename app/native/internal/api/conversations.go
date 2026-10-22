@@ -7,7 +7,7 @@ import (
 	"strconv"
 	"strings"
 
-	"nekobot.local/native/internal/ledger"
+	"nekoaurora.local/native/internal/ledger"
 )
 
 func oneConversationQuery(r *http.Request, key string) (string, error) {

@@ -1,4 +1,4 @@
-# Điều phối Neko Bot — 2026-10-13
+# Điều phối Neko Aurora — 2026-10-13
 
 Root giữ Git/index và tích hợp Main. Base chung `195a0ec990db0478d9f052bc0e79a83b12dc9d78`; code Sources đã công bố `27901b0`. Bốn gói dưới đây đã thực sự chạy, mỗi gói có một owner và scope tệp riêng trên checkout Root. Worker không tự commit hoặc sửa Main. Cache/build/journal/evidence nằm ở E.
 

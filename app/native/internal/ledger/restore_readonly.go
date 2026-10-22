@@ -4,7 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"io"
-	"nekobot.local/native/internal/protocol"
+	"nekoaurora.local/native/internal/protocol"
 	"os"
 	"path/filepath"
 )

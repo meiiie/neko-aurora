@@ -8,17 +8,18 @@ import (
 	"fmt"
 	"io"
 	"mime"
+	"net"
 	"net/http"
 	"net/url"
 	"strconv"
 	"strings"
 	"time"
 
-	"nekobot.local/native/internal/connections"
-	"nekobot.local/native/internal/identity"
-	"nekobot.local/native/internal/ledger"
-	"nekobot.local/native/internal/protocol"
-	"nekobot.local/native/internal/web"
+	"nekoaurora.local/native/internal/connections"
+	"nekoaurora.local/native/internal/identity"
+	"nekoaurora.local/native/internal/ledger"
+	"nekoaurora.local/native/internal/protocol"
+	"nekoaurora.local/native/internal/web"
 )
 
 type Server struct {
@@ -29,7 +30,13 @@ type Server struct {
 	connections *connections.Store
 	fixture     *identity.Authority
 	desktop     *desktopLaunchReceipt
+	aurora      http.Handler
+	auroraPub   *auroraPublic
+	exposed     bool // bound beyond loopback (container); only the public Aurora host is reachable remotely
 }
+
+// EnableAurora mounts the /app/api/ surface behind the same local session.
+func (s *Server) EnableAurora(h http.Handler) { s.aurora = h }
 
 func (s *Server) EnableConnections(c *connections.Store) {
 	s.connections = c
@@ -50,6 +57,27 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Referrer-Policy", "no-referrer")
 	w.Header().Set("Cache-Control", "no-store")
 	w.Header().Set("Content-Security-Policy", "default-src 'none'; script-src 'self'; style-src 'self'; connect-src 'self'; img-src 'self'; font-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'")
+	// the mobile UI moved from /duet/ to /app/; keep old links and PWAs working
+	if r.URL.Path == "/duet" || strings.HasPrefix(r.URL.Path, "/duet/") {
+		target := "/app/" + strings.TrimPrefix(strings.TrimPrefix(r.URL.Path, "/duet"), "/")
+		if r.URL.RawQuery != "" {
+			target += "?" + r.URL.RawQuery
+		}
+		http.Redirect(w, r, target, http.StatusPermanentRedirect)
+		return
+	}
+	if s.auroraPub != nil && strings.EqualFold(r.Host, s.auroraPub.host) {
+		s.servePublicAurora(w, r)
+		return
+	}
+	if s.exposed && r.URL.Path == "/healthz" {
+		w.Write([]byte("ok"))
+		return
+	}
+	if s.exposed && !loopbackRemote(r.RemoteAddr) {
+		http.Error(w, "invalid_host", http.StatusForbidden)
+		return
+	}
 	if r.Host != s.host {
 		http.Error(w, "invalid_host", http.StatusForbidden)
 		return
@@ -59,7 +87,10 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if r.Method == http.MethodGet && web.IsPublicAsset(r.URL.Path) {
-		if r.URL.Path == "/" && s.fixture == nil {
+		if strings.HasPrefix(r.URL.Path, "/app/") {
+			w.Header().Set("Content-Security-Policy", "default-src 'none'; script-src 'self'; style-src 'self'; connect-src 'self'; img-src 'self' data:; font-src 'self'; manifest-src 'self'; worker-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'")
+		}
+		if (r.URL.Path == "/" || r.URL.Path == "/app/") && s.fixture == nil {
 			http.SetCookie(w, &http.Cookie{Name: "neko_local", Value: s.session, Path: "/", HttpOnly: true, SameSite: http.SameSiteStrictMode})
 		}
 		web.Serve(w, r)
@@ -106,6 +137,10 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 	if r.Method != "GET" && r.Header.Get("Content-Type") != "application/json" {
 		http.Error(w, "json_required", http.StatusUnsupportedMediaType)
+		return
+	}
+	if s.aurora != nil && strings.HasPrefix(r.URL.Path, "/app/api/") {
+		s.aurora.ServeHTTP(w, r)
 		return
 	}
 	if r.URL.Path == "/v1/session" && r.Method == http.MethodGet {
@@ -949,4 +984,17 @@ func (s *Server) stream(w http.ResponseWriter, r *http.Request) {
 			flusher.Flush()
 		}
 	}
+}
+
+// SetExposed marks the listener as bound beyond loopback (e.g. 0.0.0.0 in a
+// container). Remote peers then reach only the public Aurora host.
+func (s *Server) SetExposed() { s.exposed = true }
+
+func loopbackRemote(addr string) bool {
+	h, _, err := net.SplitHostPort(addr)
+	if err != nil {
+		return false
+	}
+	ip := net.ParseIP(h)
+	return ip != nil && ip.IsLoopback()
 }

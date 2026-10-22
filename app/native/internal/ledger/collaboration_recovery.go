@@ -1,7 +1,7 @@
 package ledger
 
 import (
-	"nekobot.local/native/internal/executors"
+	"nekoaurora.local/native/internal/executors"
 	"reflect"
 	"strings"
 	"time"

@@ -8,7 +8,7 @@ import (
 	"encoding/binary"
 	"encoding/hex"
 	"io"
-	"nekobot.local/native/internal/protocol"
+	"nekoaurora.local/native/internal/protocol"
 	"os"
 	"path/filepath"
 	"strings"

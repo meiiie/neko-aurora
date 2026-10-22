@@ -11,8 +11,8 @@ import (
 	"sync"
 	"testing"
 
-	"nekobot.local/native/internal/executors"
-	"nekobot.local/native/internal/ledger"
+	"nekoaurora.local/native/internal/executors"
+	"nekoaurora.local/native/internal/ledger"
 )
 
 type installationIntakeFixture struct {

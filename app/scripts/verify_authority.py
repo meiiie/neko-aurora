@@ -10,7 +10,7 @@ env = dict(os.environ, TEMP=str(temporary), TMP=str(temporary), CGO_ENABLED='0',
            GOCACHE=str(tooling / 'gocache'), GOPATH=str(tooling / 'gopath'))
 go = tooling / 'go/bin/go.exe'
 commands = [('go-tests', [str(go),'test','-json','./...','-count=1']), ('go-vet',[str(go),'vet','./...']),
-            ('go-build',[str(go),'build','-o',str(output/'neko-control.exe'),'./cmd/neko-control'])]
+            ('go-build',[str(go),'build','-o',str(output/'neko-aurora.exe'),'./cmd/neko-aurora'])]
 report = {'commit': subprocess.check_output(['git','rev-parse','HEAD'],cwd=root,text=True).strip(),
           'dirty': bool(subprocess.check_output(['git','status','--porcelain'],cwd=root)), 'commands': []}
 for label, command in commands:

@@ -12,7 +12,7 @@ import (
 	"testing"
 	"time"
 
-	"nekobot.local/native/internal/protocol"
+	"nekoaurora.local/native/internal/protocol"
 )
 
 func permissionGroupStage(t *testing.T, stage int) (*Store, *profileServiceFixture, Collaboration, Work) {

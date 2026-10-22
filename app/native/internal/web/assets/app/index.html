@@ -1,0 +1,139 @@
+<!doctype html>
+<html lang="vi">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" media="(prefers-color-scheme: light)" content="#f7f7f7">
+<meta name="theme-color" media="(prefers-color-scheme: dark)" content="#000000">
+<meta name="color-scheme" content="light dark">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="apple-mobile-web-app-title" content="Neko Aurora">
+<link rel="manifest" href="/app/manifest.webmanifest">
+<link rel="icon" href="/app/favicon.ico" sizes="any"><link rel="icon" href="/app/icon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="/app/icon-180.png">
+<title>Neko Aurora</title>
+<link rel="stylesheet" href="/app/aurora/fonts.css">
+<link rel="stylesheet" href="/app/aurora/aurora.css">
+<link rel="stylesheet" href="/app/style.css">
+<script src="/app/theme.js"></script>
+<script src="/app/i18n.js"></script>
+  <script src="/app/md.js"></script>
+<script src="/app/aurora/icons.js" defer></script>
+<script src="/app/aurora/brands.js" defer></script>
+<script src="/app/app.js" defer></script>
+</head>
+<body>
+<div id="app">
+  <section class="screen" id="list" aria-label="Bot">
+    <header class="top">
+      <button class="me" id="meBtn" aria-label="Cài đặt"><img src="/app/icon.svg" alt="" width="36" height="36"></button>
+      <div class="spacer"></div>
+      <button class="round" id="newBtn" aria-label="Tạo mới" aria-haspopup="menu"></button>
+    </header>
+    <div class="scroll" id="listScroll">
+      <div class="featured" id="featured"></div>
+      <article class="brief" id="brief"></article>
+      <ul class="rows" id="rows"></ul>
+      <p class="empty hidden" id="empty"></p>
+    </div>
+    <button class="unread-pill hidden" id="unreadPill"></button>
+    <div class="dock">
+      <button class="round glass" id="appsBtn" aria-label="Kết nối ứng dụng"></button>
+      <label class="searchbar glass"><span id="searchIc"></span><input id="search" type="search" placeholder="Tìm bot, nhóm…" autocomplete="off" aria-label="Tìm"></label>
+    </div>
+  </section>
+  <div class="net hidden" id="netBanner" role="status" aria-live="polite"></div>
+  <section class="screen thread off" id="thread" aria-label="Hội thoại">
+    <header class="float-top">
+      <button class="fab" id="backBtn" aria-label="Quay lại"></button>
+      <button class="who" id="whoBtn" aria-label="Xem hồ sơ"><span class="face-slot" id="threadAvatar" aria-hidden="true"></span><span class="title"><b id="threadName"></b><small id="threadState"></small></span></button>
+      <button class="fab" id="threadMore" aria-label="Thêm" aria-haspopup="menu"></button>
+    </header>
+    <div class="scroll" id="messages"></div>
+    <button class="jump hidden" id="jumpBtn" type="button" aria-label="Xuống tin mới nhất"></button>
+    <form class="composer" id="composer">
+      <button type="button" class="fab plus" id="plusBtn" aria-label="Thêm" aria-haspopup="menu"></button>
+      <div class="ask">
+        <textarea id="input" rows="1" placeholder="Hỏi bot" enterkeyhint="send"></textarea>
+        <button type="button" class="mic" id="micBtn" aria-label="Nói để nhập"></button>
+        <button class="send" aria-label="Gửi"></button>
+      </div>
+    </form>
+  </section>
+  <section class="screen profile off" id="profile" aria-label="Hồ sơ bot">
+    <header class="float-top">
+      <button class="fab" id="profBack" aria-label="Quay lại"></button>
+      <span class="spacer"></span>
+      <button class="fab" id="profShare" aria-label="Chia sẻ"></button>
+      <button class="fab" id="profMore" aria-label="Thêm" aria-haspopup="menu"></button>
+    </header>
+    <div class="scroll" id="profBody"></div>
+  </section>
+  <div class="scrim hidden" id="scrim"></div>
+  <div class="menu glass hidden" id="threadMenu" role="menu">
+    <button role="menuitem" id="tmProfile"><span class="mi" data-i="circle-user"></span>Xem hồ sơ</button>
+    <button role="menuitem" id="tmFind"><span class="mi" data-i="search"></span>Tìm trong chat</button>
+    <button role="menuitem" id="tmShare"><span class="mi" data-i="share"></span>Chia sẻ</button>
+  </div>
+  <div class="menu glass hidden" id="profMenu" role="menu">
+    <button role="menuitem" id="pmCopy"><span class="mi" data-i="copy"></span>Sao chép ID</button>
+    <button role="menuitem" id="pmPin"><span class="mi" data-i="star"></span><span id="pmPinT">Ghim</span></button>
+    <button role="menuitem" id="pmArch"><span class="mi" data-i="folder"></span>Lưu trữ</button>
+  </div>
+  <div class="menu glass hidden up" id="plusMenu" role="menu">
+    <button role="menuitem" id="activityBtn"><span class="mi" data-i="list-checks"></span>Đang làm gì</button>
+    <button role="menuitem" id="pmGroup"><span class="mi" data-i="users"></span>Nhóm chat mới</button>
+  </div>
+  <div class="findbar glass hidden" id="findBar"><span class="mi" data-i="search"></span><input id="findInput" type="search" placeholder="Tìm trong chat" aria-label="Tìm trong chat"><span id="findCount"></span><button class="text-btn" id="findClose">Xong</button></div>
+  <div class="menu glass hidden" id="newMenu" role="menu">
+    <button role="menuitem" id="menuBot"><span class="mi" data-i="plus"></span>Bot mới</button>
+    <button role="menuitem" id="menuGroup"><span class="mi" data-i="users"></span>Nhóm chat mới</button>
+  </div>
+
+  <section class="sheet hidden" id="sheet" role="dialog" aria-label="Bot mới">
+    <div class="grip" id="grip"></div>
+    <header class="sheet-top"><button class="icon-btn close" id="cancelBtn" aria-label="Đóng"></button><b id="sheetTitle">Bot mới</b><span class="w44"></span></header>
+    <div class="scroll sheet-body" id="sheetBody">
+      <div class="stage" id="preview"></div>
+      <input class="field" id="agentName" maxlength="28" placeholder="Đặt tên cho bot" aria-label="Tên bot" autocomplete="off">
+      <input class="field sub-field" id="agentDesc" maxlength="80" placeholder="Bot này làm gì? (tuỳ chọn)" aria-label="Mô tả">
+      <h3 class="label">Hình dạng</h3><div class="shapes" id="shapes"></div>
+      <h3 class="label">Màu</h3><div class="colors" id="colors"></div>
+    </div>
+    <div class="sheet-foot"><button class="cta" id="createBtn" disabled>Tạo bot</button></div>
+  </section>
+
+  <section class="sheet hidden" id="groupSheet" role="dialog" aria-label="Nhóm chat mới">
+    <div class="grip"></div>
+    <header class="sheet-top"><button class="icon-btn close" id="closeGroup" aria-label="Đóng"></button><b>Nhóm chat mới</b><button class="pill" id="groupNext" disabled>Tiếp</button></header>
+    <div class="to"><span>Tới:</span><div class="chips" id="groupChips"></div><input id="groupSearch" placeholder="Tìm bot" autocomplete="off" aria-label="Tìm bot"></div>
+    <input class="field group-name" id="groupName" maxlength="40" placeholder="Tên nhóm (tuỳ chọn)" aria-label="Tên nhóm">
+    <ul class="scroll pick" id="groupList"></ul>
+  </section>
+
+  <section class="sheet hidden" id="settings" role="dialog" aria-label="Cài đặt">
+    <div class="grip"></div>
+    <header class="sheet-top"><button class="icon-btn close" id="closeSettings" aria-label="Đóng"></button><b>Cài đặt</b><span class="w44"></span></header>
+    <div class="scroll grouped" id="settingsBody"></div>
+  </section>
+
+  <section class="sheet full hidden" id="connectors" role="dialog" aria-label="Kết nối">
+    <header class="sheet-top"><button class="icon-btn close frost" id="closeConnectors" aria-label="Đóng"></button><b class="ttl">Kết nối</b><span class="conn-pill" id="connCount"></span></header>
+    <div class="scroll conn-body" id="connBody"></div>
+  </section>
+
+  <section class="sheet full hidden" id="connSetup" role="dialog" aria-label="Thiết lập kết nối">
+    <header class="sheet-top"><button class="icon-btn close frost" id="closeSetup" aria-label="Quay lại"></button><b class="ttl" id="setupTitle"></b><span class="w44"></span></header>
+    <div class="scroll setup-body" id="setupBody"></div>
+  </section>
+
+  <aside class="sheet activity hidden" id="activity" aria-label="Hoạt động"><div class="grip"></div><header class="sheet-top"><span class="w44"></span><b>Đang làm gì</b><button class="text-btn" id="closeActivity">Xong</button></header><ol class="scroll" id="log"></ol></aside>
+  <aside class="sheet themes hidden" id="delAcct" aria-label="Xoá tài khoản"><div class="grip"></div><header class="sheet-top"><span class="w44"></span><b>Xoá tài khoản</b><button class="text-btn" id="closeDelAcct">Huỷ</button></header><div class="scroll" id="delAcctBody"></div></aside>
+  <aside class="sheet themes hidden" id="themes" aria-label="Giao diện"><div class="grip"></div><header class="sheet-top"><span class="w44"></span><b>Giao diện</b><button class="text-btn" id="closeThemes">Xong</button></header><div class="scroll" id="themeList"></div></aside>
+  <section class="login hidden" id="login" aria-label="Đăng nhập chủ sở hữu"><form id="loginForm"><img id="loginMark" class="login-mark" src="/app/icon-192.png" width="72" height="72" alt="" aria-hidden="true"><h1>Neko Aurora</h1><p class="sub">Nhập mã chủ sở hữu để mở.</p><input id="loginCode" type="password" autocomplete="current-password" placeholder="Mã chủ sở hữu" aria-label="Mã chủ sở hữu"><button class="pill wide">Mở</button></form></section>
+  <div class="toast" id="toast" role="status"></div>
+</div>
+</body>
+</html>

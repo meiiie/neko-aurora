@@ -1,6 +1,6 @@
 # Core profile bridge UI, 2026-10-12
 
-This slice extends the existing light Connections card. Neko Bot uses a compatible bundled Core for the bridge; the installed Core and its profile remain intact. A discovered installation alone does not establish bridge compatibility or working credentials.
+This slice extends the existing light Connections card. Neko Aurora uses a compatible bundled Core for the bridge; the installed Core and its profile remain intact. A discovered installation alone does not establish bridge compatibility or working credentials.
 
 The source-only UI checkout starts from application `16e9daddd568450379877b75f94a954384beca8d`. Its independent baseline is `ccdc4f99659b634ef9f5a9fcf7bff1a65e81532f`, with the identical tracked tree `f6c9bfb8999619f1f1d6cd4e99e8d9bb9ef349fe`. No dirty backend files, state, binaries, profiles or ignored archives were copied. Root owns integration and the final application/Core code identity.
 

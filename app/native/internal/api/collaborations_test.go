@@ -7,7 +7,7 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"nekobot.local/native/internal/ledger"
+	"nekoaurora.local/native/internal/ledger"
 )
 
 func TestCollaborationAPIOwnerNonceAndCASBoundary(t *testing.T) {

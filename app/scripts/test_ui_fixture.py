@@ -14,7 +14,7 @@ def main():
     if args.commit:assert head==args.commit and not subprocess.check_output(["git","status","--porcelain"],cwd=ROOT,text=True).strip()
     fixture=None;process=None;temporary=tempfile.TemporaryDirectory(prefix="neko-ui-fixture-",ignore_cleanup_errors=True)
     try:
-        state=pathlib.Path(temporary.name)/"state";command=[str(ROOT/".build/neko-control.exe"),"--listen","127.0.0.1:8765" if args.tauri else "127.0.0.1:0","--state",str(state),"--host-executable",str(ROOT/"host/target/debug/neko-host.exe")]
+        state=pathlib.Path(temporary.name)/"state";command=[str(ROOT/".build/neko-aurora.exe"),"--listen","127.0.0.1:8765" if args.tauri else "127.0.0.1:0","--state",str(state),"--host-executable",str(ROOT/"host/target/debug/neko-host.exe")]
         if args.core:
             fixture_command=[sys.executable,str(ROOT/"scripts/fixture_provider.py")] if args.native_core else ["wsl.exe","-d","Ubuntu","--exec","/usr/bin/python3",linux(ROOT/"scripts/fixture_provider.py")]
             fixture=subprocess.Popen(fixture_command,stdin=subprocess.PIPE,stdout=subprocess.PIPE,stderr=subprocess.DEVNULL,text=True)
@@ -25,7 +25,7 @@ def main():
         if args.tauri:ui.append("--tauri")
         if args.core:ui.append("--core")
         subprocess.run(ui,cwd=ROOT,check=True,timeout=180)
-        output=ROOT/".build/evidence/ui-smoke.json";report=json.loads(output.read_text());report.update({"commit":head,"workingTree":not bool(args.commit),"coreFixture":args.core,"nativeWindowsCore":args.core and args.native_core,"goBinarySha256":hashlib.sha256((ROOT/".build/neko-control.exe").read_bytes()).hexdigest(),"rustHostSha256":hashlib.sha256((ROOT/"host/target/debug/neko-host.exe").read_bytes()).hexdigest()})
+        output=ROOT/".build/evidence/ui-smoke.json";report=json.loads(output.read_text());report.update({"commit":head,"workingTree":not bool(args.commit),"coreFixture":args.core,"nativeWindowsCore":args.core and args.native_core,"goBinarySha256":hashlib.sha256((ROOT/".build/neko-aurora.exe").read_bytes()).hexdigest(),"rustHostSha256":hashlib.sha256((ROOT/"host/target/debug/neko-host.exe").read_bytes()).hexdigest()})
         if args.core:report["coreSha256"]=hashlib.sha256((ROOT/(".build/core-windows/neko.exe" if args.native_core else ".build/core-runtime/neko")).read_bytes()).hexdigest()
         if args.tauri:report["tauriBinarySha256"]=hashlib.sha256((ROOT/".build/neko-desktop.exe").read_bytes()).hexdigest()
         output.write_text(json.dumps(report,ensure_ascii=False,indent=2),encoding="utf-8")

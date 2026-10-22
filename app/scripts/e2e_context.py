@@ -30,7 +30,7 @@ def main():
             process.kill();process.wait(timeout=5);time.sleep(2);process,client=launch(state,config)
             restored=client.work(queued['requestId']);assert restored['contextPin']==pin and restored['reply']==queued_reply
             checks.append({'name':'native_restart_retains_exact_accepted_pin','pass':True})
-            report={'commit':head,'workingTree':not bool(args.commit),'scope':'Actual native Windows Core + loopback fixture; proves context bytes/provenance transport, not model quality','goBinarySha256':hashlib.sha256((ROOT/'.build/neko-control.exe').read_bytes()).hexdigest(),'rustHostSha256':hashlib.sha256((ROOT/'host/target/debug/neko-host.exe').read_bytes()).hexdigest(),'coreSha256':hashlib.sha256((ROOT/'.build/core-windows/neko.exe').read_bytes()).hexdigest(),'checks':checks}
+            report={'commit':head,'workingTree':not bool(args.commit),'scope':'Actual native Windows Core + loopback fixture; proves context bytes/provenance transport, not model quality','goBinarySha256':hashlib.sha256((ROOT/'.build/neko-aurora.exe').read_bytes()).hexdigest(),'rustHostSha256':hashlib.sha256((ROOT/'host/target/debug/neko-host.exe').read_bytes()).hexdigest(),'coreSha256':hashlib.sha256((ROOT/'.build/core-windows/neko.exe').read_bytes()).hexdigest(),'checks':checks}
             if args.output:args.output.parent.mkdir(parents=True,exist_ok=True);args.output.write_text(json.dumps(report,indent=2),encoding='utf-8')
             print(json.dumps(report,indent=2))
     finally:

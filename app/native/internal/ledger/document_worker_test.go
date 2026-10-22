@@ -10,8 +10,8 @@ import (
 	"testing"
 	"time"
 
-	"nekobot.local/native/internal/documents"
-	"nekobot.local/native/internal/documentworker"
+	"nekoaurora.local/native/internal/documents"
+	"nekoaurora.local/native/internal/documentworker"
 )
 
 func TestMain(m *testing.M) {

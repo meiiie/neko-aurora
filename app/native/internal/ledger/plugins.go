@@ -10,7 +10,7 @@ import (
 	"sort"
 	"strings"
 
-	"nekobot.local/native/internal/protocol"
+	"nekoaurora.local/native/internal/protocol"
 )
 
 type PluginTool struct {

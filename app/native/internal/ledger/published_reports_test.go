@@ -12,8 +12,8 @@ import (
 	"testing"
 	"time"
 
-	"nekobot.local/native/internal/protocol"
-	"nekobot.local/native/internal/syncstream"
+	"nekoaurora.local/native/internal/protocol"
+	"nekoaurora.local/native/internal/syncstream"
 )
 
 func TestPublishedReportCrossBotIntakeBaseline(t *testing.T) {

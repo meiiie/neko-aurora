@@ -7,7 +7,7 @@ import (
 	"regexp"
 	"time"
 
-	"nekobot.local/native/internal/ledger"
+	"nekoaurora.local/native/internal/ledger"
 )
 
 var adapterHistoryToken = regexp.MustCompile(`^[A-Za-z0-9_-]{1,256}$`)

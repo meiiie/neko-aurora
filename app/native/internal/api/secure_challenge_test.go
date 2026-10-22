@@ -2,7 +2,7 @@ package api
 
 import (
 	"encoding/json"
-	"nekobot.local/native/internal/ledger"
+	"nekoaurora.local/native/internal/ledger"
 	"net/http"
 	"net/http/cookiejar"
 	"net/http/httptest"

@@ -1,6 +1,6 @@
 # Đối chiếu đầy đủ sau lát cắt hội thoại local, 2026-10-12
 
-Đây là báo cáo đọc source để Root cập nhật gap matrix sau khi chốt bản tích hợp. **Có code**, **thiếu đường chạy sản phẩm** và **chưa nghiệm thu trên bề mặt thật** là ba trạng thái khác nhau. Báo cáo không tuyên bố Neko Bot hoàn tất, không thay review bảo mật độc lập và không chuyển các test lịch sử thành bằng chứng cho bản mới.
+Đây là báo cáo đọc source để Root cập nhật gap matrix sau khi chốt bản tích hợp. **Có code**, **thiếu đường chạy sản phẩm** và **chưa nghiệm thu trên bề mặt thật** là ba trạng thái khác nhau. Báo cáo không tuyên bố Neko Aurora hoàn tất, không thay review bảo mật độc lập và không chuyển các test lịch sử thành bằng chứng cho bản mới.
 
 ## Baseline và cách đọc
 

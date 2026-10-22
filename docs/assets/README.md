@@ -1,10 +1,10 @@
-# Neko Bot repository presentation assets
+# Neko Aurora repository presentation assets
 
 The banner is a static, original composition for this repository, not an application screenshot or a Neko Core banner. Desktop and narrow-screen layouts share the existing approved Neko Peek identity, ivory/graphite palette and Geist typography. No external scripts, fonts, images or animation are loaded by the SVGs.
 
 ## Artwork and typography
 
-- Existing Neko Bot lockup is reused without changing its path geometry: [canonical local asset](../../app/native/internal/web/assets/brand/neko-peek/nekobot-lockup-light.svg).
+- Existing Neko Aurora lockup is reused without changing its path geometry: [canonical local asset](../../app/native/internal/web/assets/brand/neko-peek/nekobot-lockup-light.svg).
 - Neko Peek is derived from `meiiie/wiii`, revision `6b1c30b15b4c67e3c841ae870e6989577fc228f8`. Preserve its [AGPL3 license](../../app/native/internal/web/assets/brand/neko-peek/licenses/AGPL-3.0.txt) and [provenance](../../app/native/internal/web/assets/brand/neko-peek/PROVENANCE.md).
 - Geist glyphs are outlined from the existing Latin/Vietnamese/Latin Extended WOFF2 subsets. The [SIL OFL1.1 notice](../../app/native/internal/web/assets/fonts/Geist-OFL-1.1.txt) remains with the font sources. No runtime font fetch is needed.
 - `generate_presentation.py` regenerates the two banners and three static badges, using fontTools with WOFF2/Brotli support. The new conversation motif is an abstract illustration, not a fabricated UI capture.

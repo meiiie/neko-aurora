@@ -8,7 +8,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"nekobot.local/native/internal/ledger"
+	"nekoaurora.local/native/internal/ledger"
 )
 
 func TestDesktopLaunchBindsFreshStateAndChallenge(t *testing.T) {

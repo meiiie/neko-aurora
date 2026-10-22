@@ -6,8 +6,8 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
-	"nekobot.local/native/internal/executors"
-	"nekobot.local/native/internal/protocol"
+	"nekoaurora.local/native/internal/executors"
+	"nekoaurora.local/native/internal/protocol"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -47,6 +47,10 @@ type Operation struct {
 }
 
 func copyWork(w Work) Work {
+	if w.Direct != nil {
+		d := copyDirectRun(*w.Direct)
+		w.Direct = &d
+	}
 	if w.CoreProfileGroupBinding != nil {
 		p := *w.CoreProfileGroupBinding
 		w.CoreProfileGroupBinding = &p
@@ -680,7 +684,7 @@ func validRuntimeReplay(s *Store, e Event) bool {
 		if w.RuntimeStopReceipt == nil || (e.Type == "work.runtime_never_launched") != (w.RuntimeStopReceipt.Version == 2) {
 			return false
 		}
-		if w.RuntimeStopped != true || old.RuntimeStopped || old.AttemptID == "" || w.RuntimeStopReceipt == nil || !validStoppedReceipt(old, *w.RuntimeStopReceipt) {
+		if !w.RuntimeStopped || old.RuntimeStopped || old.AttemptID == "" || w.RuntimeStopReceipt == nil || !validStoppedReceipt(old, *w.RuntimeStopReceipt) {
 			return false
 		}
 		expected.RuntimeStopped = true
@@ -714,6 +718,14 @@ func validRuntimeReplay(s *Store, e Event) bool {
 		expected.ContextRevision = w.ContextRevision
 		expected.ContextAttempts = w.ContextAttempts
 		expected.Failure = ""
+	case "work.direct_started", "work.direct_updated", "work.direct_finished", "work.direct_decided":
+		if !validDirectReplay(old, w, e.Type) {
+			return false
+		}
+		expected.Status, expected.Failure, expected.Direct, expected.Reply = w.Status, w.Failure, w.Direct, w.Reply
+		if e.Type == "work.direct_started" {
+			expected.AttemptID = w.AttemptID
+		}
 	default:
 		return false
 	}

@@ -4,7 +4,7 @@ package runtime
 
 import (
 	"encoding/json"
-	"nekobot.local/native/internal/ledger"
+	"nekoaurora.local/native/internal/ledger"
 	"os"
 	"path/filepath"
 	"testing"

@@ -2,7 +2,7 @@ package runtime
 
 import (
 	"context"
-	"nekobot.local/native/internal/ledger"
+	"nekoaurora.local/native/internal/ledger"
 	"strings"
 	"sync/atomic"
 	"testing"

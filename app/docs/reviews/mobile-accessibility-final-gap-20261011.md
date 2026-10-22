@@ -1,4 +1,4 @@
-# Neko Bot — bounded final mobile/accessibility gap check
+# Neko Aurora — bounded final mobile/accessibility gap check
 
 Audit độc lập ngày 2026-10-11 trên UI commit **`12ef2f5078d40b483c9d3e67489f51845a3a9f9c`**. Kết quả chính: **11 PASS / 2 FAIL / 0 BLOCKED**; gồm 8 ca hành vi mới (6 pass, 2 fail) và 5 gate nguồn/syntax/startup/exception. Hai nhóm lỗi được xác nhận bằng một lượt riêng: **5 PASS / 2 FAIL / 0 BLOCKED**, cùng hai nhóm, không cộng thành bốn lỗi. Exit code cả hai lượt: `1`, do defect assertion.
 

@@ -327,14 +327,6 @@ func PublicContinuityCollaboration(g Collaboration) Collaboration {
 	g.Resources = publicResources(g.Resources)
 	return g
 }
-func PublicContinuityControl(result TaskControlResult) TaskControlResult {
-	result.Work = publicContinuityWork(result.Work)
-	if result.Related != nil {
-		w := publicContinuityWork(*result.Related)
-		result.Related = &w
-	}
-	return result
-}
 
 func (s *Store) PublicSnapshot() Snapshot {
 	out := s.Snapshot()

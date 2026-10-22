@@ -1,4 +1,4 @@
-# Neko Bot: kết quả ba lát cắt local — 2026-10-13
+# Neko Aurora: kết quả ba lát cắt local — 2026-10-13
 
 Đã triển khai code cho ba luồng người dùng, dùng bốn đồng nghiệp với scope riêng và Root giữ quyền Git/tích hợp. `coordination-20261013.md` ghi owner, acceptance và kết quả tiếp nhận.
 

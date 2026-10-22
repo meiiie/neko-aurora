@@ -64,7 +64,7 @@ def main():
     process.kill();process.wait(timeout=5);process,client=launch(state,config);assert client.work(active['requestId'])==stopped and client.work(second['requestId'])['resources']==second['resources']
    checks.append('three_restart_replays_keep_source_pins_and_denied_authority')
   report={'commit':head,'status':'PASS','ownedJournalRoot':str(directory),'scope':'Actual Go/Rust/pinned Windows Core with loopback synthetic provider and scratch state. Source authority/bytes/MCP transport proof, not model quality or phone/cloud acceptance.','checks':[{'name':c,'pass':True} for c in checks]}
-  for name,path in [('go',ROOT/'.build/neko-control.exe'),('host',ROOT/'host/target/debug/neko-host.exe'),('core',ROOT/'.build/core-windows/neko.exe')]:report[name+'Sha256']=hashlib.sha256(path.read_bytes()).hexdigest()
+  for name,path in [('go',ROOT/'.build/neko-aurora.exe'),('host',ROOT/'host/target/debug/neko-host.exe'),('core',ROOT/'.build/core-windows/neko.exe')]:report[name+'Sha256']=hashlib.sha256(path.read_bytes()).hexdigest()
   args.output.parent.mkdir(parents=True,exist_ok=True);args.output.write_text(json.dumps(report,indent=2)+'\n',encoding='utf-8');print(json.dumps(report,indent=2))
  except BaseException as error:
   report={'commit':head,'status':'FAIL','ownedJournalRoot':str(directory),'failure':type(error).__name__+': '+str(error)[:1200],'checks':[{'name':c,'pass':True} for c in checks]}

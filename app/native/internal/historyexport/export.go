@@ -259,7 +259,7 @@ func (w *boundedWriter) Write(data []byte) (int, error) {
 }
 
 func encodeText(writer *boundedWriter, history History) {
-	fmt.Fprintf(writer, "Neko Bot conversation history\nVersion: %d\nConversation: %s\nTitle: %s\nBot: %s\nArchived: %t\nAt sequence: %d\nMessages: %d\n", history.Version, history.ConversationID, history.Title, history.BotID, history.Archived, history.AtSequence, len(history.Messages))
+	fmt.Fprintf(writer, "Neko Aurora conversation history\nVersion: %d\nConversation: %s\nTitle: %s\nBot: %s\nArchived: %t\nAt sequence: %d\nMessages: %d\n", history.Version, history.ConversationID, history.Title, history.BotID, history.Archived, history.AtSequence, len(history.Messages))
 	fmt.Fprint(writer, "Files contain metadata and local pointers only; obtain bytes through a separate authenticated download.\n")
 	for i, message := range history.Messages {
 		fmt.Fprintf(writer, "\nMessage %d\nRequest: %s\nBot: %s\nCreated at: %s\nStatus: %s\nUser text:\n%s\nReply:\n%s\nFiles: %d\n", i+1, message.RequestID, message.BotID, message.CreatedAt, message.Status, message.Text, message.Reply, len(message.Files))

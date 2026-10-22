@@ -2,8 +2,8 @@ package api
 
 import (
 	"encoding/json"
-	"nekobot.local/native/internal/connections"
-	"nekobot.local/native/internal/ledger"
+	"nekoaurora.local/native/internal/connections"
+	"nekoaurora.local/native/internal/ledger"
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"

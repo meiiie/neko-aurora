@@ -2,7 +2,7 @@ package ledger
 
 import (
 	"encoding/json"
-	"nekobot.local/native/internal/identity"
+	"nekoaurora.local/native/internal/identity"
 	"strings"
 	"testing"
 	"time"

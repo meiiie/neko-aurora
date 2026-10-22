@@ -2,7 +2,7 @@
 
 ## Phạm vi hỗ trợ
 
-Neko Bot hiện là development snapshot, chưa có stable release hoặc bảng phiên bản nhận security updates được cam kết. `main` là nhánh phát triển; WIP/archive không được coi là bản an toàn để triển khai. Không có SLA phản hồi, patch hoặc disclosure được hứa.
+Neko Aurora hiện là development snapshot, chưa có stable release hoặc bảng phiên bản nhận security updates được cam kết. `main` là nhánh phát triển; WIP/archive không được coi là bản an toàn để triển khai. Không có SLA phản hồi, patch hoặc disclosure được hứa.
 
 ## Báo cáo lỗ hổng
 
@@ -10,7 +10,7 @@ Tại lần rà repo ngày 2026-10-16, **GitHub private vulnerability reporting 
 
 - Không đăng token, credential, raw state/journal, chat riêng, exploit có dữ liệu thật hoặc thông tin người dùng vào issue, PR hay Discussions công khai.
 - Nếu cần báo cáo riêng tư, có thể mở một issue **chỉ yêu cầu maintainer cung cấp kênh báo cáo bảo mật**, không nêu chi tiết lỗ hổng hoặc dữ liệu ảnh hưởng. Chờ một kênh riêng được maintainer xác minh trước khi chia sẻ bằng chứng nhạy cảm.
-- Chỉ dùng [GitHub Security](https://github.com/meiiie/neko-bot/security) để báo riêng khi tính năng Report a vulnerability thực sự xuất hiện/được bật. Link tới tab Security không đồng nghĩa private reporting đã hoạt động.
+- Chỉ dùng [GitHub Security](https://github.com/meiiie/neko-aurora/security) để báo riêng khi tính năng Report a vulnerability thực sự xuất hiện/được bật. Link tới tab Security không đồng nghĩa private reporting đã hoạt động.
 - Nếu không có kênh riêng, giữ bằng chứng cục bộ thay vì đăng công khai hoặc gửi tới một địa chỉ suy đoán.
 
 Khi đã có kênh phù hợp, báo exact commit, môi trường, component, hành vi mong đợi/thực tế, impact và reproducer tối thiểu dùng fixture. Không cần gửi secret thật để chứng minh một boundary lỗi.

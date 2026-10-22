@@ -5,7 +5,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
-	"nekobot.local/native/internal/protocol"
+	"nekoaurora.local/native/internal/protocol"
 	"net"
 	"net/url"
 	"reflect"

@@ -1,4 +1,4 @@
-# Neko Bot: independent mobile/accessibility review, 2026-10-11
+# Neko Aurora: independent mobile/accessibility review, 2026-10-11
 
 Owner: delegated mobile/accessibility audit. UI, Rust/Go runtime, existing tests/config and Git index were not edited. Deliverables are this review and `tests/mobile-audit-20261011/`. Grok code/assets were neither run nor copied. No deployment, provider request, real credential, grant, phone connection or network-setting change was made.
 

@@ -1,4 +1,4 @@
-# Neko Bot application
+# Neko Aurora application
 
 Ứng dụng local đa bot/đa kênh: `native/` là Go control plane, `host/` là Rust trusted host, `desktop/` là Tauri shell. Neko Core sở hữu agent loop; Wiii là ADE tùy chọn riêng.
 

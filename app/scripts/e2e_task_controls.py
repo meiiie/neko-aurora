@@ -16,7 +16,7 @@ def main():
     parser=argparse.ArgumentParser();parser.add_argument('--commit',required=True);parser.add_argument('--go',type=pathlib.Path,required=True);parser.add_argument('--output',type=pathlib.Path,required=True);args=parser.parse_args()
     head=subprocess.check_output(['git','rev-parse','HEAD'],cwd=ROOT,text=True).strip()
     assert head==args.commit and not subprocess.check_output(['git','status','--porcelain'],cwd=ROOT,text=True).strip()
-    build_metadata=subprocess.check_output([str(args.go),'version','-m',str(ROOT/'.build/neko-control.exe')],text=True)
+    build_metadata=subprocess.check_output([str(args.go),'version','-m',str(ROOT/'.build/neko-aurora.exe')],text=True)
     assert 'vcs.revision='+head in build_metadata and 'vcs.modified=false' in build_metadata, 'Go binary was not built from this clean commit'
     scratch=pathlib.Path(tempfile.mkdtemp(prefix='native-task-controls-',dir=ROOT/'.build'))
     checks=[];process=None;fixture=None;handles=[]
@@ -27,7 +27,7 @@ def main():
         return client.request('/v1/task-controls',body),body
     try:
         state=scratch/'state'
-        process=subprocess.Popen([str(ROOT/'.build/neko-control.exe'),'--listen','127.0.0.1:0','--state',str(state)],stdin=subprocess.DEVNULL,stdout=subprocess.PIPE,stderr=subprocess.PIPE,text=True)
+        process=subprocess.Popen([str(ROOT/'.build/neko-aurora.exe'),'--listen','127.0.0.1:0','--state',str(state)],stdin=subprocess.DEVNULL,stdout=subprocess.PIPE,stderr=subprocess.PIPE,text=True)
         ready=process.stdout.readline().strip();assert ready.startswith('READY ');client=Client(ready[6:])
         w=client.send('[fixture:foreground] Queued pause and resume fixture.','background',nonce='native-controls-queued')
         paused,pausebody=control(client,w,'pause','native-controls-pause')
@@ -86,7 +86,7 @@ def main():
             except subprocess.TimeoutExpired:fixture.terminate();fixture.wait(timeout=5)
         for handle in handles:handle.close()
         report['checks']=checks
-        for name,path in {'goBinarySha256':ROOT/'.build/neko-control.exe','rustHostSha256':ROOT/'host/target/debug/neko-host.exe','coreSha256':ROOT/'.build/core-windows/neko.exe'}.items():report[name]=hashlib.sha256(path.read_bytes()).hexdigest()
+        for name,path in {'goBinarySha256':ROOT/'.build/neko-aurora.exe','rustHostSha256':ROOT/'host/target/debug/neko-host.exe','coreSha256':ROOT/'.build/core-windows/neko.exe'}.items():report[name]=hashlib.sha256(path.read_bytes()).hexdigest()
         args.output.parent.mkdir(parents=True,exist_ok=True);args.output.write_text(json.dumps(report,ensure_ascii=False,indent=2),encoding='utf-8')
         print(json.dumps(report,ensure_ascii=False,indent=2))
 

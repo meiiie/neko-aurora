@@ -3,8 +3,8 @@ package ledger
 import (
 	"encoding/json"
 	"errors"
-	"nekobot.local/native/internal/identity"
-	"nekobot.local/native/internal/syncstream"
+	"nekoaurora.local/native/internal/identity"
+	"nekoaurora.local/native/internal/syncstream"
 	"reflect"
 	"strings"
 	"testing"

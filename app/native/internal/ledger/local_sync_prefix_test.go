@@ -11,7 +11,7 @@ import (
 	"strings"
 	"testing"
 
-	"nekobot.local/native/internal/syncstream"
+	"nekoaurora.local/native/internal/syncstream"
 )
 
 func prefixCursor(t *testing.T, e syncstream.Envelope, sequence uint64) string {

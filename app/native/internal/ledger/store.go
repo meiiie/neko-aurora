@@ -10,9 +10,9 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"nekobot.local/native/internal/connections"
-	"nekobot.local/native/internal/executors"
-	"nekobot.local/native/internal/identity"
+	"nekoaurora.local/native/internal/connections"
+	"nekoaurora.local/native/internal/executors"
+	"nekoaurora.local/native/internal/identity"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -107,6 +107,7 @@ type Work struct {
 	Adapter                    *AdapterPin                 `json:"adapterPin,omitempty"`
 	TaskRevision               uint64                      `json:"taskRevision,omitempty"`
 	TaskLink                   *TaskLink                   `json:"taskLink,omitempty"`
+	Direct                     *DirectRun                  `json:"direct,omitempty"`
 }
 type Event struct {
 	CoreProfile                    *CoreProfileEvent           `json:"coreProfile,omitempty"`
@@ -123,6 +124,7 @@ type Event struct {
 	Conversation                   *Conversation               `json:"conversation,omitempty"`
 	ConversationInput              *ConversationCommand        `json:"conversationInput,omitempty"`
 	BotProfile                     *BotProfile                 `json:"botProfile,omitempty"`
+	Aurora                         *AuroraRecord               `json:"aurora,omitempty"`
 	CollaborationRecovery          *CollaborationRecoveryEvent `json:"collaborationRecovery,omitempty"`
 	ContextClaimVersion            int                         `json:"contextClaimVersion,omitempty"`
 	ExecutorClaimVersion           int                         `json:"executorClaimVersion,omitempty"`
@@ -198,6 +200,9 @@ type Store struct {
 	conversationNonces       map[string]Event
 	syncID                   string
 	botProfiles              map[string]BotProfile
+	auroraLooks              map[string]AuroraLook
+	auroraPush               []AuroraPush
+	auroraActivity           []AuroraActivity
 	botProfileNonces         map[string]Event
 	contextAdmissionRequired bool
 	executorRequired         bool
@@ -296,6 +301,7 @@ func openStore(dir string, readOnly, inspect bool) (*Store, error) {
 	s.botCreationInputs = map[string]BotInput{}
 	s.botNameNonces = map[string]Event{}
 	s.botProfiles = map[string]BotProfile{}
+	s.auroraLooks = map[string]AuroraLook{}
 	s.botProfileNonces = map[string]Event{}
 	s.botStates = map[string]BotState{}
 	s.challenges = map[string]SecureChallenge{}
@@ -405,6 +411,9 @@ func validReplay(s *Store, e Event) bool {
 func validReplayWithArchive(s *Store, e Event, linkedControl bool) bool {
 	if e.Type == "adapter.reply_clear_checkpoint" {
 		return s.validAdapterReplyClearEvent(e)
+	}
+	if e.Aurora != nil || strings.HasPrefix(e.Type, "aurora.") {
+		return s.validAuroraEvent(e)
 	}
 	if e.CoreProfile != nil || strings.HasPrefix(e.Type, "core_profile.") {
 		return s.validCoreProfileEvent(e)
@@ -574,7 +583,7 @@ func validReplayWithArchive(s *Store, e Event, linkedControl bool) bool {
 				return false
 			}
 		}
-		if w.Core != nil || len(w.Operations) > 0 || len(w.Artifacts) > 0 || w.Reply != "" || w.AttemptID != "" || w.Failure != "" || w.ContextAccess != nil || w.RuntimeStopped || w.RuntimeStopReceipt != nil || w.RuntimeAttemptBinding != nil || w.ContextRevision != 0 || len(w.ContextAttempts) != 0 {
+		if w.Direct != nil || w.Core != nil || len(w.Operations) > 0 || len(w.Artifacts) > 0 || w.Reply != "" || w.AttemptID != "" || w.Failure != "" || w.ContextAccess != nil || w.RuntimeStopped || w.RuntimeStopReceipt != nil || w.RuntimeAttemptBinding != nil || w.ContextRevision != 0 || len(w.ContextAttempts) != 0 {
 			return false
 		}
 		if s.validInput(Input{w.BotID, w.ClientNonce, w.Text, w.Lane}) != nil || !s.validRoute(w) || w.Status != "waiting_host" || w.DesiredState != "running" || w.Epoch != 1 {
@@ -604,6 +613,10 @@ func validReplayWithArchive(s *Store, e Event, linkedControl bool) bool {
 	}
 }
 func (s *Store) apply(e Event) {
+	if e.Aurora != nil {
+		s.applyAurora(e)
+		return
+	}
 	if e.Type == "adapter.reply_clear_checkpoint" {
 		s.events = append(s.events, e)
 		return

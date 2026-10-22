@@ -2,7 +2,7 @@
 
 Owner: Root integration; Core worker owns canonical resolver/broker/provider policy; backend worker owns the existing profile consent/pin ledger. UI stays in the existing Connections flow. No new model loop, provider daemon, external framework, account login or cloud work is part of this slice.
 
-Baseline: app `1d02a7c042be6266ab71593c41a5915ac234b83c`, Core `0aa0771ba47e6803018297a01d51427c9e61283f`; Wiii restored public delivery `d1880b234a3e037a6946274a6fe60b678fa64b89`, attributed production source `2ab2eabee5a1602f2efd1fa177ee3ffa40ce3bd0`. Wiii's installed Core lock `16860b0`/1.7 and its four-field discovery parser do not satisfy the Neko Bot credential-revision contract. Its native process containment and distinct owner transport consent are reusable concepts, not provider authorization.
+Baseline: app `1d02a7c042be6266ab71593c41a5915ac234b83c`, Core `0aa0771ba47e6803018297a01d51427c9e61283f`; Wiii restored public delivery `d1880b234a3e037a6946274a6fe60b678fa64b89`, attributed production source `2ab2eabee5a1602f2efd1fa177ee3ffa40ce3bd0`. Wiii's installed Core lock `16860b0`/1.7 and its four-field discovery parser do not satisfy the Neko Aurora credential-revision contract. Its native process containment and distinct owner transport consent are reusable concepts, not provider authorization.
 
 The parent requested actual local auth code and fixture evidence, while preserving live8765, candidate8767, archives, installed binaries, real credentials and prior edits. Technical choices are delegated; this design applies that authority without requesting an additional login or grant. No actual user environment/profile/key is read during development.
 

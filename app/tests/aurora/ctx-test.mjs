@@ -1,0 +1,27 @@
+// Long-press context menu e2e at 390 (fake server 8799): preview, unread, sections, hide, submenu, escape.
+import {chromium} from 'playwright-core';
+const U=process.env.AURORA_URL||'http://127.0.0.1:8799/app/';const sl=ms=>new Promise(r=>setTimeout(r,ms));let fail=0;const ok=(c,m)=>{console.log(c?'PASS':'FAIL',m);if(!c)fail++};
+const b=await chromium.launch({executablePath:'/usr/bin/google-chrome',args:['--no-sandbox']});
+const p=await (await b.newContext({viewport:{width:390,height:844},isMobile:true,hasTouch:true,locale:'vi-VN'})).newPage();const errs=[];p.on('pageerror',e=>errs.push(String(e)));
+await p.addInitScript(()=>{try{localStorage.setItem('neko-aurora-lang','vi');localStorage.removeItem('neko-aurora-hidden');localStorage.removeItem('neko-aurora-sections')}catch{}});
+await p.goto(U);await p.waitForFunction(()=>window.__AURORA&&document.querySelectorAll('#rows .row').length>1);await sl(500);
+const c=await p.context().newCDPSession(p);
+const press=async sel=>{await p.locator(sel).first().evaluate(e=>e.scrollIntoView({block:"center"}));await sl(150);const bb=await p.locator(sel).first().boundingBox();const x=bb.x+bb.width/2,y=bb.y+bb.height/2;await c.send('Input.dispatchTouchEvent',{type:'touchStart',touchPoints:[{x,y}]});await sl(650);await c.send('Input.dispatchTouchEvent',{type:'touchEnd',touchPoints:[]});await sl(500)};
+const row=await p.evaluate(()=>document.querySelector('#rows .row').dataset.id);const name=await p.evaluate(id=>__AURORA.state().agents.find(a=>a.id===id).name,row);
+await press(`.row[data-id="${row}"] .rowin`);
+ok(await p.locator('.ctx .ctx-menu').isVisible(),'long-press opens menu');
+ok((await p.locator('.ctx-h b').textContent())===name,'preview shows bot name');
+ok(await p.evaluate(()=>!!document.activeElement.closest('.ctx-menu')),'focus moves into menu');
+ok(!(await p.evaluate(()=>__AURORA.current())),'lifting the finger does not open the thread');
+await p.locator('#ctxMore').tap();await sl(400);ok(await p.locator('.ctx-sub #ctxCopy').isVisible(),'More opens stacked submenu');
+await p.keyboard.press('Escape');await sl(300);ok(!(await p.locator('.ctx-sub').count()),'Escape closes submenu first');
+await p.keyboard.press('Escape');await sl(350);ok(!(await p.locator('.ctx').count()),'Escape closes menu');
+await press(`.row[data-id="${row}"] .rowin`);const label=await p.locator('#ctxUnread span').textContent();await p.locator('#ctxUnread').tap();await sl(400);
+const dot=await p.locator(`.row[data-id="${row}"] .dot`).count();ok(label.includes('chưa đọc')?dot===1:dot===0,'mark unread/read toggles dot ('+label+')');
+await press(`.row[data-id="${row}"] .rowin`);await p.locator('#ctxSection').tap();await sl(200);await p.keyboard.type('Công việc');await p.keyboard.press('Enter');await sl(400);
+ok(await p.locator('.sec-h',{hasText:'Công việc'}).count()===1,'new section header');
+await press(`.row[data-id="${row}"] .rowin`);await p.locator('#ctxHide').tap();await sl(400);
+ok(!(await p.locator(`.row[data-id="${row}"]`).count()),'hide removes row');ok(await p.locator('.hid-toggle').count()===1,'hidden toggle shown');
+await p.locator('.hid-toggle button').tap();await sl(300);ok(await p.locator(`.row[data-id="${row}"].is-hidden`).count()===1,'show hidden reveals row');
+await press(`.row[data-id="${row}"] .rowin`);await p.locator('#ctxHide').tap();await sl(300);
+ok(errs.length===0,'no page errors '+errs.join(' | '));await b.close();console.log(fail?'FAILS '+fail:'FAILS 0');process.exit(fail?1:0);

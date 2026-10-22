@@ -15,9 +15,9 @@ import (
 	"unicode"
 	"unicode/utf8"
 
-	"nekobot.local/native/internal/connections"
-	"nekobot.local/native/internal/executors"
-	"nekobot.local/native/internal/identity"
+	"nekoaurora.local/native/internal/connections"
+	"nekoaurora.local/native/internal/executors"
+	"nekoaurora.local/native/internal/identity"
 )
 
 type Project struct {

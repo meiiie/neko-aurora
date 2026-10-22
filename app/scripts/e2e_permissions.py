@@ -111,7 +111,7 @@ def main():
             assert restored == effect_stopped
             assert client.work(active['requestId'])['contextAttempts'] == done['contextAttempts']
             checks.append({'name': 'restart_preserves_suspended_fence_receipt_and_context_archive', 'pass': True})
-        report = {'commit': head, 'workingTree': not bool(args.commit), 'scope': 'Native Windows Go/Rust/Core + owned loopback fixture. Local owner context reuse only; no cross-channel ACL, provider grants, model quality or phone acceptance. Explicit context refresh is a new context attempt after proven Core stop; it is not crash recovery.', 'goBinarySha256': hashlib.sha256((ROOT / '.build/neko-control.exe').read_bytes()).hexdigest(), 'rustHostSha256': hashlib.sha256((ROOT / 'host/target/debug/neko-host.exe').read_bytes()).hexdigest(), 'coreSha256': hashlib.sha256((ROOT / '.build/core-windows/neko.exe').read_bytes()).hexdigest(), 'checks': checks}
+        report = {'commit': head, 'workingTree': not bool(args.commit), 'scope': 'Native Windows Go/Rust/Core + owned loopback fixture. Local owner context reuse only; no cross-channel ACL, provider grants, model quality or phone acceptance. Explicit context refresh is a new context attempt after proven Core stop; it is not crash recovery.', 'goBinarySha256': hashlib.sha256((ROOT / '.build/neko-aurora.exe').read_bytes()).hexdigest(), 'rustHostSha256': hashlib.sha256((ROOT / 'host/target/debug/neko-host.exe').read_bytes()).hexdigest(), 'coreSha256': hashlib.sha256((ROOT / '.build/core-windows/neko.exe').read_bytes()).hexdigest(), 'checks': checks}
         if args.output:
             args.output.parent.mkdir(parents=True, exist_ok=True)
             args.output.write_text(json.dumps(report, indent=2) + '\n', encoding='utf-8')

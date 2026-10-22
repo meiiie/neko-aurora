@@ -1,0 +1,21 @@
+{
+  "appId": "online.holilihu.nekoaurora",
+  "appName": "Neko Aurora",
+  "webDir": "www",
+  "server": {
+    "url": "https://aurora.example.invalid/app/",
+    "errorPath": "offline.html",
+    "allowNavigation": []
+  },
+  "ios": {
+    "contentInset": "never",
+    "scheme": "NekoAurora",
+    "backgroundColor": "#f7f7f7",
+    "limitsNavigationsToAppBoundDomains": true
+  },
+  "plugins": {
+    "SplashScreen": { "launchShowDuration": 600, "backgroundColor": "#f7f7f7", "showSpinner": false, "launchAutoHide": true },
+    "PushNotifications": { "presentationOptions": ["badge", "sound", "alert"] },
+    "StatusBar": { "overlaysWebView": true, "style": "DEFAULT" }
+  }
+}

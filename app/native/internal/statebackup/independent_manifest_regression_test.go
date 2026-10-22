@@ -1,3 +1,5 @@
+//go:build windows
+
 package statebackup
 
 import (
@@ -7,7 +9,7 @@ import (
  "path/filepath"
  "strings"
  "testing"
- "nekobot.local/native/internal/protocol"
+ "nekoaurora.local/native/internal/protocol"
 )
 
 func TestIndependentPublishedManifestAboveWireFrameRemainsVerifiable(t *testing.T){

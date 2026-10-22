@@ -1,4 +1,4 @@
-# Neko Bot: published report into later Core work
+# Neko Aurora: published report into later Core work
 
 After Meiiie publishes a permitted private report into a shared channel, Davin can use the published result and selected report file in a later request. The existing two-bot, three-stage group can continue from that same frozen publication and produce one final file. The private source request/history and unrelated files are excluded.
 

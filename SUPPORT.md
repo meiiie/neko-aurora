@@ -1,6 +1,6 @@
 # Hỗ trợ
 
-Repo hiện có [GitHub Issues](https://github.com/meiiie/neko-bot/issues), chưa bật Discussions và chưa có kênh hỗ trợ riêng/SLA được công bố. Đây là source development, không phải dịch vụ được vận hành hoặc một installer stable đã nghiệm thu.
+Repo hiện có [GitHub Issues](https://github.com/meiiie/neko-aurora/issues), chưa bật Discussions và chưa có kênh hỗ trợ riêng/SLA được công bố. Đây là source development, không phải dịch vụ được vận hành hoặc một installer stable đã nghiệm thu.
 
 1. Đọc [setup](docs/getting-started.md) và [trạng thái hỗ trợ](docs/project-status.md).
 2. Tìm issue hiện có; dùng mẫu bug hoặc feature request khi cần mở issue mới.

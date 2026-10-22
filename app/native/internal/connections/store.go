@@ -7,7 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
-	"nekobot.local/native/internal/protocol"
+	"nekoaurora.local/native/internal/protocol"
 	"net/url"
 	"os"
 	"path/filepath"

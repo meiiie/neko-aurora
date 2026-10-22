@@ -8,7 +8,7 @@ import (
 	"regexp"
 	"sort"
 
-	"nekobot.local/native/internal/executors"
+	"nekoaurora.local/native/internal/executors"
 )
 
 type AdapterSession struct {
