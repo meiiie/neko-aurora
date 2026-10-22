@@ -412,6 +412,18 @@ const maxToolRounds = 5
 
 const finalNudge = "Đã hết lượt tra cứu cho lượt này. Viết NGAY câu trả lời cuối cùng chỉ từ KẾT QUẢ CÔNG CỤ ở trên, trích [n], nói rõ phần nào còn thiếu dữ liệu. Không viết dòng TOOL."
 
+const actNudge = "Bạn vừa nói sẽ làm nhưng chưa làm gì. Làm ngay trong lượt này: việc nhiều bước thì viết PLAN, cần số liệu thì in đúng một dòng TOOL, còn lại thì trả lời đầy đủ luôn. Không hứa thêm."
+
+var promiseRe = regexp.MustCompile(`(?i)(^|\s)(sẽ|để (em|mình|tôi) (tra|làm|tìm|xem)|bắt đầu|đang tra|chờ (em|mình|tôi))`)
+
+// promiseOnly reports a short reply that only announces work it never does
+// (no directive, no question): dogfood v16 long-task failure.
+func promiseOnly(d directives) bool {
+	t := strings.TrimSpace(d.Text)
+	return d.Tool == nil && d.Approval == nil && d.Secret == nil && len(d.Plan) == 0 && len(d.Choices) == 0 &&
+		t != "" && len([]rune(t)) < 220 && !strings.Contains(t, "?") && promiseRe.MatchString(t)
+}
+
 func (s *Service) runTurn(ctx context.Context, w ledger.Work) (*Approval, []string, error) {
 	tc := &toolCtx{}
 	// Reply flow: short acknowledgement first, then the tool status line, then
@@ -423,6 +435,14 @@ func (s *Service) runTurn(ctx context.Context, w ledger.Work) (*Approval, []stri
 		}
 	}
 	d, err := s.call(ctx, w, tc.inject(s.history(w.BotID, w.RequestID)))
+	if err == nil && promiseOnly(d) {
+		// "Em sẽ làm từng bước…" and then nothing: ask once for the action itself.
+		s.publish("draft_end", map[string]string{"id": w.RequestID, "agentId": threadOf(w)})
+		if cur, _ := s.L.Get(w.RequestID); cur.Direct != nil && cur.Direct.Ack == "" {
+			s.ack(w, firstLine(d.Text))
+		}
+		d, err = s.call(ctx, w, append(tc.inject(s.history(w.BotID, w.RequestID)), ChatMsg{Role: "system", Content: actNudge}))
+	}
 	for round := 0; err == nil && d.Tool != nil && round < maxToolRounds && s.Tools != nil; round++ {
 		arg := d.Tool.Q + d.Tool.URL
 		s.publish("draft_end", map[string]string{"id": w.RequestID, "agentId": threadOf(w)})

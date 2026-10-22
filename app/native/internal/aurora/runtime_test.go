@@ -118,3 +118,36 @@ func TestGluedDirectiveParsed(t *testing.T) {
 		t.Fatalf("%+v", d)
 	}
 }
+
+func TestPromiseOnlyDetection(t *testing.T) {
+	for txt, want := range map[string]bool{
+		"Em sẽ làm từng bước, bắt đầu từ bước 1: tra lịch nghỉ lễ 2027.": true,
+		"Để mình tra giá nhé.":                        true,
+		"Bạn muốn đi mấy ngày? Mình sẽ lên lịch sau.": false,
+		"Giá vàng SJC hôm nay là 142,3 triệu/lượng.":  false,
+	} {
+		if got := promiseOnly(ParseDirectives(txt)); got != want {
+			t.Errorf("%q: %v", txt, got)
+		}
+	}
+	if promiseOnly(ParseDirectives("Mình sẽ làm 2 bước.\nPLAN: [\"a\",\"b\"]")) {
+		t.Error("plan is action")
+	}
+}
+
+func TestPromiseOnlyGetsNudged(t *testing.T) {
+	fa := scriptedAI(t, "Em sẽ làm từng bước.", "Lịch trình 4 ngày: ngày 1 biển Mỹ Khê.")
+	defer fa.Close()
+	t.Setenv("ZAI_API_KEY", "k")
+	t.Setenv("AURORA_AI_BASE_URL", fa.URL)
+	svc, _ := newSvc(t)
+	srv := httptest.NewServer(svc)
+	defer srv.Close()
+	bot := firstBot(svc)
+	post(t, srv.URL+"/app/api/agents/"+bot+"/messages", `{"text":"Lên lịch trình Đà Nẵng"}`)
+	waitTask(t, svc, bot)
+	ms := svc.view().messages(bot, 0)
+	if last := ms[len(ms)-1]; !strings.Contains(last.Text, "Lịch trình 4 ngày") {
+		t.Fatalf("%+v", last)
+	}
+}
