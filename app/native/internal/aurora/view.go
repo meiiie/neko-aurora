@@ -420,6 +420,11 @@ func doingOf(r *ledger.DirectRun) string {
 			return "Đang dùng công cụ…"
 		}
 	}
+	for i, st := range r.Plan {
+		if st.Status == "running" {
+			return fmt.Sprintf("Bước %d/%d · %s", i+1, len(r.Plan), clean(st.Title, 60))
+		}
+	}
 	if len(r.Tools) > 0 {
 		return "Đang viết câu trả lời…"
 	}

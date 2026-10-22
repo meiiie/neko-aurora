@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"math/rand/v2"
 	"net/http"
 	"os"
 	"strings"
@@ -52,8 +53,8 @@ var ErrNoAI = errors.New("ai_not_configured")
 // Stream sends messages and calls onDelta for each content token. It returns
 // the full content.
 // Stream runs one streamed completion. A transient failure that happens before
-// any text (unreachable, 429, 5xx, broken stream) is retried once after a short
-// back-off; time-to-first-token is logged for latency tracking.
+// any text (unreachable, 429, 5xx, broken stream) is retried up to twice with
+// exponential back-off; time-to-first-token is logged for latency tracking.
 func (a *AI) Stream(ctx context.Context, msgs []ChatMsg, onDelta func(string)) (string, error) {
 	if !a.Configured() {
 		return "", ErrNoAI
@@ -68,21 +69,31 @@ func (a *AI) Stream(ctx context.Context, msgs []ChatMsg, onDelta func(string)) (
 	}
 	var out string
 	var err error
-	for try := 0; try < 2; try++ {
+	for try := 0; try < maxAttempts; try++ {
 		out, err = a.streamOnce(ctx, msgs, wrap)
-		if err == nil || first > 0 || ctx.Err() != nil || !retryable(err) {
+		if err == nil || first > 0 || ctx.Err() != nil || !retryable(err) || try == maxAttempts-1 {
 			break
 		}
 		select {
 		case <-ctx.Done():
-		case <-time.After(retryDelay):
+		case <-time.After(backoff(try)):
 		}
 	}
 	log.Printf("aurora ai model=%s ttft_ms=%d total_ms=%d chars=%d err=%v", a.Model, first.Milliseconds(), time.Since(t0).Milliseconds(), len(out), err != nil)
 	return out, err
 }
 
+// Exponential back-off with jitter for transient provider errors before the
+// first token (429/5xx/unreachable): ~1.5s, ~3s. A stream that already
+// produced text is never replayed, so the owner never sees duplicated words.
 var retryDelay = 1500 * time.Millisecond
+
+const maxAttempts = 3
+
+func backoff(try int) time.Duration {
+	d := retryDelay << try
+	return d + time.Duration(rand.Int64N(int64(d)/4+1))
+}
 
 func retryable(err error) bool {
 	e := err.Error()

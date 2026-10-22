@@ -7,6 +7,7 @@ import (
 	"os"
 	"regexp"
 	"strings"
+	"sync"
 	"time"
 
 	"nekoaurora.local/native/internal/ledger"
@@ -32,7 +33,7 @@ func (c *toolCtx) inject(msgs []ChatMsg) []ChatMsg {
 	for i, s := range c.sources {
 		fmt.Fprintf(&sb, "[%d] %s — %s\n", i+1, s.Title, s.URL)
 	}
-	sb.WriteString("\n" + strings.Join(c.blocks, "\n---\n"))
+	sb.WriteString("\n" + strings.Join(budgetBlocks(c.blocks, maxContextChars), "\n---\n"))
 	out := append([]ChatMsg{msgs[0], {Role: "system", Content: sb.String()}}, msgs[1:]...)
 	return out
 }
@@ -104,44 +105,95 @@ func toolsFromEnv() *tools.Kit {
 
 var toolLabel = map[string]string{"gold_price": "Tra giá vàng trực tuyến", "web_search": "Tìm trên web", "web_fetch": "Đọc trang"}
 
+// runTool runs one lookup (kept for the auto-prefetch path).
 func (s *Service) runTool(ctx context.Context, w ledger.Work, tc *toolCtx, name, arg string) {
-	if s.Tools == nil {
+	s.runTools(ctx, w, tc, []toolCall{{name, arg}})
+}
+
+// maxToolsPerTurn caps lookups per turn across all rounds.
+const maxToolsPerTurn = 10
+
+type toolRun struct {
+	call toolCall
+	idx  int
+	res  tools.Result
+	err  error
+	ms   int
+}
+
+// runTools executes a batch of independent lookups in parallel (the model may
+// emit several TOOL lines at once). Network work runs concurrently; ledger
+// cards, source numbering and context blocks are committed serially in call
+// order so footnotes stay deterministic — the same ordering guarantee as
+// OpenMuse's serial checkpoint queue (CopilotKit/openmuse model.ts, MIT).
+func (s *Service) runTools(ctx context.Context, w ledger.Work, tc *toolCtx, calls []toolCall) {
+	if s.Tools == nil || len(calls) == 0 {
 		return
 	}
 	cur, _ := s.L.Get(w.RequestID)
-	if cur.Direct != nil && len(cur.Direct.Tools) >= 6 {
-		return
-	}
-	if cur.Direct != nil { // same tool+arg already ran this turn: reuse its result, don't refetch
-		for _, t := range cur.Direct.Tools {
-			if t.Name == name && t.Arg == clean(arg, 200) && t.Status == "done" {
-				tc.note("(Dữ liệu " + toolLabel[name] + " đã có ở trên, dùng lại thay vì tra lần nữa.)")
-				return
+	var runs []*toolRun
+	seen := map[string]bool{}
+	for _, c := range calls {
+		key := c.name + "\x00" + clean(c.arg, 200)
+		if seen[key] {
+			continue
+		}
+		seen[key] = true
+		dup := false
+		if cur.Direct != nil { // same tool+arg already ran this turn: reuse its result, don't refetch
+			for _, t := range cur.Direct.Tools {
+				if t.Name == c.name && t.Arg == clean(c.arg, 200) && t.Status == "done" {
+					dup = true
+				}
+			}
+			if len(cur.Direct.Tools)+len(runs) >= maxToolsPerTurn {
+				break
 			}
 		}
+		if dup {
+			tc.note("(Dữ liệu " + toolLabel[c.name] + " đã có ở trên, dùng lại thay vì tra lần nữa.)")
+			continue
+		}
+		runs = append(runs, &toolRun{call: c})
 	}
-	idx := 0
+	if len(runs) == 0 {
+		return
+	}
 	s.update(w.RequestID, func(r *ledger.DirectRun) {
-		idx = len(r.Tools)
-		r.Tools = append(r.Tools, ledger.DirectTool{Name: name, Arg: clean(arg, 200), Status: "running", Summary: toolLabel[name]})
+		for _, x := range runs {
+			x.idx = len(r.Tools)
+			r.Tools = append(r.Tools, ledger.DirectTool{Name: x.call.name, Arg: clean(x.call.arg, 200), Status: "running", Summary: toolLabel[x.call.name]})
+		}
 	})
-	s.agui(AGUIEvent{Type: STEP_STARTED, ThreadID: w.BotID, RunID: w.RequestID, StepName: "tool:" + name})
-	t0 := time.Now()
-	tctx, cancel := context.WithTimeout(ctx, 25*time.Second)
-	var res tools.Result
-	var err error
-	if name == "web_fetch" {
-		res, err = s.Tools.FetchFound(tctx, arg, tc.found())
-	} else {
-		res, err = s.Tools.Run(tctx, name, arg)
+	found := tc.found()
+	var wg sync.WaitGroup
+	for _, x := range runs {
+		s.agui(AGUIEvent{Type: STEP_STARTED, ThreadID: w.BotID, RunID: w.RequestID, StepName: "tool:" + x.call.name})
+		wg.Add(1)
+		go func(x *toolRun) {
+			defer wg.Done()
+			t0 := time.Now()
+			tctx, cancel := context.WithTimeout(ctx, 25*time.Second)
+			defer cancel()
+			if x.call.name == "web_fetch" {
+				x.res, x.err = s.Tools.FetchFound(tctx, x.call.arg, found)
+			} else {
+				x.res, x.err = s.Tools.Run(tctx, x.call.name, x.call.arg)
+			}
+			x.ms = int(time.Since(t0) / time.Millisecond)
+		}(x)
 	}
-	cancel()
-	ms := int(time.Since(t0) / time.Millisecond)
+	wg.Wait()
+	for _, x := range runs {
+		s.commitTool(w, tc, x)
+	}
+}
+
+func (s *Service) commitTool(w ledger.Work, tc *toolCtx, x *toolRun) {
+	name, arg, res, err := x.call.name, x.call.arg, x.res, x.err
 	st, sum := "done", res.Summary
 	if err != nil {
 		st, sum = "failed", toolLabel[name]+": "+tools.Short(err)
-	}
-	if err != nil {
 		log.Printf("aurora tool %s failed: %s", name, tools.Short(err))
 	}
 	if res.Text != "" {
@@ -161,19 +213,19 @@ func (s *Service) runTool(ctx context.Context, w ledger.Work, tc *toolCtx, name,
 			}
 			return "[?]"
 		})
-		tc.blocks = append(tc.blocks, fmt.Sprintf("Công cụ %s%s (nguồn %s):\n%s", name, map[bool]string{true: " “" + arg + "”"}[arg != ""], strings.Join(refs, " "), text))
+		tc.blocks = append(tc.blocks, fmt.Sprintf("Công cụ %s%s (nguồn %s):\n%s", name, map[bool]string{true: " “" + arg + "”"}[arg != ""], strings.Join(refs, " "), truncateResult(text, maxResultChars)))
 	} else if err != nil {
 		tc.blocks = append(tc.blocks, fmt.Sprintf("Công cụ %s thất bại (%s): KHÔNG có dữ liệu, không được đoán số.", name, tools.Short(err)))
 	}
 	srcs := append([]ledger.DirectSource(nil), tc.sources...)
 	s.update(w.RequestID, func(r *ledger.DirectRun) {
-		if idx < len(r.Tools) {
-			r.Tools[idx].Status, r.Tools[idx].Summary, r.Tools[idx].Ms = st, clean(sum, 200), ms
+		if x.idx < len(r.Tools) {
+			r.Tools[x.idx].Status, r.Tools[x.idx].Summary, r.Tools[x.idx].Ms = st, clean(sum, 200), x.ms
 		}
 		r.Sources = srcs
 	})
 	s.agui(AGUIEvent{Type: STEP_FINISHED, ThreadID: w.BotID, RunID: w.RequestID, StepName: "tool:" + name})
-	s.record(w.BotID, w.RequestID, "step", fmt.Sprintf("%s · %s · %.1fs", toolLabel[name], st, float64(ms)/1000))
+	s.record(w.BotID, w.RequestID, "step", fmt.Sprintf("%s · %s · %.1fs", toolLabel[name], st, float64(x.ms)/1000))
 }
 
 var ackLabel = map[string]string{"gold_price": "giá vàng trong nước và thế giới", "web_search": "trên web", "web_fetch": "trang bạn gửi"}

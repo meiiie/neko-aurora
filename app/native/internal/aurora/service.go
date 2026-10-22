@@ -37,13 +37,15 @@ type Service struct {
 	Prefs    *Prefs
 	V        *vault.Vault
 	Tools    *tools.Kit
+	Mem      *memStore
 	mux      *http.ServeMux
 	mu       sync.Mutex
 	subs     map[chan Event]struct{}
 	ctx      context.Context
 	wake     chan struct{}
 
-	running map[string]bool // botID → turn in flight
+	running map[string]bool   // botID → turn in flight
+	steered map[string]string // queued request → run that absorbed it mid-turn
 	seen    map[string]string
 	seenSeq uint64
 	syncMu  sync.Mutex
@@ -90,10 +92,11 @@ func New(ctx context.Context, store *ledger.Store, stateDir string, opt Options)
 		return nil, err
 	}
 	log.SetOutput(v.Writer(os.Stderr))
-	s := &Service{L: store, AI: model, Push: p, V: v, Tools: toolsFromEnv(), Prefs: prefs, subs: map[chan Event]struct{}{}, ctx: ctx, wake: make(chan struct{}, 1), running: map[string]bool{}, seen: map[string]string{}, Now: time.Now}
+	s := &Service{L: store, AI: model, Push: p, V: v, Tools: toolsFromEnv(), Mem: openMemory(stateDir), Prefs: prefs, subs: map[chan Event]struct{}{}, ctx: ctx, wake: make(chan struct{}, 1), running: map[string]bool{}, seen: map[string]string{}, Now: time.Now}
 	s.Out = outbound.NewRouter(outbound.Switch{Resolve: s.mailer})
 	s.routes()
 	s.connectorRoutes()
+	s.memoryRoutes()
 	s.sync()
 	go s.watch()
 	if opt.RunTurns && !store.ReadOnly() {

@@ -12,10 +12,11 @@ License headers are kept in the files that carry derived code.
 - Source: https://github.com/CopilotKit/openmuse (commit 1ac68f3909f2478ab6280883f1ab5ea65eb5719d)
 - Used: `TaskStatus`, `TaskStep`, `RunEvent` shapes from `packages/domain/src/agent.ts`
 - In: `app/native/internal/aurora/agui.go`, `app/native/internal/ledger/direct_runtime.go` (step statuses)
+- Patterns (re-implemented in Go, no code copied): serial ordered commit of parallel tool calls (`engine/model.ts` `serial()`), user-confirmed memories (`remember_fact`), capped untrusted page text — in `app/native/internal/aurora/tools.go`, `harness.go`
 
 ## OpenDots (CopilotKit) — MIT
 - Source: https://github.com/CopilotKit/OpenDots
-- Used: UX patterns only (human-in-the-loop review cards, tool-rendered cards). No code copied.
+- Used: UX patterns only (human-in-the-loop review cards, tool-rendered cards), and the per-result character cap with a truncation marker (`src/server/connections.ts`) in `harness.go`. No code copied.
 
 ### MIT License text
 

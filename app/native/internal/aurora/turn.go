@@ -31,14 +31,15 @@ PLAN: ["bước 1","bước 2"]   ← khi việc gồm nhiều phần (tra nhi�
 CHOICES: ["lựa chọn A","lựa chọn B"]   ← khi cần Darren chọn nhanh (2-4 lựa chọn ngắn).
 APPROVAL: {"title":"<việc cần duyệt>","kind":"email|send|post|pay|other","to":"<email nếu là email>","subject":"<tiêu đề nếu là email>","body":"<toàn bộ nội dung đã soạn>"}   ← bắt buộc cho mọi hành động ra bên ngoài.
 SECRET: {"name":"TEN_IN_HOA","label":"<tên hiển thị>","desc":"<vì sao cần, lấy ở đâu>"}   ← khi cần Darren cung cấp mật khẩu/khoá API. Darren nhập vào thẻ ẩn, giá trị vào kho bí mật, bạn không bao giờ thấy. Không bao giờ xin Darren dán bí mật vào chat. Mật khẩu ứng dụng Gmail dùng tên GMAIL_APP_PASSWORD.
-TOOL: {"name":"web_search","q":"<truy vấn>"} | {"name":"web_fetch","url":"https://..."} | {"name":"gold_price"}   ← công cụ đọc dữ liệu thật trên máy chủ. Khi cần số liệu/tin tức hiện tại mà chưa có trong KẾT QUẢ CÔNG CỤ, chỉ in đúng một dòng TOOL rồi dừng; hệ thống sẽ chạy và gọi lại bạn.
+TOOL: {"name":"web_search","q":"<truy vấn>"} | {"name":"web_fetch","url":"https://..."} | {"name":"gold_price"}   ← công cụ đọc dữ liệu thật trên máy chủ. Khi cần số liệu/tin tức hiện tại mà chưa có trong KẾT QUẢ CÔNG CỤ, in dòng TOOL rồi dừng; nhiều tra cứu độc lập (vd. giá từng mặt hàng) thì in tối đa 3 dòng TOOL cùng lúc, hệ thống chạy song song rồi gọi lại bạn.
+MEMORY: {"text":"<một sở thích/bối cảnh lâu dài Darren vừa nói rõ hoặc xác nhận>"}   ← chỉ khi Darren nói rõ muốn bạn nhớ hoặc nêu sở thích lâu dài; không bao giờ ghi bí mật, mật khẩu.
 - Số liệu (giá, tỷ giá, ngày, phần trăm) chỉ được lấy từ KẾT QUẢ CÔNG CỤ, ghi nguồn dạng [1], [2]. Tuyệt đối không bịa hay ước đoán số; thiếu dữ liệu thì nói rõ thiếu. Khi đã có KẾT QUẢ CÔNG CỤ thì trả lời thẳng, không dùng PLAN.
 - Không bao giờ nhắc tên kỹ thuật của công cụ hay chỉ thị (web_search, web_fetch, gold_price, TOOL…) trong câu trả lời; nói bằng lời thường như "tìm trên web", "đọc trang".
 - Với email: kind là "email", dùng đúng địa chỉ Darren đưa; không lặp lại toàn văn thư ở phần trả lời.`
 
-var gluedDirective = regexp.MustCompile(`([^\s\n])[ \t]*((?:PLAN|CHOICES|APPROVAL|SECRET|TOOL):\s*[\[{])`)
+var gluedDirective = regexp.MustCompile(`([^\s\n])[ \t]*((?:PLAN|CHOICES|APPROVAL|SECRET|TOOL|MEMORY):\s*[\[{])`)
 
-var directiveRe = regexp.MustCompile(`(?m)^\s*(PLAN|CHOICES|APPROVAL|SECRET|TOOL):\s*(.+?)\s*$`)
+var directiveRe = regexp.MustCompile(`(?m)^\s*(PLAN|CHOICES|APPROVAL|SECRET|TOOL|MEMORY):\s*(.+?)\s*$`)
 
 type directives struct {
 	Text     string
@@ -46,7 +47,8 @@ type directives struct {
 	Choices  []string
 	Approval *Approval
 	Secret   *ledger.DirectSecret
-	Tool     *toolReq
+	Tools    []toolReq // independent lookups, run in parallel (max 3)
+	Memory   string
 }
 
 type toolReq struct {
@@ -66,8 +68,17 @@ func ParseDirectives(text string) directives {
 	for _, m := range directiveRe.FindAllStringSubmatch(text, -1) {
 		if m[1] == "TOOL" {
 			var t toolReq
-			if json.Unmarshal([]byte(m[2]), &t) == nil && (t.Name == "gold_price" || t.Name == "web_search" && t.Q != "" || t.Name == "web_fetch" && t.URL != "") && d.Tool == nil {
-				d.Tool = &t
+			if json.Unmarshal([]byte(m[2]), &t) == nil && (t.Name == "gold_price" || t.Name == "web_search" && t.Q != "" || t.Name == "web_fetch" && t.URL != "") && len(d.Tools) < 3 {
+				d.Tools = append(d.Tools, t)
+			}
+			continue
+		}
+		if m[1] == "MEMORY" {
+			var x struct {
+				Text string `json:"text"`
+			}
+			if json.Unmarshal([]byte(m[2]), &x) == nil {
+				d.Memory = clean(x.Text, 300)
 			}
 			continue
 		}
@@ -219,13 +230,13 @@ func (s *Service) recoverInterrupted() {
 func (s *Service) history(botID, current string) []ChatMsg {
 	v := newView(s.L.Snapshot())
 	b, _ := v.bot(botID)
-	msgs := []ChatMsg{{Role: "system", Content: fmt.Sprintf(systemPrompt, b.Name, v.desc(b))}}
+	msgs := []ChatMsg{{Role: "system", Content: fmt.Sprintf(systemPrompt, b.Name, v.desc(b)) + memoryPrompt(s.Mem.List(botID))}}
 	l := v.byBot[botID]
 	if cw, err := s.L.Get(current); err == nil && isGroupID(cw.ConversationID) {
 		return s.groupHistory(v, b, cw, msgs)
 	}
-	if len(l) > 30 {
-		l = l[len(l)-30:]
+	if len(l) > maxHistoryTurns {
+		l = l[len(l)-maxHistoryTurns:]
 	}
 	for _, w := range l {
 		if w.Direct == nil || w.Direct.Kind == "" {
@@ -254,7 +265,7 @@ func (s *Service) history(botID, current string) []ChatMsg {
 			msgs = append(msgs, ChatMsg{"assistant", c})
 		}
 	}
-	return msgs
+	return compactHistory(msgs)
 }
 
 func (s *Service) agui(e AGUIEvent) { s.publish("agui", e) }
@@ -432,7 +443,7 @@ var promiseRe = regexp.MustCompile(`(?i)(^|\s)(sẽ|để (em|mình|tôi) (tra|l
 // (no directive, no question): dogfood v16 long-task failure.
 func promiseOnly(d directives) bool {
 	t := strings.TrimSpace(d.Text)
-	return d.Tool == nil && d.Approval == nil && d.Secret == nil && len(d.Plan) == 0 && len(d.Choices) == 0 &&
+	return len(d.Tools) == 0 && d.Approval == nil && d.Secret == nil && len(d.Plan) == 0 && len(d.Choices) == 0 &&
 		t != "" && len([]rune(t)) < 220 && !strings.Contains(t, "?") && promiseRe.MatchString(t)
 }
 
@@ -445,6 +456,9 @@ func (s *Service) runTurn(ctx context.Context, w ledger.Work) (*Approval, []stri
 		for _, c := range auto {
 			s.runTool(ctx, w, tc, c.name, c.arg)
 		}
+	}
+	if n := s.absorbedNote(w.RequestID); n != "" {
+		tc.note(n)
 	}
 	var d directives
 	var err error
@@ -468,27 +482,40 @@ func (s *Service) runTurn(ctx context.Context, w ledger.Work) (*Approval, []stri
 		}
 		d, err = s.call(ctx, w, append(tc.inject(s.history(w.BotID, w.RequestID)), ChatMsg{Role: "system", Content: actNudge}))
 	}
-	for round := 0; err == nil && d.Tool != nil && round < maxToolRounds && s.Tools != nil; round++ {
-		arg := d.Tool.Q + d.Tool.URL
+	for round := 0; err == nil && len(d.Tools) > 0 && round < maxToolRounds && s.Tools != nil; round++ {
 		s.publish("draft_end", map[string]string{"id": w.RequestID, "agentId": threadOf(w)})
+		calls := callsOf(d.Tools)
 		if cur, _ := s.L.Get(w.RequestID); cur.Direct != nil && cur.Direct.Ack == "" {
-			s.ack(w, ackText(d.Text, threadOf(w) != w.BotID, []toolCall{{d.Tool.Name, arg}}))
+			s.ack(w, ackText(d.Text, threadOf(w) != w.BotID, calls))
 		}
-		s.runTool(ctx, w, tc, d.Tool.Name, arg)
+		s.runTools(ctx, w, tc, calls)
+		s.steer(w, tc)
 		d, err = s.call(ctx, w, tc.inject(s.history(w.BotID, w.RequestID)))
 	}
-	if err == nil && d.Tool != nil && len(tc.blocks) > 0 {
+	if err == nil && len(d.Tools) > 0 && len(tc.blocks) > 0 {
 		// Out of lookups but holding real results: write the answer from them
 		// instead of ending on a bare "no data" note (dogfood v16 compare task).
 		s.publish("draft_end", map[string]string{"id": w.RequestID, "agentId": threadOf(w)})
 		msgs := append(tc.inject(s.history(w.BotID, w.RequestID)), ChatMsg{Role: "system", Content: finalNudge})
 		d, err = s.call(ctx, w, msgs)
 	}
+	if err == nil && len(d.Plan) == 0 && s.steer(w, tc) {
+		// The owner changed course while this answer was being written:
+		// discard the draft and answer once more with the new instruction.
+		s.publish("draft_end", map[string]string{"id": w.RequestID, "agentId": threadOf(w)})
+		d, err = s.call(ctx, w, tc.inject(s.history(w.BotID, w.RequestID)))
+		if err == nil && len(d.Tools) > 0 && s.Tools != nil {
+			s.publish("draft_end", map[string]string{"id": w.RequestID, "agentId": threadOf(w)})
+			s.runTools(ctx, w, tc, callsOf(d.Tools))
+			d, err = s.call(ctx, w, append(tc.inject(s.history(w.BotID, w.RequestID)), ChatMsg{Role: "system", Content: finalNudge}))
+		}
+	}
 	if err != nil {
 		return nil, nil, err
 	}
 	s.fixScript(ctx, w, &d)
-	if d.Tool != nil { // tools exhausted or disabled: never leave a bare TOOL line
+	s.remember(w, d.Memory)
+	if len(d.Tools) > 0 { // tools exhausted or disabled: never leave a bare TOOL line
 		d.Text = strings.TrimSpace(d.Text + "\n(Mình chưa lấy thêm được dữ liệu, nên không đưa số liệu chưa kiểm chứng.)")
 	}
 	if d.Secret != nil {
@@ -571,17 +598,20 @@ func (s *Service) stepCall(ctx context.Context, w ledger.Work, tc *toolCtx, prom
 	mk := func(extra ...ChatMsg) []ChatMsg {
 		return append(append(tc.inject(s.history(w.BotID, w.RequestID)), ChatMsg{Role: "user", Content: prompt}), extra...)
 	}
+	s.steer(w, tc)
 	d, err := s.call(ctx, w, mk())
-	for r := 0; err == nil && d.Tool != nil && r < 4 && s.Tools != nil; r++ {
+	for r := 0; err == nil && len(d.Tools) > 0 && r < 4 && s.Tools != nil; r++ {
 		s.publish("draft_end", map[string]string{"id": w.RequestID, "agentId": threadOf(w)})
-		s.runTool(ctx, w, tc, d.Tool.Name, d.Tool.Q+d.Tool.URL)
+		s.runTools(ctx, w, tc, callsOf(d.Tools))
+		s.steer(w, tc)
 		d, err = s.call(ctx, w, mk())
 	}
-	if err == nil && d.Tool != nil {
+	if err == nil && len(d.Tools) > 0 {
 		s.publish("draft_end", map[string]string{"id": w.RequestID, "agentId": threadOf(w)})
 		d, err = s.call(ctx, w, mk(ChatMsg{Role: "system", Content: finalNudge}))
 	}
-	d.Tool, d.Plan = nil, nil
+	s.remember(w, d.Memory)
+	d.Tools, d.Plan, d.Memory = nil, nil, ""
 	return d, err
 }
 
@@ -736,4 +766,18 @@ var codeOrURL = regexp.MustCompile("`[^`]*`|https?://\\S+|\"[^\"]*\"")
 
 func hasStrayEnglish(t string) bool {
 	return strayEnglish.MatchString(codeOrURL.ReplaceAllString(t, " "))
+}
+
+func callsOf(ts []toolReq) []toolCall {
+	out := make([]toolCall, 0, len(ts))
+	for _, t := range ts {
+		out = append(out, toolCall{t.Name, t.Q + t.URL})
+	}
+	return out
+}
+
+func (s *Service) remember(w ledger.Work, text string) {
+	if text != "" && s.Mem.Remember(w.BotID, text) {
+		s.record(w.BotID, w.RequestID, "step", "Đã ghi nhớ: "+clean(text, 120))
+	}
 }
