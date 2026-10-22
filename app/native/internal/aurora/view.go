@@ -60,6 +60,7 @@ type Agent struct {
 	Status  string    `json:"status"` // idle|working|waiting|done|error
 	Task    string    `json:"task"`   // OpenMuse-style TaskStatus of the latest task
 	Snip    string    `json:"snip"`
+	Doing   string    `json:"doing,omitempty"` // live activity while working ("Đang tìm nguồn…")
 	Pinned  bool      `json:"pin"`
 	Kind    string    `json:"kind,omitempty"` // ""|group
 	Members []string  `json:"members,omitempty"`
@@ -229,6 +230,7 @@ func (v *view) agent(b ledger.Bot, prefs botPrefs) *Agent {
 						a.Snip = "Bước " + itoa(i+1) + "/" + itoa(len(w.Direct.Plan)) + ": " + st.Title
 					}
 				}
+				a.Doing = doingOf(w.Direct)
 			}
 			return a
 		}
@@ -404,4 +406,22 @@ func (v *view) brief() *Brief {
 		src = "fallback"
 	}
 	return &Brief{Text: visibleText(best.Reply), Items: append([]string{}, best.Direct.Items...), Generated: ts(best.Direct.FinishedAt), Source: src}
+}
+
+// doingVerb is the live, human activity shown under a working bot's name.
+var doingVerb = map[string]string{"gold_price": "Đang tra giá vàng…", "web_search": "Đang tìm nguồn…", "web_fetch": "Đang đọc trang…"}
+
+func doingOf(r *ledger.DirectRun) string {
+	for i := len(r.Tools) - 1; i >= 0; i-- {
+		if r.Tools[i].Status == "running" {
+			if v, ok := doingVerb[r.Tools[i].Name]; ok {
+				return v
+			}
+			return "Đang dùng công cụ…"
+		}
+	}
+	if len(r.Tools) > 0 {
+		return "Đang viết câu trả lời…"
+	}
+	return "Đang suy nghĩ…"
 }
