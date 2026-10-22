@@ -80,10 +80,15 @@ function renderList(){
  const q=filter.trim().toLowerCase(),match=a=>!q||a.name.toLowerCase().includes(q)||(a.snip||"").toLowerCase().includes(q);
  const pinned=all.filter(a=>a.pin&&match(a)),rest=all.filter(a=>!a.pin&&match(a));
  const fe=$("#featured");fe.innerHTML="";fe.classList.toggle("hidden",!pinned.length);
- pinned.forEach(a=>{const b=el("button","feat");b.dataset.id=a.id;b.setAttribute("aria-label",a.name);const av=el("span","feat-av");av.append(avatarOf(a,92));const bd=badge(a);if(bd)av.append(bd);if(unread(a))av.append(el("i","dot"));b.append(av,el("span","feat-name",a.name));b.onclick=()=>openThread(a.id);fe.append(b)});
+ pinned.forEach(a=>{const b=el("button","feat");b.dataset.id=a.id;b.setAttribute("aria-label",a.name);const av=el("span","feat-av");av.append(avatarOf(a,92));const bd=badge(a);if(bd)av.append(bd);const nm=el("span","feat-name");nm.append(el("span",0,a.name));if(unread(a)){nm.append(el("i","dot"));b.setAttribute("aria-label",a.name+", chưa đọc")}b.append(av,nm);b.onclick=()=>{if(performance.now()<suppress)return;openThread(a.id)};longPress(b,a);fe.append(b)});
  renderBrief(q);
  const ul=$("#rows");ul.innerHTML="";
- rest.forEach(a=>{
+ const hid=new Set(store.get("neko-aurora-hidden",[])),secs=store.get("neko-aurora-sections",{list:[],of:{}});
+ const visibleRest=rest.filter(a=>q||!hid.has(a.id)||showHidden),ordered=visibleRest.filter(a=>!secs.of[a.id]||!secs.list.some(x=>x.id===secs.of[a.id]));
+ secs.list.forEach(sc=>{const its=visibleRest.filter(a=>secs.of[a.id]===sc.id);if(its.length)ordered.push({hdr:sc},...its)});
+ const hiddenN=rest.filter(a=>hid.has(a.id)).length;
+ ordered.forEach(a=>{
+  if(a.hdr){const h=el("li","sec-h");h.setAttribute("role","heading");h.setAttribute("aria-level","2");h.append(el("span",0,a.hdr.name));ul.append(h);return}
   const li=el("li","row");li.dataset.id=a.id;
   if(!isGroup(a)){const acts=el("div","actions"),pin=el("button","pin",a.pin?"Bỏ ghim":"Ghim"),ar=el("button","arch","Lưu trữ");acts.append(pin,ar);li.append(acts);
    pin.onclick=e=>{e.stopPropagation();suppress=performance.now()+600;api(`/agents/${a.id}`,{pin:!a.pin}).then(upsert).then(()=>{buzz("tap");renderList()}).catch(()=>toast("Không ghim được"))};
@@ -94,9 +99,61 @@ function renderList(){
   const sn=el("div","snip"+(waiting(a)?" wait":"")+(live?" dots":"")+(a.status==="error"?" err":"")+(un?" un":""),statusLine(a));
   tx.append(h,sn);inn.append(tx);if(un)inn.append(el("i","dot"));li.append(inn);ul.append(li);
   inn.onclick=()=>{if(performance.now()<suppress)return;if(li.dataset.open){closeRow(li);return}openThread(a.id)};inn.onkeydown=e=>{if(e.key==="Enter")openThread(a.id)};
-  if(!isGroup(a))swipeRow(li,inn)});
+  if(hid.has(a.id))li.classList.add("is-hidden");
+  if(!isGroup(a))swipeRow(li,inn);longPress(inn,a)});
+ if(hiddenN&&!q){const li=el("li","hid-toggle"),b=el("button","text-btn",showHidden?"Ẩn lại "+hiddenN+" bot":"Đã ẩn · "+hiddenN);b.onclick=()=>{showHidden=!showHidden;buzz("tap");renderList()};li.append(b);ul.append(li)}
  const em=$("#empty");em.classList.toggle("hidden",!!(pinned.length||rest.length));em.textContent=q?"Không tìm thấy “"+filter.trim()+"”.":"Chưa có bot nào. Bấm + để tạo.";
  updatePill()}
+// ---------- long-press context menu (iOS-style: blurred backdrop, preview, menu + stacked submenu) ----------
+let showHidden=false,ctxOpen=null;
+function longPress(node,a){let t=null,x0=0,y0=0;const clear=()=>{clearTimeout(t);t=null;node.classList.remove("pressing")};
+ node.addEventListener("touchstart",e=>{if(e.touches.length>1)return;const p=e.touches[0];x0=p.clientX;y0=p.clientY;node.classList.add("pressing");t=setTimeout(()=>{t=null;node.classList.remove("pressing");suppress=performance.now()+700;openCtx(a,node)},480)},{passive:true});
+ node.addEventListener("touchmove",e=>{if(!t)return;const p=e.touches[0];if(Math.abs(p.clientX-x0)>8||Math.abs(p.clientY-y0)>8)clear()},{passive:true});
+ node.addEventListener("touchend",clear);node.addEventListener("touchcancel",clear);
+ node.addEventListener("contextmenu",e=>{e.preventDefault();if(!ctxOpen){suppress=performance.now()+700;openCtx(a,node)}})}
+const reduceMotion=()=>matchMedia("(prefers-reduced-motion: reduce)").matches;
+function ctxItem(icon,label,fn,opt={}){const b=el("button","ctx-i"+(opt.danger?" danger":""));b.setAttribute("role","menuitem");if(opt.id)b.id=opt.id;b.append(I(icon,22),el("span",0,label));if(opt.chev)b.append(el("span","ctx-chev"),I(opt.chev,18));b.onclick=e=>{e.stopPropagation();if(performance.now()<suppress)return;fn(b)};return b}
+function closeCtx(){const c=ctxOpen;if(!c)return;ctxOpen=null;c.classList.add("out");document.removeEventListener("keydown",ctxKey);setTimeout(()=>c.remove(),reduceMotion()?0:220);c._from&&c._from.focus&&c._from.focus({preventScroll:true})}
+const ctxKey=e=>{if(e.key==="Escape"){e.preventDefault();const sub=ctxOpen&&ctxOpen.querySelector(".ctx-sub");if(sub)sub._close();else closeCtx()}};
+function openCtx(a,from){if(ctxOpen||sheetOpen)return;closeMenu();if(openRow)closeRow(openRow);buzz("tap");
+ const o=el("div","ctx");o._from=from;o.setAttribute("role","dialog");o.setAttribute("aria-label","Tuỳ chọn cho "+a.name);
+ o.addEventListener("click",e=>{if(performance.now()<suppress){e.stopPropagation();e.preventDefault();const f=o.querySelector(".ctx-menu .ctx-i");f&&f.focus({preventScroll:true})}},true); // the lift that ends the long-press is not a tap
+ const bg=el("div","ctx-bg");bg.onclick=closeCtx;o.append(bg);
+ const card=el("div","ctx-card");const hd=el("div","ctx-h");hd.append(avatarOf(a,28),el("b",0,a.name));const bub=el("div","ctx-bub");
+ const lastText=()=>{const L=(S.msgs[a.id]||[]).filter(m=>m.role==="agent"&&m.text);return L.length?L[L.length-1].text:statusLine(a)};
+ let place=()=>{};const fill=()=>{bub.replaceChildren();md(bub,lastText().slice(0,600));place()};fill();if(!S.msgs[a.id])loadMsgs(a.id).then(()=>ctxOpen===o&&fill()).catch(()=>{});
+ card.append(hd,bub);card.onclick=()=>{closeCtx();openThread(a.id)};
+ const menu=el("div","ctx-menu glass");menu.setAttribute("role","menu");
+ const un=unread(a),hid=store.get("neko-aurora-hidden",[]),isHid=hid.includes(a.id);
+ menu.append(
+  ctxItem("message-square-dot",un?"Đánh dấu đã đọc":"Đánh dấu chưa đọc",()=>{if(un)markSeen(a.id);else{if(!seen)seen={};seen[a.id]=T(a.t)-1;store.set("neko-aurora-seen",seen)}closeCtx();renderList();buzz("confirm")},{id:"ctxUnread"}),
+  isGroup(a)?null:ctxItem("pin",a.pin?"Bỏ ghim":"Ghim",()=>{closeCtx();api(`/agents/${a.id}`,{pin:!a.pin}).then(x=>{upsert(x);renderList();buzz("confirm");toast(x.pin?"Đã ghim":"Đã bỏ ghim")}).catch(()=>toast("Không ghim được"))},{id:"ctxPin"}),
+  ctxItem("folder-plus","Mục mới",b=>newSection(menu,a),{id:"ctxSection"}),
+  ctxItem("share","Chia sẻ",()=>{closeCtx();const url=location.origin+"/app/#"+a.id;if(navigator.share)navigator.share({title:a.name,text:a.desc||a.name,url}).catch(()=>{});else navigator.clipboard&&navigator.clipboard.writeText(url).then(()=>toast("Đã sao chép liên kết"))},{id:"ctxShare"}),
+  ctxItem("eye-off",isHid?"Bỏ ẩn":"Ẩn",()=>{const h=new Set(store.get("neko-aurora-hidden",[]));isHid?h.delete(a.id):h.add(a.id);store.set("neko-aurora-hidden",[...h]);closeCtx();renderList();buzz("soft");toast(isHid?"Đã bỏ ẩn "+a.name:"Đã ẩn "+a.name)},{id:"ctxHide",danger:!isHid}),
+  ctxItem("ellipsis","Thêm",()=>openSub(o,menu,a),{id:"ctxMore",chev:"chevron-right"}));[...menu.childNodes].forEach(n=>{if(!n.tagName)n.remove()});
+ o.append(card,menu);document.body.append(o);ctxOpen=o;document.addEventListener("keydown",ctxKey);
+ // place: preview hugs the pressed row, the menu sits under it; both stay on screen
+ const r=from.getBoundingClientRect(),st=parseFloat(getComputedStyle(document.documentElement).getPropertyValue("--st"))||0;
+ place=()=>{const vh=innerHeight,ch=card.offsetHeight,mh=menu.offsetHeight,gap=12,top=Math.max(st+12,Math.min(r.top-8,vh-ch-mh-gap-24));card.style.top=top+"px";menu.style.top=(top+ch+gap)+"px"};place();o.style.setProperty("--ox",(r.left+r.width/2)+"px");
+ requestAnimationFrame(()=>o.classList.add("in"));setTimeout(()=>(menu.querySelector(".ctx-i")||menu).focus({preventScroll:true}),60)}
+function openSub(o,menu,a){if(menu.querySelector(".ctx-sub"))return;buzz("tap");const more=menu.querySelector("#ctxMore");const sub=el("div","ctx-sub glass");sub.setAttribute("role","menu");
+ const head=ctxItem("ellipsis","Thêm",()=>sub._close(),{chev:"chevron-down"});head.classList.add("ctx-subh");sub.append(head,el("div","ctx-sep"));
+ sub.append(ctxItem("copy","Sao chép ID",()=>{closeCtx();(navigator.clipboard?navigator.clipboard.writeText(a.id):Promise.reject()).then(()=>toast("Đã sao chép ID")).catch(()=>toast(a.id))},{id:"ctxCopy"}));
+ if(!isGroup(a))sub.append(ctxItem("copy-plus","Nhân bản",()=>{closeCtx();api("/agents",{name:(a.name+" (bản sao)").slice(0,40),desc:a.desc||"",av:a.av}).then(x=>{upsert(x);markSeen(x.id);renderList();buzz("confirm");toast("Đã nhân bản "+a.name)}).catch(e=>toast(e.status===409?"Đã đạt giới hạn 32 bot":"Không nhân bản được"))},{id:"ctxDup"}));
+ const del=ctxItem("trash-2","Lưu trữ",b=>{if(!b.dataset.arm){b.dataset.arm=1;b.querySelector("span").textContent="Chạm lần nữa để lưu trữ";buzz("soft");return}closeCtx();api(`/agents/${a.id}`,{archived:true}).then(()=>{S.agents=S.agents.filter(x=>x.id!==a.id);renderList();toast("Đã lưu trữ "+a.name)}).catch(()=>toast("Không lưu trữ được"))},{id:"ctxArchive",danger:true});
+ if(!isGroup(a))sub.append(del);
+ sub._close=()=>{menu.classList.remove("dim");sub.classList.add("out");setTimeout(()=>sub.remove(),reduceMotion()?0:200);more.focus({preventScroll:true})};
+ const mr=more.getBoundingClientRect(),m0=menu.getBoundingClientRect();sub.style.top=(mr.top-m0.top-8)+"px";menu.append(sub);menu.classList.add("dim");
+ // keep the stacked submenu on screen
+ const over=m0.top+parseFloat(sub.style.top)+sub.offsetHeight-(innerHeight-24);if(over>0){menu.style.top=(parseFloat(menu.style.top)-over)+"px";const c=o.querySelector(".ctx-card");c.style.top=(parseFloat(c.style.top)-over)+"px"}
+ requestAnimationFrame(()=>sub.classList.add("in"));setTimeout(()=>sub.querySelector("#ctxCopy").focus({preventScroll:true}),40)}
+function newSection(menu,a){const f=el("form","ctx-form");const i=el("input");i.placeholder="Tên mục, ví dụ Công việc";i.maxLength=24;i.setAttribute("aria-label","Tên mục mới");const go=el("button","pill small","Tạo");go.type="submit";f.append(i,go);
+ f.onsubmit=e=>{e.preventDefault();const n=i.value.trim();if(!n)return;const sc=store.get("neko-aurora-sections",{list:[],of:{}});let x=sc.list.find(z=>z.name.toLowerCase()===n.toLowerCase());if(!x){x={id:"s"+Date.now().toString(36),name:n};sc.list.push(x)}sc.of[a.id]=x.id;store.set("neko-aurora-sections",sc);closeCtx();renderList();buzz("confirm");toast("Đã chuyển "+a.name+" vào "+n)};
+ const sc=store.get("neko-aurora-sections",{list:[],of:{}});menu.replaceChildren(f);
+ sc.list.forEach(x=>menu.append(ctxItem("folder",x.name,()=>{const s2=store.get("neko-aurora-sections",{list:[],of:{}});s2.of[a.id]=x.id;store.set("neko-aurora-sections",s2);closeCtx();renderList();toast("Đã chuyển vào "+x.name)})));
+ if(sc.of[a.id])menu.append(ctxItem("x","Bỏ khỏi mục",()=>{const s2=store.get("neko-aurora-sections",{list:[],of:{}});delete s2.of[a.id];s2.list=s2.list.filter(x=>Object.values(s2.of).includes(x.id));store.set("neko-aurora-sections",s2);closeCtx();renderList()}));
+ setTimeout(()=>i.focus(),30)}
 // morning brief: rendered as the first list row; tap to expand (full text, approvals waiting, refresh)
 let briefOpen=false;
 function renderBrief(q){const br=$("#brief");br.innerHTML="";br.classList.toggle("hidden",!!q);if(q)return;const b=S.brief;
@@ -149,33 +206,9 @@ function approvalCard(m){const ap=m.approval,c=el("div","approval"+(ap.state!=="
 // "Nguồn" footer afterwards (states/dedup after CopilotKit/openmuse search-tool-card.tsx, MIT)
 const srcHost=u=>{try{return new URL(u).hostname.replace(/^www\./,"")}catch{return u}};
 function uniqSources(list){const seen=new Map();(list||[]).forEach((x,i)=>{if(!seen.has(x.url))seen.set(x.url,{...x,n:i+1})});return[...seen.values()]}
-// ---------- markdown (safe: builds DOM nodes, never innerHTML) ----------
-// headings, **bold**, *italic*, `code`, lists, tables, quotes, links, [n] citations
-function mdInline(node,text,src){const re=/(\*\*[^*\n]+\*\*|__[^_\n]+__|`[^`\n]+`|\[[^\]\n]+\]\(https?:\/\/[^\s)]+\)|https?:\/\/[^\s<>()]+[^\s<>().,;:!?]|\[\d{1,2}\](?:\s*,?\s*\[\d{1,2}\])*|(?<![\w*])\*[^*\n]+\*(?![\w*])|(?<![\w_])_[^_\n]+_(?![\w_]))/g;let last=0,m;
- const link=(t,u)=>{const a=el("a","lnk",t);a.href=u;a.target="_blank";a.rel="noopener noreferrer";return a};
- while((m=re.exec(text))){if(m.index>last)node.append(text.slice(last,m.index));const t=m[0];
-  if(t.startsWith("**")||t.startsWith("__")){const b=el("strong");mdInline(b,t.slice(2,-2),src);node.append(b)}
-  else if(t[0]==="`")node.append(el("code",0,t.slice(1,-1)))
-  else if(/^\[\d/.test(t)&&!t.includes("](")){t.match(/\d{1,2}/g).forEach(n=>{const x=src&&src[+n-1];if(!x){node.append("["+n+"]");return}const c=link(n,x.url);c.className="cite";c.setAttribute("aria-label","Nguồn "+n+": "+srcHost(x.url));node.append(c)})}
-  else if(t[0]==="["){const k=t.indexOf("](");node.append(link(t.slice(1,k),t.slice(k+2,-1)))}
-  else if(t.startsWith("http"))node.append(link(srcHost(t),t))
-  else{const e=el("em");mdInline(e,t.slice(1,-1),src);node.append(e)}
-  last=m.index+t.length}
- if(last<text.length)node.append(text.slice(last))}
-function md(node,text,src){node.classList.add("md");const lines=text.replace(/\r/g,"").split("\n");let i=0;
- const isRow=l=>/^\s*\|.*\|\s*$/.test(l),cells=l=>l.trim().replace(/^\||\|$/g,"").split("|").map(c=>c.trim());
- while(i<lines.length){const l=lines[i];
-  if(!l.trim()){i++;continue}
-  let h=l.match(/^\s*(#{1,4})\s+(.*)$/);if(h){const e=el(h[1].length<=2?"h3":"h4");mdInline(e,h[2].replace(/\s*#+\s*$/,""),src);node.append(e);i++;continue}
-  if(/^\s*([-*_])\s*\1\s*\1[\s\-*_]*$/.test(l)){node.append(el("hr"));i++;continue}
-  if(isRow(l)&&i+1<lines.length&&/^\s*\|?\s*:?-{2,}/.test(lines[i+1])){const wrap=el("div","tbl"),t=el("table"),th=el("thead"),tr=el("tr");cells(l).forEach(c=>{const x=el("th");mdInline(x,c,src);tr.append(x)});th.append(tr);t.append(th);const tb=el("tbody");i+=2;
-   while(i<lines.length&&isRow(lines[i])){const r=el("tr");cells(lines[i]).forEach(c=>{const x=el("td");mdInline(x,c,src);r.append(x)});tb.append(r);i++}t.append(tb);wrap.append(t);node.append(wrap);continue}
-  if(/^\s*>\s?/.test(l)){const q=el("blockquote");const buf=[];while(i<lines.length&&/^\s*>\s?/.test(lines[i]))buf.push(lines[i++].replace(/^\s*>\s?/,""));mdInline(q,buf.join(" "),src);node.append(q);continue}
-  const li=/^\s*(?:[-*•+]|(\d{1,2})[.)])\s+(.*)$/;let m=l.match(li);
-  if(m){const ol=!!m[1],list=el(ol?"ol":"ul");if(ol&&+m[1]>1)list.start=+m[1];while(i<lines.length&&(m=lines[i].match(li))&&!!m[1]===ol){const it=el("li");mdInline(it,m[2],src);
-     while(i+1<lines.length&&/^\s{2,}\S/.test(lines[i+1])&&!li.test(lines[i+1])){it.append(" ");mdInline(it,lines[++i].trim(),src)}list.append(it);i++}node.append(list);continue}
-  const p=el("p"),buf=[l.trim()];i++;while(i<lines.length&&lines[i].trim()&&!li.test(lines[i])&&!/^\s*(#{1,4}\s|>|\|)/.test(lines[i]))buf.push(lines[i++].trim());
-  buf.forEach((b,k)=>{if(k)p.append(el("br"));mdInline(p,b,src)});node.append(p)}}
+// markdown lives in md.js (AURORA_MD); drafts render with streaming:true
+const md=(node,text,src,streaming)=>AURORA_MD.render(node,text,src,{streaming});
+document.addEventListener("aurora-copied",()=>{buzz("confirm");toast("Đã sao chép")});
 function sourceList(m){const w=el("details","sources");const sm=el("summary");const u=uniqSources(m.sources);const ok=u.length>0;sm.append(el("span",0,ok?`Nguồn · ${u.length}`:"Không lấy được dữ liệu"),I("chevron-down",14));w.append(sm);
  (m.tools||[]).forEach(t=>{const r=el("p","tool-line"+(t.status==="failed"?" bad":""),(t.summary||t.name)+(t.ms?" · "+(t.ms/1000).toFixed(1).replace(".",",")+"s":""));w.append(r)});const ol=el("ol");
  u.forEach(x=>{const li=el("li");const l=el("a");l.href=x.url;l.target="_blank";l.rel="noopener noreferrer";l.append(el("b",0,"["+x.n+"] "+(x.title||srcHost(x.url))),el("small",0,srcHost(x.url)+(x.at?" · "+new Date(x.at).toLocaleTimeString("vi-VN",{hour:"2-digit",minute:"2-digit"}):"")));li.append(l);ol.append(li)});w.append(ol);return w}
@@ -193,7 +226,7 @@ function renderThread(){const a=cur;if(!a)return;$("#threadState").textContent=s
   if(m.approval)box.append(approvalCard(m));if(m.secret)box.append(secretCard(m))});
  keepSec.forEach(([id,v])=>{const i=box.querySelector(`.secret[data-id="${id}"] input[data-secret]`);if(i)i.value=v});
  keepEdit.forEach(([id,v,sj])=>{const c=box.querySelector(`.approval[data-id="${id}"]`);if(c){const t=c.querySelector(".ap-body");if(t)t.value=v;const s2=c.querySelector(".ap-subject");if(s2&&sj!=null)s2.value=sj}});
- Object.entries(S.drafts).forEach(([id,d])=>{if(d.agentId===a.id&&shown(d)){speaker(box,{role:"agent",from:d.from},last);const b=el("div","msg bot draft");md(b,visible(d.text),srcOf(id));b.id="d_"+id;box.append(b)}});
+ Object.entries(S.drafts).forEach(([id,d])=>{if(d.agentId===a.id&&shown(d)){speaker(box,{role:"agent",from:d.from},last);const b=el("div","msg bot draft");md(b,visible(d.text),srcOf(id),true);b.id="d_"+id;box.append(b)}});
  if(a.status==="working"&&!Object.values(S.drafts).some(d=>d.agentId===a.id&&shown(d)))box.append(turnStatus(a,L));
  setSendMode();
  if(pin||justSent)requestAnimationFrame(()=>{box.scrollTop=box.scrollHeight;justSent=false;syncJump()})}
@@ -209,7 +242,7 @@ const visible=t=>{const i=t.search(/(^|\n)\s*(APPROVAL|PLAN|CHOICES|TOOL|SECRET)
 // A draft is painted only once it has a letter or digit: a lone "-" or "**"
 // at the start of a streamed step must not flash as its own bubble.
 function shown(d){return/[\p{L}\p{N}]/u.test(visible(d.text||""))}
-function paintDraft(id){const n=document.getElementById("d_"+id);if(!n){if(shown(S.drafts[id]))renderThread();return}const box=$("#messages"),pin=atBottom(box);n.replaceChildren();md(n,visible(S.drafts[id].text),srcOf(id));if(pin)box.scrollTop=box.scrollHeight;syncJump()}
+function paintDraft(id){const n=document.getElementById("d_"+id);if(!n){if(shown(S.drafts[id]))renderThread();return}const box=$("#messages"),pin=atBottom(box);n.replaceChildren();md(n,visible(S.drafts[id].text),srcOf(id),true);if(pin)box.scrollTop=box.scrollHeight;syncJump()}
 async function decide(m,v,bs,extra){if(deciding.has(m.id))return;deciding.add(m.id);bs.querySelectorAll("button").forEach(b=>b.disabled=true);
  try{await api(`/approvals/${m.id}`,{decision:v,...(extra||{})});buzz(v==="approved"?"confirm":"soft");editing.delete(m.id)}catch(e){if(e.status!==409){deciding.delete(m.id);toast("Không ghi nhận được, thử lại");bs.querySelectorAll("button").forEach(b=>b.disabled=false)}}}
 // send ↔ stop in the same spot while the agent works (stopping holds queued follow-ups)

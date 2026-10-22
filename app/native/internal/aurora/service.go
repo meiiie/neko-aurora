@@ -484,7 +484,7 @@ func (s *Service) routes() {
 		var in struct {
 			Name  string `json:"name"`
 			Desc  string `json:"desc"`
-			Face  Face   `json:"av"`
+			Face  *Face  `json:"av"`
 			Nonce string `json:"clientNonce"`
 		}
 		if err := decode(r, &in); err != nil {
@@ -492,7 +492,11 @@ func (s *Service) routes() {
 			return
 		}
 		name, desc := clean(in.Name, 28), clean(in.Desc, 240)
-		av, okAv := avatarOf(in.Face)
+		var av Avatar
+		okAv := true
+		if in.Face != nil { // no av: keep the stable per-id default look
+			av, okAv = avatarOf(*in.Face)
+		}
 		if name == "" || !okAv {
 			fail(w, ErrInvalid)
 			return
@@ -506,7 +510,9 @@ func (s *Service) routes() {
 			fail(w, err)
 			return
 		}
-		_ = s.Prefs.SetBot(b.ID, func(p *botPrefs) { p.Avatar = &av })
+		if in.Face != nil {
+			_ = s.Prefs.SetBot(b.ID, func(p *botPrefs) { p.Avatar = &av })
+		}
 		s.resync()
 		writeJSON(w, 201, s.view().agent(b, s.Prefs.Bot(b.ID)))
 	})
