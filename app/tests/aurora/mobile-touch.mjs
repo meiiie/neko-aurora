@@ -18,39 +18,88 @@ for(const w of (process.env.WIDTHS||'360,390,430').split(',').map(Number)){let p
  const srv=path=>p.evaluate(async q=>(await fetch('/app/api'+q,{cache:'no-store'})).json(),path);
  const overflow=()=>p.evaluate(()=>document.documentElement.scrollWidth>innerWidth||document.body.scrollWidth>innerWidth);
  const small=()=>p.evaluate(()=>[...document.querySelectorAll('button,input,textarea,[role=button]')].filter(e=>{const r=e.getBoundingClientRect();const s=getComputedStyle(e);return r.width&&r.height&&s.visibility!=='hidden'&&r.bottom>0&&r.top<innerHeight&&r.right>0&&r.left<innerWidth&&(r.width<43.5||r.height<43.5)}).map(e=>(e.id||e.className||e.tagName)+':'+e.getBoundingClientRect().width.toFixed(1)+'x'+e.getBoundingClientRect().height.toFixed(1)));
- const rowOf=name=>p.evaluate(n=>{const r=[...document.querySelectorAll('.row')].find(e=>e.querySelector('.rowh b').textContent===n);if(!r)return null;r.scrollIntoView({block:'center'});const b=r.querySelector('.rowin').getBoundingClientRect();return[b.x+b.width/2,b.y+b.height/2]},name);
+ const rowOf=name=>p.evaluate(n=>{const r=[...document.querySelectorAll('.row')].find(e=>e.querySelector('.rowh b').textContent===n);const f=[...document.querySelectorAll('.feat')].find(e=>e.getAttribute('aria-label')===n);if(!r&&!f)return null;(r||f).scrollIntoView({block:'center'});const b=(r?r.querySelector('.rowin'):f).getBoundingClientRect();return[b.x+b.width/2,b.y+b.height/2]},name);
  ok(w,'loaded from server',(await srv('/state')).agents.length>0);
  ok(w,'no-h-overflow list',!(await overflow()));let sm=await small();ok(w,'touch>=44 list',!sm.length,sm.join(','));
  await p.screenshot({path:`${O}${w}-1-list.png`});
- // notifications: permission granted, bell → subscribe or in-app fallback
- await tap('#bellBtn');await sleep(1500);const bell=await p.$eval('#bellBtn',e=>e.classList.contains('on'));const toastTxt=await p.$eval('#toast',e=>e.textContent);
- ok(w,'bell enables notifications (push or fallback)',bell,toastTxt);
- // creator
- for(let i=0;i<6;i++){await tap('#newBtn');await sleep(15)}
- await sleep(400);ok(w,'sheet opens once after 6 fast taps',await p.$eval('#sheet',e=>!e.classList.contains('closed')&&!e.classList.contains('hidden')));
- for(let i=0;i<12;i++){await tap('#surpriseBtn');await sleep(10)}
+ // settings sheet: notifications toggle (push or in-app fallback), haptics toggle, connectors
+ await tap('#meBtn');await sleep(500);ok(w,'avatar opens settings sheet',await p.$eval('#settings',e=>!e.classList.contains('hidden')&&!e.classList.contains('closed')));
+ ok(w,'no-h-overflow settings',!(await overflow()));sm=await small();ok(w,'touch>=44 settings',!sm.length,sm.join(','));
+ await p.screenshot({path:`${O}${w}-2a-settings.png`});
+ await tap('#notifyCell .switch');await sleep(1500);await p.$eval('#notifyCell',e=>e.scrollIntoView({block:'center'}));const toastTxt=await p.$eval('#toast',e=>e.textContent);
+ ok(w,'notifications toggle enables (push or fallback)',await p.$eval('#notifyCell .switch',e=>e.getAttribute('aria-checked')==='true'),toastTxt);
+ const h0=await p.$eval('#hapticsCell .switch',e=>e.getAttribute('aria-checked'));await tap('#hapticsCell .switch');await sleep(100);const h1=await p.$eval('#hapticsCell .switch',e=>e.getAttribute('aria-checked'));await tap('#hapticsCell .switch');await sleep(100);
+ ok(w,'haptics toggle flips and persists',h0!==h1&&await p.evaluate(()=>localStorage.getItem('neko-aurora-haptics'))==='true');
+ await p.$eval('#openConnectors',e=>e.scrollIntoView({block:'center'}));await sleep(80);await tap('#openConnectors');await sleep(700);
+ ok(w,'settings → connectors sheet',await p.$eval('#connectors',e=>!e.classList.contains('hidden')&&!e.classList.contains('closed'))&&await p.$eval('#settings',e=>e.classList.contains('hidden')));
+ const conn=await p.$$eval('.conn',l=>l.map(x=>[x.dataset.id,x.querySelector('.conn-btn').textContent,x.querySelector('.conn-btn').disabled]));
+ ok(w,'connectors: email+push real, others "Sắp có" disabled',conn.find(c=>c[0]==='email')[1]!=='Sắp có'&&conn.find(c=>c[0]==='push')[1]!=='Sắp có'&&conn.filter(c=>!['email','push'].includes(c[0])).every(c=>c[1]==='Sắp có'&&c[2]),conn.map(c=>c[0]+':'+c[1]).join(','));
+ sm=await small();ok(w,'touch>=44 connectors',!sm.length,sm.join(','));
+ await tap('.cat:nth-child(2)');await sleep(150);ok(w,'category chip filters connectors',(await p.$$('.conn')).length<conn.length);
+ await p.screenshot({path:`${O}${w}-2b-connectors.png`});await tap('#closeConnectors');await sleep(450);
+ // "+" popover → Create Bot sheet
+ await tap('#newBtn');await sleep(300);ok(w,'+ opens frosted popover',await p.$eval('#newMenu',e=>!e.classList.contains('hidden')&&getComputedStyle(e).backdropFilter.includes('blur')));
+ await p.screenshot({path:`${O}${w}-2c-popover.png`});
+ for(let i=0;i<6;i++){try{await tap('#menuBot')}catch{}await sleep(15)}
+ await sleep(400);ok(w,'Bot mới opens creator once after 6 fast taps',await p.$eval('#sheet',e=>!e.classList.contains('closed')&&!e.classList.contains('hidden'))&&await p.$eval('#newMenu',e=>e.classList.contains('hidden')));
+ ok(w,'13 shapes + 12 colours, Create disabled until named',(await p.$$('.shape')).length===13&&(await p.$$('.color')).length===12&&await p.$eval('#createBtn',e=>e.disabled));
  const pick=async(sel)=>{await p.$eval(sel,e=>e.scrollIntoView({block:'center'}));await sleep(60);await tap(sel)};
- await pick('.swatches .sw:nth-child(6)');await pick('.group:nth-child(2) .opt:nth-child(3)');await pick('.group:nth-child(3) .opt:nth-child(3)');await pick('.group:nth-child(4) .opt:nth-child(1)');
+ await pick('.shape:nth-child(6)');await pick('.color:nth-child(4)');
+ ok(w,'shape/colour picks update preview',await p.$eval('.shape:nth-child(6)',e=>e.getAttribute('aria-pressed')==='true')&&await p.$eval('.color:nth-child(4)',e=>e.getAttribute('aria-pressed')==='true'));
  await p.$eval('#sheetBody',e=>e.scrollTop=0);await sleep(150);
  ok(w,'no-h-overflow sheet',!(await overflow()));sm=await small();ok(w,'touch>=44 sheet',!sm.length,sm.join(','));
  await p.screenshot({path:`${O}${w}-2-creator.png`});
  const [gx,gy]=await box('#grip');await swipe(gx,gy,gx,gy+260,8,10);await sleep(450);
  ok(w,'drag grip down dismisses sheet',await p.$eval('#sheet',e=>e.classList.contains('hidden')));
- const name='Tester '+w;const n0=(await srv('/state')).agents.length;
- await tap('#newBtn');await sleep(400);await p.$eval('#agentName',(e,n)=>e.value=n,name);for(let i=0;i<5;i++){await tap('#createBtn');await sleep(10)}await sleep(800);
+ const RUN=String(Date.now()%100000);const name='Tester '+w+' '+RUN;const n0=(await srv('/state')).agents.length;
+ await tap('#newBtn');await sleep(250);await tap('#menuBot');await sleep(450);await pick('.shape:nth-child(6)');await pick('.color:nth-child(4)');await p.$eval('#sheetBody',e=>e.scrollTop=0);await sleep(100);await tap('#agentName');await p.keyboard.type(name);await sleep(50);
+ ok(w,'Create enabled once named',await p.$eval('#createBtn',e=>!e.disabled));
+ for(let i=0;i<5;i++){await tap('#createBtn');await sleep(10)}await sleep(800);
  const st1=await srv('/state');ok(w,'5 fast taps on Create → exactly 1 agent on server',st1.agents.length===n0+1&&st1.agents.filter(a=>a.name===name).length===1,`${n0}->${st1.agents.length}`);
+ const mine=st1.agents.find(a=>a.name===name);ok(w,'flat face persisted (shape 5, colour 3)',mine&&mine.av&&mine.av.shape===5&&mine.av.color===3,JSON.stringify(mine&&mine.av));
  // row swipe + archive a throwaway agent
- await p.evaluate(async n=>{await fetch('/app/api/agents',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({name:n,desc:'x',av:{shell:1,hat:'none',eyes:'none',extra:'none'}})})},'Trash '+w);await sleep(500);
- let rp=await rowOf('Trash '+w);await sleep(100);rp=await rowOf('Trash '+w);
+ await p.evaluate(async n=>{await fetch('/app/api/agents',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({name:n,desc:'x',av:{shape:1,color:2}})})},'Trash '+w+' '+RUN);await sleep(500);
+ let rp=await rowOf('Trash '+w+' '+RUN);await sleep(100);rp=await rowOf('Trash '+w+' '+RUN);
  await swipe(rp[0]+100,rp[1],rp[0]-120,rp[1],6,8);await sleep(350);
- const opened=await p.evaluate(n=>!![...document.querySelectorAll('.row')].find(e=>e.querySelector('.rowh b').textContent===n)?.dataset.open,'Trash '+w);
+ const opened=await p.evaluate(n=>!![...document.querySelectorAll('.row')].find(e=>e.querySelector('.rowh b').textContent===n)?.dataset.open,'Trash '+w+' '+RUN);
  ok(w,'row swipe reveals actions',opened);await p.screenshot({path:`${O}${w}-3-rowswipe.png`});
- const arch=await p.evaluate(n=>{const r=[...document.querySelectorAll('.row')].find(e=>e.querySelector('.rowh b').textContent===n);const b=r.querySelector('.arch').getBoundingClientRect();return[b.x+b.width/2,b.y+b.height/2]},'Trash '+w);
+ const arch=await p.evaluate(n=>{const r=[...document.querySelectorAll('.row')].find(e=>e.querySelector('.rowh b').textContent===n);const b=r.querySelector('.arch').getBoundingClientRect();return[b.x+b.width/2,b.y+b.height/2]},'Trash '+w+' '+RUN);
  for(let i=0;i<3;i++){await T.tap(arch[0],arch[1]);await sleep(10)}await sleep(700);
- ok(w,'archive via swipe persists server-side',!(await srv('/state')).agents.some(a=>a.name==='Trash '+w));
+ ok(w,'archive via swipe persists server-side',!(await srv('/state')).agents.some(a=>a.name==='Trash '+w+' '+RUN));
  ok(w,'thread not opened by swipe/archive',await p.$eval('#thread',e=>e.classList.contains('off')));
  for(let i=0;i<4;i++){await swipe(w/2,600,w/2+6,200,4,5);await swipe(w/2,200,w/2-6,600,4,5)}await sleep(300);
  ok(w,'vertical flicks do not open rows',await p.$$eval('.row',r=>r.every(e=>!e.dataset.open)));
+ // pin via swipe → featured row
+ rp=await rowOf(name);await sleep(80);rp=await rowOf(name);await swipe(rp[0]+100,rp[1],rp[0]-120,rp[1],6,8);await sleep(350);
+ const pinB=await p.evaluate(n=>{const r=[...document.querySelectorAll('.row')].find(e=>e.querySelector('.rowh b').textContent===n);const b=r.querySelector('.pin').getBoundingClientRect();return[b.x+b.width/2,b.y+b.height/2]},name);
+ await T.tap(pinB[0],pinB[1]);await sleep(600);await p.$eval('#listScroll',e=>e.scrollTop=0);await sleep(100);
+ ok(w,'pin moves bot to featured row',await p.$$eval('.feat .feat-name',(l,n)=>l.some(x=>x.textContent===n),name)&&(await srv('/state')).agents.find(a=>a.name===name).pin);
+ // unread: another bot replies while its thread is closed → dot + bold row
+ const other=(await srv('/state')).agents.find(a=>a.kind!=='group'&&a.name!==name&&!a.pin);
+ if(other){await p.evaluate(async id=>{await fetch('/app/api/agents/'+id+'/messages',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({text:'Chào nhé'})})},other.id);
+  let un=false;for(let i=0;i<(REAL?600:80);i++){un=await p.evaluate(id=>!!document.querySelector(`.row[data-id="${id}"] .dot`),other.id);if(un)break;await sleep(100)}
+  ok(w,'reply in a closed thread shows unread dot',un);await p.screenshot({path:`${O}${w}-1b-unread.png`})}
+ // bottom search bar filters
+ await tap('#search');await p.keyboard.type(name);await sleep(200);
+ ok(w,'bottom search filters rows',await p.$$eval('.row .rowh b,.feat .feat-name',(l,n)=>l.length>=1&&l.every(x=>x.textContent===n),name));
+ await p.$eval('#search',e=>{e.value='';e.dispatchEvent(new Event('input'))});await p.evaluate(()=>document.activeElement.blur());await sleep(200);
+ // new group chat: "Tới:" search, multi-select, Next → real group thread with fan-out
+ await tap('#newBtn');await sleep(250);await tap('#menuGroup');await sleep(500);
+ ok(w,'Tiếp disabled until 2 bots picked',await p.$eval('#groupNext',e=>e.disabled));
+ await tap('#groupSearch');await p.keyboard.type(name);await sleep(150);await tap('.pick-row');await sleep(80);
+ await p.$eval('#groupSearch',e=>{e.value='';e.dispatchEvent(new Event('input'))});await sleep(100);
+ await p.evaluate(n=>{const r=[...document.querySelectorAll('.pick-row')].find(x=>x.querySelector('b').textContent!==n&&x.getAttribute('aria-pressed')!=='true');r.scrollIntoView({block:'center'})},name);await sleep(80);
+ const sec=await p.evaluate(n=>{const r=[...document.querySelectorAll('.pick-row')].find(x=>x.querySelector('b').textContent!==n&&x.getAttribute('aria-pressed')!=='true');const b=r.getBoundingClientRect();return[b.x+b.width/2,b.y+b.height/2]},name);await T.tap(sec[0],sec[1]);await sleep(150);
+ ok(w,'2 chips in "Tới:" and Tiếp enabled',(await p.$$('.gchip')).length===2&&await p.$eval('#groupNext',e=>!e.disabled));
+ sm=await small();ok(w,'touch>=44 group sheet',!sm.length,sm.join(','));await p.screenshot({path:`${O}${w}-2d-group.png`});
+ const g0=(await srv('/state')).agents.filter(a=>a.kind==='group').length;for(let i=0;i<4;i++){try{await tap('#groupNext')}catch{}await sleep(10)}await sleep(1200);
+ const gs=(await srv('/state')).agents.filter(a=>a.kind==='group');ok(w,'4 fast taps on Tiếp → exactly 1 group',gs.length===g0+1,`${g0}->${gs.length}`);
+ ok(w,'group thread opens',await p.$eval('#thread',e=>!e.classList.contains('off'))&&await p.evaluate(()=>(__AURORA.current()||'').startsWith('channel-')));
+ await tap('#input');await p.keyboard.type('Chào cả nhóm, mỗi bạn giới thiệu một câu');await p.keyboard.press('Enter');
+ let gok=false;for(let i=0;i<(REAL?900:120);i++){gok=await p.evaluate(()=>{const L=__AURORA.state().msgs[__AURORA.current()]||[];return new Set(L.filter(m=>m.role==='agent'&&m.from&&m.text).map(m=>m.from)).size>=2});if(gok)break;await sleep(100)}
+ const spk=await p.$$eval('.speaker span',l=>l.map(x=>x.textContent));
+ ok(w,'both group members reply with speaker labels',gok&&spk.length>=2,spk.join(','));await sleep(300);await p.screenshot({path:`${O}${w}-2e-group-thread.png`});
+ await tap('#backBtn');await sleep(450);
  // thread + streaming AI reply + approval gate
  rp=await rowOf(name);await sleep(80);rp=await rowOf(name);await T.tap(rp[0],rp[1]);await sleep(450);
  ok(w,'tap row opens thread',await p.$eval('#thread',e=>!e.classList.contains('off')));

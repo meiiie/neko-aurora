@@ -23,56 +23,83 @@
 </head>
 <body>
 <div id="app">
-  <section class="screen" id="list" aria-label="Agents">
+  <section class="screen" id="list" aria-label="Bot">
     <header class="top">
-      <canvas class="me" id="meAvatar" width="16" height="16" aria-hidden="true"></canvas>
+      <button class="me" id="meBtn" aria-label="Cài đặt"><img src="/app/icon.svg" alt="" width="36" height="36"></button>
       <div class="spacer"></div>
-      <button class="icon-btn" id="themeBtn" aria-label="Đổi giao diện">◐</button>
-      <button class="icon-btn" id="bellBtn" aria-label="Bật thông báo">🔔</button>
-      <button class="icon-btn" id="searchBtn" aria-label="Tìm agent">⌕</button>
-      <button class="icon-btn primary" id="newBtn" aria-label="Tạo agent mới">+</button>
+      <button class="round" id="newBtn" aria-label="Tạo mới" aria-haspopup="menu"></button>
     </header>
     <div class="scroll" id="listScroll">
-      <h1>Agents</h1>
-      <p class="sub" id="summary"></p>
-      <input class="search hidden" id="search" type="search" placeholder="Tìm agent…" autocomplete="off">
+      <h1 class="list-title">Bot</h1>
+      <div class="featured" id="featured"></div>
       <article class="brief" id="brief"></article>
       <ul class="rows" id="rows"></ul>
+      <p class="empty hidden" id="empty"></p>
+    </div>
+    <button class="unread-pill hidden" id="unreadPill"></button>
+    <div class="dock">
+      <button class="round glass" id="appsBtn" aria-label="Kết nối ứng dụng"></button>
+      <label class="searchbar glass"><span id="searchIc"></span><input id="search" type="search" placeholder="Tìm bot, nhóm…" autocomplete="off" aria-label="Tìm"></label>
     </div>
   </section>
   <section class="screen thread off" id="thread" aria-label="Hội thoại">
-    <header class="top">
-      <button class="icon-btn" id="backBtn" aria-label="Quay lại">‹</button>
-      <canvas class="mini" id="threadAvatar" width="16" height="16" aria-hidden="true"></canvas>
+    <header class="top glass-bar">
+      <button class="icon-btn" id="backBtn" aria-label="Quay lại"></button>
+      <span class="face-slot" id="threadAvatar" aria-hidden="true"></span>
       <div class="title"><b id="threadName"></b><small id="threadState"></small></div>
-      <button class="icon-btn" id="activityBtn" aria-label="Xem agent đang làm gì">≡</button>
+      <button class="icon-btn" id="activityBtn" aria-label="Xem bot đang làm gì"></button>
     </header>
     <div class="scroll" id="messages"></div>
     <form class="composer" id="composer">
-      <textarea id="input" rows="1" placeholder="Nhắn cho agent…" enterkeyhint="send"></textarea>
-      <button type="button" class="mic" id="micBtn" aria-label="Nói để nhập">🎙</button>
-      <button class="send" aria-label="Gửi">↑</button>
+      <textarea id="input" rows="1" placeholder="Nhắn tin…" enterkeyhint="send"></textarea>
+      <button type="button" class="mic" id="micBtn" aria-label="Nói để nhập"></button>
+      <button class="send" aria-label="Gửi"></button>
     </form>
   </section>
   <div class="scrim hidden" id="scrim"></div>
-  <section class="sheet hidden" id="sheet" role="dialog" aria-label="Agent mới">
+  <div class="menu glass hidden" id="newMenu" role="menu">
+    <button role="menuitem" id="menuBot"><span class="mi" data-i="plus"></span>Bot mới</button>
+    <button role="menuitem" id="menuGroup"><span class="mi" data-i="users"></span>Nhóm chat mới</button>
+  </div>
+
+  <section class="sheet hidden" id="sheet" role="dialog" aria-label="Bot mới">
     <div class="grip" id="grip"></div>
-    <header class="sheet-top">
-      <button class="text-btn" id="cancelBtn">Hủy</button>
-      <b>Agent mới</b>
-      <button class="pill" id="createBtn">Tạo</button>
-    </header>
+    <header class="sheet-top"><button class="icon-btn close" id="cancelBtn" aria-label="Đóng"></button><b>Bot mới</b><span class="w44"></span></header>
     <div class="scroll sheet-body" id="sheetBody">
-      <div class="stage"><canvas id="preview" width="16" height="16"></canvas></div>
-      <input class="name" id="agentName" maxlength="28" value="Posting Buddy" aria-label="Tên agent">
-      <input class="desc" id="agentDesc" maxlength="80" value="Soạn bài theo giọng tôi. Không bao giờ tự đăng." aria-label="Mô tả">
-      <div id="pickers"></div>
-      <button class="surprise" id="surpriseBtn">⚄ Ngẫu nhiên</button>
+      <div class="stage" id="preview"></div>
+      <input class="field" id="agentName" maxlength="28" placeholder="Đặt tên cho bot" aria-label="Tên bot" autocomplete="off">
+      <input class="field sub-field" id="agentDesc" maxlength="80" placeholder="Bot này làm gì? (tuỳ chọn)" aria-label="Mô tả">
+      <h3 class="label">Hình dạng</h3><div class="shapes" id="shapes"></div>
+      <h3 class="label">Màu</h3><div class="colors" id="colors"></div>
     </div>
+    <div class="sheet-foot"><button class="cta" id="createBtn" disabled>Tạo bot</button></div>
   </section>
-  <aside class="sheet activity hidden" id="activity" aria-label="Hoạt động"><div class="grip"></div><header class="sheet-top"><span></span><b>Đang làm gì</b><button class="text-btn" id="closeActivity">Xong</button></header><ol class="scroll" id="log"></ol></aside>
+
+  <section class="sheet hidden" id="groupSheet" role="dialog" aria-label="Nhóm chat mới">
+    <div class="grip"></div>
+    <header class="sheet-top"><button class="icon-btn close" id="closeGroup" aria-label="Đóng"></button><b>Nhóm chat mới</b><button class="pill" id="groupNext" disabled>Tiếp</button></header>
+    <div class="to"><span>Tới:</span><div class="chips" id="groupChips"></div><input id="groupSearch" placeholder="Tìm bot" autocomplete="off" aria-label="Tìm bot"></div>
+    <input class="field group-name" id="groupName" maxlength="40" placeholder="Tên nhóm (tuỳ chọn)" aria-label="Tên nhóm">
+    <ul class="scroll pick" id="groupList"></ul>
+  </section>
+
+  <section class="sheet hidden" id="settings" role="dialog" aria-label="Cài đặt">
+    <div class="grip"></div>
+    <header class="sheet-top"><button class="icon-btn close" id="closeSettings" aria-label="Đóng"></button><b>Cài đặt</b><span class="w44"></span></header>
+    <div class="scroll grouped" id="settingsBody"></div>
+  </section>
+
+  <section class="sheet hidden" id="connectors" role="dialog" aria-label="Kết nối">
+    <div class="grip"></div>
+    <header class="sheet-top"><button class="icon-btn close" id="closeConnectors" aria-label="Đóng"></button><b>Kết nối</b><span class="count" id="connCount"></span></header>
+    <label class="searchbar inset"><span class="mi" data-i="search"></span><input id="connSearch" type="search" placeholder="Tìm kết nối" aria-label="Tìm kết nối"></label>
+    <div class="cats" id="connCats"></div>
+    <ul class="scroll conns" id="connList"></ul>
+  </section>
+
+  <aside class="sheet activity hidden" id="activity" aria-label="Hoạt động"><div class="grip"></div><header class="sheet-top"><span class="w44"></span><b>Đang làm gì</b><button class="text-btn" id="closeActivity">Xong</button></header><ol class="scroll" id="log"></ol></aside>
+  <aside class="sheet themes hidden" id="themes" aria-label="Giao diện"><div class="grip"></div><header class="sheet-top"><span class="w44"></span><b>Giao diện</b><button class="text-btn" id="closeThemes">Xong</button></header><div class="scroll" id="themeList"></div></aside>
   <section class="login hidden" id="login" aria-label="Đăng nhập chủ sở hữu"><form id="loginForm"><img id="loginMark" class="login-mark" src="/app/icon-192.png" width="72" height="72" alt="" aria-hidden="true"><h1>Neko Aurora</h1><p class="sub">Nhập mã chủ sở hữu để mở.</p><input id="loginCode" type="password" autocomplete="current-password" placeholder="Mã chủ sở hữu" aria-label="Mã chủ sở hữu"><button class="pill wide">Mở</button></form></section>
-  <aside class="sheet themes hidden" id="themes" aria-label="Giao diện"><div class="grip"></div><header class="sheet-top"><span></span><b>Giao diện</b><button class="text-btn" id="closeThemes">Xong</button></header><div class="scroll" id="themeList"></div></aside>
   <div class="toast" id="toast" role="status"></div>
 </div>
 </body>
