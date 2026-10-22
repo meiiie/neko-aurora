@@ -35,6 +35,8 @@ TOOL: {"name":"web_search","q":"<truy vấn>"} | {"name":"web_fetch","url":"http
 - Số liệu (giá, tỷ giá, ngày, phần trăm) chỉ được lấy từ KẾT QUẢ CÔNG CỤ, ghi nguồn dạng [1], [2]. Tuyệt đối không bịa hay ước đoán số; thiếu dữ liệu thì nói rõ thiếu. Khi đã có KẾT QUẢ CÔNG CỤ thì trả lời thẳng, không dùng PLAN.
 - Với email: kind là "email", dùng đúng địa chỉ Darren đưa; không lặp lại toàn văn thư ở phần trả lời.`
 
+var gluedDirective = regexp.MustCompile(`([^\s\n])[ \t]*((?:PLAN|CHOICES|APPROVAL|SECRET|TOOL):\s*[\[{])`)
+
 var directiveRe = regexp.MustCompile(`(?m)^\s*(PLAN|CHOICES|APPROVAL|SECRET|TOOL):\s*(.+?)\s*$`)
 
 type directives struct {
@@ -55,6 +57,9 @@ type toolReq struct {
 // ParseDirectives strips trailing PLAN/CHOICES/APPROVAL lines from model text.
 func ParseDirectives(text string) directives {
 	var d directives
+	// Models sometimes glue a directive onto the previous sentence
+	// ("…tại Việt Nam.TOOL: {…}"); put it back on its own line.
+	text = gluedDirective.ReplaceAllString(text, "$1\n$2")
 	// APPROVAL bodies may span lines; handle it first with the dedicated parser.
 	text, d.Approval = SplitApproval(text)
 	for _, m := range directiveRe.FindAllStringSubmatch(text, -1) {
@@ -401,6 +406,12 @@ func (s *Service) update(id string, fn func(*ledger.DirectRun)) {
 	s.sync()
 }
 
+// maxToolRounds bounds model-requested lookups per turn; multi-part research
+// (search each item, then compare) needs a few more than a single fact.
+const maxToolRounds = 5
+
+const finalNudge = "Đã hết lượt tra cứu cho lượt này. Viết NGAY câu trả lời cuối cùng chỉ từ KẾT QUẢ CÔNG CỤ ở trên, trích [n], nói rõ phần nào còn thiếu dữ liệu. Không viết dòng TOOL."
+
 func (s *Service) runTurn(ctx context.Context, w ledger.Work) (*Approval, []string, error) {
 	tc := &toolCtx{}
 	// Reply flow: short acknowledgement first, then the tool status line, then
@@ -412,7 +423,7 @@ func (s *Service) runTurn(ctx context.Context, w ledger.Work) (*Approval, []stri
 		}
 	}
 	d, err := s.call(ctx, w, tc.inject(s.history(w.BotID, w.RequestID)))
-	for round := 0; err == nil && d.Tool != nil && round < 3 && s.Tools != nil; round++ {
+	for round := 0; err == nil && d.Tool != nil && round < maxToolRounds && s.Tools != nil; round++ {
 		arg := d.Tool.Q + d.Tool.URL
 		s.publish("draft_end", map[string]string{"id": w.RequestID, "agentId": threadOf(w)})
 		if cur, _ := s.L.Get(w.RequestID); cur.Direct != nil && cur.Direct.Ack == "" {
@@ -420,6 +431,13 @@ func (s *Service) runTurn(ctx context.Context, w ledger.Work) (*Approval, []stri
 		}
 		s.runTool(ctx, w, tc, d.Tool.Name, arg)
 		d, err = s.call(ctx, w, tc.inject(s.history(w.BotID, w.RequestID)))
+	}
+	if err == nil && d.Tool != nil && len(tc.blocks) > 0 {
+		// Out of lookups but holding real results: write the answer from them
+		// instead of ending on a bare "no data" note (dogfood v16 compare task).
+		s.publish("draft_end", map[string]string{"id": w.RequestID, "agentId": threadOf(w)})
+		msgs := append(tc.inject(s.history(w.BotID, w.RequestID)), ChatMsg{Role: "system", Content: finalNudge})
+		d, err = s.call(ctx, w, msgs)
 	}
 	if err != nil {
 		return nil, nil, err

@@ -101,3 +101,36 @@ func TestRepeatedToolIsNotRefetched(t *testing.T) {
 		t.Fatalf("search hit %d times", hits)
 	}
 }
+
+func TestToolBudgetEndsWithAnswer(t *testing.T) {
+	loop := []string{}
+	for i := 0; i < maxToolRounds+1; i++ {
+		loop = append(loop, fmt.Sprintf("Tra tiếp.\nTOOL: {\"name\":\"web_search\",\"q\":\"giá gói %d\"}", i))
+	}
+	fa := scriptedAI(t, append(loop, "Bảng so sánh: gói A rẻ hơn [1].")...)
+	defer fa.Close()
+	search := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		fmt.Fprint(w, `<a class="result__a" href="//duckduckgo.com/l/?uddg=https%3A%2F%2Fexample.com%2Fa">Gói A</a><a class="result__snippet" href="#">Gói A 45.000đ</a>`)
+	}))
+	defer search.Close()
+	t.Setenv("ZAI_API_KEY", "k")
+	t.Setenv("AURORA_AI_BASE_URL", fa.URL)
+	svc, _ := newSvc(t)
+	k := tools.New()
+	k.Client, k.Search = search.Client(), search.URL
+	svc.Tools = k
+	srv := httptest.NewServer(svc)
+	defer srv.Close()
+	bot := firstBot(svc)
+	post(t, srv.URL+"/app/api/agents/"+bot+"/messages", `{"text":"So sánh giá các gói"}`)
+	waitTask(t, svc, bot)
+	var last *Message
+	for _, x := range svc.view().messages(bot, 0) {
+		if x.Role != "user" {
+			last = x
+		}
+	}
+	if last == nil || !strings.Contains(last.Text, "Bảng so sánh") || strings.Contains(last.Text, "chưa lấy thêm") {
+		t.Fatalf("final %+v", last)
+	}
+}
