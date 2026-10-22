@@ -24,13 +24,7 @@ The derivative cat artwork and lockup/icon files containing it retain the source
 
 ## Typography
 
-- Family: Geist Variable, weight 620 for the wordmark, 400–650 for the guide.
-- Source package: `@fontsource-variable/geist@5.3.0`, already installed in the application.
-- Font source: https://github.com/vercel/geist-font
-- Copyright: 2024 The Geist Project Authors.
-- License: SIL Open Font License 1.1, copied unchanged to `licenses/Geist-OFL-1.1.txt`.
-- Production wordmarks are vector outlines derived from the Latin subset; no font fetch or text layout is needed at runtime.
-- Latin, Latin Extended and Vietnamese WOFF2 subsets are included only for the local visual guide, with the OFL notice retained.
+- The 2026-10-09 Geist lockups and Geist webfonts were removed on 2026-10-22: the product now uses Be Vietnam Pro (SIL OFL 1.1, see `app/aurora/fonts/`) and the wordmark below is outlined from it, so no font is fetched to draw it.
 
 ## Production and verification
 

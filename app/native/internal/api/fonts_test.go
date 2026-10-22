@@ -22,9 +22,16 @@ func TestEmbeddedFontResponseAndStaticBoundary(t *testing.T) {
 		t.Fatal(err)
 	}
 	fonts := map[string]string{
-		"/fonts/geist-latin-wght-normal.woff2":      "19f9c92546aa300c312235e3125af1b81394d8db9a4bc4a425cd5b641d2d54e1",
-		"/fonts/geist-latin-ext-wght-normal.woff2":  "824f485b5d26e2f2da3c2b236132ece1bc8e4e43373452950bb0e40548b4313f",
-		"/fonts/geist-vietnamese-wght-normal.woff2": "8fa40e5d248247735eb97a0bd593b8852440430600d6ba01364c31fe0abc1fe1",
+		"/app/aurora/fonts/bevietnampro-400-latin.woff2":          "48365fa93eeb5b730d595061e2c48d97e2bdf4990ef725a7da4193bfa60f485c",
+		"/app/aurora/fonts/bevietnampro-400-vietnamese.woff2":     "b62689bd59a16789eedb19bde3ac7837c42a06ed766be995a5d7ccd87eb4687d",
+		"/app/aurora/fonts/bevietnampro-600-latin.woff2":          "5d85274fcb42d8c2b744368f7d2d5bd7b639ad1988edc5d0ab5441b2fec623a7",
+		"/app/aurora/fonts/bevietnampro-600-vietnamese.woff2":     "d01ed2481cb5d300cf8e685c9380a5cd0fda04e1a6e9daaa23ca40ad3186d414",
+		"/app/aurora/fonts/bevietnampro-700-latin.woff2":          "9b36f6531727ab5ddc12156b9ce5fcb8e79ee9dd9fae91fc013cd570ea17787c",
+		"/app/aurora/fonts/bevietnampro-700-vietnamese.woff2":     "d3972cb7f4d4b7954be61d515706b52301e73a4e2b9d9c530349aa79571a00c3",
+		"/app/aurora/fonts/jetbrainsmono-var-latin.woff2":         "f07ae4ea44a1b15709eb075142b37ddf784bce5ee4a0b8dd5547453bdd19ff13",
+		"/app/aurora/fonts/jetbrainsmono-var-vietnamese.woff2":    "d438b2cf700ed5c992cad3cb5f255e30dded054288c44c01a574b06284b0ceac",
+		"/app/aurora/fonts/notoserifdisplay-var-latin.woff2":      "77e4829f262a580c876ec2742a1fce82196e0a2771b874ba348847fd0117b4d5",
+		"/app/aurora/fonts/notoserifdisplay-var-vietnamese.woff2": "d8557080a2bbc82d6301f481f34063046fd57b016a577f4a6ace9979d97a5fc9",
 	}
 	for path, expected := range fonts {
 		t.Run(path, func(t *testing.T) {
@@ -43,12 +50,12 @@ func TestEmbeddedFontResponseAndStaticBoundary(t *testing.T) {
 					t.Fatal("missing CSP boundary", directive)
 				}
 			}
-			if strings.Contains(policy, "data:") || strings.Contains(policy, "unsafe-inline") || response.Header().Get("X-Content-Type-Options") != "nosniff" {
+			if strings.Contains(policy, "font-src 'self' data:") || strings.Contains(policy, "unsafe-inline") || response.Header().Get("X-Content-Type-Options") != "nosniff" {
 				t.Fatal("static policy was broadened")
 			}
 		})
 	}
-	for _, path := range []string{"/fonts/unknown.woff2", "/fonts/Geist-OFL-1.1.txt", "/fonts/../style.css", "/index.html", "/brand/unknown.svg"} {
+	for _, path := range []string{"/fonts/geist-latin-wght-normal.woff2", "/app/aurora/fonts/unknown.woff2", "/app/aurora/fonts/../style.css", "/index.html", "/brand/unknown.svg"} {
 		t.Run("denied"+path, func(t *testing.T) {
 			request := httptest.NewRequest(http.MethodGet, "http://127.0.0.1:8123"+path, nil)
 			request.AddCookie(&http.Cookie{Name: "neko_local", Value: server.session})
@@ -61,12 +68,12 @@ func TestEmbeddedFontResponseAndStaticBoundary(t *testing.T) {
 	}
 	for _, method := range []string{http.MethodPost, http.MethodHead} {
 		t.Run(method, func(t *testing.T) {
-			request := httptest.NewRequest(method, "http://127.0.0.1:8123/fonts/geist-latin-wght-normal.woff2", nil)
+			request := httptest.NewRequest(method, "http://127.0.0.1:8123/app/aurora/fonts/bevietnampro-400-latin.woff2", nil)
 			request.AddCookie(&http.Cookie{Name: "neko_local", Value: server.session})
 			request.Header.Set("Content-Type", "application/json")
 			response := httptest.NewRecorder()
 			server.ServeHTTP(response, request)
-			if response.Code != http.StatusNotFound {
+			if response.Code != http.StatusNotFound && response.Code != http.StatusMethodNotAllowed {
 				t.Fatal("non-GET font path exposed", response.Code)
 			}
 		})

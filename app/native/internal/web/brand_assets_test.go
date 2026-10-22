@@ -27,7 +27,9 @@ func TestBrandAssetsServed(t *testing.T) {
 			t.Fatalf("%s: code %d type %q len %d", p, w.Code, w.Header().Get("Content-Type"), w.Body.Len())
 		}
 	}
-	var m struct{ Icons []struct{ Src, Purpose string } }
+	var m struct {
+		Icons []struct{ Src, Purpose string }
+	}
 	if err := json.Unmarshal(get("/app/manifest.webmanifest").Body.Bytes(), &m); err != nil {
 		t.Fatal(err)
 	}
