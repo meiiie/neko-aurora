@@ -139,14 +139,31 @@ function approvalCard(m){const ap=m.approval,c=el("div","approval"+(ap.state!=="
   c.append(el("small","hint","Muốn đổi hướng? Nhắn yêu cầu mới, bản nháp này sẽ được thay."))}
  else if(ap.state!=="superseded"){const dv=ap.delivery,DS={queued:"đang chờ kênh email",sending:"đang gửi…",sent:"đã gửi"+(dv&&dv.from?" từ "+dv.from:""),failed:"gửi thất bại"+(dv&&dv.detail?": "+dv.detail:"")};c.append(el("small",0,ap.state==="approved"?(dv?"✓ Bạn đã duyệt · "+DS[dv.status]:"✓ Bạn đã duyệt · chưa gửi ra ngoài (kênh gửi chưa kết nối)"):"Đã hoãn"))}
  return c}
+// tool-call card: states and source de-duplication follow CopilotKit/openmuse
+// apps/mobile/src/search-tool-card.tsx (MIT, © 2026 OpenMuse contributors)
+const TOOL_ICON={gold_price:"activity",web_search:"search",web_fetch:"arrow-up-right"};
+function toolCard(m,a){const c=el("div","toolcard");c.dataset.id=m.id;const live=a&&a.status==="working";
+ m.tools.forEach(t=>{const row=el("div","tool "+t.status);const ic=el("span","ic");
+  const stopped=t.status==="running"&&!live;ic.append(I(t.status==="running"&&!stopped?"loader-circle":t.status==="failed"?"x":TOOL_ICON[t.name]||"search",16));
+  const label=t.status==="running"?(stopped?"Đã dừng tra cứu":(t.summary||"Đang tra cứu")+"…"):t.summary||t.name;
+  const tx=el("span","tool-t",label);row.append(ic,tx);if(t.ms&&t.status!=="running")row.append(el("span","tool-ms",(t.ms/1000).toFixed(1)+"s"));
+  if(t.arg)row.title=t.arg;c.append(row)});return c}
+const srcHost=u=>{try{return new URL(u).hostname.replace(/^www\./,"")}catch{return u}};
+function uniqSources(list){const seen=new Map();(list||[]).forEach((x,i)=>{if(!seen.has(x.url))seen.set(x.url,{...x,n:i+1})});return[...seen.values()]}
+// "[n]" in the reply becomes a tappable citation to source n
+function citeText(node,text,sources){const parts=text.split(/(\[\d{1,2}\](?:\s*,?\s*\[\d{1,2}\])*)/);parts.forEach(p=>{if(/^\[\d/.test(p)){p.match(/\d{1,2}/g).forEach(n=>{const s=sources[+n-1];if(!s){node.append("["+n+"]");return}const l=el("a","cite",n);l.href=s.url;l.target="_blank";l.rel="noopener noreferrer";l.setAttribute("aria-label","Nguồn "+n+": "+srcHost(s.url));node.append(l)})}else if(p)node.append(p)})}
+function sourceList(m){const w=el("details","sources");const sm=el("summary");const u=uniqSources(m.sources);sm.append(I("list-checks",16),el("span",0,`Nguồn · ${u.length}`));w.append(sm);const ol=el("ol");
+ u.forEach(x=>{const li=el("li");const l=el("a");l.href=x.url;l.target="_blank";l.rel="noopener noreferrer";l.append(el("b",0,"["+x.n+"] "+(x.title||srcHost(x.url))),el("small",0,srcHost(x.url)+(x.at?" · "+new Date(x.at).toLocaleTimeString("vi-VN",{hour:"2-digit",minute:"2-digit"}):"")));li.append(l);ol.append(li)});w.append(ol);return w}
 function speaker(box,m,last){if(!isGroup(cur)||m.role!=="agent"||!m.from)return;if(last.v===m.from)return;last.v=m.from;const b=byId(m.from);const h=el("div","speaker");h.append(face(b&&b.av,20),el("span",0,b?b.name:"Bot"));box.append(h)}
 function renderThread(){const a=cur;if(!a)return;$("#threadState").textContent=stateLine(a);const box=$("#messages");
  const keepSec=[...box.querySelectorAll(".secret input[data-secret]")].map(i=>[i.closest(".secret").dataset.id,i.value]);
  const keepEdit=[...box.querySelectorAll(".ap-body")].map(t=>[t.closest(".approval").dataset.id,t.value,t.closest(".approval").querySelector(".ap-subject")?.value]);
  box.innerHTML="";const L=S.msgs[a.id]||[];const last={v:null};
- L.forEach((m,idx)=>{if(m.role!=="agent")last.v=null;if(m.text){speaker(box,m,last);const b=el("div","msg"+(m.role==="user"?" mine":m.role==="system"?" sys":""),m.text);if(m.queued){b.append(el("span","chip","Đang chờ lượt"))}box.append(b)}
+ L.forEach((m,idx)=>{if(m.role!=="agent")last.v=null;if(m.tools&&m.tools.length){speaker(box,m,last);box.append(toolCard(m,a))}
+  if(m.text){speaker(box,m,last);const b=el("div","msg"+(m.role==="user"?" mine":m.role==="system"?" sys":""));if(m.sources&&m.sources.length)citeText(b,m.text,m.sources);else b.textContent=m.text;if(m.queued){b.append(el("span","chip","Đang chờ lượt"))}box.append(b)}
   if(m.plan)box.append(planCard(m));
   if(m.choices&&m.choices.length){const wrap=el("div","choices");const later=L.slice(idx+1).some(x=>x.role==="user");m.choices.forEach(ch=>{const b=el("button","choice",ch);b.disabled=later||usedChoice.has(m.id);b.onclick=async()=>{if(usedChoice.has(m.id))return;usedChoice.add(m.id);renderThread();if(!(await sendMsg(ch)))usedChoice.delete(m.id)};wrap.append(b)});box.append(wrap)}
+  if(m.sources&&m.sources.length&&m.text)box.append(sourceList(m));
   if(m.approval)box.append(approvalCard(m));if(m.secret)box.append(secretCard(m))});
  keepSec.forEach(([id,v])=>{const i=box.querySelector(`.secret[data-id="${id}"] input[data-secret]`);if(i)i.value=v});
  keepEdit.forEach(([id,v,sj])=>{const c=box.querySelector(`.approval[data-id="${id}"]`);if(c){const t=c.querySelector(".ap-body");if(t)t.value=v;const s2=c.querySelector(".ap-subject");if(s2&&sj!=null)s2.value=sj}});
@@ -285,7 +302,7 @@ function renderConnectors(){$("#connCount").textContent=connectedCount()+" đã 
   B.append(sec)});
  B.append(el("p","conn-foot","Mật khẩu và khoá được mã hoá trong kho bí mật trên máy chủ của bạn; bot không bao giờ đọc được. Mọi thư vẫn phải qua nút Duyệt."))}
 // masked secret input (shared by the chat card and connector setup); the value goes only to the vault
-function secretField(name,label,ph){const w=el("label","sec-field");const i=el("input");i.type="password";i.autocomplete="new-password";i.spellcheck=false;i.autocapitalize="off";i.setAttribute("autocorrect","off");i.placeholder=ph||"Dán vào đây";i.setAttribute("aria-label",label);i.dataset.secret=name;
+function secretField(name,label,ph){const w=el("label","sec-field");const i=el("input");i.type="password";i.autocomplete="off";i.setAttribute("data-1p-ignore","");i.setAttribute("data-lpignore","true");i.setAttribute("data-bwignore","");i.setAttribute("enterkeyhint","done");i.spellcheck=false;i.autocapitalize="off";i.setAttribute("autocorrect","off");i.placeholder=ph||"Dán vào đây";i.setAttribute("aria-label",label);i.dataset.secret=name;
  const eye=el("button","sec-eye");eye.type="button";eye.setAttribute("aria-label","Hiện/ẩn");eye.append(I("eye",18));eye.onclick=e=>{e.preventDefault();const show=i.type==="password";i.type=show?"text":"password";eye.replaceChildren(I(show?"eye-off":"eye",18))};w.append(i,eye);return{w,i}}
 let setupKind=null;
 function openSetup(kind){setupKind=kind;renderSetup();if(sheetOpen===$("#connSetup"))return;swapSheet($("#connSetup"))}
@@ -320,9 +337,10 @@ function secretCard(m){const x=m.secret,saved=S.secrets.includes(x.name),c=el("d
  const top=el("div","sec-top");top.append(I("key-round",18),el("b",0,x.label||x.name),el("code",0,x.name));c.append(top);if(x.desc)c.append(el("p","sec-desc",x.desc));
  if(saved){const d=el("div","sec-done");d.append(I("check",16),el("span",0,"Đã lưu vào kho bí mật"));c.append(d);return c}
  const sf=secretField(x.name,x.label||x.name);const row=el("div","sec-row");const go=el("button","pill","Lưu");go.className="pill sec-save";
- go.onclick=async()=>{const value=sf.i.value;if(!value){toast("Chưa nhập");return}go.disabled=true;
-  try{await api("/secrets",{name:x.name,value,label:x.label||"",work:m.taskId});sf.i.value="";if(!S.secrets.includes(x.name))S.secrets.push(x.name);buzz("confirm");toast("Đã lưu "+x.name);loadState().catch(()=>{});renderThread()}catch{toast("Không lưu được");go.disabled=false}};
- sf.i.onkeydown=e=>{if(e.key==="Enter"){e.preventDefault();go.click()}};row.append(sf.w,go);c.append(row,el("small","hint","Giá trị chỉ vào kho mã hoá trên máy chủ, không nằm trong tin nhắn."));return c}
+ const err=el("p","sec-err");err.setAttribute("role","alert");
+ go.onclick=async()=>{const value=sf.i.value;err.textContent="";if(!value){err.textContent="Chưa nhập giá trị.";return}go.disabled=true;go.textContent="Đang lưu…";
+  try{await api("/secrets",{name:x.name,value,label:x.label||"",work:m.taskId});sf.i.value="";if(!S.secrets.includes(x.name))S.secrets.push(x.name);buzz("confirm");toast("Đã lưu "+x.name);loadState().catch(()=>{});renderThread()}catch(e){err.textContent=e.status===400?"Giá trị không hợp lệ (tối đa 8 KB).":"Không lưu được, thử lại.";go.disabled=false;go.textContent="Lưu"}};
+ sf.i.onkeydown=e=>{if(e.key==="Enter"){e.preventDefault();go.click()}};row.append(sf.w,go);c.append(row,err,el("small","hint","Giá trị chỉ vào kho mã hoá trên máy chủ, không nằm trong tin nhắn."));return c}
 // ---------- activity ----------
 function renderLog(items,prepend){const L=$("#log");if(!prepend)L.innerHTML="";items.forEach(x=>{const li=el("li"),t=el("time",0,ago(x.t));li.append(t,x.text);prepend?L.prepend(li):L.append(li)})}
 $("#activityBtn").onclick=()=>{closeMenu();if(sheetOpen)return;renderLog([]);openSheet($("#activity"));api("/activity?limit=80").then(x=>renderLog(x)).catch(()=>toast("Không tải được hoạt động"))};$("#closeActivity").onclick=()=>closeSheet(true);

@@ -44,6 +44,7 @@ type Meta struct {
 
 type entry struct {
 	Meta
+	V     int    `json:"v,omitempty"`
 	Nonce []byte `json:"nonce"`
 	CT    []byte `json:"ct"`
 }
@@ -54,6 +55,16 @@ type Vault struct {
 	aead  cipher.AEAD
 	items map[string]entry
 	cache map[string]string // decrypted, in memory only (for redaction)
+}
+
+// aad binds a ciphertext to its name under a versioned, domain-separated
+// label (envelope versioning after CopilotKit/openmuse vault.ts, MIT).
+// v0 entries (first release) used the bare name.
+func aad(v int, name string) []byte {
+	if v == 0 {
+		return []byte(name)
+	}
+	return []byte("neko-aurora:secret:v1:" + name)
 }
 
 func Open(dir string) (*Vault, error) {
@@ -95,8 +106,8 @@ func Open(dir string) (*Vault, error) {
 			return nil, ErrCorrupt
 		}
 		for _, e := range list {
-			pt, err := aead.Open(nil, e.Nonce, e.CT, []byte(e.Name))
-			if err != nil || !ValidName(e.Name) {
+			pt, err := aead.Open(nil, e.Nonce, e.CT, aad(e.V, e.Name))
+			if err != nil || !ValidName(e.Name) || (e.V != 0 && e.V != 1) || len(e.Nonce) != aead.NonceSize() {
 				return nil, ErrCorrupt
 			}
 			v.items[e.Name], v.cache[e.Name] = e, string(pt)
@@ -140,7 +151,7 @@ func (v *Vault) Set(m Meta, value string) (Meta, error) {
 	defer v.mu.Unlock()
 	old, had := v.items[m.Name]
 	oldv := v.cache[m.Name]
-	v.items[m.Name] = entry{Meta: m, Nonce: nonce, CT: v.aead.Seal(nil, nonce, []byte(value), []byte(m.Name))}
+	v.items[m.Name] = entry{Meta: m, V: 1, Nonce: nonce, CT: v.aead.Seal(nil, nonce, []byte(value), aad(1, m.Name))}
 	v.cache[m.Name] = value
 	if err := v.save(); err != nil {
 		if had {

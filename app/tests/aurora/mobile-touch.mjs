@@ -186,7 +186,7 @@ for(const w of (process.env.WIDTHS||'360,390,430').split(',').map(Number)){let p
   ok(w,'Gmail row offers Kết nối',await p.$eval('.conn[data-id=gmail] .conn-btn',e=>e.textContent==='Kết nối'));
   await tap('.conn[data-id=gmail] .conn-btn');await sleep(700);
   ok(w,'Kết nối opens Gmail setup sheet',await p.$eval('#connSetup',e=>!e.classList.contains('hidden')&&!e.classList.contains('closed'))&&await p.$eval('#connectors',e=>e.classList.contains('hidden')));
-  ok(w,'setup: masked app-password field + Google app-passwords link',await p.$eval('#gmailPass',e=>e.type==='password'&&e.autocomplete==='new-password')&&await p.$eval('.secret a',e=>e.href==='https://myaccount.google.com/apppasswords'&&e.rel.includes('noopener')));
+  ok(w,'setup: masked app-password field + Google app-passwords link',await p.$eval('#gmailPass',e=>e.type==='password'&&e.autocomplete==='off'&&e.hasAttribute('data-1p-ignore'))&&await p.$eval('.secret a',e=>e.href==='https://myaccount.google.com/apppasswords'&&e.rel.includes('noopener')));
   sm=await small();ok(w,'touch>=44 Gmail setup',!sm.length,sm.join(','));ok(w,'no-h-overflow Gmail setup',!(await overflow()));
   const addr=`darren.${w}@gmail.com`,PW='abcd efgh ijkl mnop'; // test-only fake app password
   await tap('#gmailAddr');await p.keyboard.type(addr);await tap('#gmailPass');await p.keyboard.type(PW);

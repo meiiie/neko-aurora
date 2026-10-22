@@ -16,6 +16,7 @@ import (
 
 	"nekoaurora.local/native/internal/ledger"
 	"nekoaurora.local/native/internal/outbound"
+	"nekoaurora.local/native/internal/tools"
 	"nekoaurora.local/native/internal/vault"
 )
 
@@ -34,6 +35,7 @@ type Service struct {
 	Out   *outbound.Router
 	Prefs *Prefs
 	V     *vault.Vault
+	Tools *tools.Kit
 	mux   *http.ServeMux
 	mu    sync.Mutex
 	subs  map[chan Event]struct{}
@@ -80,7 +82,7 @@ func New(ctx context.Context, store *ledger.Store, stateDir string, opt Options)
 		return nil, err
 	}
 	log.SetOutput(v.Writer(os.Stderr))
-	s := &Service{L: store, AI: model, Push: p, V: v, Prefs: prefs, subs: map[chan Event]struct{}{}, ctx: ctx, wake: make(chan struct{}, 1), running: map[string]bool{}, seen: map[string]string{}, Now: time.Now}
+	s := &Service{L: store, AI: model, Push: p, V: v, Tools: toolsFromEnv(), Prefs: prefs, subs: map[chan Event]struct{}{}, ctx: ctx, wake: make(chan struct{}, 1), running: map[string]bool{}, seen: map[string]string{}, Now: time.Now}
 	s.Out = outbound.NewRouter(outbound.Switch{Resolve: s.mailer})
 	s.routes()
 	s.connectorRoutes()

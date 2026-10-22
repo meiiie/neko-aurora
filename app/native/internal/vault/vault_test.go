@@ -91,3 +91,30 @@ func TestRedactLogs(t *testing.T) {
 		t.Fatalf("bad redaction: %q", out)
 	}
 }
+
+func TestVaultReadsLegacyV0AndWritesV1(t *testing.T) {
+	dir := t.TempDir()
+	v, _ := Open(dir)
+	v.Set(Meta{Name: "OLD_KEY"}, "legacy-value")
+	// rewrite the entry as a first-release v0 envelope (AAD = bare name)
+	nonce := make([]byte, 12)
+	v.mu.Lock()
+	e := v.items["OLD_KEY"]
+	e.V, e.Nonce, e.CT = 0, nonce, v.aead.Seal(nil, nonce, []byte("legacy-value"), []byte("OLD_KEY"))
+	v.items["OLD_KEY"] = e
+	v.save()
+	v.mu.Unlock()
+	v2, err := Open(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got, _ := v2.Get("OLD_KEY"); got != "legacy-value" {
+		t.Fatal("legacy read")
+	}
+	b, _ := os.ReadFile(filepath.Join(dir, "vault.json"))
+	v2.Set(Meta{Name: "NEW_KEY"}, "fresh-value")
+	b, _ = os.ReadFile(filepath.Join(dir, "vault.json"))
+	if !strings.Contains(string(b), `"v": 1`) {
+		t.Fatalf("new entry not v1: %s", b)
+	}
+}

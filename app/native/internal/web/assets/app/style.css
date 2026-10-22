@@ -288,3 +288,16 @@ button.cell:active{background:var(--sunk)}
 .secret.saved{box-shadow:0 0 0 .5px var(--line);opacity:.85}
 @media (min-width:700px){#app{max-width:520px;margin:0 auto;left:0;right:0;box-shadow:0 0 0 1px var(--line)}.sheet{max-width:520px;margin:0 auto}}
 @media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
+/* tool-call cards + citations (states after CopilotKit/openmuse search-tool-card.tsx, MIT) */
+.toolcard{display:flex;flex-direction:column;gap:2px;margin:10px 0 4px;padding:8px 12px;border-radius:16px;background:var(--sunk);max-width:100%}
+.tool{display:flex;align-items:center;gap:8px;min-height:30px;font-size:15px;letter-spacing:var(--t15);color:var(--mute)}
+.tool .ic{display:grid;place-items:center;width:20px;color:var(--ink)}.tool.running .ic svg{animation:spin 1s linear infinite}.tool.failed .ic{color:var(--danger)}
+.tool-t{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.tool-ms{font-size:13px;font-variant-numeric:tabular-nums}
+.cite{display:inline-grid;place-items:center;min-width:18px;height:18px;padding:0 4px;margin:0 1px;border-radius:9px;background:var(--sunk);color:var(--ink);font-size:11px;font-weight:var(--w-semi);text-decoration:none;vertical-align:2px;position:relative}
+.cite::after{content:"";position:absolute;inset:-13px -6px}
+.sources{margin:4px 0 10px}.sources summary{display:inline-flex;align-items:center;gap:6px;min-height:44px;padding:0 14px;border-radius:22px;background:var(--sunk);font-size:15px;font-weight:500;list-style:none;cursor:pointer}
+.sources summary::-webkit-details-marker{display:none}
+.sources ol{list-style:none;margin:6px 0 0;padding:0}.sources li a{display:flex;flex-direction:column;justify-content:center;min-height:52px;padding:6px 2px;border-bottom:.5px solid var(--line);color:var(--ink);text-decoration:none}
+.sources li b{font-weight:500;font-size:15px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.sources li small{color:var(--mute);font-size:13px}
+.sec-err{color:var(--danger);font-size:13px;margin:6px 0 0}.sec-err:empty{display:none}
+@keyframes spin{to{transform:rotate(360deg)}}

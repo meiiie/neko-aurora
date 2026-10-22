@@ -90,3 +90,30 @@ public domain under CC0 1.0 (full text in `aurora/simple-icons-LICENSE.txt`).
 The marks remain trademarks of their owners and are used only to identify the
 services in the connectors sheet. Slack is not in Simple Icons and uses a
 neutral Lucide glyph instead.
+
+## CopilotKit/OpenDots — MIT License
+
+`app/native/internal/tools/netsafe.go` ports `isPublicAddress` (src/browser/security.ts)
+and `requestedUrls` (src/server/research.ts) to Go, and the tool-result grounding
+rules in `internal/aurora/tools.go` adapt the research prompt (sources are untrusted
+data, cite, state gaps, do not fabricate). The secret card's busy label and inline
+`role="alert"` error follow src/client/ConnectionsSection.tsx.
+https://github.com/CopilotKit/OpenDots (commit 8091324)
+
+Copyright (c) Atai Barkai
+
+Permission is hereby granted, free of charge, to any person obtaining a copy of this
+software and associated documentation files (the "Software"), to deal in the Software
+without restriction, including without limitation the rights to use, copy, modify,
+merge, publish, distribute, sublicense, and/or sell copies of the Software, and to
+permit persons to whom the Software is furnished to do so, subject to the following
+conditions: The above copyright notice and this permission notice shall be included in
+all copies or substantial portions of the Software. THE SOFTWARE IS PROVIDED "AS IS",
+WITHOUT WARRANTY OF ANY KIND.
+
+## CopilotKit/openmuse — additional borrowings (MIT, © 2026 OpenMuse contributors)
+
+- Tool-call card states (running / stopped / failed / "N sources") and URL de-duplication
+  of sources from apps/mobile/src/search-tool-card.tsx (commit 1ac68f3).
+- Versioned, domain-separated AES-GCM envelope (packages/integrations/src/vault.ts):
+  our vault entries now carry `v: 1` with AAD `neko-aurora:secret:v1:<name>`.

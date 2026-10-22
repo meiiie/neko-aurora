@@ -29,9 +29,11 @@ PLAN: ["bước 1","bước 2"]   ← chỉ khi việc cần 2-4 bước rõ rà
 CHOICES: ["lựa chọn A","lựa chọn B"]   ← khi cần Darren chọn nhanh (2-4 lựa chọn ngắn).
 APPROVAL: {"title":"<việc cần duyệt>","kind":"email|send|post|pay|other","to":"<email nếu là email>","subject":"<tiêu đề nếu là email>","body":"<toàn bộ nội dung đã soạn>"}   ← bắt buộc cho mọi hành động ra bên ngoài.
 SECRET: {"name":"TEN_IN_HOA","label":"<tên hiển thị>","desc":"<vì sao cần, lấy ở đâu>"}   ← khi cần Darren cung cấp mật khẩu/khoá API. Darren nhập vào thẻ ẩn, giá trị vào kho bí mật, bạn không bao giờ thấy. Không bao giờ xin Darren dán bí mật vào chat. Mật khẩu ứng dụng Gmail dùng tên GMAIL_APP_PASSWORD.
+TOOL: {"name":"web_search","q":"<truy vấn>"} | {"name":"web_fetch","url":"https://..."} | {"name":"gold_price"}   ← công cụ đọc dữ liệu thật trên máy chủ. Khi cần số liệu/tin tức hiện tại mà chưa có trong KẾT QUẢ CÔNG CỤ, chỉ in đúng một dòng TOOL rồi dừng; hệ thống sẽ chạy và gọi lại bạn.
+- Số liệu (giá, tỷ giá, ngày, phần trăm) chỉ được lấy từ KẾT QUẢ CÔNG CỤ, ghi nguồn dạng [1], [2]. Tuyệt đối không bịa hay ước đoán số; thiếu dữ liệu thì nói rõ thiếu. Khi đã có KẾT QUẢ CÔNG CỤ thì trả lời thẳng, không dùng PLAN.
 - Với email: kind là "email", dùng đúng địa chỉ Darren đưa; không lặp lại toàn văn thư ở phần trả lời.`
 
-var directiveRe = regexp.MustCompile(`(?m)^\s*(PLAN|CHOICES|APPROVAL|SECRET):\s*(.+?)\s*$`)
+var directiveRe = regexp.MustCompile(`(?m)^\s*(PLAN|CHOICES|APPROVAL|SECRET|TOOL):\s*(.+?)\s*$`)
 
 type directives struct {
 	Text     string
@@ -39,6 +41,13 @@ type directives struct {
 	Choices  []string
 	Approval *Approval
 	Secret   *ledger.DirectSecret
+	Tool     *toolReq
+}
+
+type toolReq struct {
+	Name string `json:"name"`
+	Q    string `json:"q,omitempty"`
+	URL  string `json:"url,omitempty"`
 }
 
 // ParseDirectives strips trailing PLAN/CHOICES/APPROVAL lines from model text.
@@ -47,6 +56,13 @@ func ParseDirectives(text string) directives {
 	// APPROVAL bodies may span lines; handle it first with the dedicated parser.
 	text, d.Approval = SplitApproval(text)
 	for _, m := range directiveRe.FindAllStringSubmatch(text, -1) {
+		if m[1] == "TOOL" {
+			var t toolReq
+			if json.Unmarshal([]byte(m[2]), &t) == nil && (t.Name == "gold_price" || t.Name == "web_search" && t.Q != "" || t.Name == "web_fetch" && t.URL != "") && d.Tool == nil {
+				d.Tool = &t
+			}
+			continue
+		}
 		if m[1] == "SECRET" {
 			var x ledger.DirectSecret
 			if json.Unmarshal([]byte(m[2]), &x) == nil {
@@ -367,9 +383,22 @@ func (s *Service) update(id string, fn func(*ledger.DirectRun)) {
 }
 
 func (s *Service) runTurn(ctx context.Context, w ledger.Work) (*Approval, []string, error) {
-	d, err := s.call(ctx, w, s.history(w.BotID, w.RequestID))
+	tc := &toolCtx{}
+	for _, c := range s.autoTools(w) {
+		s.runTool(ctx, w, tc, c.name, c.arg)
+	}
+	d, err := s.call(ctx, w, tc.inject(s.history(w.BotID, w.RequestID)))
+	for round := 0; err == nil && d.Tool != nil && round < 3 && s.Tools != nil; round++ {
+		arg := d.Tool.Q + d.Tool.URL
+		s.publish("draft_end", map[string]string{"id": w.RequestID, "agentId": threadOf(w)})
+		s.runTool(ctx, w, tc, d.Tool.Name, arg)
+		d, err = s.call(ctx, w, tc.inject(s.history(w.BotID, w.RequestID)))
+	}
 	if err != nil {
 		return nil, nil, err
+	}
+	if d.Tool != nil { // tools exhausted or disabled: never leave a bare TOOL line
+		d.Text = strings.TrimSpace(d.Text + "\n(Mình chưa lấy thêm được dữ liệu, nên không đưa số liệu chưa kiểm chứng.)")
 	}
 	if d.Secret != nil {
 		sec := *d.Secret
@@ -402,7 +431,7 @@ func (s *Service) runTurn(ctx context.Context, w ledger.Work) (*Approval, []stri
 		}
 		setStep(i, "running")
 		s.agui(AGUIEvent{Type: STEP_STARTED, ThreadID: w.BotID, RunID: w.RequestID, StepName: title})
-		msgs := append(s.history(w.BotID, w.RequestID), ChatMsg{"user", fmt.Sprintf("[Hệ thống] Thực hiện bước %d/%d: %s. Chỉ làm bước này, trả lời ngắn. Không viết PLAN. Đừng tự tạo bước chờ Darren duyệt: việc duyệt do hệ thống lo. Nếu thật sự thiếu thông tin chỉ Darren biết, hỏi 1 câu và dùng CHOICES, kế hoạch sẽ tạm dừng. Chỉ dùng APPROVAL nếu bước này cần hành động ra bên ngoài.", i+1, len(d.Plan), title)})
+		msgs := append(tc.inject(s.history(w.BotID, w.RequestID)), ChatMsg{"user", fmt.Sprintf("[Hệ thống] Thực hiện bước %d/%d: %s. Chỉ làm bước này, trả lời ngắn. Không viết PLAN. Đừng tự tạo bước chờ Darren duyệt: việc duyệt do hệ thống lo. Nếu thật sự thiếu thông tin chỉ Darren biết, hỏi 1 câu và dùng CHOICES, kế hoạch sẽ tạm dừng. Chỉ dùng APPROVAL nếu bước này cần hành động ra bên ngoài.", i+1, len(d.Plan), title)})
 		sd, err := s.call(ctx, w, msgs)
 		if err != nil {
 			st := "failed"

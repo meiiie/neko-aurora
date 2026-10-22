@@ -59,6 +59,43 @@ type DirectRun struct {
 	Items      []string        `json:"items,omitempty"`
 	Approval   *DirectApproval `json:"approval,omitempty"`
 	Secret     *DirectSecret   `json:"secret,omitempty"`
+	Tools      []DirectTool    `json:"tools,omitempty"`
+	Sources    []DirectSource  `json:"sources,omitempty"`
+}
+
+// DirectTool is one read-only data tool call made during the turn.
+type DirectTool struct {
+	Name    string `json:"name"`
+	Arg     string `json:"arg,omitempty"`
+	Status  string `json:"status"` // running|done|failed
+	Summary string `json:"summary,omitempty"`
+	Ms      int    `json:"ms,omitempty"`
+}
+
+// DirectSource is a cited source for the reply.
+type DirectSource struct {
+	Title string `json:"title"`
+	URL   string `json:"url"`
+	At    string `json:"at,omitempty"`
+}
+
+var directToolStatus = map[string]bool{"running": true, "done": true, "failed": true}
+
+func validDirectTools(d *DirectRun) bool {
+	if len(d.Tools) > 6 || len(d.Sources) > 16 {
+		return false
+	}
+	for _, t := range d.Tools {
+		if !directToolStatus[t.Status] || t.Name == "" || !directText(t.Name, 32) || !directText(t.Arg, 400) || !directText(t.Summary, 200) || t.Ms < 0 {
+			return false
+		}
+	}
+	for _, x := range d.Sources {
+		if !directText(x.Title, 200) || !directText(x.At, 40) || !directText(x.URL, 600) || !strings.HasPrefix(x.URL, "https://") {
+			return false
+		}
+	}
+	return true
 }
 
 // DirectSecret is a bot's request for a secret. It carries only the vault
@@ -91,6 +128,8 @@ func copyDirectRun(d DirectRun) DirectRun {
 		x := *d.Secret
 		d.Secret = &x
 	}
+	d.Tools = append([]DirectTool(nil), d.Tools...)
+	d.Sources = append([]DirectSource(nil), d.Sources...)
 	return d
 }
 
@@ -130,7 +169,7 @@ func validDirectRun(d *DirectRun) bool {
 			return false
 		}
 	}
-	return validDirectApproval(d.Approval) && validDirectSecret(d.Secret)
+	return validDirectApproval(d.Approval) && validDirectSecret(d.Secret) && validDirectTools(d)
 }
 
 func sameDirectIdentity(a, b *DirectRun) bool {
