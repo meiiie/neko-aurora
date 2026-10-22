@@ -51,7 +51,7 @@ def main():
                 assert client.work(active['requestId'])==suspended
             checks.append({'name':'restart_three_times_preserves_suspended_account_pin_and_receipt','pass':True})
         report={'commit':head,'scope':'Actual native Windows Go/Rust/Core; owned loopback fixture and synthetic sealed keys only. Saved keys are not provider-authenticated or consumed by Core. No third-party grants, cloud, UI or phone acceptance.','checks':checks}
-        for name,path in [('go',ROOT/'.build/neko-control.exe'),('host',ROOT/'host/target/debug/neko-host.exe'),('core',ROOT/'.build/core-windows/neko.exe')]:report[name+'Sha256']=hashlib.sha256(path.read_bytes()).hexdigest()
+        for name,path in [('go',ROOT/'.build/neko-aurora.exe'),('host',ROOT/'host/target/debug/neko-host.exe'),('core',ROOT/'.build/core-windows/neko.exe')]:report[name+'Sha256']=hashlib.sha256(path.read_bytes()).hexdigest()
         args.output.parent.mkdir(parents=True,exist_ok=True);args.output.write_text(json.dumps(report,indent=2)+'\n',encoding='utf-8');print(json.dumps(report,indent=2))
     finally:
         for handle in handles:handle.close()

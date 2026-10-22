@@ -1,7 +1,7 @@
 package api
 
 import (
-	"nekobot.local/native/internal/ledger"
+	"nekoaurora.local/native/internal/ledger"
 	"net/http"
 	"net/url"
 	"strings"

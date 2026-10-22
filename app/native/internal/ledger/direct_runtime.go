@@ -1,7 +1,7 @@
 package ledger
 
 // Direct runs: a Work item executed in-process by the owner's own control
-// plane (the mobile/Duet runner) through Neko Core's one-shot CLI
+// plane (the mobile/Aurora runner) through Neko Core's one-shot CLI
 // (`neko run --profile zai --no-tools`) or, when Core is not installed, the
 // same provider over HTTP. A direct run never grants tools, never binds an
 // executor lease and never sets Work.Core, so it cannot be confused with the

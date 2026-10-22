@@ -15,11 +15,11 @@ import (
 	"strings"
 	"time"
 
-	"nekobot.local/native/internal/connections"
-	"nekobot.local/native/internal/identity"
-	"nekobot.local/native/internal/ledger"
-	"nekobot.local/native/internal/protocol"
-	"nekobot.local/native/internal/web"
+	"nekoaurora.local/native/internal/connections"
+	"nekoaurora.local/native/internal/identity"
+	"nekoaurora.local/native/internal/ledger"
+	"nekoaurora.local/native/internal/protocol"
+	"nekoaurora.local/native/internal/web"
 )
 
 type Server struct {
@@ -30,13 +30,13 @@ type Server struct {
 	connections *connections.Store
 	fixture     *identity.Authority
 	desktop     *desktopLaunchReceipt
-	duet        http.Handler
-	duetPub     *duetPublic
-	exposed     bool // bound beyond loopback (container); only the public Duet host is reachable remotely
+	aurora      http.Handler
+	auroraPub   *auroraPublic
+	exposed     bool // bound beyond loopback (container); only the public Aurora host is reachable remotely
 }
 
-// EnableDuet mounts the /duet/api/ surface behind the same local session.
-func (s *Server) EnableDuet(h http.Handler) { s.duet = h }
+// EnableAurora mounts the /app/api/ surface behind the same local session.
+func (s *Server) EnableAurora(h http.Handler) { s.aurora = h }
 
 func (s *Server) EnableConnections(c *connections.Store) {
 	s.connections = c
@@ -57,8 +57,17 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Referrer-Policy", "no-referrer")
 	w.Header().Set("Cache-Control", "no-store")
 	w.Header().Set("Content-Security-Policy", "default-src 'none'; script-src 'self'; style-src 'self'; connect-src 'self'; img-src 'self'; font-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'")
-	if s.duetPub != nil && strings.EqualFold(r.Host, s.duetPub.host) {
-		s.servePublicDuet(w, r)
+	// the mobile UI moved from /duet/ to /app/; keep old links and PWAs working
+	if r.URL.Path == "/duet" || strings.HasPrefix(r.URL.Path, "/duet/") {
+		target := "/app/" + strings.TrimPrefix(strings.TrimPrefix(r.URL.Path, "/duet"), "/")
+		if r.URL.RawQuery != "" {
+			target += "?" + r.URL.RawQuery
+		}
+		http.Redirect(w, r, target, http.StatusPermanentRedirect)
+		return
+	}
+	if s.auroraPub != nil && strings.EqualFold(r.Host, s.auroraPub.host) {
+		s.servePublicAurora(w, r)
 		return
 	}
 	if s.exposed && r.URL.Path == "/healthz" {
@@ -78,10 +87,10 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if r.Method == http.MethodGet && web.IsPublicAsset(r.URL.Path) {
-		if strings.HasPrefix(r.URL.Path, "/duet/") {
+		if strings.HasPrefix(r.URL.Path, "/app/") {
 			w.Header().Set("Content-Security-Policy", "default-src 'none'; script-src 'self'; style-src 'self'; connect-src 'self'; img-src 'self' data:; font-src 'self'; manifest-src 'self'; worker-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'")
 		}
-		if (r.URL.Path == "/" || r.URL.Path == "/duet/") && s.fixture == nil {
+		if (r.URL.Path == "/" || r.URL.Path == "/app/") && s.fixture == nil {
 			http.SetCookie(w, &http.Cookie{Name: "neko_local", Value: s.session, Path: "/", HttpOnly: true, SameSite: http.SameSiteStrictMode})
 		}
 		web.Serve(w, r)
@@ -130,8 +139,8 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "json_required", http.StatusUnsupportedMediaType)
 		return
 	}
-	if s.duet != nil && strings.HasPrefix(r.URL.Path, "/duet/api/") {
-		s.duet.ServeHTTP(w, r)
+	if s.aurora != nil && strings.HasPrefix(r.URL.Path, "/app/api/") {
+		s.aurora.ServeHTTP(w, r)
 		return
 	}
 	if r.URL.Path == "/v1/session" && r.Method == http.MethodGet {
@@ -978,7 +987,7 @@ func (s *Server) stream(w http.ResponseWriter, r *http.Request) {
 }
 
 // SetExposed marks the listener as bound beyond loopback (e.g. 0.0.0.0 in a
-// container). Remote peers then reach only the public Duet host.
+// container). Remote peers then reach only the public Aurora host.
 func (s *Server) SetExposed() { s.exposed = true }
 
 func loopbackRemote(addr string) bool {

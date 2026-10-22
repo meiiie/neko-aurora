@@ -1,4 +1,4 @@
-# Checkpoint Neko Bot - 2026-10-11
+# Checkpoint Neko Aurora - 2026-10-11
 
 Bản ghi lịch sử của lát cắt intake đầu tiên. Trạng thái hiện tại và các kiểm thử Core/DPAPI/Tauri nằm ở [checkpoint Core Windows](CHECKPOINT-2026-10-11-CORE-WINDOWS.md).
 

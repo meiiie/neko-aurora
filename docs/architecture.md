@@ -4,7 +4,7 @@
 
 ```mermaid
 flowchart LR
-    UI["Neko Bot web UI / Tauri shell"] --> API["Go API + durable journal"]
+    UI["Neko Aurora web UI / Tauri shell"] --> API["Go API + durable journal"]
     API --> Host["Rust trusted host"]
     Host --> Core["Neko Core agent loop"]
     Wiii["Wiii ADE overlay"] --> API

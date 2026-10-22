@@ -1,6 +1,6 @@
 # Bounded adapter history repair and current Wiii overlay
 
-Neko Bot now offers explicit same-session history repair when its incremental adapter projection is insufficient. The available Wiii source can read that bounded projection without registering a replacement session, resending user intent, changing its nonce or granting execution. Pending requests and exact accepted receipts remain separate from observed reply rows. Revoked output stays masked; a reload never releases cached bodies solely because an empty delta arrived.
+Neko Aurora now offers explicit same-session history repair when its incremental adapter projection is insufficient. The available Wiii source can read that bounded projection without registering a replacement session, resending user intent, changing its nonce or granting execution. Pending requests and exact accepted receipts remain separate from observed reply rows. Revoked output stays masked; a reload never releases cached bodies solely because an empty delta arrived.
 
 ## Exact source and validation
 

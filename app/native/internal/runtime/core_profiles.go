@@ -20,8 +20,8 @@ import (
 	"sync"
 	"time"
 
-	"nekobot.local/native/internal/ledger"
-	"nekobot.local/native/internal/protocol"
+	"nekoaurora.local/native/internal/ledger"
+	"nekoaurora.local/native/internal/protocol"
 )
 
 var errCoreProfile = errors.New("core_profile_unavailable")

@@ -9,7 +9,7 @@ import (
 	"sort"
 	"time"
 
-	"nekobot.local/native/internal/protocol"
+	"nekoaurora.local/native/internal/protocol"
 )
 
 const finiteCoreProfilePurpose = "finite_collaboration_v1"

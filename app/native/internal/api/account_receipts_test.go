@@ -7,8 +7,8 @@ import (
 	"strings"
 	"testing"
 
-	"nekobot.local/native/internal/connections"
-	"nekobot.local/native/internal/ledger"
+	"nekoaurora.local/native/internal/connections"
+	"nekoaurora.local/native/internal/ledger"
 )
 
 func TestAccountSaveReceiptOriginalNonceReadOnlyAndRetirement(t *testing.T) {

@@ -3,7 +3,7 @@ package runtime
 import (
 	"errors"
 	"io"
-	"nekobot.local/native/internal/ledger"
+	"nekoaurora.local/native/internal/ledger"
 	"os"
 	"path/filepath"
 	"strings"

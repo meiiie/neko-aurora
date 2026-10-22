@@ -1,4 +1,4 @@
-# Neko Bot — independent acceptance audit, vòng 2
+# Neko Aurora — independent acceptance audit, vòng 2
 
 Ngày kiểm: 2026-10-11. Kết luận: các lỗi runtime cụ thể đã được retest và sửa trên `60c1811ca37e0b20ccb203d92da7d2315e21a157`; chưa đủ nghiệm thu toàn sản phẩm. UI bị user từ chối vẫn là gate riêng. Account runtime lease, cross-channel provenance/ACL, automatic Core crash resume, phone/cloud và real-provider evaluation vẫn chưa được chứng minh hoặc chưa implemented.
 

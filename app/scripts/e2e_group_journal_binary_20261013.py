@@ -3,8 +3,8 @@ import argparse,hashlib,http.cookiejar,json,os,pathlib,queue,shutil,subprocess,t
 
 ROOT=pathlib.Path(__file__).resolve().parents[1]
 SCRATCH=pathlib.Path('E:/CodexScratch/group-journal-binary-20261013').resolve()
-NEW=pathlib.Path('E:/CodexScratch/parallel-product-20261013/candidate-5349523/.build/release/neko-control.exe')
-OLD=pathlib.Path('E:/CodexScratch/desktop-instance-20261012/candidate-c91e4de/.build/desktop-c91e4de/neko-control.exe')
+NEW=pathlib.Path('E:/CodexScratch/parallel-product-20261013/candidate-5349523/.build/release/neko-aurora.exe')
+OLD=pathlib.Path('E:/CodexScratch/desktop-instance-20261012/candidate-c91e4de/.build/desktop-c91e4de/neko-aurora.exe')
 NEW_SHA='c2732194124fb989dc84b301fb06e910f64579e94f79e930bf57b1b91ffa337d'
 OLD_SHA='a7663f40fb0d3893f64e1fac8f933d42672812228b6ffb7837665d01bb6ecd03'
 sha=lambda p:hashlib.sha256(pathlib.Path(p).read_bytes()).hexdigest()

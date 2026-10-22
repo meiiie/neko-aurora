@@ -12,7 +12,7 @@ import (
 	"time"
 	"unicode/utf8"
 
-	"nekobot.local/native/internal/protocol"
+	"nekoaurora.local/native/internal/protocol"
 )
 
 type coreProfileToolPermissionFrame struct {

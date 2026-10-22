@@ -10,7 +10,7 @@ import (
 	"testing"
 	"time"
 
-	"nekobot.local/native/internal/documents"
+	"nekoaurora.local/native/internal/documents"
 )
 
 type independentExtractor struct {

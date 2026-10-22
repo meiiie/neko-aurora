@@ -4,7 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"nekobot.local/native/internal/protocol"
+	"nekoaurora.local/native/internal/protocol"
 	"os"
 	"path/filepath"
 	"reflect"

@@ -1,0 +1,80 @@
+<!doctype html>
+<html lang="vi">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" media="(prefers-color-scheme: light)" content="#f4efe4">
+<meta name="theme-color" media="(prefers-color-scheme: dark)" content="#131018">
+<meta name="color-scheme" content="light dark">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="apple-mobile-web-app-title" content="Neko Aurora">
+<link rel="manifest" href="/app/manifest.webmanifest">
+<link rel="icon" href="/app/icon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="/app/icon-180.png">
+<title>Neko Aurora</title>
+<link rel="stylesheet" href="/app/aurora/fonts.css">
+<link rel="stylesheet" href="/app/aurora/aurora.css">
+<link rel="stylesheet" href="/app/style.css">
+<script src="/app/theme.js"></script>
+<script src="/app/aurora/icons.js" defer></script>
+<script src="/app/agui.js" defer></script>
+<script src="/app/app.js" defer></script>
+</head>
+<body>
+<div id="app">
+  <section class="screen" id="list" aria-label="Agents">
+    <header class="top">
+      <canvas class="me" id="meAvatar" width="16" height="16" aria-hidden="true"></canvas>
+      <div class="spacer"></div>
+      <button class="icon-btn" id="themeBtn" aria-label="Đổi giao diện">◐</button>
+      <button class="icon-btn" id="bellBtn" aria-label="Bật thông báo">🔔</button>
+      <button class="icon-btn" id="searchBtn" aria-label="Tìm agent">⌕</button>
+      <button class="icon-btn primary" id="newBtn" aria-label="Tạo agent mới">+</button>
+    </header>
+    <div class="scroll" id="listScroll">
+      <h1>Agents</h1>
+      <p class="sub" id="summary"></p>
+      <input class="search hidden" id="search" type="search" placeholder="Tìm agent…" autocomplete="off">
+      <article class="brief" id="brief"></article>
+      <ul class="rows" id="rows"></ul>
+    </div>
+  </section>
+  <section class="screen thread off" id="thread" aria-label="Hội thoại">
+    <header class="top">
+      <button class="icon-btn" id="backBtn" aria-label="Quay lại">‹</button>
+      <canvas class="mini" id="threadAvatar" width="16" height="16" aria-hidden="true"></canvas>
+      <div class="title"><b id="threadName"></b><small id="threadState"></small></div>
+      <button class="icon-btn" id="activityBtn" aria-label="Xem agent đang làm gì">≡</button>
+    </header>
+    <div class="scroll" id="messages"></div>
+    <form class="composer" id="composer">
+      <textarea id="input" rows="1" placeholder="Nhắn cho agent…" enterkeyhint="send"></textarea>
+      <button type="button" class="mic" id="micBtn" aria-label="Nói để nhập">🎙</button>
+      <button class="send" aria-label="Gửi">↑</button>
+    </form>
+  </section>
+  <div class="scrim hidden" id="scrim"></div>
+  <section class="sheet hidden" id="sheet" role="dialog" aria-label="Agent mới">
+    <div class="grip" id="grip"></div>
+    <header class="sheet-top">
+      <button class="text-btn" id="cancelBtn">Hủy</button>
+      <b>Agent mới</b>
+      <button class="pill" id="createBtn">Tạo</button>
+    </header>
+    <div class="scroll sheet-body" id="sheetBody">
+      <div class="stage"><canvas id="preview" width="16" height="16"></canvas></div>
+      <input class="name" id="agentName" maxlength="28" value="Posting Buddy" aria-label="Tên agent">
+      <input class="desc" id="agentDesc" maxlength="80" value="Soạn bài theo giọng tôi. Không bao giờ tự đăng." aria-label="Mô tả">
+      <div id="pickers"></div>
+      <button class="surprise" id="surpriseBtn">⚄ Ngẫu nhiên</button>
+    </div>
+  </section>
+  <aside class="sheet activity hidden" id="activity" aria-label="Hoạt động"><div class="grip"></div><header class="sheet-top"><span></span><b>Đang làm gì</b><button class="text-btn" id="closeActivity">Xong</button></header><ol class="scroll" id="log"></ol></aside>
+  <section class="login hidden" id="login" aria-label="Đăng nhập chủ sở hữu"><form id="loginForm"><canvas id="loginAvatar" width="16" height="16" aria-hidden="true"></canvas><h1>Neko Aurora</h1><p class="sub">Nhập mã chủ sở hữu để mở.</p><input id="loginCode" type="password" autocomplete="current-password" placeholder="Mã chủ sở hữu" aria-label="Mã chủ sở hữu"><button class="pill wide">Mở</button></form></section>
+  <aside class="sheet themes hidden" id="themes" aria-label="Giao diện"><div class="grip"></div><header class="sheet-top"><span></span><b>Giao diện</b><button class="text-btn" id="closeThemes">Xong</button></header><div class="scroll" id="themeList"></div></aside>
+  <div class="toast" id="toast" role="status"></div>
+</div>
+</body>
+</html>

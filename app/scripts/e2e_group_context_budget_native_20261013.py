@@ -105,8 +105,8 @@ def main():
         supervisor = source / "scripts/core_supervisor.py"
         trusted_supervisor = next(p for p in manifest["trustedFiles"] if p["path"] == "scripts/core_supervisor.py")
         check("immutable_supervisor_matches_pinned_bytes", sha(supervisor) == trusted_supervisor["sha256"] == sha(CANDIDATE / trusted_supervisor["path"]))
-        binary = out / "neko-control-e127.exe"
-        build_command = [str(args.go_tool.resolve()), "build", "-buildvcs=false", "-o", str(binary), "./cmd/neko-control"]
+        binary = out / "neko-aurora-e127.exe"
+        build_command = [str(args.go_tool.resolve()), "build", "-buildvcs=false", "-o", str(binary), "./cmd/neko-aurora"]
         build = subprocess.run(build_command, cwd=source / "native", env=env, capture_output=True, text=True, encoding="utf-8", timeout=120)
         (out / "build.stdout.txt").write_text(build.stdout, encoding="utf-8")
         (out / "build.stderr.txt").write_text(build.stderr, encoding="utf-8")

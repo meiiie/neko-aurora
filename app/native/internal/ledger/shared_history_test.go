@@ -3,7 +3,7 @@ package ledger
 import (
 	"encoding/json"
 	"errors"
-	"nekobot.local/native/internal/historyexport"
+	"nekoaurora.local/native/internal/historyexport"
 	"strings"
 	"testing"
 )

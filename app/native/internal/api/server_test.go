@@ -13,7 +13,7 @@ import (
 	"testing"
 	"time"
 
-	"nekobot.local/native/internal/ledger"
+	"nekoaurora.local/native/internal/ledger"
 )
 
 func setup(t *testing.T) (*httptest.Server, *http.Client) {

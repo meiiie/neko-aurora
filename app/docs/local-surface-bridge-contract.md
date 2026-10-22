@@ -1,6 +1,6 @@
 # Local surface bridge v1
 
-The Go journal owns durable Neko Bot adapter sessions. This slice uses the existing authenticated local-owner transport. It adds no CORS exception, cookie bootstrap, OS app attestation, external connector, provider grant or cloud route. Wiii supplies a trusted same-origin request transport; the adapter cannot borrow Core task/session authority from a source UI ID.
+The Go journal owns durable Neko Aurora adapter sessions. This slice uses the existing authenticated local-owner transport. It adds no CORS exception, cookie bootstrap, OS app attestation, external connector, provider grant or cloud route. Wiii supplies a trusted same-origin request transport; the adapter cannot borrow Core task/session authority from a source UI ID.
 
 `local_surface_bridge_v1` advertises `POST /v1/adapters/sessions` with `{sourceApp,sourceSessionId,sourceThreadId,channelId,expectedChannelRevision,clientNonce}`. Source app is `wiii` or `core-tui`; source references are bounded opaque ASCII identifiers. The server derives adapter ID, local owner/space and the relative `returnRoute`. Current exact channel revision is required. Same-nonce retries return the original record; changed origin or scope rejects.
 

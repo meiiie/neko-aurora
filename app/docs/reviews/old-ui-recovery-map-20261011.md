@@ -88,7 +88,7 @@ Các delta nên giữ khi lấy lại view skin:
 
 Kit phục hồi nhận diện rõ nhất:
 
-- `A/apps/web/src/components/neko/NekoBrand.tsx`: hai lockup light/dark, span `sr-only` NekoBot; img `alt=""`/`aria-hidden`; compact112×32, thường140×40.
+- `A/apps/web/src/components/neko/NekoBrand.tsx`: hai lockup light/dark, span `sr-only` Neko Aurora; img `alt=""`/`aria-hidden`; compact112×32, thường140×40.
 - `A/apps/web/public/brand/neko-peek/nekobot-lockup-{light,dark}.svg`: sidebar/empty state.
 - `.../nekobot-mark-micro-{light,dark}.svg`: vùng nhỏ nơi wordmark không vừa; chọn bản optical thay thu nhỏ toàn bộ lockup.
 - `.../nekobot-app-icon-{512,192,180}.png`: app/export assets, giữ notice; không tự coi logo inline đang có ở native là cùng nguồn.
@@ -184,7 +184,7 @@ Checklist này map findings đã gửi UI worker; đây là yêu cầu hành vi,
 
 | Phần | App old evidence | 3cb9/preview quan sát | Phục hồi cụ thể và giới hạn |
 |---|---|---|---|
-| Logo | c9 `NekoBrand` dùng canonical Peek light/dark/optical kit | Native cat icon/mark khác kit, wordmark text “Neko Bot” | Restore NekoBrand assets/provenance, không copy Rakazo hero header. |
+| Logo | c9 `NekoBrand` dùng canonical Peek light/dark/optical kit | Native cat icon/mark khác kit, wordmark text “Neko Aurora” | Restore NekoBrand assets/provenance, không copy Rakazo hero header. |
 | Avatar | Shared identity/color/variant/status renderer; old Chief image có round avatar | Meiiie/Davin initials tile | Restore personality/avatar phù hợp attachment; asset rights phải rõ, không tự import Grok SVG. |
 | Composer | Inline pill radius 26, small white circle actions, conditional expansion | 2-row box mint send, hero-centered new preview | Restore one-line idle and small controls, still multiline accessible; giữ lane semantics hiện tại. |
 | Header/right context | Compact bot header, optional computer/routines dock | Large 76px header + fixed task overlay hidden | Adapt compact header + context dock; context phải hiển thị actual tasks, không giả computer. |

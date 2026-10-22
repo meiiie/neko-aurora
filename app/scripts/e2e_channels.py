@@ -35,7 +35,7 @@ def main():
    for _ in range(3):process.kill();process.wait(timeout=5);process,client=launch(state,config);assert client.work(active['requestId'])==stopped and client.work(beta['requestId'])['publication']==second['publication']
    checks.append({'name':'restart_preserves_provenance_thread_and_revoked_audience_fence','pass':True})
   report={'commit':head,'scope':'Actual Go/Rust/native Core + loopback synthetic fixture; server-authenticated local owner, local channel membership only. No Slack/Discord connector, external grant, channel UI, real provider, cloud or phone acceptance.','checks':checks}
-  for name,path in [('go',ROOT/'.build/neko-control.exe'),('host',ROOT/'host/target/debug/neko-host.exe'),('core',ROOT/'.build/core-windows/neko.exe')]:report[name+'Sha256']=hashlib.sha256(path.read_bytes()).hexdigest()
+  for name,path in [('go',ROOT/'.build/neko-aurora.exe'),('host',ROOT/'host/target/debug/neko-host.exe'),('core',ROOT/'.build/core-windows/neko.exe')]:report[name+'Sha256']=hashlib.sha256(path.read_bytes()).hexdigest()
   args.output.parent.mkdir(parents=True,exist_ok=True);args.output.write_text(json.dumps(report,indent=2)+'\n',encoding='utf-8');print(json.dumps(report,indent=2))
  finally:
   for h in handles:h.close()

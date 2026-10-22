@@ -1,4 +1,4 @@
-# Tài liệu Neko Bot
+# Tài liệu Neko Aurora
 
 [← README](../README.md)
 

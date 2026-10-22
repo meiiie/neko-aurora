@@ -22,7 +22,7 @@ def main():
     args = parser.parse_args()
     combined = bytearray()
     for number, expected in PARTS:
-        matches = list(args.archives.rglob(f"NekoBot-core-3d5725f-linux-x64-runtime-part{number}.zip"))
+        matches = list(args.archives.rglob(f"Neko Aurora-core-3d5725f-linux-x64-runtime-part{number}.zip"))
         if len(matches) != 1:
             raise ValueError("Expected exactly one pinned runtime part")
         with zipfile.ZipFile(matches[0]) as archive:

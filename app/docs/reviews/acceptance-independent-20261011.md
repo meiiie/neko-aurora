@@ -1,4 +1,4 @@
-# Neko Bot — independent acceptance audit, 2026-10-11
+# Neko Aurora — independent acceptance audit, 2026-10-11
 
 ## Kết luận và phạm vi
 

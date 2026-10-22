@@ -1,4 +1,4 @@
-# Neko Bot — current local evidence, 2026-10-11
+# Neko Aurora — current local evidence, 2026-10-11
 
 Latest tested local application: **5fa4c4337ff390767dd844f24d764ce9d901cea9**. This adds durable display-name-only bot rename from43 and closes two independent P2 findings: delayed snapshot rollback and Desktop terminal-backslash argument encoding. Fresh Go **243 top-level +250 subtests**, vet/build, actual Go/browser **16**, actual native Go/Rust/Core rename concurrency **4**, VM snapshot **4** and native argv **3** PASS. Launcher default/integrity **10** was first verified on43; its normal checks and actual launch are rerun against the promoted current release separately in the packet. Root PS5.1 argv3 is separate from the reviewer's optional execution-policy blocker. Host/Core/Tauri source unchanged; prior Rust/native suites retain their original attribution.
 

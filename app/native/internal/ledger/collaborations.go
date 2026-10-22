@@ -8,8 +8,8 @@ import (
 	"strings"
 	"time"
 
-	"nekobot.local/native/internal/connections"
-	"nekobot.local/native/internal/executors"
+	"nekoaurora.local/native/internal/connections"
+	"nekoaurora.local/native/internal/executors"
 )
 
 type CollaborationInput struct {

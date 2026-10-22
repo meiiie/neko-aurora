@@ -55,7 +55,7 @@ func TestEncodeTextPreservesScriptAndBackticksAsPlainData(t *testing.T) {
 			t.Fatalf("plain text output lost literal value of length %d", len(literal))
 		}
 	}
-	if !bytes.HasPrefix(encoded, []byte("Neko Bot conversation history\n")) {
+	if !bytes.HasPrefix(encoded, []byte("Neko Aurora conversation history\n")) {
 		t.Fatal("plain text output must start with the literal text format header")
 	}
 }

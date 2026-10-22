@@ -1,6 +1,6 @@
-# Neko Bot: private report into the requested local channel
+# Neko Aurora: private report into the requested local channel
 
-In a shared channel, write `@Meiiie gửi báo cáo đã làm ở cuộc trò chuyện riêng vào kênh này`. Neko Bot selects that bot's permitted completed report and delivers its result, safe provenance and authorized report file into the original channel. A unique result needs no picker or reapproval. If ambiguous, answer the short question with a subject such as `Atlas`; the original durable human request remains the authorization.
+In a shared channel, write `@Meiiie gửi báo cáo đã làm ở cuộc trò chuyện riêng vào kênh này`. Neko Aurora selects that bot's permitted completed report and delivers its result, safe provenance and authorized report file into the original channel. A unique result needs no picker or reapproval. If ambiguous, answer the short question with a subject such as `Atlas`; the original durable human request remains the authorization.
 
 Application: `2a740296e0711989d82601ac09a247bf2a5fa86c`. The documentation-only delivery commit, binary pins and launch paths are in `.checkpoints/local-report-delivery-release/launch.json`; exact receipts/hashes are in `validation-final.json` and `manifest.json`. This is a local-owner checkpoint, not whole-product acceptance.
 
@@ -25,7 +25,7 @@ Exact retry preserves the original result even after newer completion. Changed b
 
 The packet retains parser/completion RED logs, failed browser harness rounds and corrected scopes. Older evidence keeps its commit/working-tree identity. Current PNGs/MP4s are actual Chrome served by compiled Go. Completed reports are authored synthetic seeds, not evidence that a real model wrote them. Streaming10-frame checks are separately authored event fixtures, not latency/load measurements.
 
-Root inspected desktop/mobile/short/clarification PNGs and video contact frames. Approved light layout and **Neko Bot** name remain. Owned fixture service/browser exited. Original17 ZIPs,1068 protected files, five older packets and inherited raw edits are checked after Main fast-forward. No source bundle/final ZIP/raw state/profile/vault/config/Library upload/public push/deployment is included.
+Root inspected desktop/mobile/short/clarification PNGs and video contact frames. Approved light layout and **Neko Aurora** name remain. Owned fixture service/browser exited. Original17 ZIPs,1068 protected files, five older packets and inherited raw edits are checked after Main fast-forward. No source bundle/final ZIP/raw state/profile/vault/config/Library upload/public push/deployment is included.
 
 ## Launch and demo
 

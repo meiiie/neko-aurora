@@ -6,7 +6,7 @@ Historical 8d writer-v2 and original v1 receipts retain their ledger validation 
 
 Live admission and journal replay share a digest-continuity invariant: when a task already has a Core binding, its next admitted receipt must retain that digest. This applies even to an unstaged legacy admission. It preserves legitimate same-runtime proof-free historical receipts while refusing a hash-valid provenance transplant. Context refresh creates a new task without the old Core binding and retains the original binding in the archived context attempt.
 
-The delivered Core includes `task-session migrate-v1 <absolute-manifest-path>`, an explicit offline metadata import tool. It creates new metadata-only IDs with labels/ancestry and byte-identical source backups. It does not adopt the old active task, context, effect receipts or authority. Neko Bot never invokes this tool automatically. No user state was migrated during adoption.
+The delivered Core includes `task-session migrate-v1 <absolute-manifest-path>`, an explicit offline metadata import tool. It creates new metadata-only IDs with labels/ancestry and byte-identical source backups. It does not adopt the old active task, context, effect receipts or authority. Neko Aurora never invokes this tool automatically. No user state was migrated during adoption.
 
 Private retained delivery: `E:/Sach/Sua/NekoBot/.checkpoints/core-adoption-2360aa6/candidate/`. `artifacts.json` SHA-256 is `d72d90dca1c9c69d4fa936d9f1e9c3b11d4e7004c19f657418bfbd158a05e601`; it binds the compiled binary, source bundle, AGPL license/notice, exact source provenance and offline migration evidence. The source bundle is derived local history; the recorded upstream snapshot revision is not represented as an original upstream Git object.
 

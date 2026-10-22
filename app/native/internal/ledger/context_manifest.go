@@ -5,7 +5,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
-	"nekobot.local/native/internal/identity"
+	"nekoaurora.local/native/internal/identity"
 	"reflect"
 	"regexp"
 	"sort"

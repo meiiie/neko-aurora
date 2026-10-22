@@ -25,7 +25,7 @@ def main():
         assert head == args.commit and not dirty
     with tempfile.TemporaryDirectory(prefix="neko-ui-redesign-", dir=ROOT / ".build", ignore_cleanup_errors=True) as temporary:
         fixture = None
-        command = [str(ROOT / ".build/neko-control.exe"), "--listen", "127.0.0.1:8765" if args.tauri else "127.0.0.1:0", "--state", str(pathlib.Path(temporary)/"state"), "--host-executable", args.host]
+        command = [str(ROOT / ".build/neko-aurora.exe"), "--listen", "127.0.0.1:8765" if args.tauri else "127.0.0.1:0", "--state", str(pathlib.Path(temporary)/"state"), "--host-executable", args.host]
         if args.core:
             fixture = subprocess.Popen([sys.executable,str(ROOT/"scripts/fixture_provider.py")],stdin=subprocess.PIPE,stdout=subprocess.PIPE,stderr=subprocess.DEVNULL,text=True)
             ready = fixture.stdout.readline().strip()
@@ -40,7 +40,7 @@ def main():
             subprocess.run(["node", str(ROOT / "scripts/ui_redesign_smoke.mjs"), str(ROOT/".build/neko-desktop.exe") if args.tauri else args.chrome, ready[6:]] + (["--context-fixture"] if args.context_fixture else []) + (["--core"] if args.core else []) + (["--tauri"] if args.tauri else []), cwd=ROOT, check=True, timeout=240)
             evidence = ROOT / ".build/evidence-redesign/ui-smoke.json"
             report = json.loads(evidence.read_text(encoding="utf-8"))
-            report.update({"codeCommit": head, "workingTree": dirty, "command": "python scripts/test_ui_redesign.py" + (" --commit " + args.commit if args.commit else "") + (" --context-fixture" if args.context_fixture else ""), "environment": "Windows; owned isolated headless Chrome; Go local journal; existing Rust DPAPI host; no Core/model execution", "sourceUiBaseline": "3cb9b6ff12195b432e1c5c9d69b0db9b56699229", "runtimeCodeCommit": head, "goBinarySha256": hashlib.sha256((ROOT / ".build/neko-control.exe").read_bytes()).hexdigest(), "rustHostSha256": hashlib.sha256(pathlib.Path(args.host).read_bytes()).hexdigest()})
+            report.update({"codeCommit": head, "workingTree": dirty, "command": "python scripts/test_ui_redesign.py" + (" --commit " + args.commit if args.commit else "") + (" --context-fixture" if args.context_fixture else ""), "environment": "Windows; owned isolated headless Chrome; Go local journal; existing Rust DPAPI host; no Core/model execution", "sourceUiBaseline": "3cb9b6ff12195b432e1c5c9d69b0db9b56699229", "runtimeCodeCommit": head, "goBinarySha256": hashlib.sha256((ROOT / ".build/neko-aurora.exe").read_bytes()).hexdigest(), "rustHostSha256": hashlib.sha256(pathlib.Path(args.host).read_bytes()).hexdigest()})
             report["contextFixture"] = "owned CDP endpoint/snapshot stub only; no real context grant or provider" if args.context_fixture else "not_run"
             report["nativeWindowsCore"] = args.core
             report["environment"] = "Windows; owned Tauri WebView2" if args.tauri else "Windows; owned headless Chrome"

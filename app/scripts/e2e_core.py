@@ -45,7 +45,7 @@ class Client:
             time.sleep(.1)
         raise AssertionError({"requestId":id,"last":work["status"],"failure":work.get("failure")})
 def launch(state, config):
-    p=subprocess.Popen([str(ROOT/".build/neko-control.exe"),"--listen","127.0.0.1:0","--state",str(state),"--core-fixture-config",str(config)],stdin=subprocess.DEVNULL,stdout=subprocess.PIPE,stderr=subprocess.PIPE,text=True)
+    p=subprocess.Popen([str(ROOT/".build/neko-aurora.exe"),"--listen","127.0.0.1:0","--state",str(state),"--core-fixture-config",str(config)],stdin=subprocess.DEVNULL,stdout=subprocess.PIPE,stderr=subprocess.PIPE,text=True)
     ready=p.stdout.readline().strip()
     if not ready.startswith("READY "):raise RuntimeError("Go service failed to start")
     return p,Client(ready[6:])
@@ -166,7 +166,7 @@ def main():
                     assert blocked["failure"]=="core_writer_unavailable" and blocked["core"]==receipt
                     assert hashlib.sha256(lock.read_bytes()).hexdigest()==lock_hash and not blocked.get("artifacts")
                     checks.append({"name":"forced_core_kill_retains_mapping_and_lock_fails_closed","pass":True,"resumeGate":"blocked_by_pinned_Core_v1_writer_recovery_contract"})
-            result={"scope":("Native Windows Go/Rust/Core" if args.native_core else "Windows Go/Rust + WSL Core")+" 1.8.0, loopback controlled fixture; no real provider. Core-process crash resume and whole-Go service crash are distinct: service-crash resume remains blocked if the prior attempt lacks a verified stop receipt.","commit":head,"workingTree":not bool(args.commit),"ownedJournalRoot":directory if args.retain_journal else None,"goBinarySha256":hashlib.sha256((ROOT/".build/neko-control.exe").read_bytes()).hexdigest(),"rustHostSha256":hashlib.sha256((ROOT/"host/target/debug/neko-host.exe").read_bytes()).hexdigest(),"coreSha256":hashlib.sha256(core_binary.read_bytes()).hexdigest(),"checks":checks}
+            result={"scope":("Native Windows Go/Rust/Core" if args.native_core else "Windows Go/Rust + WSL Core")+" 1.8.0, loopback controlled fixture; no real provider. Core-process crash resume and whole-Go service crash are distinct: service-crash resume remains blocked if the prior attempt lacks a verified stop receipt.","commit":head,"workingTree":not bool(args.commit),"ownedJournalRoot":directory if args.retain_journal else None,"goBinarySha256":hashlib.sha256((ROOT/".build/neko-aurora.exe").read_bytes()).hexdigest(),"rustHostSha256":hashlib.sha256((ROOT/"host/target/debug/neko-host.exe").read_bytes()).hexdigest(),"coreSha256":hashlib.sha256(core_binary.read_bytes()).hexdigest(),"checks":checks}
             if args.output:args.output.parent.mkdir(parents=True,exist_ok=True);args.output.write_text(json.dumps(result,ensure_ascii=False,indent=2),encoding="utf-8")
             print(json.dumps(result,ensure_ascii=False,indent=2))
     except BaseException as error:

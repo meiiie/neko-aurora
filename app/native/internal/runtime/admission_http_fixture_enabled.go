@@ -12,9 +12,9 @@ import (
 	"strings"
 	"time"
 
-	"nekobot.local/native/internal/executors"
-	"nekobot.local/native/internal/ledger"
-	"nekobot.local/native/internal/protocol"
+	"nekoaurora.local/native/internal/executors"
+	"nekoaurora.local/native/internal/ledger"
+	"nekoaurora.local/native/internal/protocol"
 )
 
 type admissionHTTPFixtureConfig struct {

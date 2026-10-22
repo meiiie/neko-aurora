@@ -1,0 +1,394 @@
+package aurora
+
+import (
+	"context"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"regexp"
+	"strings"
+	"time"
+
+	"nekoaurora.local/native/internal/ledger"
+)
+
+// Agent turns. Each turn is a ledger Work item (the same task the desktop
+// shows); the runner claims it as a direct run, executes it through Neko Core
+// (or the HTTP fallback) and journals plan steps, the reply and any approval
+// gate on that Work. UX patterns follow OpenMuse/OpenDots (MIT): durable step
+// plans with live status, in-thread review cards, stop + follow-up queue.
+// Event names follow AG-UI (agui.go, MIT, see THIRD_PARTY_NOTICES.md).
+
+const systemPrompt = `Bạn là "%s", một agent trong Neko Aurora làm việc cho Darren (HoLiLiHu). Vai trò: %s
+Quy tắc:
+- Trả lời bằng tiếng Việt, ngắn gọn, cụ thể, như một đồng nghiệp đáng tin. Không dùng markdown nặng.
+- Bạn KHÔNG tự gửi, đăng, thanh toán hay liên hệ ai bên ngoài. Không bao giờ nói là đã gửi.
+- Cuối câu trả lời, bạn có thể thêm các dòng chỉ thị (mỗi loại tối đa một dòng, đúng JSON):
+PLAN: ["bước 1","bước 2"]   ← chỉ khi việc cần 2-4 bước rõ ràng; khi đó phần trả lời chỉ cần 1 câu nêu cách làm.
+CHOICES: ["lựa chọn A","lựa chọn B"]   ← khi cần Darren chọn nhanh (2-4 lựa chọn ngắn).
+APPROVAL: {"title":"<việc cần duyệt>","kind":"email|send|post|pay|other","to":"<email nếu là email>","subject":"<tiêu đề nếu là email>","body":"<toàn bộ nội dung đã soạn>"}   ← bắt buộc cho mọi hành động ra bên ngoài.
+- Với email: kind là "email", dùng đúng địa chỉ Darren đưa; không lặp lại toàn văn thư ở phần trả lời.`
+
+var directiveRe = regexp.MustCompile(`(?m)^\s*(PLAN|CHOICES|APPROVAL):\s*(.+?)\s*$`)
+
+type directives struct {
+	Text     string
+	Plan     []string
+	Choices  []string
+	Approval *Approval
+}
+
+// ParseDirectives strips trailing PLAN/CHOICES/APPROVAL lines from model text.
+func ParseDirectives(text string) directives {
+	var d directives
+	// APPROVAL bodies may span lines; handle it first with the dedicated parser.
+	text, d.Approval = SplitApproval(text)
+	for _, m := range directiveRe.FindAllStringSubmatch(text, -1) {
+		var list []string
+		if json.Unmarshal([]byte(m[2]), &list) != nil {
+			continue
+		}
+		clean2 := []string{}
+		for _, v := range list {
+			if v = clean(v, 120); v != "" && len(clean2) < 4 {
+				clean2 = append(clean2, v)
+			}
+		}
+		switch m[1] {
+		case "PLAN":
+			if len(clean2) >= 2 {
+				d.Plan = clean2
+			}
+		case "CHOICES":
+			if len(clean2) >= 2 {
+				d.Choices = clean2
+			}
+		}
+	}
+	d.Text = strings.TrimSpace(directiveRe.ReplaceAllString(text, ""))
+	return d
+}
+
+var approvalRe = regexp.MustCompile(`(?s)\n?\s*APPROVAL:\s*(\{.*\})\s*$`)
+
+func SplitApproval(text string) (string, *Approval) {
+	m := approvalRe.FindStringSubmatchIndex(text)
+	if m == nil {
+		return strings.TrimSpace(text), nil
+	}
+	var a Approval
+	if json.Unmarshal([]byte(text[m[2]:m[3]]), &a) != nil || strings.TrimSpace(a.Body) == "" {
+		return strings.TrimSpace(text), nil
+	}
+	a.Title, a.Body, a.Kind = clean(a.Title, 80), clean(a.Body, 4000), clean(a.Kind, 12)
+	a.Subject = clean(a.Subject, 160)
+	if a.Kind == "email" {
+		if to, ok := ValidEmail(a.To); ok {
+			a.To = to
+		} else {
+			a.To = ""
+		}
+	} else {
+		a.To, a.Subject = "", ""
+	}
+	if a.Title == "" {
+		a.Title = "Hành động cần bạn duyệt"
+	}
+	a.State = "pending"
+	return strings.TrimSpace(text[:m[0]]), &a
+}
+
+// eligible reports whether the direct runner may execute this work: plain
+// owner-to-bot intake with no attested-runtime, account, project, plugin or
+// collaboration requirements (those stay with the host/executor pipeline).
+// Default plugin pins are fine: a direct run grants no tools at all.
+func eligible(w ledger.Work) bool {
+	return w.Status == "waiting_host" && w.DesiredState == "running" && w.Direct == nil && w.Core == nil && w.CoreProfilePin == nil && w.CoreProfileSelection == nil && w.Collaboration == nil && w.Account == nil && w.Resources == nil && w.RequesterPin == nil && w.ConversationID == "conversation-"+w.BotID
+}
+
+// runLoop dispatches queued work one turn per bot, oldest first.
+func (s *Service) runLoop() {
+	t := time.NewTicker(150 * time.Millisecond)
+	defer t.Stop()
+	for {
+		select {
+		case <-s.ctx.Done():
+			return
+		case <-t.C:
+		case <-s.wake:
+		}
+		snap := s.L.Snapshot()
+		v := newView(snap)
+		for botID, l := range v.byBot {
+			if v.archived[botID] {
+				continue
+			}
+			busy := false
+			for _, w := range l {
+				if w.Status == "running" || w.Status == "cancelling" {
+					busy = true
+				}
+			}
+			s.mu.Lock()
+			if s.running[botID] || len(s.running) >= 4 {
+				busy = true
+			}
+			s.mu.Unlock()
+			if busy {
+				continue
+			}
+			for _, w := range l {
+				if !eligible(w) {
+					continue
+				}
+				s.mu.Lock()
+				s.running[botID] = true
+				s.mu.Unlock()
+				go func(w ledger.Work) {
+					defer func() { s.mu.Lock(); delete(s.running, w.BotID); s.mu.Unlock(); s.poke() }()
+					s.runWork(w)
+				}(w)
+				break
+			}
+		}
+	}
+}
+
+func (s *Service) poke() {
+	select {
+	case s.wake <- struct{}{}:
+	default:
+	}
+}
+
+// recoverInterrupted closes direct runs a crash left open.
+func (s *Service) recoverInterrupted() {
+	for _, w := range s.L.Snapshot().Work {
+		if w.Direct == nil {
+			continue
+		}
+		switch w.Status {
+		case "running":
+			_, _ = s.L.DirectFinish(w.RequestID, w.Epoch, "failed", "interrupted_by_restart", nil)
+		case "cancelling":
+			_, _ = s.L.DirectStopped(w.RequestID)
+		}
+	}
+}
+
+func (s *Service) history(botID, current string) []ChatMsg {
+	v := newView(s.L.Snapshot())
+	b, _ := v.bot(botID)
+	msgs := []ChatMsg{{Role: "system", Content: fmt.Sprintf(systemPrompt, b.Name, v.desc(b))}}
+	l := v.byBot[botID]
+	if len(l) > 30 {
+		l = l[len(l)-30:]
+	}
+	for _, w := range l {
+		if w.Direct == nil || w.Direct.Kind == "" {
+			msgs = append(msgs, ChatMsg{"user", w.Text})
+		}
+		if w.RequestID == current {
+			break
+		}
+		c := ""
+		if w.Direct != nil {
+			c = w.Direct.PlanIntro
+			for i, st := range w.Direct.Plan {
+				c += fmt.Sprintf("\n[Bước %d: %s — %s]", i+1, st.Title, st.Status)
+			}
+		}
+		if r := visibleText(w.Reply); r != "" {
+			c += "\n" + r
+		}
+		if w.Direct != nil && w.Direct.Approval != nil {
+			c += fmt.Sprintf("\n[Đề xuất cần duyệt: %s — trạng thái: %s]", w.Direct.Approval.Title, w.Direct.Approval.State)
+		}
+		if w.Status == "failed" || w.Status == "cancelled" {
+			c += "\n[" + failureText(w.Failure) + "]"
+		}
+		if c = strings.TrimSpace(c); c != "" {
+			msgs = append(msgs, ChatMsg{"assistant", c})
+		}
+	}
+	return msgs
+}
+
+func (s *Service) agui(e AGUIEvent) { s.publish("agui", e) }
+
+// call streams one model call; deltas go to SSE as TEXT_MESSAGE_CONTENT.
+func (s *Service) call(ctx context.Context, w ledger.Work, msgs []ChatMsg) (directives, error) {
+	s.agui(AGUIEvent{Type: TEXT_MESSAGE_START, ThreadID: w.BotID, RunID: w.RequestID, MessageID: w.RequestID})
+	full, err := s.AI.Stream(ctx, msgs, func(d string) {
+		s.publish("delta", map[string]any{"type": TEXT_MESSAGE_CONTENT, "agentId": w.BotID, "id": w.RequestID, "messageId": w.RequestID, "delta": d})
+	})
+	return ParseDirectives(full), err
+}
+
+func (s *Service) endDraft(w ledger.Work) {
+	s.sync()
+	s.agui(AGUIEvent{Type: TEXT_MESSAGE_END, ThreadID: w.BotID, RunID: w.RequestID, MessageID: w.RequestID})
+	s.publish("draft_end", map[string]string{"id": w.RequestID, "agentId": w.BotID})
+}
+
+func (s *Service) runWork(w ledger.Work) {
+	if strings.HasPrefix(w.ClientNonce, "brief-") {
+		s.runBrief(w)
+		return
+	}
+	run := ledger.DirectRun{Runtime: s.AI.Runtime(), Model: s.AI.ModelName()}
+	if !s.AI.Configured() {
+		run.Model = ""
+	}
+	w, err := s.L.DirectStart(w.RequestID, w.Epoch, run)
+	if err != nil {
+		return
+	}
+	s.agui(AGUIEvent{Type: RUN_STARTED, ThreadID: w.BotID, RunID: w.RequestID})
+	ctx, cancel := context.WithTimeout(s.ctx, 6*time.Minute)
+	defer cancel()
+	go s.watchCancel(ctx, cancel, w.RequestID)
+	appr, choices, err := s.runTurn(ctx, w)
+	if err != nil {
+		cur, gerr := s.L.Get(w.RequestID)
+		if gerr == nil && cur.Status == "cancelling" {
+			_, _ = s.L.DirectStopped(w.RequestID)
+			s.endDraft(w)
+			s.agui(AGUIEvent{Type: RUN_FINISHED, ThreadID: w.BotID, RunID: w.RequestID})
+			return
+		}
+		code := clean(err.Error(), 150)
+		if errors.Is(err, ErrNoAI) {
+			code = "ai_not_configured"
+		}
+		if gerr == nil && cur.Status == "running" {
+			_, _ = s.L.DirectFinish(w.RequestID, cur.Epoch, "failed", code, nil)
+		}
+		s.endDraft(w)
+		s.agui(AGUIEvent{Type: RUN_ERROR, ThreadID: w.BotID, RunID: w.RequestID, Message: code})
+		return
+	}
+	cur, gerr := s.L.Get(w.RequestID)
+	if gerr != nil || cur.Status != "running" {
+		if gerr == nil && cur.Status == "cancelling" {
+			_, _ = s.L.DirectStopped(w.RequestID)
+		}
+		s.endDraft(w)
+		return
+	}
+	_, _ = s.L.DirectFinish(w.RequestID, cur.Epoch, "completed", "", func(d *ledger.DirectRun) {
+		if appr != nil {
+			d.Approval = appr
+		}
+		d.Choices = choices
+	})
+	s.endDraft(w)
+	s.agui(AGUIEvent{Type: RUN_FINISHED, ThreadID: w.BotID, RunID: w.RequestID})
+	name := s.botName(w.BotID)
+	switch {
+	case appr != nil:
+		s.notify(name+" cần bạn duyệt", appr.Title, "/app/#"+w.BotID)
+	case len(choices) > 0:
+		s.notify(name+" cần bạn chọn", "Chọn một phương án để tiếp tục", "/app/#"+w.BotID)
+	default:
+		s.notify(name, "Đã xong việc bạn giao.", "/app/#"+w.BotID)
+	}
+}
+
+// watchCancel turns a ledger cancel (desktop or mobile Stop) into ctx cancel.
+func (s *Service) watchCancel(ctx context.Context, cancel context.CancelFunc, id string) {
+	t := time.NewTicker(100 * time.Millisecond)
+	defer t.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-t.C:
+			if cur, err := s.L.Get(id); err != nil || cur.DesiredState != "running" {
+				cancel()
+				return
+			}
+		}
+	}
+}
+
+func (s *Service) appendText(id, text string) error {
+	cur, err := s.L.Get(id)
+	if err != nil {
+		return err
+	}
+	if text = strings.TrimSpace(text); text == "" {
+		return nil
+	}
+	if cur.Reply != "" {
+		text = "\n\n" + text
+	}
+	if len(cur.Reply)+len(text) > 60000 {
+		text = text[:max(0, 60000-len(cur.Reply))]
+		text = strings.ToValidUTF8(text, "")
+	}
+	return s.L.AppendText(id, cur.Epoch, text)
+}
+
+func (s *Service) update(id string, fn func(*ledger.DirectRun)) {
+	if cur, err := s.L.Get(id); err == nil && cur.Status == "running" {
+		_, _ = s.L.DirectUpdate(id, cur.Epoch, fn)
+	}
+	s.sync()
+}
+
+func (s *Service) runTurn(ctx context.Context, w ledger.Work) (*Approval, []string, error) {
+	d, err := s.call(ctx, w, s.history(w.BotID, w.RequestID))
+	if err != nil {
+		return nil, nil, err
+	}
+	if len(d.Plan) < 2 || d.Approval != nil {
+		return d.Approval, d.Choices, s.appendText(w.RequestID, d.Text)
+	}
+	steps := make([]Step, len(d.Plan))
+	for i, t := range d.Plan {
+		steps[i] = Step{Title: t, Status: "pending"}
+	}
+	s.update(w.RequestID, func(r *ledger.DirectRun) { r.PlanIntro, r.Plan = clean(d.Text, 600), steps })
+	s.endDraft(w)
+	setStep := func(i int, st string) {
+		s.update(w.RequestID, func(r *ledger.DirectRun) {
+			r.Plan[i].Status = st
+			if st == "cancelled" || st == "failed" || st == "waiting" {
+				for j := i + 1; j < len(r.Plan); j++ {
+					r.Plan[j].Status = "cancelled"
+				}
+			}
+		})
+	}
+	for i, title := range d.Plan {
+		if ctx.Err() != nil {
+			setStep(i, "cancelled")
+			return nil, nil, ctx.Err()
+		}
+		setStep(i, "running")
+		s.agui(AGUIEvent{Type: STEP_STARTED, ThreadID: w.BotID, RunID: w.RequestID, StepName: title})
+		msgs := append(s.history(w.BotID, w.RequestID), ChatMsg{"user", fmt.Sprintf("[Hệ thống] Thực hiện bước %d/%d: %s. Chỉ làm bước này, trả lời ngắn. Không viết PLAN. Đừng tự tạo bước chờ Darren duyệt: việc duyệt do hệ thống lo. Nếu thật sự thiếu thông tin chỉ Darren biết, hỏi 1 câu và dùng CHOICES, kế hoạch sẽ tạm dừng. Chỉ dùng APPROVAL nếu bước này cần hành động ra bên ngoài.", i+1, len(d.Plan), title)})
+		sd, err := s.call(ctx, w, msgs)
+		if err != nil {
+			st := "failed"
+			if errors.Is(err, context.Canceled) || ctx.Err() != nil {
+				st = "cancelled"
+			}
+			setStep(i, st)
+			return nil, nil, err
+		}
+		if err := s.appendText(w.RequestID, sd.Text); err != nil {
+			return nil, nil, err
+		}
+		s.agui(AGUIEvent{Type: STEP_FINISHED, ThreadID: w.BotID, RunID: w.RequestID, StepName: title})
+		if sd.Approval != nil || len(sd.Choices) > 0 {
+			setStep(i, "waiting")
+			s.endDraft(w)
+			return sd.Approval, sd.Choices, nil
+		}
+		setStep(i, "done")
+		s.endDraft(w)
+	}
+	return nil, nil, nil
+}

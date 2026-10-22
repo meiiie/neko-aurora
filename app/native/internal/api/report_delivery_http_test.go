@@ -14,7 +14,7 @@ import (
 	"testing"
 	"time"
 
-	"nekobot.local/native/internal/ledger"
+	"nekoaurora.local/native/internal/ledger"
 )
 
 const apiReportCommand = "@Meiiie gửi báo cáo đã làm ở cuộc trò chuyện riêng vào kênh này"

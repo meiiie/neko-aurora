@@ -15,7 +15,7 @@ import (
 	"time"
 	"unicode/utf8"
 
-	"nekobot.local/native/internal/documents"
+	"nekoaurora.local/native/internal/documents"
 )
 
 const (

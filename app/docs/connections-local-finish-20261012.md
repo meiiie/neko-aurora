@@ -6,7 +6,7 @@ Candidate mới: `E:/CodexScratch/core-profile-bridge-20261012/candidate-92b442d
 
 1. Mở `Start-CoreProfile-Candidate.cmd` trong thư mục candidate, rồi vào `http://127.0.0.1:8767`. Script dùng state riêng và từ chối nếu cổng đã có chủ; không dừng bản 8765. Có thể chạy `.ps1 -CheckOnly` trước để chỉ kiểm hash, chưa mở dịch vụ.
 2. Mở **Kết nối → Dùng profile có sẵn**. Bước **Nguồn** chỉ liệt kê nguồn đã được native cấu hình; chưa đọc profile hay gọi model.
-3. Chọn **Cho phép xem profile · 5 phút**. Đây là thao tác tự đồng ý để Core đọc metadata ở home Core của tài khoản Windows. Không cần nhập key vào chat hay Neko Bot. Chọn profile đủ điều kiện ở bước **Profile**.
+3. Chọn **Cho phép xem profile · 5 phút**. Đây là thao tác tự đồng ý để Core đọc metadata ở home Core của tài khoản Windows. Không cần nhập key vào chat hay Neko Aurora. Chọn profile đủ điều kiện ở bước **Profile**.
 4. Ở bước **Phạm vi**, xem hội thoại/bot/dự án, provider và dữ liệu được gửi. Ngân sách mặc định nhìn thấy: mỗi tin tối đa 64.000 byte đầu vào, 1.024 token đầu ra, 1 lượt gọi, 1 bước, 120 giây; quyền gốc 300 giây. **Chỉnh giới hạn** mở editor. Bấm **Cho phép dùng trong phạm vi này** mới tạo consent; thao tác đó chưa gọi model.
 5. Gửi một tin mới khi bạn muốn thử provider thật. Việc gửi là bước dùng credential và gọi provider, có thể phát sinh chi phí. Lượt phát triển này chưa thực hiện bước đó với profile thật.
 6. Trong Kết nối, chọn **Thu hồi quyền dùng profile đã chọn** để dừng việc đang dùng phạm vi đó. Đổi key/profile hoặc hết hạn cũng giữ hàng rào output/effect; retry không tự mở lại quyền.

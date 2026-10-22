@@ -1,12 +1,12 @@
-# Mốc source Neko Bot
+# Mốc source Neko Aurora
 
 [← Tài liệu](README.md)
 
 ## v0.1.0-alpha.1
 
-Annotated tag [`v0.1.0-alpha.1`](https://github.com/meiiie/neko-bot/tree/v0.1.0-alpha.1) đánh dấu snapshot source phát triển đầu tiên được trình bày tại `meiiie/neko-bot`. Đây là bản **alpha**, chưa phải stable hoặc production. Không có GitHub Release, binary, installer, chữ ký phát hành hay deploy đi kèm mốc này.
+Annotated tag [`v0.1.0-alpha.1`](https://github.com/meiiie/neko-aurora/tree/v0.1.0-alpha.1) đánh dấu snapshot source phát triển đầu tiên được trình bày tại `meiiie/neko-aurora`. Đây là bản **alpha**, chưa phải stable hoặc production. Không có GitHub Release, binary, installer, chữ ký phát hành hay deploy đi kèm mốc này.
 
-Version của Neko Bot desktop/Tauri và Rust host trong source đều là `0.1.0`. Neko Core giữ version riêng `1.8.0`; không dùng version Core làm số bản phát hành của Neko Bot. Tag không thay đổi version hoặc hành vi runtime.
+Version của Neko Aurora desktop/Tauri và Rust host trong source đều là `0.1.0`. Neko Core giữ version riêng `1.8.0`; không dùng version Core làm số bản phát hành của Neko Aurora. Tag không thay đổi version hoặc hành vi runtime.
 
 Mốc này gồm source app, Core liên quan và 61 file overlay Wiii theo [provenance](../migration/source-manifest.json), cùng README, tài liệu setup và quy tắc đóng góp. Banner mang nhận diện Neko Peek; ảnh ứng dụng là [fixture lịch sử `2a74029`](assets/README.md), không phải bằng chứng nghiệm thu toàn bộ snapshot hiện tại.
 

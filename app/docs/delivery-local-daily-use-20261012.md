@@ -1,6 +1,6 @@
-# Neko Bot: local daily controls and same-channel collaboration
+# Neko Aurora: local daily controls and same-channel collaboration
 
-This slice adds usable local bot/project controls, scoped source inspection and public history downloads, durable metadata retries, literal Office text extraction, and a private local account editor. The display name is **Neko Bot**. Two leading tags in an already-open shared channel now select the existing finite collaboration, with the first bot coordinating three stages. This is a local implementation checkpoint, not whole-product acceptance.
+This slice adds usable local bot/project controls, scoped source inspection and public history downloads, durable metadata retries, literal Office text extraction, and a private local account editor. The display name is **Neko Aurora**. Two leading tags in an already-open shared channel now select the existing finite collaboration, with the first bot coordinating three stages. This is a local implementation checkpoint, not whole-product acceptance.
 
 The application and delivery commit, binary hashes and launch paths are bound by `.checkpoints/local-daily-use-release/launch.json`. The new revision-named binaries do not overwrite the backup or earlier releases. The trusted Rust host, desktop shell and Core pins remain unchanged. No production state, original ZIP or existing local edit is reset. No source bundle, final ZIP, Library upload, public push or deployment is created by this delivery.
 

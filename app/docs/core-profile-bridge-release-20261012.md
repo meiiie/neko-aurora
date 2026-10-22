@@ -1,6 +1,6 @@
 # Core profile bridge candidate, 2026-10-12
 
-Neko Bot can use a supported profile from a Core 1.7-shaped configuration without asking for its key again. The compatible bundled Core reads the selected credential itself. Discovery, profile inspection and bounded execution have separate permissions. The installed Core and existing application are preserved.
+Neko Aurora can use a supported profile from a Core 1.7-shaped configuration without asking for its key again. The compatible bundled Core reads the selected credential itself. Discovery, profile inspection and bounded execution have separate permissions. The installed Core and existing application are preserved.
 
 ## Delivery and identities
 
@@ -17,7 +17,7 @@ The candidate's launch receipt pins every executable. The control binary is comp
 3. Open **Kết nối của bạn → Dùng profile có sẵn**. Discovery lists the trusted source without reading its profiles. **Cho phép xem profile** lets the bundled Core inspect public metadata from your own Core home. Inspecting or saving this selection makes no provider request.
 4. Select an eligible profile, review its provider origin, channel/bot scope and limits, then approve execution. A new message explicitly uses this consent. Sending that message is the step that calls the selected real provider; the development tests have not performed that real-provider trial.
 
-No key needs to be entered into Neko Bot for a supported stored profile. The task's memory, trust and artifact home are separate from the credential home. Revoke in Connections stops selected work; profile rotation and deadline expiry also fence its output/effects.
+No key needs to be entered into Neko Aurora for a supported stored profile. The task's memory, trust and artifact home are separate from the credential home. Revoke in Connections stops selected work; profile rotation and deadline expiry also fence its output/effects.
 
 Initial support is file-backed API-key or explicit no-key direct transports: OpenAI-compatible, Responses, Anthropic and Kimi. Owner-home execution requires HTTPS. OAuth, environment-only credentials, installers, dynamic transports and sidecars sharing a user session home remain unsupported. `configured` and `not_checked` describe configuration and untested authentication readiness respectively. Discovery of an installation does not prove its profile is eligible.
 

@@ -1,9 +1,9 @@
 package api
 
 import (
-	"nekobot.local/native/internal/identity"
-	"nekobot.local/native/internal/ledger"
-	"nekobot.local/native/internal/runtime"
+	"nekoaurora.local/native/internal/identity"
+	"nekoaurora.local/native/internal/ledger"
+	"nekoaurora.local/native/internal/runtime"
 	"net/http"
 )
 

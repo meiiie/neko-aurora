@@ -8,7 +8,7 @@ import urllib.error
 from e2e_core import Client,ROOT
 
 def launch(state):
-    process=subprocess.Popen([str(ROOT/".build/neko-control.exe"),"--listen","127.0.0.1:0","--state",str(state),"--host-executable",str(ROOT/"host/target/debug/neko-host.exe")],stdout=subprocess.PIPE,stderr=subprocess.PIPE,text=True)
+    process=subprocess.Popen([str(ROOT/".build/neko-aurora.exe"),"--listen","127.0.0.1:0","--state",str(state),"--host-executable",str(ROOT/"host/target/debug/neko-host.exe")],stdout=subprocess.PIPE,stderr=subprocess.PIPE,text=True)
     ready=process.stdout.readline().strip()
     if not ready.startswith("READY "):raise RuntimeError("Owned fixture service unavailable")
     return process,Client(ready[6:])

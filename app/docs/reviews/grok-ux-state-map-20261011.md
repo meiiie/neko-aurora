@@ -1,4 +1,4 @@
-# Grok 0.68.1: bản đồ UX, state và motion cho Neko Bot
+# Grok 0.68.1: bản đồ UX, state và motion cho Neko Aurora
 
 Ngày phân tích: 2026-10-11. Phạm vi: đọc tĩnh reference do người dùng chỉ định, đối chiếu UI Neko, viết checklist để implementer thực hiện. Không sửa frontend/runtime/index Git, chạy/import bundle, mở browser/native app, dùng mouse, deploy, gọi provider hay tạo quyền.
 

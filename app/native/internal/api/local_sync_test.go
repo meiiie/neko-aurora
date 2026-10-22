@@ -10,7 +10,7 @@ import (
 	"testing"
 	"time"
 
-	"nekobot.local/native/internal/syncstream"
+	"nekoaurora.local/native/internal/syncstream"
 )
 
 func TestLocalSyncTwoAuthenticatedClientsReconcileWithoutReplayingMessages(t *testing.T) {

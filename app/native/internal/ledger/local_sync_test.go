@@ -7,7 +7,7 @@ import (
 	"reflect"
 	"testing"
 
-	"nekobot.local/native/internal/syncstream"
+	"nekoaurora.local/native/internal/syncstream"
 )
 
 func TestLocalSyncIdentityReplayAudienceAndFileAccessFences(t *testing.T) {

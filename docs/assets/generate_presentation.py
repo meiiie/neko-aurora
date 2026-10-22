@@ -85,7 +85,7 @@ def banner(mobile=False):
         body += '<circle cx="72" cy="340" r="5" fill="#8D8370"/>'
         body += lettering("Đang phát triển", 88, 348, 22, weight=450, color="#65615A")
         body += conversation(800, 52, 1.05)
-    return svg(w, h, "Neko Bot — đa bot, đa kênh", "Logo Neko Peek trên nền ivory, cùng minh họa trừu tượng các luồng hội thoại. Bản phát triển, ưu tiên dữ liệu cục bộ; đây không phải ảnh ứng dụng.", body)
+    return svg(w, h, "Neko Aurora — đa bot, đa kênh", "Logo Neko Peek trên nền ivory, cùng minh họa trừu tượng các luồng hội thoại. Bản phát triển, ưu tiên dữ liệu cục bộ; đây không phải ảnh ứng dụng.", body)
 
 
 def badge(name, text, width):

@@ -14,7 +14,7 @@ if(options.commit&&(options.commit!==commit||dirty))throw new Error('Exact full 
 const output=path.resolve(root,options.output??'.build/evidence-service-recovery-ui');
 await mkdir(output,{recursive:true});
 const temporary=await mkdtemp(path.join(root,'.build','neko-local-channel-'));
-const binary=path.join(root,'.build','neko-control.exe');
+const binary=path.join(root,'.build','neko-aurora.exe');
 const runtimeEnv=Object.fromEntries(['SystemRoot','WINDIR','TEMP','TMP','USERPROFILE','LOCALAPPDATA','APPDATA'].filter(k=>process.env[k]).map(k=>[k,process.env[k]]));
 const service=spawn(binary,['--listen','127.0.0.1:0','--state',path.join(temporary,'state'),'--host-executable',path.resolve(options.host)],{cwd:root,windowsHide:true,stdio:['ignore','pipe','pipe'],env:runtimeEnv});
 let startup='',errors='';service.stdout.on('data',data=>startup+=data);service.stderr.on('data',data=>errors+=data);

@@ -3,7 +3,7 @@ package ledger
 import (
 	"encoding/json"
 	"errors"
-	"nekobot.local/native/internal/identity"
+	"nekoaurora.local/native/internal/identity"
 	"os"
 	"path/filepath"
 	"reflect"

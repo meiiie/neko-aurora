@@ -1,8 +1,8 @@
 package api
 
 import (
-	"nekobot.local/native/internal/executors"
-	"nekobot.local/native/internal/ledger"
+	"nekoaurora.local/native/internal/executors"
+	"nekoaurora.local/native/internal/ledger"
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"

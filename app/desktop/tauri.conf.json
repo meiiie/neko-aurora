@@ -1,8 +1,8 @@
 {
  "$schema":"https://schema.tauri.app/config/2",
- "productName":"Neko Bot",
+ "productName":"Neko Aurora",
  "version":"0.1.0",
- "identifier":"local.nekobot.desktop",
+ "identifier":"local.nekoaurora.desktop",
  "build":{"frontendDist":"../native/internal/web/assets"},
  "app":{"windows":[],"security":{"capabilities":[]}},
  "bundle":{"active":false}

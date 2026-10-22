@@ -2,7 +2,7 @@ package ledger
 
 import (
 	"errors"
-	"nekobot.local/native/internal/connections"
+	"nekoaurora.local/native/internal/connections"
 	"reflect"
 	"strings"
 	"time"

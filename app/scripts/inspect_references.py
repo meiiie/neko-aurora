@@ -9,7 +9,7 @@ repo = pathlib.Path(__file__).resolve().parent.parent
 reference = repo / 'reference'
 archive = reference / 'archive'
 guide = (reference / 'handoff' / 'HUONG-DAN-CAC-BAN-CU.txt').read_text(encoding='utf-8')
-expected = dict(re.findall(r'(NekoBot[^\r\n]+\.zip)\s*\r?\n([0-9a-f]{64})', guide))
+expected = dict(re.findall(r'(Neko Aurora[^\r\n]+\.zip)\s*\r?\n([0-9a-f]{64})', guide))
 
 def sha(path):
     h = hashlib.sha256()
@@ -50,7 +50,7 @@ def extract(source, destination, only_zips=False):
             target.write_bytes(data)
 
 grok = archive / 'Grok-Bot-client-va-phan-tich.zip'
-bundle = archive / 'NekoBot-tat-ca-ban-cu-20261011.zip'
+bundle = archive / 'Neko Aurora-tat-ca-ban-cu-20261011.zip'
 grok_hash = sha(grok)
 if grok_hash != 'd31f6a0342693803510de086fae71a619ae07d20da9ea965e32d061c26f832e5':
     raise RuntimeError('Grok SHA differs from user-supplied original')
@@ -70,9 +70,9 @@ for path in sorted(originals):
             raise RuntimeError('Original ZIP CRC mismatch: '+path.name)
     inventory.append(dict(name=path.name, sha256=actual, crc='pass', size=path.stat().st_size))
     by_name[path.name] = path
-for name in ['NekoBot-phase2-app-c9dbbd7-source-part01-of02.zip', 'NekoBot-phase2-app-c9dbbd7-source-part02-of02.zip']:
+for name in ['Neko Aurora-phase2-app-c9dbbd7-source-part01-of02.zip', 'Neko Aurora-phase2-app-c9dbbd7-source-part02-of02.zip']:
     extract(by_name[name], reference / 'extracted' / 'app-c9dbbd7')
-extract(by_name['NekoBot-core-3d5725f-source.zip'], reference / 'extracted' / 'core-3d5725f')
+extract(by_name['Neko Aurora-core-3d5725f-source.zip'], reference / 'extracted' / 'core-3d5725f')
 sources = []
 for snapshot, component in [('app-c9dbbd7', 'app'), ('core-3d5725f', 'core')]:
     package = reference / 'extracted' / snapshot / 'package'

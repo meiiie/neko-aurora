@@ -8,7 +8,7 @@ import (
 	"strings"
 	"testing"
 
-	"nekobot.local/native/internal/ledger"
+	"nekoaurora.local/native/internal/ledger"
 )
 
 func TestEmbeddedFontResponseAndStaticBoundary(t *testing.T) {

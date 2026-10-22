@@ -10,7 +10,7 @@ body:
     attributes:
       label: Component
       options:
-        - Neko Bot UI
+        - Neko Aurora UI
         - Go control plane / journal
         - Rust host / Tauri
         - Neko Core

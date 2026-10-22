@@ -1,4 +1,4 @@
-# Neko Bot: Core Windows và tài khoản local
+# Neko Aurora: Core Windows và tài khoản local
 
 Code sản phẩm được kiểm thử trên cây Git sạch: `ef5dd4ad60cc36ddb5c36427c2e03e71221ea549`. Thư mục chính là `E:\Sach\Sua\NekoBot`; bản kiểm thử độc lập là `C:\Users\Admin\Documents\Codex\2026-10-11\task\checkpoint-verify-20261011`. Commit bằng chứng sau đó chỉ bổ sung tài liệu/log và sửa nhãn phạm vi trong script kiểm thử mặc định; không thay đổi runtime hay UI.
 

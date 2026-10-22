@@ -58,7 +58,7 @@ if (!args.child) {
     manifest.push({ commit: args.commit, path: name, objectId, bytes: size, sha256: hash(bytes) });
   }
   assert.equal(offset, objects.length);
-  const extraPaths = ['docs/local-document-worker-contract-20261013.md', 'native/cmd/neko-control/main.go'];
+  const extraPaths = ['docs/local-document-worker-contract-20261013.md', 'native/cmd/neko-aurora/main.go'];
   const sources = {};
   for (const name of extraPaths) { const bytes = readGit(['show', args.commit + ':' + name]); sources[name] = bytes.toString('utf8'); manifest.push({ commit: args.commit, path: name, bytes: bytes.length, sha256: hash(bytes) }); const target = path.join(sourceRoot, name); await mkdir(path.dirname(target), { recursive: true }); await writeFile(target, bytes, { flag: 'wx' }); }
   const processProbe = await readFile(path.join(root, 'scripts/acceptance_documentworker_process_20261013.go'));

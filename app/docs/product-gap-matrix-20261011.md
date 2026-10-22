@@ -1,4 +1,4 @@
-# Neko Bot: implemented local paths, missing code and acceptance gates
+# Neko Aurora: implemented local paths, missing code and acceptance gates
 
 Current application: `f1af5e6d47020408b126e3fc357ae57c879419a2`, Core `5ad10a432b738bc26d53c6686c13994fcc5677b3`. [Published report Core context](delivery-published-report-core-context-20261012.md) adds selected-output reads, frozen group context and current revoke/projection guards, with genuine local Go/Rust/Core22 and independent selected29 evidence. Its exact source pairing and full Go/Rust/Core test scopes are recorded in the release packet. [Cross-channel report delivery](delivery-cross-channel-report-20261012.md) retains Go428/472, Go/Chrome79 and independent20/66 under its original2a74029 identity.
 

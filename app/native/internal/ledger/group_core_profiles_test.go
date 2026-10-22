@@ -9,7 +9,7 @@ import (
 	"testing"
 	"time"
 
-	"nekobot.local/native/internal/executors"
+	"nekoaurora.local/native/internal/executors"
 )
 
 func groupProfileObject(t *testing.T, value any) map[string]any {

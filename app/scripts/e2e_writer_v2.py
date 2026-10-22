@@ -81,7 +81,7 @@ def main():
                 expected='writer_helper_missing' if helper_content is None else 'writer_helper_digest_mismatch'
                 assert expected in err,err
                 checks.append({'name':'helper_'+name+'_denied_before_Core_launch','pass':True})
-            result={'commit':args.commit,'workingTree':False,'scope':'Actual native pinned Go/Rust/Core/helper with loopback fixture; no external provider or grants; ACK is intentionally withheld by an owned raw Rust host.', 'coreSha256':digest(core),'helperSha256':digest(helper),'hostSha256':digest(ROOT/'host/target/debug/neko-host.exe'),'goSha256':digest(ROOT/'.build/neko-control.exe'),'checks':checks}
+            result={'commit':args.commit,'workingTree':False,'scope':'Actual native pinned Go/Rust/Core/helper with loopback fixture; no external provider or grants; ACK is intentionally withheld by an owned raw Rust host.', 'coreSha256':digest(core),'helperSha256':digest(helper),'hostSha256':digest(ROOT/'host/target/debug/neko-host.exe'),'goSha256':digest(ROOT/'.build/neko-aurora.exe'),'checks':checks}
             args.output.parent.mkdir(parents=True,exist_ok=True);args.output.write_text(json.dumps(result,indent=2),encoding='utf-8');print(json.dumps(result,indent=2))
     finally:
         if host and host.poll() is None:host.stdin.close();host.kill();host.wait(timeout=5)

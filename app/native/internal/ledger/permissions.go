@@ -2,8 +2,8 @@ package ledger
 
 import (
 	"encoding/json"
-	"nekobot.local/native/internal/executors"
-	"nekobot.local/native/internal/protocol"
+	"nekoaurora.local/native/internal/executors"
+	"nekoaurora.local/native/internal/protocol"
 	"reflect"
 	"sort"
 	"strings"

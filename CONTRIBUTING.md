@@ -1,10 +1,10 @@
-# Đóng góp cho Neko Bot
+# Đóng góp cho Neko Aurora
 
 Cảm ơn bạn đã giúp cải thiện một bản phát triển đa bot/đa kênh. Trước khi sửa, đọc [README](README.md), [setup](docs/getting-started.md), [trạng thái hỗ trợ](docs/project-status.md) và AGENTS.md của component liên quan.
 
 ## Chọn phạm vi
 
-Tìm [issue hiện có](https://github.com/meiiie/neko-bot/issues) trước. Với tính năng mới hoặc thay đổi authority/runtime, mở đề xuất có mục tiêu, scope và acceptance trước khi làm lớn. Sửa tài liệu/lỗi nhỏ có thể gửi PR trực tiếp. Giữ mỗi PR tập trung vào một kết quả; không trộn thay license, nâng dependency và sửa runtime không liên quan.
+Tìm [issue hiện có](https://github.com/meiiie/neko-aurora/issues) trước. Với tính năng mới hoặc thay đổi authority/runtime, mở đề xuất có mục tiêu, scope và acceptance trước khi làm lớn. Sửa tài liệu/lỗi nhỏ có thể gửi PR trực tiếp. Giữ mỗi PR tập trung vào một kết quả; không trộn thay license, nâng dependency và sửa runtime không liên quan.
 
 | Phần việc | Entry point |
 |---|---|

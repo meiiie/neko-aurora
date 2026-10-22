@@ -39,7 +39,7 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
                 "main",
                 tauri::WebviewUrl::External(setup_instance.binding.endpoint.parse()?),
             )
-            .title("Neko Bot")
+            .title("Neko Aurora")
             .inner_size(1220.0, 820.0)
             .min_inner_size(640.0, 560.0)
             .data_directory(data.clone())

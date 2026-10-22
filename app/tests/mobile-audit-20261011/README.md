@@ -17,7 +17,7 @@ Coverage: 320/360/390/414/700/701/768/1000/1440 px widths, landscape 844×390 in
 For actual local-journal behavior, build the control binary from the stated code commit into an owned directory and run:
 
 ```powershell
-python tests/mobile-audit-20261011/journal-check.py --binary <owned-neko-control.exe> --commit <exact-build-source-commit> --output <owned-results.json>
+python tests/mobile-audit-20261011/journal-check.py --binary <owned-neko-aurora.exe> --commit <exact-build-source-commit> --output <owned-results.json>
 ```
 
 This runner uses two independent local HTTP cookie jars, an ephemeral IPv4 listener and its own temporary journal. It tests concurrent nonce deduplication, payload conflicts, independent requests/bots, snapshot equality, replay cursor, scoped cancellation, hard-kill/restart and ahead-cursor rejection. It records binary SHA-256 and does not inherit provider credentials or configure a host. The commit argument identifies the source supplied by the builder; the accompanying build-validation evidence must establish that mapping. It does not prove authenticated cloud sync or tool-effect exactly-once delivery.

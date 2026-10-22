@@ -107,7 +107,7 @@ def main():
             assert len(halted["requestIds"]) == 1 and not stopped.get("operations") and not stopped.get("artifacts")
             checks.append({"name": "audience_revision_change_halts_group_and_actual_Core_without_rebinding", "pass": True})
         report = {"commit": head, "workingTree": False, "scope": "Actual Windows Go/Rust/Core with owned temporary journal and loopback synthetic provider. Local owner/channel/account contracts only; no real provider, connector, cloud, UI or phone/model evaluation.", "checks": checks}
-        for name, path in [("go", ROOT / ".build/neko-control.exe"), ("host", ROOT / "host/target/debug/neko-host.exe"), ("core", ROOT / ".build/core-windows/neko.exe"), ("helper", ROOT / ".build/core-windows/neko-writer-lease.exe")]:
+        for name, path in [("go", ROOT / ".build/neko-aurora.exe"), ("host", ROOT / "host/target/debug/neko-host.exe"), ("core", ROOT / ".build/core-windows/neko.exe"), ("helper", ROOT / ".build/core-windows/neko-writer-lease.exe")]:
             report[name + "Sha256"] = hashlib.sha256(path.read_bytes()).hexdigest()
         args.output.parent.mkdir(parents=True, exist_ok=True)
         args.output.write_text(json.dumps(report, indent=2) + "\n", encoding="utf-8")

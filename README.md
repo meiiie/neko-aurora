@@ -1,17 +1,17 @@
-# Neko Bot
+# Neko Aurora
 
 <picture>
   <source media="(max-width: 600px)" srcset="docs/assets/neko-bot-banner-mobile.svg">
-  <img src="docs/assets/neko-bot-banner.svg" alt="Neko Bot với logo Neko Peek: đa bot, đa kênh, ưu tiên dữ liệu cục bộ; bản đang phát triển" width="1200">
+  <img src="docs/assets/neko-bot-banner.svg" alt="Neko Aurora với logo Neko Peek: đa bot, đa kênh, ưu tiên dữ liệu cục bộ; bản đang phát triển" width="1200">
 </picture>
 
 ![Đang phát triển](docs/assets/badges/development.svg) ![Tauri, Rust và Go](docs/assets/badges/stack.svg) ![Runtime: Neko Core](docs/assets/badges/runtime.svg)
 
-Trợ lý đa bot, đa kênh theo hướng **local-first**. Neko Bot hướng tới việc phối hợp nhiều bot có danh tính và chỉ dẫn riêng, giữ lịch sử công việc bền vững, nhận tin mới khi tác vụ cũ đang chạy và trả kết quả vào đúng kênh được phép.
+Trợ lý đa bot, đa kênh theo hướng **local-first**. Neko Aurora hướng tới việc phối hợp nhiều bot có danh tính và chỉ dẫn riêng, giữ lịch sử công việc bền vững, nhận tin mới khi tác vụ cũ đang chạy và trả kết quả vào đúng kênh được phép.
 
 **Trạng thái: bản phát triển, chưa phải sản phẩm production hoàn chỉnh.** Repository này tập hợp mã nguồn ứng dụng, Neko Core liên quan và một overlay tích hợp Wiii. Không kèm installer, tài khoản, credentials, dữ liệu chat hay runtime đã cấu hình sẵn.
 
-Mốc source: [`v0.1.0-alpha.1`](https://github.com/meiiie/neko-bot/tree/v0.1.0-alpha.1). Xem [ghi chú alpha](docs/releases.md) về version và các gate còn mở. Tag này không kèm binary hoặc installer.
+Mốc source: [`v0.1.0-alpha.1`](https://github.com/meiiie/neko-aurora/tree/v0.1.0-alpha.1). Xem [ghi chú alpha](docs/releases.md) về version và các gate còn mở. Tag này không kèm binary hoặc installer.
 
 [Bắt đầu](#build-và-chạy-local-trên-windows) · [Tài liệu](docs/README.md) · [Ảnh giao diện](#ảnh-giao-diện) · [Roadmap](#roadmap) · [Đóng góp](CONTRIBUTING.md)
 
@@ -30,13 +30,13 @@ Mốc source: [`v0.1.0-alpha.1`](https://github.com/meiiie/neko-bot/tree/v0.1.0-
 
 ```mermaid
 flowchart LR
-    UI["Neko Bot UI · Tauri"] --> Go["Go · API, journal, điều phối"]
+    UI["Neko Aurora UI · Tauri"] --> Go["Go · API, journal, điều phối"]
     Go --> Host["Rust · trusted host, process và effect boundary"]
     Host --> Core["Neko Core · agent loop"]
     Wiii["Wiii · ADE riêng, tùy chọn"] --> Go
 ```
 
-Neko Core sở hữu vòng lặp agent. Go quản lý trạng thái và hợp đồng thực thi; Rust giữ các ranh giới tin cậy trên máy. Wiii là giao diện ADE riêng, không thay thế Neko Bot UI.
+Neko Core sở hữu vòng lặp agent. Go quản lý trạng thái và hợp đồng thực thi; Rust giữ các ranh giới tin cậy trên máy. Wiii là giao diện ADE riêng, không thay thế Neko Aurora UI.
 
 | Thư mục | Vai trò |
 |---|---|
@@ -69,18 +69,18 @@ Xem [ma trận khoảng trống sản phẩm](app/docs/product-gap-matrix-202610
 Cần Git, Go **1.27+**, Rust/Cargo (MSVC + Windows SDK) và WebView2 cho Tauri. Hướng dẫn đầy đủ về [prerequisite, Tauri, Core và kiểm thử](docs/getting-started.md) nằm trong tài liệu setup.
 
 ```powershell
-git clone https://github.com/meiiie/neko-bot.git
+git clone https://github.com/meiiie/neko-aurora.git
 Set-Location neko-bot
 New-Item -ItemType Directory -Force app/.build | Out-Null
 Push-Location app/native
 try {
-    go build -o ../.build/neko-control.exe ./cmd/neko-control
+    go build -o ../.build/neko-aurora.exe ./cmd/neko-aurora
     if ($LASTEXITCODE -ne 0) { throw 'Go build failed' }
 } finally { Pop-Location }
 cargo build --locked --manifest-path app/host/Cargo.toml --target-dir app/.build/host-target
 if ($LASTEXITCODE -ne 0) { throw 'Host build failed' }
 Copy-Item app/.build/host-target/debug/neko-host.exe app/.build/neko-host.exe
-./app/.build/neko-control.exe --state ./app/.state/local --listen 127.0.0.1:8765
+./app/.build/neko-aurora.exe --state ./app/.state/local --listen 127.0.0.1:8765
 ```
 
 Mở `http://127.0.0.1:8765`; Ctrl+C dừng service. Khi chưa cấu hình Core được chấp thuận, tin nhắn được lưu và chờ runtime, không tự gọi provider. Không đưa state hoặc credentials vào Git. Đây là đường chạy local qua trình duyệt; [Tauri dùng launcher/receipt riêng](docs/getting-started.md#tauri-desktop).

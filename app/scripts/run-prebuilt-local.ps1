@@ -28,7 +28,7 @@ function Resolve-ReleaseBinary($item, [string]$filename) {
     if ((Get-FileHash -LiteralPath $resolved -Algorithm SHA256).Hash.ToLowerInvariant() -ne $item.sha256) { throw "Binary hash changed: $filename" }
     return $resolved
 }
-$controlExe = Resolve-ReleaseBinary $receipt.control "neko-control.exe"
+$controlExe = Resolve-ReleaseBinary $receipt.control "neko-aurora.exe"
 $hostExe = Resolve-ReleaseBinary $receipt.host "neko-host.exe"
 if ($receipt.core) { $coreExe = Resolve-ReleaseBinary $receipt.core "neko-core.exe" }
 if ($receipt.writerHelper) { $writerHelperExe = Resolve-ReleaseBinary $receipt.writerHelper "neko-writer-lease.exe" }
@@ -57,7 +57,7 @@ if ($CoreProfileConfig) {
     if ($profilePath.Contains('"')) { throw "Invalid trusted profile registry path" }
     $arguments += @("--core-profile-config", $profilePath)
 }
-Write-Output "Neko Bot local: http://127.0.0.1:$Port; state: $statePath"
+Write-Output "Neko Aurora local: http://127.0.0.1:$Port; state: $statePath"
 if ($CoreProfileConfig) { Write-Output "Core profile inspection and execution require separate owner consent. Existing Core installation is preserved." }
 elseif (-not $CoreFixtureConfig) { Write-Output "Runtime not configured: messages are saved and wait for execution. No provider is called." }
 if (-not $Desktop) { & $controlExe @arguments; if ($LASTEXITCODE -ne 0) { throw "Local service exited with code $LASTEXITCODE" }; return }

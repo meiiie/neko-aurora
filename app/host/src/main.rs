@@ -680,7 +680,7 @@ fn run() -> Result<()> {
     if context.is_some() && init["_meta"]["neko.contextProtocol"] != json!({"version":1}) {
         return Err("core_context_capability_mismatch");
     }
-    let mut params = json!({"cwd":physical_root,"mcpServers":[{"type":"acp","name":"nekobot","serverId":"nekobot:local"}],"_meta":{"neko.taskProtocol":{"version":1,"mode":"fixed-active-task"},"neko.executionProtocol":{"version":1},"neko.hostEffectProtocol":{"version":1},"neko.taskLabel":format!("NekoBot {id}")}});
+    let mut params = json!({"cwd":physical_root,"mcpServers":[{"type":"acp","name":"nekobot","serverId":"nekobot:local"}],"_meta":{"neko.taskProtocol":{"version":1,"mode":"fixed-active-task"},"neko.executionProtocol":{"version":1},"neko.hostEffectProtocol":{"version":1},"neko.taskLabel":format!("Neko Aurora {id}")}});
     if let Some(saved) = resume {
         params["sessionId"] = saved["sessionId"].clone();
         params["_meta"]["neko.taskExpected"] = saved["task"].clone();

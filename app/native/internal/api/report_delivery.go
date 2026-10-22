@@ -6,7 +6,7 @@ import (
 	"net/url"
 	"strings"
 
-	"nekobot.local/native/internal/ledger"
+	"nekoaurora.local/native/internal/ledger"
 )
 
 func (s *Server) reportDeliveries(w http.ResponseWriter, r *http.Request) {

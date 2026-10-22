@@ -7,7 +7,7 @@ import (
 	"unicode"
 	"unicode/utf8"
 
-	"nekobot.local/native/internal/documents"
+	"nekoaurora.local/native/internal/documents"
 )
 
 const docxMIME = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"

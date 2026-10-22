@@ -1,4 +1,4 @@
-# Neko Bot repository instructions
+# Neko Aurora repository instructions
 
 - Preserve existing work, WIP/archive history and the original component repositories.
 - Keep Tauri UI, Rust trusted host and Go control plane boundaries; Neko Core owns the agent loop. Wiii is a separate overlay requiring its verified base.

@@ -1,6 +1,6 @@
 # Local cross-channel report delivery
 
-The owner opens a shared Neko channel and asks `@Meiiie gửi báo cáo đã làm ở cuộc trò chuyện riêng vào kênh này`. Neko Bot finds the permitted completed result and posts it in that original channel. A clear request does not need a file picker or another consent dialog. An ambiguous report needs only a short question about the missing subject. This implementation uses local channels and authored fixtures, with no external transmission or provider grant.
+The owner opens a shared Neko channel and asks `@Meiiie gửi báo cáo đã làm ở cuộc trò chuyện riêng vào kênh này`. Neko Aurora finds the permitted completed result and posts it in that original channel. A clear request does not need a file picker or another consent dialog. An ambiguous report needs only a short question about the missing subject. This implementation uses local channels and authored fixtures, with no external transmission or provider grant.
 
 ## Existing boundary and selected design
 
@@ -33,7 +33,7 @@ An identical retry returns the original receipt and source pin, even when a newe
 
 Journal selection policy is versioned separately from the public delivery DTO. Older candidate events without a policy field keep their historical intake-based selector for replay. New events use policy2 for completion order and strict command tokens. Current projections and downloads apply strict current intent even to older records; malformed historical commands retain a metadata receipt without restoring disclosure. Historical validity does not grant a new publication. This prevents a selection fix from corrupting an otherwise valid older journal or silently changing its original result.
 
-The UI retains the approved light design and the name Neko Bot. A delivered report has one owner command and one bot result in the destination. Late ACKs cannot change navigation, clear a new draft or steal focus. Current revoked content is not restored from an old ACK. Valid append-only text frames from an already known running task do not mask reports or fetch a snapshot per token. Unknown fields, changed authority/status, revocations and cursor gaps still trigger a synchronous visibility fence and read-only resnapshot. Same-channel two-bot collaboration and ordinary single tags remain distinct commands.
+The UI retains the approved light design and the name Neko Aurora. A delivered report has one owner command and one bot result in the destination. Late ACKs cannot change navigation, clear a new draft or steal focus. Current revoked content is not restored from an old ACK. Valid append-only text frames from an already known running task do not mask reports or fetch a snapshot per token. Unknown fields, changed authority/status, revocations and cursor gaps still trigger a synchronous visibility fence and read-only resnapshot. Same-channel two-bot collaboration and ordinary single tags remain distinct commands.
 
 ## Throughput checkpoint and verification
 

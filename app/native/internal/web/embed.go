@@ -13,19 +13,46 @@ var contentTypes = map[string]string{
 	"/app.js":                              "text/javascript; charset=utf-8",
 	"/connections.js":                      "text/javascript; charset=utf-8",
 	"/style.css":                           "text/css; charset=utf-8",
-	"/duet/":                               "text/html; charset=utf-8",
-	"/duet/agui.js":                        "text/javascript; charset=utf-8",
-	"/duet/theme.js":                       "text/javascript; charset=utf-8",
-	"/duet/app.js":                         "text/javascript; charset=utf-8",
-	"/duet/style.css":                      "text/css; charset=utf-8",
-	"/duet/sw.js":                          "text/javascript; charset=utf-8",
-	"/duet/icon.svg":                       "image/svg+xml",
-	"/duet/icon-180.png":                   "image/png",
-	"/duet/icon-512.png":                   "image/png",
-	"/duet/manifest.webmanifest":           "application/manifest+json",
+	"/app/":                                "text/html; charset=utf-8",
+	"/app/agui.js":                         "text/javascript; charset=utf-8",
+	"/app/theme.js":                        "text/javascript; charset=utf-8",
+	"/app/app.js":                          "text/javascript; charset=utf-8",
+	"/app/style.css":                       "text/css; charset=utf-8",
+	"/app/sw.js":                           "text/javascript; charset=utf-8",
+	"/app/icon.svg":                        "image/svg+xml",
+	"/app/icon-180.png":                    "image/png",
+	"/app/icon-512.png":                    "image/png",
+	"/app/manifest.webmanifest":            "application/manifest+json",
 	"/fonts/geist-latin-wght-normal.woff2": "font/woff2",
 	"/fonts/geist-latin-ext-wght-normal.woff2":  "font/woff2",
 	"/fonts/geist-vietnamese-wght-normal.woff2": "font/woff2",
+}
+
+// The Neko Aurora design system (tokens, fonts, icons) is shared by the
+// desktop and mobile UIs and lives under /app/aurora/ so the public mobile
+// host can serve it too.
+func init() {
+	types := map[string]string{".css": "text/css; charset=utf-8", ".woff2": "font/woff2", ".txt": "text/plain; charset=utf-8", ".svg": "image/svg+xml", ".js": "text/javascript; charset=utf-8"}
+	entries, _ := assets.ReadDir("assets/app/aurora")
+	var walk func(dir string)
+	walk = func(dir string) {
+		list, _ := assets.ReadDir("assets" + dir)
+		for _, e := range list {
+			p := dir + "/" + e.Name()
+			if e.IsDir() {
+				walk(p)
+				continue
+			}
+			for ext, t := range types {
+				if len(p) > len(ext) && p[len(p)-len(ext):] == ext {
+					contentTypes[p] = t
+				}
+			}
+		}
+	}
+	if len(entries) > 0 {
+		walk("/app/aurora")
+	}
 }
 
 func IsPublicAsset(path string) bool {
@@ -40,7 +67,7 @@ func Serve(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	name := r.URL.Path
-	if name == "/" || name == "/duet/" {
+	if name == "/" || name == "/app/" {
 		name += "index.html"
 	}
 	body, err := assets.ReadFile("assets" + name)
@@ -49,8 +76,8 @@ func Serve(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.Header().Set("Content-Type", contentType)
-	if name == "/duet/sw.js" {
-		w.Header().Set("Service-Worker-Allowed", "/duet/")
+	if name == "/app/sw.js" {
+		w.Header().Set("Service-Worker-Allowed", "/app/")
 		w.Header().Set("Cache-Control", "no-cache")
 	}
 	_, _ = w.Write(body)

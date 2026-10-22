@@ -2,14 +2,14 @@
 
 ## Assignment and baseline
 
-The requested journey is to use a profile already managed by Core 1.7 without entering its credential again. Neko Bot uses an upgraded, explicitly pinned bundled Core with the `nekobot` authority contract. It preserves the installed Core executable and its configuration. Ordinary ACP from the installed 1.7 runtime does not support this host profile; discovery alone cannot authorize execution.
+The requested journey is to use a profile already managed by Core 1.7 without entering its credential again. Neko Aurora uses an upgraded, explicitly pinned bundled Core with the `nekobot` authority contract. It preserves the installed Core executable and its configuration. Ordinary ACP from the installed 1.7 runtime does not support this host profile; discovery alone cannot authorize execution.
 
 Application base: `16e9daddd568450379877b75f94a954384beca8d` (tested application `900d17d435ece36ad790eaf4e3d6cd101dbf0671`). Canonical Core base: `867966dd7f057dd1c03547014c81df93470d28e7`. Work takes place on separate branches. The existing service on port 8765, its state, old binary folders, ZIPs and unrelated edits are excluded from writes. No actual user configuration, profile credentials, provider sessions or chat history are read during development.
 
 ## User flow and authority
 
 1. Discovery returns a safe source descriptor. It reads no credential/config files and grants nothing.
-2. The local owner explicitly permits Core to inspect that source's profile metadata for a bounded period. Neko Bot invokes only its compatible pinned Core, with no provider, login, update or tool initialization.
+2. The local owner explicitly permits Core to inspect that source's profile metadata for a bounded period. Neko Aurora invokes only its compatible pinned Core, with no provider, login, update or tool initialization.
 3. Core returns a bounded public catalog. `configured` describes connection fields; `credentialReadiness: not_checked` does not promise working authentication. Unsupported transports remain unavailable.
 4. The owner selects a profile and explicitly adopts a scope: actor/device, exact channel/current audience, optional project, bot set, provider/model/network origin, data/request/token/step/time caps and expiry. Saving this consent does not contact a provider.
 5. A new message can explicitly select that consent. Each accepted Work pins the original nonce, consent/source/profile revisions, runtime digest, context/resource digests, destination and limits. Account selection and profile selection cannot be mixed. No adapter, child request or collaboration silently inherits this grant.

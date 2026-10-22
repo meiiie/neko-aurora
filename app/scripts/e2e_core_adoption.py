@@ -54,7 +54,7 @@ def main():
         previous = None
         old_digest = pins['windows_x64_previous_writer_v2']['sha256']
         for index in range(3):
-            process = subprocess.Popen([str(ROOT/'.build/neko-control.exe'), '--listen', '127.0.0.1:0', '--state', str(state),
+            process = subprocess.Popen([str(ROOT/'.build/neko-aurora.exe'), '--listen', '127.0.0.1:0', '--state', str(state),
                                         '--host-executable', str(host)], stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
                                        stderr=subprocess.PIPE, text=True)
             line = process.stdout.readline().strip()
@@ -77,7 +77,7 @@ def main():
         checks.append({'name': 'three_restarts_preserve_old_runtime_pins_and_fresh_intake', 'pass': True,
                        'historicalJournalSha256': original_hash, 'historicalWorkCount': len(historical)})
         result = {'commit': head, 'workingTree': False, 'status': 'PASS', 'scratch': str(scratch), 'checks': checks,
-                  'hostSha256': sha(host), 'coreSha256': sha(core), 'goSha256': sha(ROOT/'.build/neko-control.exe'),
+                  'hostSha256': sha(host), 'coreSha256': sha(core), 'goSha256': sha(ROOT/'.build/neko-aurora.exe'),
                   'scope': 'Actual Rust boundary and copied writer-v2 journal; no user-state migration, automatic binding adoption or real provider.'}
     except BaseException as error:
         result = {'commit': head, 'status': 'FAIL', 'scratch': str(scratch), 'checks': checks,

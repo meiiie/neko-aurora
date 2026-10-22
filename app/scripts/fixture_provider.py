@@ -85,7 +85,7 @@ class Handler(BaseHTTPRequestHandler):
                 self.chunk({"role": "assistant", "content": "PIN_SHA="+pin.get("sha256", "missing")+"\nPIN_SOURCES="+json.dumps([s["requestId"] for s in pin.get("sources", [])])+"\nPIN_FILES="+json.dumps([s["id"] for s in resources.get("files", [])])+"\nPIN_EXCERPTS="+json.dumps([s["excerpt"] for s in resources.get("files", [])])})
                 self.chunk({}, "stop")
             elif artifact and not has_tool:
-                args = {"name": "artifact.write_text", "arguments": {"filename": "bao-cao-neko.md", "text": "# Báo cáo Neko Bot\n\nTệp UTF-8 được ghi qua host sau khi Core yêu cầu công cụ.\n"}}
+                args = {"name": "artifact.write_text", "arguments": {"filename": "bao-cao-neko.md", "text": "# Báo cáo Neko Aurora\n\nTệp UTF-8 được ghi qua host sau khi Core yêu cầu công cụ.\n"}}
                 self.chunk({"role": "assistant", "tool_calls": [{"index": 0, "id": "fixture-call", "type": "function", "function": {"name": "mcp__nekobot__execute_tool", "arguments": json.dumps(args, ensure_ascii=False)}}]})
                 self.chunk({}, "tool_calls")
             elif "[fixture:file-read]" in user and not has_tool:

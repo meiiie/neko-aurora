@@ -4,8 +4,8 @@ import (
 	"errors"
 	"net/http"
 
-	"nekobot.local/native/internal/ledger"
-	"nekobot.local/native/internal/syncstream"
+	"nekoaurora.local/native/internal/ledger"
+	"nekoaurora.local/native/internal/syncstream"
 )
 
 func (s *Server) localSync(w http.ResponseWriter, r *http.Request) {

@@ -3,7 +3,7 @@
 package runtime
 
 import (
-	"nekobot.local/native/internal/ledger"
+	"nekoaurora.local/native/internal/ledger"
 	"os"
 	"syscall"
 )

@@ -1,4 +1,4 @@
-# Neko Bot working rules
+# Neko Aurora working rules
 
 - Keep existing files, archives and other repositories intact.
 - Implement the 2026-10-11 direction: Tauri UI, Rust trusted host, Go control plane; Neko Core owns the agent loop.

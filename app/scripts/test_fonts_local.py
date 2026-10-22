@@ -16,7 +16,7 @@ assert subprocess.check_output(['git', 'rev-parse', 'HEAD'], cwd=ROOT, text=True
 assert not subprocess.check_output(['git', 'status', '--porcelain'], cwd=ROOT, text=True).strip()
 environment = {key: os.environ[key] for key in ['SystemRoot', 'SystemDrive', 'WINDIR', 'ProgramData', 'ProgramFiles', 'ProgramFiles(x86)', 'ProgramW6432', 'CommonProgramFiles', 'TEMP', 'TMP', 'USERPROFILE', 'LOCALAPPDATA', 'APPDATA', 'PATH'] if key in os.environ}
 with tempfile.TemporaryDirectory(prefix='fonts-state-', dir=ROOT / '.build') as directory:
-    service = subprocess.Popen([str(ROOT / '.build/neko-control.exe'), '--listen', '127.0.0.1:0', '--state', str(pathlib.Path(directory) / 'state')], cwd=ROOT, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, env=environment)
+    service = subprocess.Popen([str(ROOT / '.build/neko-aurora.exe'), '--listen', '127.0.0.1:0', '--state', str(pathlib.Path(directory) / 'state')], cwd=ROOT, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, env=environment)
     try:
         ready = service.stdout.readline().strip()
         assert ready.startswith('READY '), 'Owned Go font service did not start'
@@ -25,7 +25,7 @@ with tempfile.TemporaryDirectory(prefix='fonts-state-', dir=ROOT / '.build') as 
         assert result.returncode == 0, result.stderr
         report = json.loads(result.stdout)
         assert report['status'] == 'pass'
-        report.update({'codeCommit': args.commit, 'workingTree': False, 'goBinarySha256': hashlib.sha256((ROOT / '.build/neko-control.exe').read_bytes()).hexdigest(), 'command': 'python scripts/test_fonts_local.py --commit ' + args.commit + ' --output ' + str(args.output)})
+        report.update({'codeCommit': args.commit, 'workingTree': False, 'goBinarySha256': hashlib.sha256((ROOT / '.build/neko-aurora.exe').read_bytes()).hexdigest(), 'command': 'python scripts/test_fonts_local.py --commit ' + args.commit + ' --output ' + str(args.output)})
         args.output.parent.mkdir(parents=True, exist_ok=True)
         args.output.write_text(json.dumps(report, ensure_ascii=False, indent=2) + '\n', encoding='utf-8')
         print(json.dumps({'status': 'pass', 'codeCommit': args.commit, 'fontsLoaded': len(report['fonts']), 'dataFontBlocked': report['dataBlocked'], 'report': str(args.output)}))

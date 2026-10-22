@@ -1,7 +1,7 @@
 package ledger
 
 import (
-	"nekobot.local/native/internal/historyexport"
+	"nekoaurora.local/native/internal/historyexport"
 	"sort"
 )
 

@@ -10,7 +10,7 @@ import (
 	"testing"
 	"time"
 
-	"nekobot.local/native/internal/executors"
+	"nekoaurora.local/native/internal/executors"
 )
 
 func TestProfileToolPermissionRegistryDiskNoMutation(t *testing.T) {

@@ -10,7 +10,7 @@ import (
 	"testing"
 	"time"
 
-	"nekobot.local/native/internal/protocol"
+	"nekoaurora.local/native/internal/protocol"
 )
 
 func profileGroup(t *testing.T) (*Store, *profileServiceFixture, Collaboration) {
