@@ -67,13 +67,31 @@ func aad(v int, name string) []byte {
 	return []byte("neko-aurora:secret:v1:" + name)
 }
 
-func Open(dir string) (*Vault, error) {
+func Open(dir string) (*Vault, error) { return open(dir, nil) }
+
+// OpenWithKey uses a caller-held 32-byte key (hosted mode derives one per
+// user from AURORA_SECRET) and never writes a key file, so a copy of the
+// state volume alone cannot decrypt the vault.
+func OpenWithKey(dir string, key []byte) (*Vault, error) {
+	if len(key) != 32 {
+		return nil, ErrCorrupt
+	}
+	return open(dir, key)
+}
+
+func open(dir string, fixed []byte) (*Vault, error) {
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return nil, err
 	}
 	kp := filepath.Join(dir, "vault.key")
-	key, err := os.ReadFile(kp)
-	if os.IsNotExist(err) {
+	var key []byte
+	var err error
+	if fixed != nil {
+		key = fixed
+	} else {
+		key, err = os.ReadFile(kp)
+	}
+	if fixed == nil && os.IsNotExist(err) {
 		key = make([]byte, 32)
 		if _, err = io.ReadFull(rand.Reader, key); err != nil {
 			return nil, err
@@ -95,7 +113,9 @@ func Open(dir string) (*Vault, error) {
 	if len(key) != 32 {
 		return nil, ErrCorrupt
 	}
-	_ = os.Chmod(kp, 0o600)
+	if fixed == nil {
+		_ = os.Chmod(kp, 0o600)
+	}
 	blk, _ := aes.NewCipher(key)
 	aead, _ := cipher.NewGCM(blk)
 	v := &Vault{path: filepath.Join(dir, "vault.json"), aead: aead, items: map[string]entry{}, cache: map[string]string{}}

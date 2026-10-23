@@ -19,6 +19,7 @@ import (
 
 	"nekoaurora.local/native/internal/api"
 	"nekoaurora.local/native/internal/connections"
+	"nekoaurora.local/native/internal/hub"
 	"nekoaurora.local/native/internal/documentworker"
 	"nekoaurora.local/native/internal/identity"
 	"nekoaurora.local/native/internal/ledger"
@@ -109,6 +110,9 @@ func main() {
 		}
 		json.NewEncoder(os.Stdout).Encode(map[string]any{"status": "PASS", "operation": operation, "version": manifest.Version, "snapshotId": manifest.SnapshotID, "files": len(manifest.Files), "bytes": total, "sequence": manifest.Sequence, "executionDisabled": true, "protection": manifest.Protection, "scope": "Local offline Windows-user-bound snapshot; restored state is read-only, no runtime or provider"})
 		return
+	}
+	if os.Getenv("AURORA_MODE") == "hosted" {
+		os.Exit(runHosted(*state, *listen))
 	}
 	// Container mode: AURORA_PUBLIC_HOST + a strong AURORA_OWNER_CODE allow binding
 	// 0.0.0.0 (PORT from the platform); remote peers then see only /app/.
@@ -323,4 +327,42 @@ func envOr(k, d string) string {
 		return v
 	}
 	return d
+}
+
+// runHosted serves the multi-user hub (AURORA_MODE=hosted): sign-up, one
+// isolated workspace per account, plan quotas on the server's z.ai key.
+func runHosted(state, listen string) int {
+	cfg, err := hub.ConfigFromEnv(state)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "hosted_mode_config:", err)
+		return 2
+	}
+	if p := os.Getenv("PORT"); p != "" && listen == "127.0.0.1:8765" {
+		listen = "0.0.0.0:" + p
+	}
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+	h, err := hub.New(ctx, cfg)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "hosted_mode_unavailable")
+		return 1
+	}
+	defer h.Close()
+	ln, err := net.Listen("tcp", listen)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "listener unavailable")
+		return 1
+	}
+	srv := &http.Server{Handler: h, ReadHeaderTimeout: 5 * time.Second, IdleTimeout: 60 * time.Second, MaxHeaderBytes: 16384}
+	go func() {
+		<-ctx.Done()
+		c, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		_ = srv.Shutdown(c)
+	}()
+	fmt.Printf("READY hosted http://%s\n", ln.Addr().String())
+	if err := srv.Serve(ln); err != nil && err != http.ErrServerClosed {
+		return 1
+	}
+	return 0
 }

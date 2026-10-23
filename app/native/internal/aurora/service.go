@@ -62,6 +62,9 @@ type Options struct {
 	// RunTurns lets this service execute queued owner→bot work. Disable it
 	// when the attested host/executor runtime is configured instead.
 	RunTurns bool
+	// VaultKey, when set (hosted multi-user mode), encrypts this workspace's
+	// vault with a server-held per-user key instead of a vault.key file.
+	VaultKey []byte
 }
 
 func New(ctx context.Context, store *ledger.Store, stateDir string, opt Options) (*Service, error) {
@@ -88,7 +91,12 @@ func New(ctx context.Context, store *ledger.Store, stateDir string, opt Options)
 			}
 		}
 	}
-	v, err := vault.Open(stateDir)
+	var v *vault.Vault
+	if opt.VaultKey != nil {
+		v, err = vault.OpenWithKey(stateDir, opt.VaultKey)
+	} else {
+		v, err = vault.Open(stateDir)
+	}
 	if err != nil {
 		return nil, err
 	}
