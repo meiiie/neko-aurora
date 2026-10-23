@@ -48,3 +48,37 @@ non-blocking `ask_user`, `show_view` cards, secret cards, per-bot permission pre
 - Memory journal + "ask/update memory" panel.
 - Team memory shared across a user's bots.
 - Steward-like decision only at budget limits (one small call).
+
+## Full checklist (final, 2026-10-23)
+Ideas only; no code copied (Apache-2.0, credited in THIRD_PARTY_NOTICES).
+
+| Idea | Status |
+|---|---|
+| Steward checkpoints, verbatim owner msgs, model-decided compaction | adopted now (3698dc0) |
+| Memory journal + mobile memory panel (view/edit/delete) | adopted now (0a29783, 3548d58) |
+| Owner-scoped team memory shared across bots | adopted now (0a29783) |
+| Group memory | adopted now (e4144fe) |
+| Memory review | adopted (705f0b8) |
+| Memory summary / ask-memory model call | not fitting: extra model cost |
+| recall tool | not needed: all memory fits in prompt |
+| Budget-hit decision call | adopted now (bec50ee) |
+| Group chats, @mention, main-bot router, HANDOFF, [PASS] | adopted now (d7d3e38) |
+| Per-bot permission presets | adopted now (d7d3e38, 801c2bb) |
+| Usage page | adopted now (3698dc0) |
+| Chat search + chat_search tool | adopted now (0a29783, e4144fe) |
+| Reference another chat | adopted now (e4144fe) |
+| Schedules | adopted now (e4144fe) |
+| Secret masking before model calls | adopted now (e4144fe) |
+| Resume after restart | adopted (ledger lease/resume + stall fix 705f0b8) |
+| Time context | adopted (705f0b8) |
+| ask_user non-blocking | adopted via existing CHOICES |
+| show_view cards | partial (plan/choices/tables); forms not fitting |
+| create_bot/update_bot by bots | not fitting: owner controls roster |
+| Bot browser | not fitting: desktop-only |
+| Vision fallback | not fitting now: extra model cost |
+| Working folders | not fitting: per-bot sandbox |
+| MCP/skills/capabilities | not fitting: hosted security |
+| Model menu/providers | not fitting: single GLM model for cost |
+| Thinking display | not fitting: thinking disabled for cost |
+| Secret cards, web search, voice, themes/pin/avatars, home-lock, mid-turn steer, XML tool calls | existing |
+| UX: fold long commands, Vietnamese file names, stacked bubbles, sandbox bold font | done (3548d58) |
