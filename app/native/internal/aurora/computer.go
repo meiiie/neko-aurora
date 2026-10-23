@@ -74,6 +74,11 @@ func (s *Service) runComputer(ctx context.Context, bot string, tc *toolCtx, c to
 			// never ask for approval of a command this host cannot run
 			return tools.Result{}, errors.New("máy chủ này chưa cho chạy lệnh (chỉ xem/đọc/ghi file được)")
 		}
+		if tc.lookupOnly {
+			// a plan step that only looks things up: the computer has no
+			// network, use web/price tools instead (live: "tra tỷ giá" → curl)
+			return tools.Result{}, errors.New("bước này là tra cứu: dùng công cụ web/giá, máy tính không có mạng")
+		}
 		if s.PC.NeedsApproval(bot, c.arg) {
 			tc.mu.Lock()
 			if tc.pendingCmd == "" {

@@ -668,6 +668,7 @@ func (s *Service) runTurn(ctx context.Context, w ledger.Work) (*Approval, []stri
 			}
 		})
 	}
+	tc.lookupOnly = !wantsComputer.MatchString(w.Text)
 	for i, title := range d.Plan {
 		if steps[i].Status == "done" { // finished before the restart
 			tc.note(fmt.Sprintf("KẾT QUẢ BƯỚC %d (%s): %s", i+1, title, steps[i].Note))
@@ -928,3 +929,6 @@ func isEnglish(t string) bool {
 	}
 	return len(enWords.FindAllString(t, 4)) >= 3
 }
+
+// wantsComputer: the owner asked for something run or computed on files.
+var wantsComputer = regexp.MustCompile(`(?i)máy tính|chạy|lệnh|script|python|csv|file|tệp|\brun\b|command|terminal|shell`)

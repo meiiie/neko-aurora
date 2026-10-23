@@ -24,6 +24,7 @@ type toolCtx struct {
 
 	mu         sync.Mutex
 	pendingCmd string // computer_run waiting for the owner's approval
+	lookupOnly bool   // plan of a request that never asked to run anything
 }
 
 func (c *toolCtx) inject(msgs []ChatMsg) []ChatMsg {

@@ -39,3 +39,9 @@ func TestWelcomeTurnDoesNotAbsorbFirstRequest(t *testing.T) {
 		t.Fatalf("welcome absorbed %d messages", n)
 	}
 }
+
+func TestLookupPlanNeverRunsCommands(t *testing.T) {
+	if wantsComputer.MatchString("Làm giúp mình: (1) tra tỷ giá USD/VND hôm nay (2) tra giá xăng (3) nhận xét") || !wantsComputer.MatchString("viết script python đọc CSV") {
+		t.Fatal("wantsComputer")
+	}
+}
