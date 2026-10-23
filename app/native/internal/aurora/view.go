@@ -379,7 +379,7 @@ func workMessages(w ledger.Work, botRunning bool) []*Message {
 		m.Sources = append([]ledger.DirectSource(nil), d.Sources...)
 		out = append(out, m)
 	}
-	if d.Approval != nil && d.Approval.Outcome != "" {
+	if d.Approval != nil && d.Approval.Outcome != "" && d.Approval.Kind != "computer" { // computer output renders on its card
 		out = append(out, &Message{ID: w.RequestID + ":outcome", TaskID: w.RequestID, AgentID: w.BotID, Role: "agent", Text: d.Approval.Outcome, Created: ts(d.Approval.DecidedAt)})
 	}
 	if w.Status == "failed" || w.Status == "cancelled" {

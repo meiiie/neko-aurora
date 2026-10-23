@@ -67,6 +67,9 @@ func TestComputerRunNeedsApproval(t *testing.T) {
 		t.Fatal("no follow-up reply")
 	}
 	for _, m := range svc.view().messages(bot, 100) {
+		if m.Role == "agent" && strings.Contains(m.Text, "mã thoát") {
+			t.Fatal("command output duplicated as a chat message")
+		}
 		if m.Role == "user" && strings.HasPrefix(m.Text, "[Máy tính]") {
 			t.Fatal("follow-up prompt shown as a user message")
 		}
