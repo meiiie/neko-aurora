@@ -269,7 +269,7 @@ function syncJump(){const b=$("#messages");$("#jumpBtn").classList.toggle("hidde
 const visible=t=>{const i=t.search(/(^|\n)\s*(APPROVAL|PLAN|CHOICES|TOOL|SECRET):|(APPROVAL|PLAN|CHOICES|TOOL|SECRET):\s*[\[{]/);return(i>=0?t.slice(0,i):t).trim()||"…"};
 // A draft is painted only once it has a letter or digit: a lone "-" or "**"
 // at the start of a streamed step must not flash as its own bubble.
-function shown(d){return/[\p{L}\p{N}]/u.test(visible(d.text||""))}
+function shown(d){const t=visible(d.text||"");return/[\p{L}\p{N}]/u.test(t)&&/\s/.test(t.trim())} // a whole first word, never a lone "Đ"
 // Streaming reveal: the draft shows words up to d.sl, which a frame loop
 // walks toward the received text (faster the further behind), so a chunked
 // stream reads as a steady typewriter. Reduced motion shows text as it lands.
@@ -278,7 +278,7 @@ function paintDraft(id){const d=S.drafts[id];if(!d)return;const n=document.getEl
  if(reduceMotion()){d.sl=1e9;drawDraft(id,n);return}
  if(reveal[id])return;reveal[id]=requestAnimationFrame(function step(){const d=S.drafts[id],n=document.getElementById("d_"+id);if(!d||!n){delete reveal[id];return}
   const full=visible(d.text).length,gap=full-(d.sl||0);if(gap<=0){delete reveal[id];return}d.sl=(d.sl||0)+Math.max(2,Math.ceil(gap/12));drawDraft(id,n);reveal[id]=requestAnimationFrame(step)})}
-function drawDraft(id,n){const d=S.drafts[id],t=visible(d.text);let k=Math.min(t.length,d.sl||0);while(k<t.length&&!/\s/.test(t[k]))k++;
+function drawDraft(id,n){const d=S.drafts[id],t=visible(d.text);let k=Math.min(t.length,d.sl||0);while(k<t.length&&!/\s/.test(t[k]))k++;if(k===t.length){const w=t.trimEnd().search(/\s\S*$/);if(w>0)k=w} // the word still arriving waits for its end
  n.replaceChildren();md(n,t.slice(0,k),srcOf(id),true);const box=$("#messages");if(stick)box.scrollTop=box.scrollHeight;syncJump()}
 async function decide(m,v,bs,extra){if(deciding.has(m.id))return;deciding.add(m.id);bs.querySelectorAll("button").forEach(b=>b.disabled=true);
  try{await api(`/approvals/${m.id}`,{decision:v,...(extra||{})});buzz(v==="approved"?"confirm":"soft");editing.delete(m.id)}catch(e){if(e.status!==409){deciding.delete(m.id);toast("Không ghi nhận được, thử lại");bs.querySelectorAll("button").forEach(b=>b.disabled=false)}}}
