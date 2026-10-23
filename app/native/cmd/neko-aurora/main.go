@@ -356,6 +356,9 @@ func runHosted(state, listen string) int {
 	srv := &http.Server{Handler: h, ReadHeaderTimeout: 5 * time.Second, IdleTimeout: 60 * time.Second, MaxHeaderBytes: 16384}
 	go func() {
 		<-ctx.Done()
+		// New requests must reach the next container: drop keep-alive
+		// connections so clients reconnect instead of waiting on this one.
+		srv.SetKeepAlivesEnabled(false)
 		c, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
 		_ = srv.Shutdown(c)

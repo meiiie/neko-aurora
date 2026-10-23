@@ -112,6 +112,7 @@ type Hub struct {
 	users   *userStore
 	mu      sync.Mutex
 	tenants map[string]*tenant
+	opening map[string]chan struct{}
 	codes   *codeStore
 	mux     *http.ServeMux
 }
@@ -150,14 +151,57 @@ func (h *Hub) vaultKey(uid string) []byte {
 	return m.Sum(nil)
 }
 
+// tenant opens a workspace once. The global lock is never held while a
+// workspace opens (ledger replay, resume), so one slow account cannot stall
+// every other request; callers for the same account wait on its gate.
 func (h *Hub) tenant(uid string) (*tenant, error) {
 	h.mu.Lock()
-	defer h.mu.Unlock()
 	if t := h.tenants[uid]; t != nil {
+		h.mu.Unlock()
 		return t, nil
 	}
+	if h.opening == nil {
+		h.opening = map[string]chan struct{}{}
+	}
+	if g := h.opening[uid]; g != nil {
+		h.mu.Unlock()
+		select {
+		case <-g:
+			return h.tenant(uid)
+		case <-time.After(20 * time.Second):
+			return nil, errors.New("workspace still opening")
+		}
+	}
+	g := make(chan struct{})
+	h.opening[uid] = g
+	h.mu.Unlock()
+	t, err := h.openTenant(uid)
+	h.mu.Lock()
+	delete(h.opening, uid)
+	if err == nil {
+		h.tenants[uid] = t
+	}
+	h.mu.Unlock()
+	close(g)
+	return t, err
+}
+
+func (h *Hub) openTenant(uid string) (*tenant, error) {
 	dir := h.userDir(uid)
-	st, err := ledger.Open(dir)
+	// During a deploy switchover the old container may still hold the
+	// workspace lock for a few seconds: retry briefly instead of failing.
+	var st *ledger.Store
+	var err error
+	for i := 0; i < 8; i++ {
+		if st, err = ledger.Open(dir); err == nil {
+			break
+		}
+		select {
+		case <-h.ctx.Done():
+			return nil, err
+		case <-time.After(time.Second):
+		}
+	}
 	if err != nil {
 		return nil, err
 	}
@@ -174,7 +218,6 @@ func (h *Hub) tenant(uid string) (*tenant, error) {
 		go func() { time.Sleep(300 * time.Millisecond); h.deleteUser(uid) }()
 		return nil
 	}
-	h.tenants[uid] = t
 	return t, nil
 }
 
@@ -345,6 +388,7 @@ func (h *Hub) api(w http.ResponseWriter, r *http.Request) {
 	t, err := h.tenant(u.ID)
 	if err != nil {
 		log.Printf("hub: workspace unavailable: %v", err)
+		w.Header().Set("Retry-After", "2")
 		writeJSON(w, 503, map[string]string{"error": "workspace_unavailable"})
 		return
 	}

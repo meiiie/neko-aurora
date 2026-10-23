@@ -357,3 +357,28 @@ func TestDevShowCodeOnlyAllowlisted(t *testing.T) {
 		t.Fatalf("devshow %v", cfg.DevShow)
 	}
 }
+
+// Concurrent first requests for one account open its workspace once, and
+// another account is never blocked behind it.
+func TestTenantOpensOnce(t *testing.T) {
+	h, _, _ := newHub(t, nil)
+	got := make(chan *tenant, 8)
+	for i := 0; i < 8; i++ {
+		go func() {
+			x, err := h.tenant("u1")
+			if err != nil {
+				t.Error(err)
+			}
+			got <- x
+		}()
+	}
+	first := <-got
+	for i := 1; i < 8; i++ {
+		if x := <-got; x != first {
+			t.Fatal("workspace opened twice")
+		}
+	}
+	if x, err := h.tenant("u2"); err != nil || x == first {
+		t.Fatal("second account", err)
+	}
+}

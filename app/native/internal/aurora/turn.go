@@ -321,7 +321,7 @@ func (s *Service) sweepLeases() {
 func (s *Service) history(botID, current string) []ChatMsg {
 	v := newView(s.L.Snapshot())
 	b, _ := v.bot(botID)
-	msgs := []ChatMsg{{Role: "system", Content: fmt.Sprintf(systemPrompt, b.Name, v.desc(b)) + memoryPrompt(s.Mem.List(botID)) + s.computerNote(botID)}}
+	msgs := []ChatMsg{{Role: "system", Content: fmt.Sprintf(systemPrompt, b.Name, v.desc(b)) + memoryPrompt(s.Mem.List(botID)) + s.computerNote(botID) + clockNote(time.Now())}}
 	if cw, err := s.L.Get(current); err == nil && isEnglish(cw.Text) {
 		// the owner wrote English: the Vietnamese-first prompt must not win
 		msgs[0].Content += "\nLANGUAGE: the user's latest message is in English. Reply entirely in natural English (keep [n] citations and directive lines as specified)."
@@ -735,6 +735,7 @@ func (s *Service) runTurn(ctx context.Context, w ledger.Work) (*Approval, []stri
 	}
 	s.fixScript(ctx, w, &d)
 	s.remember(w, d.Memory)
+	s.reviewMemory(w, d.Memory)
 	if len(d.Tools) > 0 { // tools exhausted or disabled: never leave a bare TOOL line
 		d.Text = strings.TrimSpace(d.Text + "\n(Mình chưa lấy thêm được dữ liệu, nên không đưa số liệu chưa kiểm chứng.)")
 	}
@@ -898,6 +899,7 @@ func (s *Service) stepCall(ctx context.Context, w ledger.Work, tc *toolCtx, prom
 		d.Text = stripNarration(d.Text)
 	}
 	s.remember(w, d.Memory)
+	s.reviewMemory(w, d.Memory)
 	d.Tools, d.Plan, d.Memory = nil, nil, ""
 	return d, err
 }

@@ -139,3 +139,9 @@ permit persons to whom the Software is furnished to do so, subject to the follow
 conditions: The above copyright notice and this permission notice shall be included in
 all copies or substantial portions of the Software. THE SOFTWARE IS PROVIDED "AS IS",
 WITHOUT WARRANTY OF ANY KIND.
+
+## DeepSeek-Bot (DS Bot)
+
+https://github.com/Fei2411/DeepSeek-Bot — Apache License 2.0, © 2026 Fei2411 and the DS Bot contributors.
+Neko Aurora ports design ideas only (post-turn memory review, a clock in the model context, restart-safe
+request handling); no source code was copied. See docs/deepseek-bot-study-2026-10-23.md.
