@@ -147,7 +147,10 @@ func (s *Service) stream(ctx context.Context, bot, kind string, msgs []ChatMsg, 
 		}
 		msgs = masked
 	}
-	out, err := s.AI.Stream(ctx, msgs, on)
+	out, used, err := s.streamExt(ctx, bot, kind, msgs, on)
+	if !used {
+		out, err = s.AI.Stream(ctx, msgs, on)
+	}
 	s.usage.add(bot, kind, msgChars(msgs), len([]rune(out)))
 	return out, err
 }

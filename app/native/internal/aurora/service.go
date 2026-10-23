@@ -42,6 +42,7 @@ type Service struct {
 	Mem      *memStore
 	steward  *steward
 	usage    *usageLog
+	ext      *extStore
 	sched    *schedStore
 	PC       *computer.Manager // per-bot sandboxed computers (nil = off)
 	mux      *http.ServeMux
@@ -112,13 +113,14 @@ func New(ctx context.Context, store *ledger.Store, stateDir string, opt Options)
 		return nil, err
 	}
 	log.SetOutput(v.Writer(os.Stderr))
-	s := &Service{L: store, AI: model, Push: p, V: v, Tools: toolsFromEnv(), Mem: openMemory(stateDir), steward: openSteward(stateDir), usage: openUsage(stateDir), sched: openSchedules(stateDir), PC: openComputers(stateDir), Prefs: prefs, subs: map[chan Event]struct{}{}, ctx: ctx, wake: make(chan struct{}, 1), running: map[string]bool{}, seen: map[string]string{}, Now: time.Now}
+	s := &Service{L: store, AI: model, Push: p, V: v, Tools: toolsFromEnv(), Mem: openMemory(stateDir), steward: openSteward(stateDir), usage: openUsage(stateDir), sched: openSchedules(stateDir), ext: openExt(stateDir), PC: openComputers(stateDir), Prefs: prefs, subs: map[chan Event]struct{}{}, ctx: ctx, wake: make(chan struct{}, 1), running: map[string]bool{}, seen: map[string]string{}, Now: time.Now}
 	s.owner = opt.OwnerName
 	s.Out = outbound.NewRouter(outbound.Switch{Resolve: s.mailer})
 	s.routes()
 	s.connectorRoutes()
 	s.memoryRoutes()
 	s.usageRoutes()
+	s.extRoutes()
 	s.searchRoutes()
 	s.scheduleRoutes()
 	s.computerRoutes()
@@ -628,14 +630,14 @@ func (s *Service) routes() {
 		v := s.view()
 		id := r.PathValue("id")
 		if _, ok := v.channels[id]; ok {
-			writeJSON(w, 200, v.groupMessages(id, 200))
+			writeJSON(w, 200, s.decorate(v.groupMessages(id, 200)))
 			return
 		}
 		if _, ok := v.bot(id); !ok {
 			fail(w, ErrNotFound)
 			return
 		}
-		writeJSON(w, 200, v.messages(id, 200))
+		writeJSON(w, 200, s.decorate(v.messages(id, 200)))
 	})
 	m.HandleFunc("POST /app/api/agents/{id}/messages", func(w http.ResponseWriter, r *http.Request) {
 		var in struct {
@@ -737,6 +739,8 @@ func (s *Service) routes() {
 			switch {
 			case in.Decision == "declined":
 				a.Outcome = "Ok, mình giữ lại “" + a.Title + "” và không làm gì thêm."
+			case a.Kind == "bot" || a.Kind == "mcp":
+				// applied right after the decision (applyApproved)
 			case a.Kind == "computer":
 				if s.PC == nil {
 					a.Outcome = "Máy tính của bot đang tắt trên máy chủ nên lệnh chưa chạy."
@@ -758,7 +762,10 @@ func (s *Service) routes() {
 			verb := map[string]string{"approved": "Bạn duyệt", "declined": "Bạn hoãn"}[ap.State]
 			s.record(work.BotID, work.RequestID, "decision", verb+" “"+ap.Title+"” của "+s.botName(work.BotID))
 		}
-		if ap := work.Direct.Approval; in.Decision == "approved" && ap.Kind == "computer" && s.PC != nil {
+		if ap := work.Direct.Approval; in.Decision == "approved" && (ap.Kind == "bot" || ap.Kind == "mcp") {
+			s.applyApproved(work)
+			work, _ = s.L.Get(work.RequestID)
+		} else if in.Decision == "approved" && ap.Kind == "computer" && s.PC != nil {
 			s.runApprovedCommand(work)
 			work, _ = s.L.Get(work.RequestID)
 		} else if in.Decision == "approved" && s.hasChannel(ap.Kind) && ap.To != "" {

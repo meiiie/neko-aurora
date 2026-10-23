@@ -282,3 +282,6 @@ func (k *Kit) WebSearch(ctx context.Context, q string) (Result, error) {
 	r.Text, r.Summary = sb.String(), fmt.Sprintf("Tìm “%s” · %d kết quả", cut(q, 40), len(r.Sources))
 	return r, nil
 }
+
+// HTMLText flattens a rendered page to readable text (bot browser).
+func HTMLText(b string) string { return htmlText(b) }

@@ -25,6 +25,7 @@ type toolCtx struct {
 
 	mu         sync.Mutex
 	pendingCmd string // computer_run waiting for the owner's approval
+	pendingAp  *Approval // an MCP call or bot change waiting for the owner
 	lookupOnly bool   // plan of a request that never asked to run anything
 }
 
@@ -109,7 +110,8 @@ func toolsFromEnv() *tools.Kit {
 }
 
 var toolLabel = map[string]string{"chat_search": "Tìm trong chat cũ", "gold_price": "Tra giá vàng trực tuyến", "web_search": "Tìm trên web", "web_fetch": "Đọc trang",
-	"computer_run": "Chạy lệnh trên máy tính", "computer_read_file": "Đọc file trên máy tính", "computer_write_file": "Ghi file trên máy tính", "computer_edit_file": "Sửa file trên máy tính", "computer_list": "Xem file trên máy tính"}
+	"computer_run": "Chạy lệnh trên máy tính", "computer_read_file": "Đọc file trên máy tính", "computer_write_file": "Ghi file trên máy tính", "computer_edit_file": "Sửa file trên máy tính", "computer_list": "Xem file trên máy tính",
+	"memory_recall": "Nhớ lại", "skill_load": "Đọc kỹ năng", "image_describe": "Đọc ảnh", "browser_open": "Mở bằng trình duyệt", "mcp": "Công cụ MCP", "bot_create": "Tạo bot", "bot_update": "Sửa bot"}
 
 // runTool runs one lookup (kept for the auto-prefetch path).
 func (s *Service) runTool(ctx context.Context, w ledger.Work, tc *toolCtx, name, arg string) {
@@ -181,7 +183,14 @@ func (s *Service) runTools(ctx context.Context, w ledger.Work, tc *toolCtx, call
 			t0 := time.Now()
 			tctx, cancel := context.WithTimeout(ctx, 25*time.Second)
 			defer cancel()
-			if isComputerTool(x.call.name) {
+			if cp := capOf(x.call.name); cp != "" && s.ext != nil && !s.ext.on(w.BotID, cp) {
+				x.err = errors.New("Darren đã tắt khả năng " + capLabel[cp] + " của bot này")
+			} else if isExtTool(x.call.name) {
+				tctx2, c2 := context.WithTimeout(ctx, 2*time.Minute)
+				defer c2()
+				x.res, x.err = s.runExt(tctx2, w, tc, x.call)
+			} else if isComputerTool(x.call.name) {
+				x.call = folderCall(s.ext.bot(w.BotID).Folder, x.call)
 				tctx2, c2 := context.WithTimeout(ctx, 3*time.Minute)
 				defer c2()
 				x.res, x.err = s.runComputer(tctx2, w.BotID, tc, x.call)

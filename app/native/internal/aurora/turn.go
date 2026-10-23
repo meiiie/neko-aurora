@@ -40,9 +40,9 @@ MEMORY: {"text":"<một sở thích/bối cảnh lâu dài Darren vừa nói rõ
 - Không bao giờ nhắc tên kỹ thuật của công cụ hay chỉ thị (web_search, web_fetch, gold_price, TOOL…) trong câu trả lời; nói bằng lời thường như "tìm trên web", "đọc trang".
 - Với email: kind là "email", dùng đúng địa chỉ Darren đưa; không lặp lại toàn văn thư ở phần trả lời.`
 
-var gluedDirective = regexp.MustCompile(`([^\s\n])[ \t]*((?:PLAN|CHOICES|APPROVAL|SECRET|TOOL|MEMORY|HANDOFF|SCHEDULE):\s*[\[{])`)
+var gluedDirective = regexp.MustCompile(`([^\s\n])[ \t]*((?:PLAN|CHOICES|APPROVAL|SECRET|TOOL|MEMORY|HANDOFF|SCHEDULE|FORM):\s*[\[{])`)
 
-var directiveRe = regexp.MustCompile(`(?m)^\s*(PLAN|CHOICES|APPROVAL|SECRET|TOOL|MEMORY|HANDOFF|SCHEDULE):\s*(.+?)\s*$`)
+var directiveRe = regexp.MustCompile(`(?m)^\s*(PLAN|CHOICES|APPROVAL|SECRET|TOOL|MEMORY|HANDOFF|SCHEDULE|FORM):\s*(.+?)\s*$`)
 
 type directives struct {
 	Text        string
@@ -57,6 +57,7 @@ type directives struct {
 	MemoryScope string     // MEMORY scope: "" own, "team" every bot, "group" this group chat
 	Cut         bool       // the reply hit the output cap or the stream broke
 	Stop        bool       // a checkpoint ended this turn: no more nudges
+	Form        *form      // FORM: an interactive form card
 }
 
 type toolReq struct {
@@ -70,12 +71,31 @@ type toolReq struct {
 	Append  bool   `json:"append,omitempty"` // computer_write_file: add to the end (chunked writes)
 	Old     string `json:"old,omitempty"`    // computer_edit_file: exact text to replace (once)
 	New     string `json:"new,omitempty"`
+	// extras: MCP, bot create/update, image questions
+	Server string          `json:"server,omitempty"`
+	Tool   string          `json:"tool,omitempty"`
+	Args   json.RawMessage `json:"args,omitempty"`
+	Bot    string          `json:"bot,omitempty"`
+	Desc   string          `json:"desc,omitempty"`
+	Target string          `json:"target,omitempty"`
 }
 
 func validTool(t toolReq) bool {
 	switch t.Name {
 	case "gold_price", "computer_list":
 		return true
+	case "memory_recall", "skill_load":
+		return true
+	case "image_describe":
+		return t.Path != ""
+	case "browser_open":
+		return t.URL != ""
+	case "mcp":
+		return t.Server != "" && t.Tool != ""
+	case "bot_create":
+		return strings.TrimSpace(t.Bot) != ""
+	case "bot_update":
+		return strings.TrimSpace(t.Target) != "" && (t.Bot != "" || t.Desc != "")
 	case "web_search", "chat_search":
 		return t.Q != ""
 	case "web_fetch":
@@ -113,6 +133,12 @@ func ParseDirectives(text string) directives {
 			var x schedule
 			if json.Unmarshal([]byte(m[2]), &x) == nil && len(d.Schedules) < 3 {
 				d.Schedules = append(d.Schedules, x)
+			}
+			continue
+		}
+		if m[1] == "FORM" {
+			if f := parseForm(m[2]); f != nil {
+				d.Form = f
 			}
 			continue
 		}
@@ -343,7 +369,7 @@ func (s *Service) sweepLeases() {
 func (s *Service) history(botID, current string) []ChatMsg {
 	v := newView(s.L.Snapshot())
 	b, _ := v.bot(botID)
-	msgs := []ChatMsg{{Role: "system", Content: fmt.Sprintf(systemPrompt, b.Name, v.desc(b)) + memoryPrompt(s.Mem.List(botID)) + teamPrompt(s.Mem.List(teamKey)) + s.computerNote(botID) + clockNote(time.Now())}}
+	msgs := []ChatMsg{{Role: "system", Content: fmt.Sprintf(systemPrompt, b.Name, v.desc(b)) + memoryPrompt(s.Mem.List(botID)) + teamPrompt(s.Mem.List(teamKey)) + s.computerNote(botID) + s.extNote(botID) + clockNote(time.Now())}}
 	if cw, err := s.L.Get(current); err == nil && isEnglish(cw.Text) {
 		// the owner wrote English: the Vietnamese-first prompt must not win
 		msgs[0].Content += "\nLANGUAGE: the user's latest message is in English. Reply entirely in natural English (keep [n] citations and directive lines as specified)."
@@ -408,7 +434,7 @@ func (s *Service) call(ctx context.Context, w ledger.Work, msgs []ChatMsg) (dire
 		s.publish("delta", map[string]any{"type": TEXT_MESSAGE_CONTENT, "agentId": threadOf(w), "from": w.BotID, "id": w.RequestID, "messageId": w.RequestID, "delta": pend, "text": sb.String()})
 		pend, last = "", time.Now()
 	}
-	full, err := s.stream(ctx, w.BotID, "chat", msgs, func(d string) {
+	full, err := s.stream(withTask(ctx, w.RequestID), w.BotID, "chat", msgs, func(d string) {
 		sb.WriteString(d)
 		pend += d
 		if time.Since(last) >= 60*time.Millisecond {
@@ -690,9 +716,9 @@ func (s *Service) runTurn(ctx context.Context, w ledger.Work) (*Approval, []stri
 				s.ack(w, ackText(d.Text, threadOf(w) != w.BotID, calls))
 			}
 			s.runTools(ctx, w, tc, calls)
-			if tc.pendingCmd != "" {
+			if tc.pending() {
 				// a command needs the owner: end the turn on its approval card
-				d = directives{Text: computerAskText, Approval: computerApproval(tc.pendingCmd)}
+				d = directives{Text: tc.askText(), Approval: tc.approval()}
 				break
 			}
 			if cp, ok := s.checkpoint(w, start); ok {
@@ -706,7 +732,7 @@ func (s *Service) runTurn(ctx context.Context, w ledger.Work) (*Approval, []stri
 		if err != nil || attempt >= 3 {
 			break
 		}
-		if d.Approval != nil && d.Approval.Kind == "computer" || d.Text == checkpointText || d.Stop {
+		if d.Approval != nil && gatedKind(d.Approval.Kind) || d.Text == checkpointText || d.Stop {
 			break
 		}
 		nudge := ""
@@ -879,8 +905,8 @@ func (s *Service) verifyFinal(ctx context.Context, w ledger.Work, tc *toolCtx, d
 	for r := 0; len(nd.Tools) > 0 && r < 4 && s.Tools != nil; r++ { // it may go back to work (file writes, a command card)
 		s.publish("draft_end", map[string]string{"id": w.RequestID, "agentId": threadOf(w)})
 		s.runTools(ctx, w, tc, callsOf(nd.Tools))
-		if tc.pendingCmd != "" {
-			*d = directives{Text: computerAskText, Approval: computerApproval(tc.pendingCmd)}
+		if tc.pending() {
+			*d = directives{Text: tc.askText(), Approval: tc.approval()}
 			return
 		}
 		if nd, err = s.ask(ctx, w, tc, func() []ChatMsg { return tc.inject(s.history(w.BotID, w.RequestID)) }); err != nil {
@@ -901,8 +927,8 @@ func (s *Service) stepCall(ctx context.Context, w ledger.Work, tc *toolCtx, prom
 	for r := 0; err == nil && len(d.Tools) > 0 && r < 4 && s.Tools != nil; r++ {
 		s.publish("draft_end", map[string]string{"id": w.RequestID, "agentId": threadOf(w)})
 		s.runTools(ctx, w, tc, callsOf(d.Tools))
-		if tc.pendingCmd != "" {
-			return directives{Text: "Bước này cần chạy lệnh trên máy tính của mình, bạn duyệt giúp nhé.", Approval: computerApproval(tc.pendingCmd)}, nil
+		if tc.pending() {
+			return directives{Text: "Bước này cần chạy lệnh trên máy tính của mình, bạn duyệt giúp nhé.", Approval: tc.approval()}, nil
 		}
 		d, err = s.ask(ctx, w, tc, func() []ChatMsg { return mk() })
 	}
@@ -912,8 +938,8 @@ func (s *Service) stepCall(ctx context.Context, w ledger.Work, tc *toolCtx, prom
 		for r := 0; err == nil && len(d.Tools) > 0 && r < 4 && s.Tools != nil; r++ {
 			s.publish("draft_end", map[string]string{"id": w.RequestID, "agentId": threadOf(w)})
 			s.runTools(ctx, w, tc, callsOf(d.Tools))
-			if tc.pendingCmd != "" {
-				return directives{Text: "Bước này cần chạy lệnh trên máy tính của mình, bạn duyệt giúp nhé.", Approval: computerApproval(tc.pendingCmd)}, nil
+			if tc.pending() {
+				return directives{Text: "Bước này cần chạy lệnh trên máy tính của mình, bạn duyệt giúp nhé.", Approval: tc.approval()}, nil
 			}
 			d, err = s.ask(ctx, w, tc, func() []ChatMsg { return mk() })
 		}
@@ -1102,12 +1128,20 @@ func callsOf(ts []toolReq) []toolCall {
 			out = append(out, toolCall{t.Name, computerArg(t)})
 			continue
 		}
+		if extArg(t.Name) {
+			b, _ := json.Marshal(t)
+			out = append(out, toolCall{t.Name, string(b)})
+			continue
+		}
 		out = append(out, toolCall{t.Name, t.Q + t.URL})
 	}
 	return out
 }
 
 func (s *Service) rememberD(w ledger.Work, d directives) {
+	if d.Form != nil && s.ext != nil {
+		s.ext.setForm(w.RequestID, d.Form)
+	}
 	if d.Memory != "" && d.MemoryScope == "team" {
 		if s.Mem.Remember(teamKey, d.Memory) {
 			s.record(w.BotID, w.RequestID, "step", "Đã ghi vào bộ nhớ chung: "+clean(d.Memory, 120))

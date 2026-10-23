@@ -439,3 +439,27 @@ func (v *view) steeredBy() map[string]string {
 // absorbed reports a queued turn whose text was already steered into an
 // earlier run.
 func (s *Service) absorbed(id string) bool { return newView(s.L.Snapshot()).steeredBy()[id] != "" }
+
+// Replace swaps the whole list for a reviewed summary (memory panel "Gộp"):
+// journaled as one "summarize" change so the log shows before and after.
+func (ms *memStore) Replace(bot string, texts []string, by string) {
+	if ms == nil {
+		return
+	}
+	ms.mu.Lock()
+	defer ms.mu.Unlock()
+	before := []string{}
+	for _, x := range ms.m[bot] {
+		before = append(before, x.Text)
+	}
+	l := []memItem{}
+	now := time.Now().UTC().Format(time.RFC3339)
+	for _, t := range texts {
+		if t = clean(t, 300); t != "" && !looksSecret(t) {
+			l = append(l, memItem{Text: t, At: now})
+		}
+	}
+	ms.m[bot] = l
+	ms.journal(memChange{Bot: bot, Op: "summarize", Before: strings.Join(before, " | "), After: strings.Join(texts, " | "), By: by})
+	_ = ms.save()
+}
