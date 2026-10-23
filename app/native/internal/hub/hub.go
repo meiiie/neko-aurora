@@ -31,6 +31,7 @@ import (
 	"time"
 
 	"nekoaurora.local/native/internal/aurora"
+	"nekoaurora.local/native/internal/computer"
 	"nekoaurora.local/native/internal/ledger"
 	"nekoaurora.local/native/internal/web"
 )
@@ -192,6 +193,11 @@ func (h *Hub) close(uid string) {
 // deleteUser erases a workspace and its account (App Store 5.1.1(v)).
 func (h *Hub) deleteUser(uid string) {
 	h.close(uid)
+	if os.Getenv("AURORA_COMPUTER") == "railway" { // the user's VMs go too
+		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		computer.NewRailwayFromEnv().DestroyUnder(ctx, h.userDir(uid))
+		cancel()
+	}
 	if err := os.RemoveAll(h.userDir(uid)); err != nil {
 		log.Printf("hub: delete workspace failed: %v", err)
 	}

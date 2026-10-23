@@ -29,6 +29,7 @@ import (
 	"fmt"
 	"io"
 	"io/fs"
+	"log"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -45,18 +46,38 @@ type Railway struct {
 	EnvironmentID string
 	CPU, MemoryGB float64
 	IdleMinutes   int
+	Max           int    // live VMs across all users (0 = 3)
+	Checkpoint    string // named checkpoint to boot from ("" = stock image)
 	HTTP          *http.Client
-
-	mu  sync.Mutex
-	ids map[string]string // home path → sandbox id
 }
+
+// One registry for the whole process (every tenant's Railway value shares
+// it) so the total number of live VMs is capped: cost control approved by
+// Darren 2026-10-23. At the cap the least recently used VM is destroyed;
+// its home is safe on our volume, so the bot just boots a fresh one later.
+var reg = struct {
+	sync.Mutex
+	ids  map[string]string    // home path → sandbox id
+	used map[string]time.Time // home path → last exec
+}{ids: map[string]string{}, used: map[string]time.Time{}}
 
 func NewRailwayFromEnv() *Railway {
 	tok := os.Getenv("RAILWAY_TOKEN")
 	if tok == "" {
 		tok = os.Getenv("RAILWAY_API_TOKEN")
 	}
-	return &Railway{Endpoint: railwayEndpoint, Token: tok, EnvironmentID: os.Getenv("RAILWAY_ENVIRONMENT_ID"), CPU: 1, MemoryGB: 1, IdleMinutes: 5}
+	return &Railway{Endpoint: railwayEndpoint, Token: tok, EnvironmentID: os.Getenv("RAILWAY_ENVIRONMENT_ID"),
+		CPU: envFloat("AURORA_SANDBOX_CPU", 0.5), MemoryGB: envFloat("AURORA_SANDBOX_MEMORY_GB", 0.5),
+		IdleMinutes: int(envFloat("AURORA_SANDBOX_IDLE_MIN", 3)), Max: int(envFloat("AURORA_SANDBOX_MAX", 3)),
+		Checkpoint: os.Getenv("AURORA_SANDBOX_CHECKPOINT")}
+}
+
+func envFloat(k string, d float64) float64 {
+	var f float64
+	if _, err := fmt.Sscan(os.Getenv(k), &f); err == nil && f > 0 {
+		return f
+	}
+	return d
 }
 
 func (r *Railway) Name() string { return "railway-sandbox" }
@@ -124,6 +145,9 @@ type execOut struct {
 func (r *Railway) create(ctx context.Context) (string, error) {
 	in := map[string]any{"environmentId": r.EnvironmentID, "idleTimeoutMinutes": r.IdleMinutes, "networkIsolation": "ISOLATED",
 		"resources": map[string]any{"cpu": r.CPU, "memoryGB": r.MemoryGB}}
+	if r.Checkpoint != "" { // boot from the prepared base (python3 installed)
+		in["template"] = map[string]any{"name": r.Checkpoint}
+	}
 	var out struct {
 		SandboxCreate struct{ ID, Status string } `json:"sandboxCreate"`
 	}
@@ -152,22 +176,67 @@ func (r *Railway) create(ctx context.Context) (string, error) {
 }
 
 func (r *Railway) sandbox(ctx context.Context, home string, fresh bool) (string, error) {
-	r.mu.Lock()
-	if r.ids == nil {
-		r.ids = map[string]string{}
+	reg.Lock()
+	id := reg.ids[home]
+	reg.used[home] = time.Now()
+	var evict []string
+	if id == "" || fresh {
+		delete(reg.ids, home)
+		max := r.Max
+		if max <= 0 {
+			max = 3
+		}
+		for len(reg.ids) >= max { // make room: drop the least recently used VM
+			var lru string
+			for h := range reg.ids {
+				if lru == "" || reg.used[h].Before(reg.used[lru]) {
+					lru = h
+				}
+			}
+			evict = append(evict, reg.ids[lru])
+			delete(reg.ids, lru)
+		}
 	}
-	id := r.ids[home]
-	r.mu.Unlock()
+	reg.Unlock()
+	for _, e := range evict {
+		r.destroyID(ctx, e)
+	}
 	if id != "" && !fresh {
 		return id, nil
 	}
 	id, err := r.create(ctx)
 	if err == nil {
-		r.mu.Lock()
-		r.ids[home] = id
-		r.mu.Unlock()
+		reg.Lock()
+		reg.ids[home] = id
+		reg.Unlock()
 	}
 	return id, err
+}
+
+func (r *Railway) destroyID(ctx context.Context, id string) {
+	var out map[string]any
+	if err := r.gql(ctx, qDestroy, map[string]any{"id": id, "environmentId": r.EnvironmentID}, &out); err != nil && !errors.Is(err, errSandboxGone) {
+		log.Printf("railway: destroy sandbox failed: %v", err)
+	}
+}
+
+// DestroyUnder tears down every VM whose home lies under dir (account
+// deletion removes the user's workspace directory).
+func (r *Railway) DestroyUnder(ctx context.Context, dir string) {
+	dir = filepath.Clean(dir) + string(filepath.Separator)
+	reg.Lock()
+	var ids []string
+	for h, id := range reg.ids {
+		if strings.HasPrefix(filepath.Clean(h)+string(filepath.Separator), dir) {
+			ids = append(ids, id)
+			delete(reg.ids, h)
+			delete(reg.used, h)
+		}
+	}
+	reg.Unlock()
+	for _, id := range ids {
+		r.destroyID(ctx, id)
+	}
 }
 
 func (r *Railway) exec(ctx context.Context, id, cmd string, timeout int) (execOut, error) {
@@ -180,15 +249,15 @@ func (r *Railway) exec(ctx context.Context, id, cmd string, timeout int) (execOu
 
 // Destroy tears down a bot's VM (Reset / account deletion).
 func (r *Railway) Destroy(ctx context.Context, home string) error {
-	r.mu.Lock()
-	id := r.ids[home]
-	delete(r.ids, home)
-	r.mu.Unlock()
-	if id == "" {
-		return nil
+	reg.Lock()
+	id := reg.ids[home]
+	delete(reg.ids, home)
+	delete(reg.used, home)
+	reg.Unlock()
+	if id != "" {
+		r.destroyID(ctx, id)
 	}
-	var out map[string]any
-	return r.gql(ctx, qDestroy, map[string]any{"id": id, "environmentId": r.EnvironmentID}, &out)
+	return nil
 }
 
 const chunk = 12000 // base64 bytes per exec (stdout limit is 16 000)
