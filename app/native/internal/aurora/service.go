@@ -12,8 +12,8 @@ import (
 	"strings"
 	"sync"
 	"time"
-	"unicode/utf8"
 	"unicode"
+	"unicode/utf8"
 
 	"nekoaurora.local/native/internal/computer"
 	"nekoaurora.local/native/internal/ledger"
