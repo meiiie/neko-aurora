@@ -44,6 +44,10 @@ type Config struct {
 	DefaultPln string
 	MaxUsers   int
 	Mail       Mailer
+	// DevShow: emails whose sign-in code is shown on screen instead of mailed
+	// (AURORA_DEV_SHOW_CODE=1 + AURORA_DEV_EMAILS=a@x,b@y). Only for bootstrapping
+	// a deploy before SMTP exists; never applies to any other address.
+	DevShow map[string]bool
 	Google     *OAuth
 	Apple      *OAuth
 	Now        func() time.Time
@@ -63,6 +67,16 @@ func ConfigFromEnv(dir string) (Config, error) {
 		Plans:      map[string]int{"free": envInt("AURORA_PLAN_FREE_DAILY", 50), "pro": envInt("AURORA_PLAN_PRO_DAILY", 1000)},
 		DefaultPln: envOr("AURORA_DEFAULT_PLAN", "free"), MaxUsers: envInt("AURORA_MAX_USERS", 500), Now: time.Now}
 	c.Mail = MailerFromEnv(filepath.Join(dir, "hub", "dev-mail"))
+	if os.Getenv("AURORA_DEV_SHOW_CODE") == "1" {
+		for _, e := range strings.Split(os.Getenv("AURORA_DEV_EMAILS"), ",") {
+			if e, ok := validEmail(e); ok {
+				if c.DevShow == nil {
+					c.DevShow = map[string]bool{}
+				}
+				c.DevShow[e] = true
+			}
+		}
+	}
 	c.Google = googleFromEnv(pub)
 	c.Apple = appleFromEnv(pub)
 	return c, nil

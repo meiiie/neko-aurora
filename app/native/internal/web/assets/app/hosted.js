@@ -16,7 +16,7 @@ if($("#emailStep")){
   if(!r){msg("Không kết nối được máy chủ",1);return}
   if(r.status===429){msg("Bạn vừa yêu cầu mã, đợi 30 giây rồi thử lại.",1);return}
   if(!r.ok){msg(r.j.error==="email_signin_not_configured"?"Đăng nhập bằng email chưa được cấu hình trên máy chủ này.":"Không gửi được mã, thử lại.",1);return}
-  $("#emailStep").classList.add("hidden");$("#codeStep").classList.remove("hidden");$("#sentTo").textContent=t("Mã đã gửi tới")+" "+email;msg("");$("#code").focus()};
+  $("#emailStep").classList.add("hidden");$("#codeStep").classList.remove("hidden");$("#sentTo").textContent=t("Mã đã gửi tới")+" "+email;msg("");if(r.j.devCode){$("#sentTo").textContent=t("Chế độ thử: mã của bạn là")+" "+r.j.devCode;$("#code").value=r.j.devCode}$("#code").focus()};
  const verify=async()=>{const b=$("#verifyBtn"),code=$("#code").value.replace(/\D/g,"");if(code.length!==6){msg("Nhập đủ 6 số",1);return}
   busy(b,true);const r=await post("/app/auth/verify",{email,code}).catch(()=>null);busy(b,false);
   if(r&&r.ok){location.replace(r.j.next||"/app/");return}

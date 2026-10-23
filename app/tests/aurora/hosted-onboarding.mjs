@@ -12,9 +12,9 @@ for(const lang of ['vi','en']){
  const db=await p.$eval('#deployBtn',e=>{const r=e.getBoundingClientRect();return{h:r.height,w:r.width,href:e.href,target:e.target}});
  ok(lang+' deploy button ≥44pt tall, full width, opens Railway in new tab',db.h>=44&&db.w>=300&&/railway\.com/.test(db.href)&&db.target==='_blank');
  await p.evaluate(()=>document.querySelector('#deployBtn').scrollIntoView({block:'center'}));await sl(300);await p.screenshot({path:`${OUT}/hosted-2-deploy-${lang}.png`});
- const email=`tester-${lang}-${Date.now()}@example.com`;
- await p.fill('#email',email);await p.tap('#sendBtn');await p.waitForSelector('#codeStep:not(.hidden)');
- const f=`${ST}/hub/dev-mail/${email.replace('@','_at_')}.txt`;const code=fs.readFileSync(f,'utf8').match(/: (\d{6})\n/)[1];
+ const email=process.env.REMOTE?`e2e-${lang}@example.com`:`tester-${lang}-${Date.now()}@example.com`;
+ await p.fill('#email',email);const rp=p.waitForResponse(r=>r.url().endsWith('/app/auth/email'));await p.tap('#sendBtn');const sent=await (await rp).json();await p.waitForSelector('#codeStep:not(.hidden)');
+ const code=sent.devCode||fs.readFileSync(`${ST}/hub/dev-mail/${email.replace('@','_at_')}.txt`,'utf8').match(/: (\d{6})\n/)[1];
  await p.screenshot({path:`${OUT}/hosted-3-code-${lang}.png`});
  await p.fill('#code','000000');await sl(600);ok(lang+' wrong code shows error',/không đúng|Wrong/.test(await p.textContent('#msg')));
  await p.fill('#code',code);await p.waitForURL(/welcome\.html/);await sl(800);
@@ -25,6 +25,11 @@ for(const lang of ['vi','en']){
  const names=(await (await p.request.get(U+'/app/api/state')).json()).agents.map(a=>a.name);
  ok(lang+' onboarding created Aurora + helpers, demo bots gone',names.includes('Aurora')&&names.includes('Nghiên cứu')&&!names.includes('Davin')&&!names.includes('Meiiie'));
  await p.goto(U+'/app/');await sl(2500);await p.screenshot({path:`${OUT}/hosted-6-list-${lang}.png`});
+ const H={'content-type':'application/json',origin:U};
+ if(process.env.REAL&&lang==='vi'){await p.request.post(U+'/app/api/agents/bot-meiiie/messages',{headers:H,data:{text:'Chào Aurora, 1 câu thôi: thủ đô của Việt Nam là gì?',clientNonce:'e2e-real-'+Date.now()}});
+  let reply='';for(let i=0;i<60&&!reply;i++){await sl(3000);const j=await (await p.request.get(U+'/app/api/agents/bot-meiiie/messages')).json();const ms=(j.messages||j||[]).filter?.(m=>m.role!=='user'&&m.author!=='user'&&/Hà Nội|Ha Noi|Hanoi/i.test(m.text||''))||[];if(ms.length)reply=ms.at(-1).text}
+  ok('vi real GLM reply mentions Hà Nội',!!reply);console.log('REPLY',reply.slice(0,160).replace(/\n/g,' '))}
+ if(process.env.REMOTE){const d=await p.request.post(U+'/app/api/account/delete',{headers:H,data:{confirm:'DELETE'}});await sl(1500);const me=await p.request.get(U+'/app/auth/me');ok(lang+' test account deleted',d.ok()&&me.status()===401)}
  await ctx.close();
 }
 console.log('RESULT',JSON.stringify(res));await b.close();process.exit(Object.values(res).every(Boolean)?0:1);

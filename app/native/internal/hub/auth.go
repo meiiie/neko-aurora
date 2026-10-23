@@ -100,7 +100,7 @@ func sixDigits() string {
 func (h *Hub) authRoutes() {
 	m := h.mux
 	m.HandleFunc("GET /app/auth/config", func(w http.ResponseWriter, r *http.Request) {
-		writeJSON(w, 200, map[string]any{"hosted": true, "email": h.cfg.Mail != nil && h.cfg.Mail.Ready(), "google": h.cfg.Google != nil, "apple": h.cfg.Apple != nil, "deployUrl": h.cfg.DeployURL})
+		writeJSON(w, 200, map[string]any{"hosted": true, "email": h.cfg.Mail != nil && h.cfg.Mail.Ready() || len(h.cfg.DevShow) > 0, "google": h.cfg.Google != nil, "apple": h.cfg.Apple != nil, "deployUrl": h.cfg.DeployURL})
 	})
 	m.HandleFunc("POST /app/auth/email", func(w http.ResponseWriter, r *http.Request) {
 		var in struct {
@@ -112,7 +112,8 @@ func (h *Hub) authRoutes() {
 			writeJSON(w, 400, map[string]string{"error": "invalid_email"})
 			return
 		}
-		if h.cfg.Mail == nil || !h.cfg.Mail.Ready() {
+		dev := h.cfg.DevShow[email]
+		if !dev && (h.cfg.Mail == nil || !h.cfg.Mail.Ready()) {
 			writeJSON(w, 503, map[string]string{"error": "email_signin_not_configured"})
 			return
 		}
@@ -134,6 +135,10 @@ func (h *Hub) authRoutes() {
 		h.codes.m[email] = &pending{codeHash: hash(email + code), linkHash: hash(link), exp: now.Add(codeTTL)}
 		h.codes.sent[email] = append(recent, now)
 		h.codes.mu.Unlock()
+		if dev {
+			writeJSON(w, 200, map[string]any{"sent": true, "devCode": code})
+			return
+		}
 		u := h.cfg.PublicURL + "/app/auth/magic?e=" + url.QueryEscape(email) + "&t=" + link
 		body := fmt.Sprintf("Mã đăng nhập Neko Aurora của bạn: %s\n\nHoặc mở liên kết này trên thiết bị đang đăng nhập:\n%s\n\nMã hết hạn sau 10 phút. Nếu không phải bạn, hãy bỏ qua thư này.\n\n—\nYour Neko Aurora sign-in code: %s (expires in 10 minutes).", code, u, code)
 		if err := h.cfg.Mail.Send(email, "Mã đăng nhập Neko Aurora: "+code, body); err != nil {

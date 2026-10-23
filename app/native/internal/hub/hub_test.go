@@ -343,3 +343,17 @@ func TestAppleClientSecret(t *testing.T) {
 		t.Fatal(len(sig))
 	}
 }
+
+func TestDevShowCodeOnlyAllowlisted(t *testing.T) {
+	t.Setenv("AURORA_SECRET", strings.Repeat("s", 40))
+	t.Setenv("AURORA_PUBLIC_URL", "http://x")
+	t.Setenv("AURORA_DEV_SHOW_CODE", "1")
+	t.Setenv("AURORA_DEV_EMAILS", "Boss@Example.com")
+	cfg, err := ConfigFromEnv(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Mail != nil || !cfg.DevShow["boss@example.com"] || len(cfg.DevShow) != 1 {
+		t.Fatalf("devshow %v", cfg.DevShow)
+	}
+}
