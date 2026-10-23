@@ -98,3 +98,14 @@ func TestDeliverableReviewedAgainstResearch(t *testing.T) {
 		t.Fatalf("not corrected: %v %q", err, txt)
 	}
 }
+
+func TestFixMixedScriptsDeterministic(t *testing.T) {
+	vi := strings.Repeat("Giả kim sư tìm hòn đá triết gia để biến thủy ngân thành vàng. ", 3)
+	got, fixed := fixMixedScripts(vi + "Lượng: cỡ микro-gam; tìm \"đan石 tạo vàng\"; phân rã β⁺ và γ; Hg-198.")
+	if strings.ContainsAny(got, "микро石") || !strings.Contains(got, "mikro-gam") || !strings.Contains(got, "\"đan tạo vàng\"") || !strings.Contains(got, "β⁺ và γ") || len(fixed) != 2 {
+		t.Fatalf("%q %v", got, fixed)
+	}
+	if got, fixed := fixMixedScripts("print('北京')"); got != "print('北京')" || fixed != nil {
+		t.Fatal("non-Vietnamese text must be left alone")
+	}
+}

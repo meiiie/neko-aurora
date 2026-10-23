@@ -120,7 +120,9 @@ func (s *Service) computerContext(bot string) string {
 				xs = append(xs, "…")
 				break
 			}
-			if e.Dir {
+			if e.Summary {
+				xs = append(xs, fmt.Sprintf("%s/ (%d file, %d B — thư mục lớn, đã gộp)", e.Path, e.Files, e.Size))
+			} else if e.Dir {
 				xs = append(xs, e.Path+"/")
 			} else {
 				xs = append(xs, fmt.Sprintf("%s (%d B)", e.Path, e.Size))

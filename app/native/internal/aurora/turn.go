@@ -86,6 +86,7 @@ func ParseDirectives(text string) directives {
 	var d directives
 	// Models sometimes glue a directive onto the previous sentence
 	// ("…tại Việt Nam.TOOL: {…}"); put it back on its own line.
+	text = normalizeToolLabels(text)
 	text = gluedDirective.ReplaceAllString(text, "$1\n$2")
 	// APPROVAL bodies may span lines; handle it first with the dedicated parser.
 	text, d.Approval = SplitApproval(text)

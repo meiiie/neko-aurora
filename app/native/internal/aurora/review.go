@@ -194,3 +194,65 @@ func (s *Service) reviewDeliverable(ctx context.Context, bot string, tc *toolCtx
 	}
 	return fixed, clean(strings.TrimSpace(strings.TrimPrefix(strings.TrimPrefix(head, "FIXED"), ":")), 400)
 }
+
+var cyrLatin = map[rune]string{'а': "a", 'в': "v", 'е': "e", 'ё': "e", 'к': "k", 'м': "m", 'н': "n", 'о': "o", 'р': "r", 'с': "c", 'т': "t", 'у': "u", 'х': "x", 'и': "i", 'й': "i", 'л': "l", 'п': "p", 'д': "d", 'г': "g", 'б': "b", 'з': "z", 'ф': "f", 'ь': "", 'ъ': "", 'ы': "y", 'я': "ya", 'ю': "yu", 'ж': "zh", 'ш': "sh", 'щ': "sh", 'ч': "ch", 'ц': "ts", 'э': "e",
+	'А': "A", 'В': "B", 'Е': "E", 'К': "K", 'М': "M", 'Н': "H", 'О': "O", 'Р': "P", 'С': "C", 'Т': "T", 'У': "Y", 'Х': "X", 'И': "I", 'Л': "L", 'П': "P", 'Д': "D", 'Г': "G"}
+
+func foreignScript(r rune) bool {
+	return unicode.In(r, unicode.Cyrillic, unicode.Han, unicode.Hangul, unicode.Hiragana, unicode.Katakana, unicode.Arabic, unicode.Thai)
+}
+
+// fixMixedScripts deterministically repairs words of a Vietnamese text that
+// contain characters of another script (model drift: "микro-gam",
+// "đan石"): Cyrillic letters become their Latin look-alikes, other foreign
+// characters are removed. Greek letters (β, α, γ) are physics and stay.
+// It returns the fixed text and the words it changed.
+func fixMixedScripts(t string) (string, []string) {
+	n := 0
+	for _, r := range t {
+		if r > 127 && unicode.Is(unicode.Latin, r) {
+			n++
+		}
+	}
+	if n < 20 { // not Vietnamese text
+		return t, nil
+	}
+	var out strings.Builder
+	var fixed []string
+	rs := []rune(t)
+	for i := 0; i < len(rs); {
+		if !unicode.IsLetter(rs[i]) {
+			out.WriteRune(rs[i])
+			i++
+			continue
+		}
+		j := i
+		bad := false
+		for j < len(rs) && (unicode.IsLetter(rs[j]) || unicode.Is(unicode.Mn, rs[j])) {
+			bad = bad || foreignScript(rs[j])
+			j++
+		}
+		word := string(rs[i:j])
+		if bad {
+			var w strings.Builder
+			for _, r := range rs[i:j] {
+				switch {
+				case unicode.Is(unicode.Cyrillic, r):
+					if l, ok := cyrLatin[r]; ok {
+						w.WriteString(l)
+					}
+				case foreignScript(r):
+				default:
+					w.WriteRune(r)
+				}
+			}
+			if len(fixed) < 20 {
+				fixed = append(fixed, word+"→"+w.String())
+			}
+			word = w.String()
+		}
+		out.WriteString(word)
+		i = j
+	}
+	return out.String(), fixed
+}

@@ -351,7 +351,7 @@ func (r *Railway) Exec(ctx context.Context, s Spec) (Result, error) {
 		// fresh env: only what the bwrap sandbox gets, never host variables
 		envs := strings.Join(sandboxEnv, " ")
 		secs := max(1, min(600, int(s.Limits.Timeout/time.Second)))
-		return r.exec(ctx, id, "cd /home/bot && env -i "+envs+" timeout -k 5 "+fmt.Sprint(secs)+" /bin/sh -c "+shq(s.Cmd)+" 2>&1", secs+15)
+		return r.exec(ctx, id, "cd /home/bot && env -i "+envs+" timeout -k 5 "+fmt.Sprint(secs)+" /bin/sh -c "+shq(strictShell+s.Cmd)+" 2>&1", secs+15)
 	}
 	o, err := run(id)
 	if errors.Is(err, errSandboxGone) { // idle-destroyed: boot a fresh VM, home comes from our copy

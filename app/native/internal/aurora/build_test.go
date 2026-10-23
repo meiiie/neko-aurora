@@ -287,3 +287,19 @@ func TestCopiedToolNoteIsNotAReply(t *testing.T) {
 		t.Fatalf("%q", got)
 	}
 }
+
+func TestComputerContextSummarizesFrames(t *testing.T) {
+	svc := quietSvc(t)
+	bot := firstBot(svc)
+	for i := 0; i < 60; i++ {
+		svc.PC.WriteFile(bot, fmt.Sprintf("frames/f%02d.png", i), "x")
+	}
+	svc.PC.WriteFile(bot, "out/deck.pptx", "PK")
+	c := svc.computerContext(bot)
+	if !strings.Contains(c, "out/deck.pptx") || !strings.Contains(c, "frames/ (60 file") || strings.Contains(c, "f05.png") {
+		t.Fatal(c)
+	}
+	if n := svc.computerNote(bot); !strings.Contains(n, "append_data") || !strings.Contains(n, "pipefail") {
+		t.Fatal("video/strict-shell guidance missing")
+	}
+}

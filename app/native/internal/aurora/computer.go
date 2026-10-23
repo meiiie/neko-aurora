@@ -113,7 +113,14 @@ func (s *Service) runComputer(ctx context.Context, bot string, tc *toolCtx, c to
 		if json.Unmarshal([]byte(c.arg), &x) != nil {
 			return tools.Result{}, computer.ErrPath
 		}
-		content, fixes := s.reviewDeliverable(ctx, bot, tc, x.Path, x.Content)
+		content, scripts := x.Content, []string(nil)
+		if reviewExt.MatchString(x.Path) {
+			content, scripts = fixMixedScripts(content)
+		}
+		content, fixes := s.reviewDeliverable(ctx, bot, tc, x.Path, content)
+		if len(scripts) > 0 {
+			fixes = strings.TrimPrefix(fixes+"; chữ lẫn hệ chữ khác: "+strings.Join(scripts, ", "), "; ")
+		}
 		if err := s.PC.WriteFile(bot, x.Path, content); err != nil {
 			return tools.Result{}, err
 		}
@@ -273,7 +280,7 @@ func (s *Service) computerRoutes() {
 
 // deckGuide: what a real presentation deliverable needs (live runs 3-4
 // shipped decks with no notes, no animation and 10-12pt text).
-const deckGuide = "\nBÀI TRÌNH CHIẾU (.pptx bằng python-pptx): mỗi slide PHẢI có speaker notes chứa kịch bản nói của slide đó (slide.notes_slide.notes_text_frame.text), tổng thời lượng đúng yêu cầu (~130 từ/phút); sơ đồ/quy trình dựng bằng shape và có animation xuất hiện lần lượt (chèn p:timing vào XML slide); cỡ chữ: tiêu đề ≥ 32pt, nội dung ≥ 18pt, chú thích ≥ 14pt, tối đa 5 ý mỗi slide; chữ trên slide khớp ghi chú nghiên cứu. Sau khi tạo, kiểm tra bằng script: số slide, slide nào thiếu notes, cỡ chữ nhỏ nhất."
+const deckGuide = "\nBÀI TRÌNH CHIẾU (.pptx bằng python-pptx): mỗi slide PHẢI có speaker notes chứa kịch bản nói của slide đó (slide.notes_slide.notes_text_frame.text), tổng thời lượng đúng yêu cầu (~130 từ/phút); sơ đồ/quy trình dựng bằng shape và có animation xuất hiện lần lượt (chèn p:timing vào XML slide); cỡ chữ: tiêu đề ≥ 32pt, nội dung ≥ 18pt, chú thích ≥ 14pt, tối đa 5 ý mỗi slide; chữ trên slide khớp ghi chú nghiên cứu. Sau khi tạo, kiểm tra bằng script: số slide, slide nào thiếu notes, cỡ chữ nhỏ nhất.\nVIDEO: máy có RAM hạn chế — KHÔNG gom mọi khung hình vào list/bộ nhớ; ghi lần lượt: w=imageio.get_writer('out/preview.mp4', fps=…, codec='libx264'); với mỗi khung hình w.append_data(numpy.asarray(img)); w.close(). Mỗi slide vẽ 1 khung rồi append lặp lại, không lưu hàng trăm PNG.\nLỆNH: mỗi computer_run chạy với set -e và pipefail: một phần lỗi là cả lệnh lỗi với đúng mã thoát đó (thêm `|| true` nếu lỗi được phép)."
 
 // computerNote tells the model when commands cannot run on this host, so
 // it offers what does work (listing, reading, writing files) instead of

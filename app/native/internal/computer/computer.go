@@ -318,10 +318,18 @@ type Entry struct {
 	Dir  bool   `json:"dir,omitempty"`
 	Size int64  `json:"size"`
 	Mod  string `json:"mod"`
+	// Summary: a folder with many files shown as one entry (Files, Size total)
+	Summary bool `json:"summary,omitempty"`
+	Files   int  `json:"files,omitempty"`
 }
 
 // List walks the home (or a subdirectory), max 200 entries, never following
 // symlinks.
+// List returns what is in a folder of the bot's home, deliverables first:
+// finished outputs (pptx, pdf, mp4, docx…) newest first, then the other
+// files and folders. A folder holding many files (render frames, caches) is
+// summarized as one entry ("frames/ · 198 files") instead of filling the
+// list; live run 5 lost its pptx behind 198 frame PNGs and a 200 cap.
 func (m *Manager) List(bot, p string) ([]Entry, error) {
 	rel, err := cleanRel(p)
 	if err != nil {
@@ -332,27 +340,90 @@ func (m *Manager) List(bot, p string) ([]Entry, error) {
 		return nil, err
 	}
 	defer r.Close()
-	out := []Entry{}
-	err = fs.WalkDir(r.FS(), rel, func(q string, d fs.DirEntry, err error) error {
+	var deliver, other []Entry
+	big := map[string]*Entry{} // summarized folder → totals
+	children := map[string]int{}
+	seen := 0
+	_ = fs.WalkDir(r.FS(), rel, func(q string, d fs.DirEntry, err error) error {
 		if err != nil || q == rel {
 			return nil
 		}
-		if len(out) >= 200 {
+		if seen++; seen > 50000 {
 			return fs.SkipAll
+		}
+		children[path.Dir(q)]++
+		return nil
+	})
+	err = fs.WalkDir(r.FS(), rel, func(q string, d fs.DirEntry, err error) error {
+		if err != nil || q == rel {
+			return nil
 		}
 		info, e := d.Info()
 		if e != nil {
 			return nil
 		}
-		out = append(out, Entry{Path: q, Dir: d.IsDir(), Size: info.Size(), Mod: info.ModTime().UTC().Format(time.RFC3339)})
-		if d.IsDir() && strings.Count(q, "/") >= 3 {
-			return fs.SkipDir
+		for dir := path.Dir(q); dir != "." && dir != rel; dir = path.Dir(dir) {
+			if s := big[dir]; s != nil && !(IsDeliverable(q) && !isImage(q)) { // frames stay summarized
+				if !d.IsDir() {
+					s.Files++
+					s.Size += info.Size()
+				}
+				return nil
+			}
+		}
+		e2 := Entry{Path: q, Dir: d.IsDir(), Size: info.Size(), Mod: info.ModTime().UTC().Format(time.RFC3339)}
+		switch {
+		case d.IsDir() && children[q] > listDirMax:
+			e2.Summary, e2.Size = true, 0
+			big[q] = &e2
+		case !d.IsDir() && IsDeliverable(q):
+			deliver = append(deliver, e2)
+		default:
+			other = append(other, e2)
 		}
 		return nil
 	})
-	sort.Slice(out, func(i, j int) bool { return out[i].Path < out[j].Path })
+	sort.Slice(deliver, func(i, j int) bool { return deliver[i].Mod > deliver[j].Mod })
+	sort.Slice(other, func(i, j int) bool { return other[i].Path < other[j].Path })
+	out := deliver
+	for _, e := range other {
+		if len(out) >= listMax {
+			break
+		}
+		if s := big[e.Path]; s != nil {
+			e = *s
+		}
+		out = append(out, e)
+	}
+	for _, s := range big { // summarized folders that sorted past the cap still show up
+		found := false
+		for _, e := range out {
+			found = found || e.Path == s.Path
+		}
+		if !found {
+			out = append(out, *s)
+		}
+	}
 	return out, err
 }
+
+const (
+	listMax    = 200 // entries besides deliverables
+	listDirMax = 40  // a folder with more children is summarized
+)
+
+var deliverableExt = map[string]bool{".pptx": true, ".ppt": true, ".pdf": true, ".mp4": true, ".webm": true, ".mov": true, ".gif": true, ".docx": true, ".doc": true, ".xlsx": true, ".xls": true, ".csv": true, ".zip": true, ".odp": true, ".odt": true, ".mp3": true, ".wav": true, ".html": true, ".md": true, ".png": true, ".jpg": true, ".svg": true}
+
+func isImage(p string) bool {
+	switch strings.ToLower(path.Ext(p)) {
+	case ".png", ".jpg", ".jpeg", ".svg", ".gif":
+		return true
+	}
+	return false
+}
+
+// IsDeliverable reports a finished-output file type (not code or data scratch).
+func IsDeliverable(p string) bool { return deliverableExt[strings.ToLower(path.Ext(p))] }
 
 type Status struct {
 	Backend   string   `json:"backend"`

@@ -69,6 +69,12 @@ func (b *Bwrap) probe() error {
 // from constants, never from os.Environ, so no host secret can leak in.
 var sandboxEnv = []string{"PATH=/usr/local/bin:/usr/bin:/bin", "HOME=/home/bot", "USER=bot", "LANG=C.UTF-8", "LC_ALL=C.UTF-8", "TERM=dumb", "PYTHONDONTWRITEBYTECODE=1", "MPLBACKEND=Agg", "TMPDIR=/tmp", "PIP_NO_CACHE_DIR=1", "PIP_ROOT_USER_ACTION=ignore", "PIP_DISABLE_PIP_VERSION_CHECK=1"}
 
+// strictShell gives every command set -e and (where the shell has it)
+// pipefail, so "python3 render.py; ls -la out" or "build | tail" report the
+// failing part's exit code instead of the last command's 0 (live run 5:
+// the video render was OOM-killed and the card still said exit 0).
+const strictShell = "(set -o pipefail) 2>/dev/null && set -o pipefail; set -e\n"
+
 func (b *Bwrap) args(s Spec) []string {
 	l := s.Limits
 	a := []string{
@@ -103,7 +109,7 @@ func (b *Bwrap) args(s Spec) []string {
 		k, v, _ := bytesCut(e)
 		a = append(a, "--setenv", k, v)
 	}
-	return append(a, "/bin/sh", "-c", s.Cmd)
+	return append(a, "/bin/sh", "-c", strictShell+s.Cmd)
 }
 
 func bytesCut(e string) (string, string, bool) {

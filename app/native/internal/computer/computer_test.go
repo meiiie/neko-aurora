@@ -2,6 +2,7 @@ package computer
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -168,5 +169,58 @@ func TestOpenFileBinaryAndEscape(t *testing.T) {
 	f.Close()
 	if _, _, err := m.OpenFile("b", "../../etc/passwd"); err == nil {
 		t.Fatal("escape allowed")
+	}
+}
+
+// Deliverables come first (newest first) and a folder of render frames is
+// one summary entry, so 198 frames can never hide the pptx (live run 5).
+func TestListDeliverablesFirstAndSummarizesBigDirs(t *testing.T) {
+	m, _ := New(t.TempDir(), NewBwrap())
+	for i := 0; i < 250; i++ {
+		m.WriteFile("b", fmt.Sprintf("frames/f%03d.png", i), "x")
+	}
+	m.WriteFile("b", "build.py", "print(1)")
+	m.WriteFile("b", "out/old.pdf", "pdf")
+	time.Sleep(1100 * time.Millisecond)
+	m.WriteFile("b", "out/deck.pptx", "PK")
+	m.WriteFile("b", "frames/preview.mp4", "mp4")
+	l, err := m.List("b", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(l) < 3 || l[0].Path != "frames/preview.mp4" && l[0].Path != "out/deck.pptx" {
+		t.Fatalf("deliverables not first: %+v", l[:min(4, len(l))])
+	}
+	var sum *Entry
+	pngs := 0
+	for i, e := range l {
+		if e.Path == "frames" {
+			sum = &l[i]
+		}
+		if strings.HasSuffix(e.Path, ".png") {
+			pngs++
+		}
+	}
+	if sum == nil || !sum.Summary || sum.Files != 250 || pngs != 0 || len(l) > 10 {
+		t.Fatalf("frames not summarized: %+v (%d entries, %d png)", sum, len(l), pngs)
+	}
+}
+
+func TestCommandFailureNotMaskedByLaterCommands(t *testing.T) {
+	m, _ := New(t.TempDir(), NewBwrap())
+	if _, err := m.Run(context.Background(), "probe", "true"); err != nil {
+		t.Skipf("sandbox unusable: %v", err)
+	}
+	for cmd, want := range map[string]int{
+		"python3 -c 'import sys; sys.exit(3)'\nls -la": 3,
+		"false; echo after":                            1,
+		"false | cat":                                  1,
+		"echo ok && ls >/dev/null":                     0,
+		"grep nope /dev/null || true":                  0,
+	} {
+		r, err := m.Run(context.Background(), "b", cmd)
+		if err != nil || r.ExitCode != want || strings.Contains(r.Output, "after") {
+			t.Errorf("%q → %d %q %v (want %d)", cmd, r.ExitCode, r.Output, err, want)
+		}
 	}
 }
