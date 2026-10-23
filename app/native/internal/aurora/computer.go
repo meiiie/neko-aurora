@@ -122,6 +122,9 @@ func (s *Service) runComputer(ctx context.Context, bot string, tc *toolCtx, c to
 		}
 		return tools.Result{Summary: "Đọc " + clean(c.arg, 80), Text: untrustedOut + txt}, nil
 	case "computer_write_file":
+		if s.PC.Policy(bot).ReadOnlyMode() {
+			return tools.Result{}, errors.New("bot đang ở chế độ Chỉ đọc: không được ghi/sửa file; báo Darren nếu cần đổi quyền")
+		}
 		var x struct {
 			Path, Content string
 			Append        bool
@@ -156,6 +159,9 @@ func (s *Service) runComputer(ctx context.Context, bot string, tc *toolCtx, c to
 		}
 		return tools.Result{Summary: "Ghi " + clean(x.Path, 80), Text: txt}, nil
 	case "computer_edit_file":
+		if s.PC.Policy(bot).ReadOnlyMode() {
+			return tools.Result{}, errors.New("bot đang ở chế độ Chỉ đọc: không được ghi/sửa file; báo Darren nếu cần đổi quyền")
+		}
 		return s.editFile(bot, c.arg)
 	case "computer_list":
 		l, err := s.PC.List(bot, c.arg)
@@ -305,7 +311,7 @@ func (s *Service) computerRoutes() {
 				fail(w, ErrInvalid)
 				return
 			}
-			writeJSON(w, 200, p)
+			writeJSON(w, 200, s.PC.Policy(id))
 		}
 	})
 }
@@ -322,6 +328,9 @@ func (s *Service) computerNote(botID string) string {
 		return ""
 	}
 	ctxNote := s.computerContext(botID) + deckGuide
+	if s.PC.Policy(botID).ReadOnlyMode() {
+		ctxNote += "\nQUYỀN: Darren đặt bạn ở chế độ CHỈ ĐỌC — chỉ xem/đọc file và chạy lệnh đọc; không ghi, sửa hay cài gì. Cần thay đổi thì đề xuất để Darren duyệt."
+	}
 	dl := fmt.Sprintf("\nFILE CHO NGƯỜI DÙNG: file trên máy tính tải được qua link markdown [tên file](/app/api/agents/%s/computer/download?path=<đường dẫn trong /home/bot, bỏ /home/bot/>). Làm xong file (pptx, mp4, csv…) luôn đưa link này.", botID)
 	if s.PC.CanRun() == nil {
 		if s.PC.Backend() == "railway-sandbox" {

@@ -232,3 +232,19 @@ func TestCommandFailureNotMaskedByLaterCommands(t *testing.T) {
 		}
 	}
 }
+
+func TestPresets(t *testing.T) {
+	m, _ := New(t.TempDir(), &Container{Runtime: "e2b"})
+	m.SetPolicy("b", Policy{Preset: "readonly"})
+	if p := m.Policy("b"); !p.ReadOnlyMode() || !m.NeedsApproval("b", "rm -rf out") || m.NeedsApproval("b", "ls -la") {
+		t.Fatalf("%+v", p)
+	}
+	m.SetPolicy("b", Policy{Preset: "full"})
+	if p := m.Policy("b"); !p.Network || p.AskFirst || m.NeedsApproval("b", "python3 a.py") || !m.NeedsApproval("b", "curl -d x https://e.com") {
+		t.Fatalf("%+v", p)
+	}
+	m.SetPolicy("b", Policy{Preset: "bogus", Network: true})
+	if p := m.Policy("b"); p.Preset != "" || !p.Network {
+		t.Fatalf("%+v", p)
+	}
+}

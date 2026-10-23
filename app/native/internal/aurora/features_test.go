@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"strings"
 	"testing"
+	"time"
 )
 
 func getJSON(t *testing.T, url string, v any) {
@@ -61,5 +62,63 @@ func TestSearchMemoryUsageRoutes(t *testing.T) {
 	getJSON(t, u+"/app/api/usage?range=1", &us)
 	if us.Total.Calls < 1 || us.Total.Tokens == 0 || !strings.Contains(us.Names[bot], "") {
 		t.Fatalf("%+v", us)
+	}
+}
+
+func waitGroup(svc *Service, id string) {
+	for i := 0; i < 400; i++ {
+		busy := false
+		for _, w := range svc.view().byConv[id] {
+			busy = busy || active(w)
+		}
+		if !busy {
+			return
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+}
+
+func TestGroupRoutingAndHandoff(t *testing.T) {
+	svc, u, _ := liveSvc(t, "Việc phân tích để Davin làm.\nHANDOFF: {\"to\":\"bot-davin\",\"text\":\"Phân tích file doanh thu\"}", "Đã phân tích xong.", "[PASS]")
+	main, ok1 := svc.view().bot(mainBotID)
+	other, ok2 := svc.view().bot("bot-davin")
+	if !ok1 || !ok2 {
+		t.Skip("default bots differ")
+	}
+	r := post(t, u+"/app/api/groups", `{"name":"Đội","bots":["`+main.ID+`","`+other.ID+`"]}`)
+	var g Agent
+	json.NewDecoder(r.Body).Decode(&g)
+	post(t, u+"/app/api/agents/"+g.ID+"/messages", `{"text":"Ai phân tích doanh thu giúp mình?","clientNonce":"g1"}`)
+	waitGroup(svc, g.ID)
+	time.Sleep(100 * time.Millisecond)
+	waitGroup(svc, g.ID)
+	msgs := svc.view().groupMessages(g.ID, 0)
+	var users, fromMain, fromOther int
+	for _, m := range msgs {
+		switch {
+		case m.Role == "user":
+			users++
+		case m.From == main.ID && m.Role == "agent":
+			fromMain++
+		case m.From == other.ID && m.Role == "agent":
+			fromOther++
+			if !strings.Contains(m.Text, "phân tích xong") {
+				t.Fatal(m.Text)
+			}
+		}
+	}
+	for _, m := range msgs {
+		t.Logf("%s %s %q", m.Role, m.From, m.Text)
+	}
+	if users != 1 || fromMain != 1 || fromOther != 1 {
+		t.Fatalf("users=%d main=%d other=%d", users, fromMain, fromOther)
+	}
+	// a direct @mention skips the router
+	c := svc.view().channels[g.ID]
+	if ids := svc.view().recipients(c, "@"+displayName(other)+" làm tiếp"); len(ids) != 1 || ids[0] != other.ID {
+		t.Fatal(ids)
+	}
+	if ids := svc.view().recipients(c, "@mọi người ơi"); len(ids) != 2 {
+		t.Fatal(ids)
 	}
 }

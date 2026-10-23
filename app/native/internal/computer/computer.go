@@ -75,7 +75,34 @@ type Policy struct {
 	AskFirst     bool `json:"askFirst"`     // "Hỏi trước khi chạy lệnh" (default off)
 	AutoReadOnly bool `json:"autoReadOnly"` // with AskFirst: still run read-only commands without asking
 	Network      bool `json:"network"`      // sandbox may reach the internet
+	// Preset (idea from DS Bot's permission presets) names a combination
+	// the owner picks in one tap; SetPolicy derives the flags from it.
+	//   readonly:  every command that could change files asks first, file
+	//              writes are refused (the bot can look, not touch)
+	//   workspace: the default — the bot works freely on its own sandbox
+	//   full:      as workspace, plus network; outward commands still ask
+	Preset string `json:"preset,omitempty"`
 }
+
+// Presets lists the valid preset names in display order.
+var Presets = []string{"readonly", "workspace", "full"}
+
+// Normalize applies the preset's flags (unknown presets are cleared).
+func (p Policy) Normalize() Policy {
+	switch p.Preset {
+	case "readonly":
+		return Policy{Preset: p.Preset, AskFirst: true, AutoReadOnly: true}
+	case "workspace":
+		return Policy{Preset: p.Preset, AskFirst: p.AskFirst}
+	case "full":
+		return Policy{Preset: p.Preset, AskFirst: p.AskFirst, Network: true}
+	}
+	p.Preset = ""
+	return p
+}
+
+// ReadOnlyMode: file writes and edits are refused.
+func (p Policy) ReadOnlyMode() bool { return p.Preset == "readonly" }
 
 type meta struct {
 	Policy Policy   `json:"policy"`
@@ -179,7 +206,7 @@ func (m *Manager) SetPolicy(bot string, p Policy) error {
 	unlock := m.lock(bot)
 	defer unlock()
 	x := m.load(bot)
-	x.Policy = p
+	x.Policy = p.Normalize()
 	return m.save(bot, x)
 }
 

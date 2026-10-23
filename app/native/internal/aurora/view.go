@@ -348,6 +348,9 @@ func workMessages(w ledger.Work, botRunning bool) []*Message {
 	if kind == "" && strings.HasPrefix(w.ClientNonce, "computer-") {
 		kind = "computer" // hidden follow-up/continuation, also while it waits in the queue (live run 11 showed it as the owner's bubble)
 	}
+	if kind == "" && strings.HasPrefix(w.ClientNonce, handoffPrefix) {
+		kind = "handoff"
+	}
 	if kind == "" {
 		out = append(out, &Message{ID: w.RequestID + ":u", TaskID: w.RequestID, AgentID: w.BotID, Role: "user", Text: w.Text, Queued: w.Status == "waiting_host" && botRunning, Created: at})
 	}

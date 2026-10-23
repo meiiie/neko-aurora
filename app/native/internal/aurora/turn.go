@@ -39,9 +39,9 @@ MEMORY: {"text":"<một sở thích/bối cảnh lâu dài Darren vừa nói rõ
 - Không bao giờ nhắc tên kỹ thuật của công cụ hay chỉ thị (web_search, web_fetch, gold_price, TOOL…) trong câu trả lời; nói bằng lời thường như "tìm trên web", "đọc trang".
 - Với email: kind là "email", dùng đúng địa chỉ Darren đưa; không lặp lại toàn văn thư ở phần trả lời.`
 
-var gluedDirective = regexp.MustCompile(`([^\s\n])[ \t]*((?:PLAN|CHOICES|APPROVAL|SECRET|TOOL|MEMORY):\s*[\[{])`)
+var gluedDirective = regexp.MustCompile(`([^\s\n])[ \t]*((?:PLAN|CHOICES|APPROVAL|SECRET|TOOL|MEMORY|HANDOFF):\s*[\[{])`)
 
-var directiveRe = regexp.MustCompile(`(?m)^\s*(PLAN|CHOICES|APPROVAL|SECRET|TOOL|MEMORY):\s*(.+?)\s*$`)
+var directiveRe = regexp.MustCompile(`(?m)^\s*(PLAN|CHOICES|APPROVAL|SECRET|TOOL|MEMORY|HANDOFF):\s*(.+?)\s*$`)
 
 type directives struct {
 	Text       string
@@ -51,8 +51,9 @@ type directives struct {
 	Secret     *ledger.DirectSecret
 	Tools      []toolReq // independent lookups, run in parallel (max 3)
 	Memory     string
-	MemoryTeam bool // MEMORY scope "team": shared by every bot of the owner
-	Cut        bool // the reply hit the output cap or the stream broke
+	Handoffs   []handoff // group chats: pass work to another member
+	MemoryTeam bool      // MEMORY scope "team": shared by every bot of the owner
+	Cut        bool      // the reply hit the output cap or the stream broke
 }
 
 type toolReq struct {
@@ -102,6 +103,14 @@ func ParseDirectives(text string) directives {
 			var t toolReq
 			if json.Unmarshal([]byte(m[2]), &t) == nil && validTool(t) && len(d.Tools) < 3 {
 				d.Tools = append(d.Tools, t)
+			}
+			continue
+		}
+		if m[1] == "HANDOFF" {
+			var h handoff
+			if json.Unmarshal([]byte(m[2]), &h) == nil && h.To != "" && strings.TrimSpace(h.Text) != "" && len(d.Handoffs) < 3 {
+				h.Text = clean(h.Text, 2000)
+				d.Handoffs = append(d.Handoffs, h)
 			}
 			continue
 		}
@@ -417,6 +426,9 @@ func (s *Service) runWork(w ledger.Work) {
 	run := ledger.DirectRun{Runtime: s.AI.Runtime(), Model: s.AI.ModelName(), LeaseUntil: s.leaseUntil()}
 	if strings.HasPrefix(w.ClientNonce, "computer-") {
 		run.Kind = "computer" // hidden follow-up after an approved command
+	}
+	if strings.HasPrefix(w.ClientNonce, handoffPrefix) {
+		run.Kind = "handoff" // a member's message to another: no owner bubble
 	}
 	if !s.AI.Configured() {
 		run.Model = ""
@@ -738,6 +750,7 @@ func (s *Service) runTurn(ctx context.Context, w ledger.Work) (*Approval, []stri
 	}
 	s.fixScript(ctx, w, &d)
 	s.rememberD(w, d)
+	s.handOff(w, d.Handoffs)
 	s.reviewMemory(w, d.Memory)
 	if len(d.Tools) > 0 { // tools exhausted or disabled: never leave a bare TOOL line
 		d.Text = strings.TrimSpace(d.Text + "\n(Mình chưa lấy thêm được dữ liệu, nên không đưa số liệu chưa kiểm chứng.)")
@@ -902,6 +915,7 @@ func (s *Service) stepCall(ctx context.Context, w ledger.Work, tc *toolCtx, prom
 		d.Text = stripNarration(d.Text)
 	}
 	s.rememberD(w, d)
+	s.handOff(w, d.Handoffs)
 	s.reviewMemory(w, d.Memory)
 	d.Tools, d.Plan, d.Memory = nil, nil, ""
 	return d, err

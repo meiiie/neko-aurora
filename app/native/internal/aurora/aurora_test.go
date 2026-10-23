@@ -391,7 +391,7 @@ func TestGroupChatFansOutToMembers(t *testing.T) {
 	if r.StatusCode != 201 || g.Kind != "group" || len(g.Members) != 2 {
 		t.Fatalf("create %d %+v", r.StatusCode, g)
 	}
-	if r := post(t, srv.URL+"/app/api/agents/"+g.ID+"/messages", `{"text":"Lên kế hoạch ra mắt"}`); r.StatusCode != 202 {
+	if r := post(t, srv.URL+"/app/api/agents/"+g.ID+"/messages", `{"text":"@tất cả lên kế hoạch ra mắt"}`); r.StatusCode != 202 {
 		t.Fatal(r.StatusCode)
 	}
 	for i := 0; i < 300; i++ {

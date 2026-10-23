@@ -1,6 +1,7 @@
 package aurora
 
 import (
+	"log"
 	"sort"
 	"strings"
 	"time"
@@ -49,6 +50,9 @@ func (v *view) groupMessages(id string, limit int) []*Message {
 				seen[base] = true
 				m.ID = base + ":u"
 			} else {
+				if strings.TrimSpace(m.Text) == passMark {
+					continue // a member with nothing to add stays quiet
+				}
 				m.From = w.BotID
 			}
 			m.AgentID = id
@@ -150,8 +154,12 @@ func (s *Service) sendGroup(id, text, nonce string) (*Message, error) {
 	rev := c.Revision
 	var first ledger.Work
 	n := 0
+	to := map[string]bool{}
+	for _, id := range v.recipients(c, text) {
+		to[id] = true
+	}
 	for i, b := range c.BotIDs {
-		if v.archived[b] {
+		if v.archived[b] || !to[b] {
 			continue
 		}
 		w, _, err := s.L.AcceptProduct(ledger.Input{BotID: b, ClientNonce: nonce + "_g" + itoa(i+1), Text: text}, ledger.SubmissionScope{ChannelID: id, ExpectedChannelRevision: &rev})
@@ -188,7 +196,7 @@ func (s *Service) groupHistory(v *view, b ledger.Bot, cur ledger.Work, msgs []Ch
 			}
 		}
 	}
-	msgs[0].Content += "\nBạn đang ở nhóm “" + c.Name + "” cùng " + strings.Join(names, ", ") + ". Trả lời phần việc của bạn, ngắn gọn, không lặp lại điều người khác đã nói."
+	msgs[0].Content += "\nBạn đang ở nhóm “" + c.Name + "” cùng " + strings.Join(names, ", ") + ". Trả lời phần việc của bạn, ngắn gọn, không lặp lại điều người khác đã nói." + groupRole(v.router(c) == b.ID, names)
 	seen := map[string]bool{}
 	l := v.byConv[c.ID]
 	if len(l) > 60 {
@@ -203,7 +211,7 @@ func (s *Service) groupHistory(v *view, b ledger.Bot, cur ledger.Work, msgs []Ch
 			continue
 		}
 		r := visibleText(w.Reply)
-		if r == "" {
+		if r == "" || strings.TrimSpace(r) == passMark {
 			continue
 		}
 		if w.BotID == b.ID {
@@ -222,4 +230,157 @@ func (s *Service) groupHistory(v *view, b ledger.Bot, cur ledger.Work, msgs []Ch
 		}
 	}
 	return msgs
+}
+
+// ---- routing and handoffs (ideas from DS Bot's group chats) ----
+//
+// A group message no longer wakes every member. "@Tên" addresses members
+// directly; "@all"/"@tất cả"/"@mọi người" asks everyone; otherwise the
+// group's main bot (the account's main bot when it is a member, else the
+// first member) answers and routes: it may pass work on with
+// HANDOFF: {"to":"<tên>","text":"<việc>"}. Any member can hand off too.
+// Handoffs are bounded per owner message, and a member with nothing to add
+// answers [PASS], which is not shown.
+
+const (
+	handoffPrefix = "handoff-"
+	maxHandoffs   = 4
+	passMark      = "[PASS]"
+	mainBotID     = "bot-meiiie"
+)
+
+type handoff struct {
+	To   string `json:"to"`
+	Text string `json:"text"`
+}
+
+var allMention = []string{"@all", "@tat ca", "@moi nguoi", "@ca nhom"}
+
+// mentioned returns the members named with @ in text, in member order; all
+// is true for an everyone-mention.
+func (v *view) mentioned(c ledger.Channel, text string) (ids []string, all bool) {
+	f := foldText(text)
+	for _, a := range allMention {
+		if strings.Contains(f, a) {
+			return nil, true
+		}
+	}
+	for _, id := range c.BotIDs {
+		b, ok := v.bot(id)
+		if !ok || v.archived[id] {
+			continue
+		}
+		n := foldText(displayName(b))
+		for _, form := range []string{"@" + n, "@" + strings.ReplaceAll(n, " ", "")} {
+			if i := strings.Index(f, form); i >= 0 {
+				end := i + len(form)
+				if end == len(f) || !isWordByte(f[end]) {
+					ids = append(ids, id)
+					break
+				}
+			}
+		}
+	}
+	return ids, false
+}
+
+func isWordByte(b byte) bool {
+	return b >= 'a' && b <= 'z' || b >= '0' && b <= '9' || b == '_' || b >= 0x80
+}
+
+// router: who answers an un-addressed group message.
+func (v *view) router(c ledger.Channel) string {
+	for _, id := range c.BotIDs {
+		if id == mainBotID && !v.archived[id] {
+			return id
+		}
+	}
+	for _, id := range c.BotIDs {
+		if !v.archived[id] {
+			return id
+		}
+	}
+	return ""
+}
+
+// recipients: the members a new owner message goes to.
+func (v *view) recipients(c ledger.Channel, text string) []string {
+	ids, all := v.mentioned(c, text)
+	if all {
+		out := []string{}
+		for _, id := range c.BotIDs {
+			if !v.archived[id] {
+				out = append(out, id)
+			}
+		}
+		return out
+	}
+	if len(ids) > 0 {
+		return ids
+	}
+	if r := v.router(c); r != "" {
+		return []string{r}
+	}
+	return nil
+}
+
+func (v *view) memberByName(c ledger.Channel, name string) (string, bool) {
+	f := strings.TrimPrefix(foldText(strings.TrimSpace(name)), "@")
+	for _, id := range c.BotIDs {
+		if b, ok := v.bot(id); ok && !v.archived[id] && (foldText(displayName(b)) == f || id == name) {
+			return id, true
+		}
+	}
+	return "", false
+}
+
+// handOff queues each handoff as a turn for the named member in the same
+// group thread.
+func (s *Service) handOff(w ledger.Work, hs []handoff) {
+	if len(hs) == 0 || !isGroupID(w.ConversationID) {
+		return
+	}
+	v := s.view()
+	c, ok := v.channels[w.ConversationID]
+	if !ok {
+		return
+	}
+	n := 0
+	for _, x := range v.byConv[c.ID] {
+		if strings.HasPrefix(x.ClientNonce, handoffPrefix) && x.CreatedAt >= w.CreatedAt {
+			n++
+		}
+	}
+	from, _ := v.bot(w.BotID)
+	for _, h := range hs {
+		to, ok := v.memberByName(c, h.To)
+		if !ok || to == w.BotID {
+			s.record(w.BotID, w.RequestID, "step", "Không chuyển được cho “"+clean(h.To, 40)+"” (không phải thành viên nhóm)")
+			continue
+		}
+		if n >= maxHandoffs {
+			s.record(w.BotID, w.RequestID, "step", "Đã đủ số lần chuyển việc cho tin này")
+			return
+		}
+		rev := c.Revision
+		text := "[" + displayName(from) + " chuyển cho bạn trong nhóm]: " + h.Text
+		if _, _, err := s.L.AcceptProduct(ledger.Input{BotID: to, ClientNonce: newID(handoffPrefix), Text: text}, ledger.SubmissionScope{ChannelID: c.ID, ExpectedChannelRevision: &rev}); err == nil {
+			n++
+			tb, _ := v.bot(to)
+			s.record(w.BotID, w.RequestID, "step", "Đã chuyển cho "+displayName(tb)+": "+clean(h.Text, 100))
+		} else {
+			log.Printf("aurora: handoff to %s failed: %v", to, err)
+		}
+	}
+	go s.poke()
+}
+
+// groupRole is the prompt part that explains routing to a member.
+func groupRole(isRouter bool, names []string) string {
+	var sb strings.Builder
+	sb.WriteString("\nNHÓM: chỉ những bot được gọi mới trả lời. Cần thành viên khác làm một phần việc thì thêm dòng HANDOFF: {\"to\":\"<tên thành viên>\",\"text\":\"<việc cụ thể, đủ ngữ cảnh>\"} (tối đa 3 dòng). Thành viên: " + strings.Join(names, ", ") + ". Nếu không có gì mới để thêm, chỉ trả lời đúng [PASS].")
+	if isRouter {
+		sb.WriteString(" Bạn là bot điều phối của nhóm: tin không gọi ai sẽ đến bạn. Tự làm nếu là việc của bạn; nếu thành viên khác hợp hơn, nói ngắn bạn giao cho ai và dùng HANDOFF.")
+	}
+	return sb.String()
 }
