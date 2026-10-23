@@ -198,7 +198,7 @@ function approvalCard(m){const ap=m.approval,c=el("div","approval"+(ap.state!=="
  if(ap.to){const meta=el("div","ap-meta");meta.append(el("span",0,"Tới: "),el("b",0,ap.to));c.append(meta)}
  const ed=ap.state==="pending"&&editing.has(m.id);
  if(ap.subject||(ed&&ap.kind==="email")){if(ed){const i=el("input","ap-subject");i.value=ap.subject||"";i.setAttribute("aria-label","Tiêu đề");c.append(i)}else{const meta=el("div","ap-meta");meta.append(el("span",0,"Tiêu đề: "),el("b",0,ap.subject));c.append(meta)}}
- if(ed){const t=el("textarea","ap-body");t.value=ap.body;t.rows=8;t.setAttribute("aria-label","Nội dung");c.append(t)}else if(ap.kind==="computer"){const cs=AURORA_UX.cmdShown(ap.body),pre=el("pre","ap-cmd",cs.cmd);pre.title=ap.body;pre.dataset.noi18n="";c.append(pre)}else c.append(el("pre",0,ap.body));
+ if(ed){const t=el("textarea","ap-body");t.value=ap.body;t.rows=8;t.setAttribute("aria-label","Nội dung");c.append(t)}else if(ap.kind==="computer"){const cs=AURORA_UX.cmdShown(ap.body),fc=AURORA_UX.foldCmd(cs.cmd),pre=el("pre","ap-cmd",fc.head);pre.title=ap.body;pre.dataset.noi18n="";c.append(pre);if(fc.more){const d=el("details","ap-more"),sm=el("summary",0,"Xem cả lệnh · thêm "+fc.more+" dòng"),rp=el("pre","ap-cmd",fc.rest);rp.dataset.noi18n="";d.append(sm,rp);c.append(d)}}else c.append(el("pre",0,ap.body));
  const os=ap.kind==="computer"&&ap.outcome?AURORA_UX.outSummary(ap.outcome):null;
  if(os&&os.count){if(os.long){const d=el("details","ap-outd"),sm=el("summary",0,`Xem toàn bộ đầu ra · ${os.count} dòng`);const tail=el("pre","ap-out ap-tail",os.tail),full=el("pre","ap-out",os.full);tail.dataset.noi18n=full.dataset.noi18n="";d.append(sm,full);c.append(tail,d)}else{const o=el("pre","ap-out",os.full);o.dataset.noi18n="";c.append(o)}}
  if(ap.state==="pending"){const bs=el("div","btns"),no=el("button",0,"Để sau"),e=el("button",0,ed?"Huỷ sửa":"Sửa"),go=el("button","go",ed?"Lưu & duyệt":"Duyệt");
@@ -223,7 +223,7 @@ function speaker(box,m,last){if(!isGroup(cur)||m.role!=="agent"||!m.from)return;
 function renderThread(){const a=cur;if(!a)return;$("#threadState").textContent=stateLine(a);headAvatar(a);const box=$("#messages");
  const keepSec=[...box.querySelectorAll(".secret input[data-secret]")].map(i=>[i.closest(".secret").dataset.id,i.value]);
  const keepEdit=[...box.querySelectorAll(".ap-body")].map(t=>[t.closest(".approval").dataset.id,t.value,t.closest(".approval").querySelector(".ap-subject")?.value]);
- box.innerHTML="";const L=S.msgs[a.id]||[];const last={v:null};
+ box.innerHTML="";const L=AURORA_UX.mergeStacked(S.msgs[a.id]||[]);const last={v:null};
  const pin=atBottom(box);let prevT=0;
  L.forEach((m,idx)=>{if(m.role!=="agent")last.v=null;const t=T(m.t);if(m.role==="user"&&t>0&&(!prevT||t-prevT>15*60e3))box.append(el("div","daystamp",dayStamp(t)));if(t>0)prevT=t;
   const cp=m.role==="agent"&&AURORA_UX.isCheckpoint(m.text),body=cp?m.text.trim().slice(0,-AURORA_UX.CHECKPOINT.length).trim():m.text;

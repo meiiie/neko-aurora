@@ -248,3 +248,22 @@ func TestPresets(t *testing.T) {
 		t.Fatalf("%+v", p)
 	}
 }
+
+func TestFontsSeededAndHidden(t *testing.T) {
+	m, _ := New(t.TempDir(), &Container{Runtime: "e2b"})
+	h, err := m.home("b")
+	if err != nil {
+		t.Fatal(err)
+	}
+	ensureFonts(h)
+	if st, err := os.Stat(filepath.Join(h, FontDir, "DejaVuSans-Bold.ttf")); err != nil || st.Size() < 100000 {
+		t.Fatal("bold font missing", err)
+	}
+	m.WriteFile("b", "out/a.txt", "x")
+	l, _ := m.List("b", ".")
+	for _, e := range l {
+		if strings.HasPrefix(e.Path, FontDir) {
+			t.Fatal("fonts listed as bot files")
+		}
+	}
+}

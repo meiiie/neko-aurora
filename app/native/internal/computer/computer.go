@@ -238,6 +238,7 @@ func (m *Manager) run(ctx context.Context, bot, cmd string, logged bool) (Result
 	if used, _ := dirSize(h); used > m.Limits.HomeBytes {
 		return Result{}, ErrQuota
 	}
+	ensureFonts(h)
 	x := m.load(bot)
 	r, err := m.sb.Exec(ctx, Spec{Cmd: cmd, Home: h, Network: x.Policy.Network, Limits: m.Limits})
 	if err != nil {
@@ -409,6 +410,9 @@ func (m *Manager) List(bot, p string) ([]Entry, error) {
 	err = fs.WalkDir(r.FS(), rel, func(q string, d fs.DirEntry, err error) error {
 		if err != nil || q == rel {
 			return nil
+		}
+		if d.IsDir() && q == FontDir {
+			return fs.SkipDir // system fonts, not the bot's files
 		}
 		info, e := d.Info()
 		if e != nil {
