@@ -1,7 +1,7 @@
 // Hard real task as a user: 6-min Vietnamese pptx on Hg→Au transmutation.
 // Acts only as the user (approve, pick choices, nudge). Saves everything.
 import {chromium} from 'playwright-core';import fs from 'node:fs';import {execSync} from 'node:child_process';
-const U=process.env.U,EMAIL=process.env.EMAIL,O='/workspace/neko-bot-shots/aurora/pptx-task/';if(!U||U.includes(':8765'))throw 0;
+const U=process.env.U,EMAIL=process.env.EMAIL,O=process.env.O||'/workspace/neko-bot-shots/aurora/pptx-task/';if(!U||U.includes(':8765'))throw 0;
 const sl=ms=>new Promise(r=>setTimeout(r,ms));const log=(...a)=>{const s=a.map(x=>typeof x==='string'?x:JSON.stringify(x)).join(' ');console.log(s);fs.appendFileSync(O+'transcript.log',s+'\n')};
 const credit=()=>{const m=execSync('railway usage 2>/dev/null',{cwd:'/workspace/neko-computer'}).toString().match(/Current usage:\s+\$([\d.]+)/);return m?2.44-+m[1]:9};
 const b=await chromium.launch({executablePath:'/usr/bin/google-chrome',args:['--no-sandbox']});
