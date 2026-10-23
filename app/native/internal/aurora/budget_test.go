@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"nekoaurora.local/native/internal/computer"
 	"nekoaurora.local/native/internal/ledger"
 )
 
@@ -49,6 +50,7 @@ func TestPySyntaxErrorGoesBackBeforeApproval(t *testing.T) {
 		tool(map[string]any{"name": "computer_edit_file", "path": "deck/build.py", "old": "print('khong phai 'co the'')", "new": `print("khong phai 'co the'")`}),
 		tool(map[string]any{"name": "computer_run", "cmd": "mkdir -p out && python3 deck/build.py"}),
 		"Xong.")
+	askFirst(svc, bot) // card flow
 	post(t, u+"/app/api/agents/"+bot+"/messages", `{"text":"viết script python rồi chạy trên máy tính"}`)
 	waitTask(t, svc, bot)
 	txt, _, _ := svc.PC.ReadFile(bot, "deck/build.py")
@@ -208,4 +210,22 @@ func TestEmptyReplyNoItemsGetsStatus(t *testing.T) {
 
 func ledgerInput(bot, nonce, text string) ledger.Input {
 	return ledger.Input{BotID: bot, ClientNonce: nonce, Text: text}
+}
+
+// askFirst turns on "Hỏi trước khi chạy lệnh" for tests of the card flow.
+func askFirst(svc *Service, bot string) { svc.PC.SetPolicy(bot, computer.Policy{AskFirst: true}) }
+
+// Darren: the bot's own sandbox needs no approvals (writes, pip, scripts).
+func TestSandboxCommandsRunWithoutCard(t *testing.T) {
+	svc, u, bot := liveSvc(t,
+		tool(map[string]any{"name": "computer_run", "cmd": "mkdir -p out && echo 42 > out/a.txt && python3 -c 'print(6*7)'"}),
+		"Xong: out/a.txt")
+	post(t, u+"/app/api/agents/"+bot+"/messages", `{"text":"chạy lệnh trên máy tính"}`)
+	waitTask(t, svc, bot)
+	if len(svc.view().pending()) != 0 {
+		t.Fatal("an approval card was shown for a sandbox command")
+	}
+	if txt, _, err := svc.PC.ReadFile(bot, "out/a.txt"); err != nil || strings.TrimSpace(txt) != "42" {
+		t.Fatalf("command did not run: %q %v", txt, err)
+	}
 }

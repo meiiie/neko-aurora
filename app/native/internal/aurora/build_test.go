@@ -202,6 +202,7 @@ func TestBuildLoopFixRerunVerify(t *testing.T) {
 	srv := httptest.NewServer(svc)
 	defer srv.Close()
 	bot = firstBot(svc)
+	askFirst(svc, bot) // card flow
 	post(t, srv.URL+"/app/api/agents/"+bot+"/messages", `{"text":"viết script python tạo file kết quả trên máy tính rồi chạy"}`)
 	waitTask(t, svc, bot)
 	approve := func() {
@@ -258,6 +259,7 @@ func TestNewCommandCardSupersedesOlder(t *testing.T) {
 	srv := httptest.NewServer(svc)
 	defer srv.Close()
 	bot := firstBot(svc)
+	askFirst(svc, bot) // card flow
 	post(t, srv.URL+"/app/api/agents/"+bot+"/messages", `{"text":"chạy lệnh ghi 1 vào a.txt"}`)
 	waitTask(t, svc, bot)
 	first := svc.view().pending()

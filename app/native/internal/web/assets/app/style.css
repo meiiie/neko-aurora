@@ -66,7 +66,7 @@ code,pre,kbd{font-family:var(--na-font-family-mono)}
 
 .badge{position:absolute;right:0;bottom:0;width:14px;height:14px;border-radius:7px;box-shadow:0 0 0 2.5px var(--card);display:grid;place-items:center;color:#fff}
 .feat .badge{width:22px;height:22px;border-radius:11px;right:4px;bottom:6px;box-shadow:0 0 0 3px var(--card)}
-.badge.work{background:#34c759;animation:pulse 1.4s infinite}.badge.wait{background:var(--warn-fill)}.badge.err{background:var(--danger)}.badge.pin{background:var(--warn-fill)}
+.badge.work{background:#31a24c;box-shadow:0 0 0 2.5px #fff}.badge.wait{background:var(--warn-fill)}.badge.err{background:var(--danger)}.badge.pin{background:var(--warn-fill)}
 .face{display:block;flex:none}
 .stack{position:relative;display:block;flex:none}.stack .face{position:absolute}.stack .s0{left:0;top:0}.stack .s1{right:0;bottom:0;outline:2.5px solid var(--card);border-radius:50%}
 .rows{list-style:none;margin:0;padding:0}
@@ -393,7 +393,8 @@ button.cell:active{background:var(--sunk)}
 .approval .ap-outd[open]+*,.approval .ap-outd[open]{display:block}
 .approval .ap-line{display:block;margin-top:6px}.approval .ap-line.bad{color:#c0392b}
 .note-line{font-size:13px;color:var(--mute);margin:4px 0 8px 4px}
-.st-dot{width:8px;height:8px;border-radius:50%;background:#22c55e;box-shadow:0 0 0 3px rgba(34,197,94,.18);flex:none;animation:pulse 1.6s ease-in-out infinite}
 .file-chip{display:flex;align-items:center;gap:10px;min-height:48px;padding:6px 12px 6px 6px;margin:6px 0;border-radius:14px;background:var(--card);box-shadow:0 0 0 .5px var(--line);text-decoration:none;color:inherit;max-width:100%}
 .file-chip .fc-ext{display:grid;place-items:center;min-width:40px;height:36px;border-radius:10px;background:#1f4e79;color:#fff;font:600 11px/1 system-ui;letter-spacing:.5px}
 .file-chip .fc-txt{display:flex;flex-direction:column;min-width:0}.file-chip b{font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.file-chip small{color:var(--mute);font-size:12px}
+
+#threadAvatar.head-av{position:relative;display:inline-grid}#threadAvatar .badge{width:11px;height:11px;right:-1px;bottom:-1px;box-shadow:0 0 0 2px #fff}

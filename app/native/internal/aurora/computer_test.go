@@ -34,6 +34,7 @@ func TestComputerRunNeedsApproval(t *testing.T) {
 	srv := httptest.NewServer(svc)
 	defer srv.Close()
 	bot := firstBot(svc)
+	askFirst(svc, bot) // card flow
 	post(t, srv.URL+"/app/api/agents/"+bot+"/messages", `{"text":"viết script python tính 6*7 rồi chạy"}`)
 	waitTask(t, svc, bot)
 	st, _ := svc.PC.Status(bot)

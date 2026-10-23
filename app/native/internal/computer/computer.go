@@ -72,7 +72,8 @@ type Sandbox interface {
 
 // Policy is the per-bot setting.
 type Policy struct {
-	AutoReadOnly bool `json:"autoReadOnly"` // run read-only commands without asking
+	AskFirst     bool `json:"askFirst"`     // "Hỏi trước khi chạy lệnh" (default off)
+	AutoReadOnly bool `json:"autoReadOnly"` // with AskFirst: still run read-only commands without asking
 	Network      bool `json:"network"`      // sandbox may reach the internet
 }
 
@@ -230,11 +231,22 @@ func (m *Manager) run(ctx context.Context, bot, cmd string, logged bool) (Result
 	return r, nil
 }
 
-// NeedsApproval: anything that may change state needs the owner, unless the
-// bot is set to auto-run commands that are clearly read-only.
+// NeedsApproval: the sandbox is the bot's own isolated machine, so its
+// commands (writes, pip installs, scripts) run without a card. A card is
+// needed when the owner turned on "Hỏi trước khi chạy lệnh", or when the
+// sandbox has network and the command talks to an outside service.
 func (m *Manager) NeedsApproval(bot, cmd string) bool {
-	return !(m.Policy(bot).AutoReadOnly && ReadOnly(cmd))
+	p := m.Policy(bot)
+	if p.Network && outward(cmd) {
+		return true
+	}
+	return p.AskFirst && !(p.AutoReadOnly && ReadOnly(cmd))
 }
+
+var outwardRe = regexp.MustCompile(`(?i)\b(curl|wget|ssh|scp|rsync|nc|ncat|telnet|ftp|sendmail|mail|smtplib|requests\.(post|put|patch|delete)|httpx|urllib\.request|aiohttp|git\s+push|twine|npm\s+publish)\b`)
+
+// outward: the command may send data to an outside service.
+func outward(cmd string) bool { return outwardRe.MatchString(cmd) }
 
 // cleanRel maps a bot-visible path ("/home/bot/x", "~/x", "x") to a path
 // relative to the home root.

@@ -19,7 +19,7 @@ const isDownload=href=>/\/computer\/download\?/.test(String(href||""));
 const isCheckpoint=t=>String(t||"").trim().endsWith(CHECKPOINT);
 const isNoise=(m)=>!!(m&&m.approval&&m.approval.kind==="computer"&&NOISE.some(r=>r.test(String(m.text||"").trim())));
 // status for the open thread: running command, plan step, hidden follow-up
-function statusText(a,L){L=L||[];const sending=L.some(m=>m.approval&&m.approval.kind==="computer"&&m.approval.delivery&&m.approval.delivery.status==="sending");
+function statusText(a,L){L=L||[];if(L.some(m=>m.approval&&m.approval.state==="pending"))return"Chờ bạn duyệt";const sending=L.some(m=>m.approval&&m.approval.kind==="computer"&&m.approval.delivery&&m.approval.delivery.status==="sending");
  if(sending)return"Đang chạy lệnh…";if(!a||a.status!=="working")return"";
  if(a.snip&&/^Bước \d+\/\d+/.test(a.snip))return a.snip;
  const lastW=[...L].reverse().find(m=>m.role==="agent"&&m.tools&&m.tools.length);const run=lastW&&lastW.tools.find(t=>t.status==="running");

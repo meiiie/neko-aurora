@@ -145,10 +145,18 @@ func TestReadOnly(t *testing.T) {
 		}
 	}
 	m, _ := New(t.TempDir(), &Container{Runtime: "e2b"})
-	if !m.NeedsApproval("b", "ls") {
-		t.Fatal("default must ask")
+	if m.NeedsApproval("b", "ls") || m.NeedsApproval("b", "pip install x && python3 x.py > out.txt") {
+		t.Fatal("the bot's own sandbox runs without a card by default")
 	}
-	m.SetPolicy("b", Policy{AutoReadOnly: true})
+	m.SetPolicy("b", Policy{Network: true})
+	if !m.NeedsApproval("b", "curl -X POST https://api.x.com -d @a") || !m.NeedsApproval("b", "python3 -c 'import smtplib'") || m.NeedsApproval("b", "python3 x.py") {
+		t.Fatal("with network, outward commands need the owner")
+	}
+	m.SetPolicy("b", Policy{AskFirst: true})
+	if !m.NeedsApproval("b", "ls") {
+		t.Fatal("Hỏi trước khi chạy lệnh must ask")
+	}
+	m.SetPolicy("b", Policy{AskFirst: true, AutoReadOnly: true})
 	if m.NeedsApproval("b", "ls") || !m.NeedsApproval("b", "python3 x.py") {
 		t.Fatal("auto read-only policy wrong")
 	}

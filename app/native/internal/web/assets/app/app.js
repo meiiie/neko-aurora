@@ -72,6 +72,8 @@ function connect(){es=new EventSource(API+"/events");
 }
 // ---------- list ----------
 function avatarOf(a,sz){if(!isGroup(a))return face(a.av,sz);const w=el("span","stack");w.style.width=w.style.height=sz+"px";(a.members||[]).slice(0,2).forEach((id,i)=>{const b=byId(id);w.append(face(b&&b.av,Math.round(sz*.64),"s"+i))});return w}
+// chat header avatar carries the same presence dot as the list (Messenger-style)
+function headAvatar(a){const h=$("#threadAvatar");const k=a.status==="working"?"work":waiting(a)?"wait":"";if(h.dataset.k===k&&h.dataset.id===a.id&&h.firstChild)return;h.dataset.k=k;h.dataset.id=a.id;h.classList.add("head-av");h.replaceChildren(avatarOf(a,32));const bd=badge(a);if(bd)h.append(bd)}
 function badge(a){const k=a.status==="working"?"work":waiting(a)?"wait":a.status==="error"?"err":"";if(!k)return null;const b=el("i","badge "+k);b.setAttribute("aria-hidden","true");return b}
 let filter="";
 const statusLine=a=>a.status==="working"?"Đang làm việc…":waiting(a)?"Chờ bạn duyệt":a.snip||a.desc||"";
@@ -180,7 +182,7 @@ function swipeRow(li,inn){let x0,y0,dx=0,mode=null,base=0;
 let cur=null;
 const stateTxt={working:"Đang làm việc…",waiting:"Chờ bạn duyệt",idle:"Sẵn sàng",done:"Đã xong",error:"Có lỗi"};
 const stateLine=a=>isGroup(a)&&a.status!=="working"&&!waiting(a)?(a.members||[]).map(id=>byId(id)?.name).filter(Boolean).join(", "):a.status==="working"&&a.snip&&a.snip.startsWith("Bước")?a.snip:waiting(a)?"Chờ bạn duyệt":stateTxt[a.status]||"";
-function openThread(id){const a=byId(id);if(!a)return;closeMenu();cur=a;markSeen(id);$("#threadAvatar").replaceChildren(avatarOf(a,32));$("#threadName").textContent=a.name;$("#threadState").textContent=stateLine(a);$("#input").placeholder=isGroup(a)?"Hỏi cả nhóm":"Hỏi "+a.name;closeFind();renderThread();loadMsgs(id).catch(()=>toast("Không tải được hội thoại"));$("#thread").classList.remove("off");$("#list").classList.add("under");buzz("tap");const hs=history.state;if(hs&&hs.spent)history.replaceState({t:1},"","#"+id);else if(!(hs&&hs.t))history.pushState({t:1},"","#"+id)}
+function openThread(id){const a=byId(id);if(!a)return;closeMenu();cur=a;markSeen(id);headAvatar(a);$("#threadName").textContent=a.name;$("#threadState").textContent=stateLine(a);$("#input").placeholder=isGroup(a)?"Hỏi cả nhóm":"Hỏi "+a.name;closeFind();renderThread();loadMsgs(id).catch(()=>toast("Không tải được hội thoại"));$("#thread").classList.remove("off");$("#list").classList.add("under");buzz("tap");const hs=history.state;if(hs&&hs.spent)history.replaceState({t:1},"","#"+id);else if(!(hs&&hs.t))history.pushState({t:1},"","#"+id)}
 function closeThread(fromPop){if(!cur)return;if(profId)closeProfile(true);closeFind();markSeen(cur.id);cur=null;stopVoice();$("#thread").classList.add("off");$("#list").classList.remove("under");$("#thread").style.transform="";$("#list").style.transform="";renderList();if(!fromPop&&history.state&&history.state.t)history.replaceState({spent:1},"",location.pathname)}
 const deciding=new Set();
 const ICON={pending:"○",running:"◐",done:"✓",waiting:"⏸",failed:"✕",cancelled:"–"};
@@ -216,7 +218,7 @@ function sourceList(m){const w=el("details","sources");const sm=el("summary");co
  (m.tools||[]).forEach(t=>{const r=el("p","tool-line"+(t.status==="failed"?" bad":""),(t.summary||t.name)+(t.ms?" · "+(t.ms/1000).toFixed(1).replace(".",",")+"s":""));w.append(r)});const ol=el("ol");
  u.forEach(x=>{const li=el("li");const l=el("a");l.href=x.url;l.target="_blank";l.rel="noopener noreferrer";l.append(el("b",0,"["+x.n+"] "+(x.title||srcHost(x.url))),el("small",0,srcHost(x.url)+(x.at?" · "+new Date(x.at).toLocaleTimeString("vi-VN",{hour:"2-digit",minute:"2-digit"}):"")));li.append(l);ol.append(li)});w.append(ol);return w}
 function speaker(box,m,last){if(!isGroup(cur)||m.role!=="agent"||!m.from)return;if(last.v===m.from)return;last.v=m.from;const b=byId(m.from);const h=el("div","speaker");h.append(face(b&&b.av,20),el("span",0,b?b.name:"Bot"));box.append(h)}
-function renderThread(){const a=cur;if(!a)return;$("#threadState").textContent=stateLine(a);const box=$("#messages");
+function renderThread(){const a=cur;if(!a)return;$("#threadState").textContent=stateLine(a);headAvatar(a);const box=$("#messages");
  const keepSec=[...box.querySelectorAll(".secret input[data-secret]")].map(i=>[i.closest(".secret").dataset.id,i.value]);
  const keepEdit=[...box.querySelectorAll(".ap-body")].map(t=>[t.closest(".approval").dataset.id,t.value,t.closest(".approval").querySelector(".ap-subject")?.value]);
  box.innerHTML="";const L=S.msgs[a.id]||[];const last={v:null};
@@ -238,7 +240,7 @@ function renderThread(){const a=cur;if(!a)return;$("#threadState").textContent=s
  if(pin||justSent)requestAnimationFrame(()=>{box.scrollTop=box.scrollHeight;justSent=false;syncJump()})}
 // single status line (bot face + milestone text), replaced by the streamed answer
 function turnStatus(a,L){const txt=AURORA_UX.statusText(a,L)||"Đang suy nghĩ";
- const d=el("div","status");d.setAttribute("role","status");const f=el("span","st-face");f.append(face(a.av||{},22));d.append(f,el("span","st-dot"),el("span","st-t",txt));return d}
+ const d=el("div","status");d.setAttribute("role","status");const f=el("span","st-face");f.append(face(a.av||{},22));d.append(f,el("span","st-t",txt));return d}
 // download links in a reply become file chips (type, name, size; 48px tap target)
 const pcSizes={};
 function chipify(b,id){const links=[...b.querySelectorAll("a[href]")].filter(x=>AURORA_UX.isDownload(x.getAttribute("href")));if(!links.length)return;
@@ -500,12 +502,12 @@ function renderProfile(){const a=byId(profId);const B=$("#profBody");if(!a){B.in
 const kb=n=>n<1024?n+" B":n<1048576?(n/1024).toFixed(1)+" KB":(n/1048576).toFixed(1)+" MB";
 function renderComputer(id,box){api(`/agents/${id}/computer`).then(st=>{if(profId!==id)return;box.innerHTML="";
  const rows=[cell("monitor","Trạng thái",{static:1,value:st.available?"Sẵn sàng":"Đang tắt",sub:st.available?"Linux riêng · "+kb(st.usedBytes)+" / "+kb(st.quotaBytes):st.error||""}),
-  cell("code","Tự chạy lệnh chỉ đọc",{toggle:!!st.policy.autoReadOnly,sub:"ls, cat, grep… không cần duyệt",onToggle:sw=>{const on=sw.getAttribute("aria-checked")!=="true";api(`/agents/${id}/computer/policy`,{...st.policy,autoReadOnly:on}).then(p=>{st.policy=p;sw.setAttribute("aria-checked",on);buzz("tap")}).catch(()=>toast("Không lưu được"))}})];
+  cell("code","Hỏi trước khi chạy lệnh",{toggle:!!st.policy.askFirst,sub:"Tắt: bot tự chạy lệnh trên máy riêng của nó. Gửi ra ngoài luôn hỏi bạn.",onToggle:sw=>{const on=sw.getAttribute("aria-checked")!=="true";api(`/agents/${id}/computer/policy`,{...st.policy,askFirst:on}).then(p=>{st.policy=p;sw.setAttribute("aria-checked",on);buzz("tap")}).catch(()=>toast("Không lưu được"))}})];
  box.append(card("Máy tính",...rows));
  if(st.log.length){const w=el("section","card-group");w.append(el("h3",0,"Lệnh gần đây"));const c=el("div","card pc-log");st.log.slice(-5).reverse().forEach(r=>{const d=el("details","pc-run");const s=el("summary");s.append(el("code",0,"$ "+r.cmd),el("span","pc-exit"+(r.exitCode?" bad":""),r.timedOut?"hết giờ":r.exitCode?"lỗi "+r.exitCode:"xong"));d.append(s,el("pre",0,r.output||"(không có đầu ra)"));c.append(d)});w.append(c);box.append(w)}
  const files=st.files.filter(f=>!f.dir).slice(0,12);
  if(files.length)box.append(card("File",...files.map(f=>cell("folder",f.path,{value:kb(f.size),onClick:()=>/\.(pptx?|docx?|xlsx?|pdf|png|jpe?g|gif|webp|mp4|webm|mov|zip|gz|tar)$/i.test(f.path)?(location.href=API+`/agents/${id}/computer/download?path=${encodeURIComponent(f.path)}`):api(`/agents/${id}/computer/file?path=${encodeURIComponent(f.path)}`).then(x=>{const old=box.querySelector(".pc-view");if(old)old.remove();const p=el("pre","pc-view",x.text+(x.truncated?"\n…":""));box.append(p);p.scrollIntoView({behavior:"smooth",block:"nearest"})}).catch(()=>toast("Không mở được file"))}))));
- box.append(card(null,cell("x","Làm mới máy tính",{danger:1,id:"pcReset",onClick:()=>{if(!confirm("Xoá mọi file và lịch sử lệnh trên máy tính của bot này?"))return;api(`/agents/${id}/computer/reset`,{}).then(()=>{toast("Đã làm mới");renderComputer(id,box)}).catch(()=>toast("Không làm mới được"))}})),el("p","caption","Mỗi bot có một máy Linux riêng, cách ly với máy chủ, mặc định không có mạng. Lệnh có thể thay đổi máy luôn chờ bạn duyệt."))
+ box.append(card(null,cell("x","Làm mới máy tính",{danger:1,id:"pcReset",onClick:()=>{if(!confirm("Xoá mọi file và lịch sử lệnh trên máy tính của bot này?"))return;api(`/agents/${id}/computer/reset`,{}).then(()=>{toast("Đã làm mới");renderComputer(id,box)}).catch(()=>toast("Không làm mới được"))}})),el("p","caption","Mỗi bot có một máy Linux riêng, cách ly với máy chủ, mặc định không có mạng. Bot tự chạy lệnh trên máy này; việc gửi ra ngoài, tiêu tiền hay dùng khoá của bạn luôn chờ bạn duyệt."))
 }).catch(()=>{box.innerHTML=""})}
 $("#profBack").onclick=()=>closeProfile();
 $("#profShare").onclick=()=>{const a=byId(profId);if(a)shareLink(a)};

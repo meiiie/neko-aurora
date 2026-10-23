@@ -22,4 +22,6 @@ ok(U.statusText(w,[{role:"user",t},{role:"agent",text:"Xong phần 1.\n\n"+U.CHE
 ok(U.statusText({status:"working",snip:"Bước 2/4 · Tra giá"},[])==="Bước 2/4 · Tra giá",'plan step');
 ok(U.statusText({status:"idle"},[{role:"user",t}])==="",'idle: no status');
 ok(U.isCheckpoint("abc "+U.CHECKPOINT)&&!U.isCheckpoint("abc"),'checkpoint detection');
+ok(U.statusText(w,[{role:"user",t},{role:"agent",approval:{kind:"email",state:"pending"}}])==="Chờ bạn duyệt",'pending card: Chờ bạn duyệt');
+ok(U.statusText({status:"idle"},[{role:"agent",approval:{kind:"computer",state:"pending"}},ap("approved",{status:"sending"})])==="Chờ bạn duyệt",'waiting beats running');
 process.exit(fail?1:0);
