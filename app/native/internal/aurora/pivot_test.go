@@ -132,3 +132,18 @@ func TestChecklistNeedsRealArtifacts(t *testing.T) {
 		t.Fatalf("verify.txt: %q %v", v, err)
 	}
 }
+
+// Live run 11: a queued hidden follow-up (validator report, checklist,
+// premise nudge) was rendered as the owner's own message.
+func TestQueuedHiddenTurnNotShownAsUser(t *testing.T) {
+	svc := quietSvc(t)
+	bot := firstBot(svc)
+	if _, _, err := svc.L.Accept(ledgerInput(bot, "computer-resume-x", "[Hệ thống] Lượt trước hết thời gian")); err != nil {
+		t.Fatal(err)
+	}
+	for _, m := range svc.view().messages(bot, 0) {
+		if m.Role == "user" && strings.Contains(m.Text, "[Hệ thống]") {
+			t.Fatal("hidden turn shown as a user bubble")
+		}
+	}
+}

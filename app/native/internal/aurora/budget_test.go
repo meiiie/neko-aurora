@@ -7,6 +7,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"nekoaurora.local/native/internal/ledger"
 )
 
 func tool(m map[string]any) string { b, _ := json.Marshal(m); return "TOOL: " + string(b) }
@@ -202,4 +204,8 @@ func TestEmptyReplyNoItemsGetsStatus(t *testing.T) {
 	if _, ok := svc.unfinished(w, directives{Text: "Xong, đây là kết quả."}); ok {
 		t.Fatal("finished reply touched")
 	}
+}
+
+func ledgerInput(bot, nonce, text string) ledger.Input {
+	return ledger.Input{BotID: bot, ClientNonce: nonce, Text: text}
 }

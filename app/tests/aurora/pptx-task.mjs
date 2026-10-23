@@ -9,10 +9,10 @@ const ctx=await b.newContext({viewport:{width:390,height:844},deviceScaleFactor:
 const p=await ctx.newPage();p.on('pageerror',e=>console.log('PAGEERROR',String(e)));
 // screen recording via CDP screencast (playwright recordVideo needs its own ffmpeg build)
 const SD=(process.env.O||'./')+'screen/';(await import('node:fs')).mkdirSync(SD,{recursive:true});const FS=await import('node:fs');const cdp=await ctx.newCDPSession(p);let fi=0;const fl=[];
-cdp.on('Page.screencastFrame',f=>{const n=String(fi++).padStart(6,'0')+'.jpg';FS.writeFileSync(SD+n,Buffer.from(f.data,'base64'));fl.push([n,f.metadata.timestamp]);cdp.send('Page.screencastFrameAck',{sessionId:f.sessionId}).catch(()=>{})});
+let lastT=0;cdp.on('Page.screencastFrame',f=>{cdp.send('Page.screencastFrameAck',{sessionId:f.sessionId}).catch(()=>{});const t=f.metadata.timestamp;if(t-lastT<0.25)return;lastT=t;const n=String(fi++).padStart(6,'0')+'.jpg';FS.promises.writeFile(SD+n,Buffer.from(f.data,'base64')).catch(()=>{});fl.push([n,t])});// ≤4 fps, async writes: a 45 fps sync writer starved the driver (run 11)
 await cdp.send('Page.startScreencast',{format:'jpeg',quality:70,maxWidth:780,maxHeight:1688});
 const saveFrames=()=>{const L=[];for(let i=0;i<fl.length;i++){const d=i+1<fl.length?Math.min(fl[i+1][1]-fl[i][1],5):1;L.push(`file '${fl[i][0]}'\nduration ${d.toFixed(3)}`)}if(fl.length)L.push(`file '${fl.at(-1)[0]}'`);FS.writeFileSync(SD+'frames.txt',L.join('\n')+'\n')};const H={'content-type':'application/json',origin:U};
-const get=async x=>{const r=await p.request.get(U+'/app/api/'+x);return r.ok()?r.json():null};
+const get=async x=>{let r;for(let k=0;k<3;k++){try{r=await p.request.get(U+'/app/api/'+x,{timeout:60000});break}catch(e){if(k==2)throw e;await sl(3000)}}return r.ok()?r.json():null};
 const post=async(x,d)=>(await p.request.post(U+'/app/api/'+x,{headers:H,data:d})).status();
 let bot,shot=0;const msgs=async()=>{const r=await get(`agents/${bot}/messages`);return Array.isArray(r)?r:[]};
 const snap=async n=>{await p.evaluate(id=>location.hash=id,bot);await p.reload();await sl(1500);await p.evaluate(()=>{const m=document.querySelector('#messages');if(m)m.scrollTop=m.scrollHeight});await sl(500);await p.screenshot({path:O+`${String(++shot).padStart(2,'0')}-${n}.png`})};
