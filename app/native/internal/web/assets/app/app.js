@@ -584,7 +584,7 @@ $("#closeMem").onclick=()=>closeSheet(true);
 // ---------- permission presets ----------
 const PRESETS=[["readonly","Chỉ đọc","Chỉ xem, đọc file; mọi thay đổi chờ bạn duyệt"],["workspace","Máy riêng","Tự làm trên máy riêng của bot, không mạng"],["full","Toàn quyền","Có mạng; gửi ra ngoài vẫn hỏi bạn"]];
 function presetCard(id,box){api(`/agents/${id}/computer`).then(st=>{const p=st.policy||{};const cur=p.preset||(p.network?"full":"workspace");const w=el("section","card-group");w.id="presetBox";w.append(el("h3",0,"Quyền của bot"));const seg=el("div","seg");seg.setAttribute("role","radiogroup");
- PRESETS.forEach(([k,n])=>{const b=el("button","seg-b",n);b.dataset.preset=k;b.setAttribute("role","radio");b.setAttribute("aria-checked",k===cur);b.onclick=()=>api(`/agents/${id}/computer/policy`,{preset:k,askFirst:k==="readonly"?true:!!p.askFirst}).then(np=>{buzz("tap");toast("Quyền: "+n);presetCard(id,box)}).catch(()=>toast("Không lưu được"));seg.append(b)});
+ PRESETS.forEach(([k,n])=>{const b=el("button","seg-b",n);b.dataset.preset=k;b.setAttribute("role","radio");b.setAttribute("aria-checked",k===cur);b.onclick=()=>api(`/agents/${id}/computer/policy`,{preset:k,askFirst:k==="readonly"||(p.preset!=="readonly"&&!!p.askFirst)}).then(np=>{buzz("tap");toast("Quyền: "+n);presetCard(id,box)}).catch(()=>toast("Không lưu được"));seg.append(b)});
  w.append(seg,el("p","caption",PRESETS.find(x=>x[0]===cur)[2]));const old=box.querySelector("#presetBox");old?old.replaceWith(w):box.prepend(w)}).catch(()=>{})}
 // ---------- profile hooks ----------
 const _rp=renderProfile;renderProfile=function(){_rp();const a=byId(profId);if(!a||isGroup(a))return;const B=$("#profBody");
@@ -607,7 +607,7 @@ $("#closeUsage").onclick=()=>closeSheet(true);
 const _rs=renderSettings;renderSettings=function(){_rs();const B=$("#settingsBody");const c=card("Sử dụng",cell("activity","Mức dùng AI",{id:"openUsage",sub:"Token theo ngày, theo bot và theo loại",onClick:()=>openUsage()}));const last=B.querySelectorAll(".card-group");last.length>1?B.insertBefore(c,last[last.length-1]):B.append(c)};
 // ---------- chat search ----------
 let hits=[],hitQ="",tmr=0;
-const _rl=renderList;renderList=function(){_rl();const q=filter.trim();if(q.length<2||hitQ!==q||!hits.length)return;const ul=$("#rows");const h=el("li","sec-h");h.setAttribute("role","heading");h.append(el("span",0,"Tin nhắn"));ul.append(h);
+const _rl=renderList;renderList=function(){_rl();const q=filter.trim();if(q.length<2||hitQ!==q||!hits.length)return;$("#empty").classList.add("hidden");const ul=$("#rows");const h=el("li","sec-h");h.setAttribute("role","heading");h.append(el("span",0,"Tin nhắn"));ul.append(h);
  hits.forEach(x=>{const li=el("li","hit-row");const b=el("button","hit-b");const a=byId(x.agentId);const av=el("span","row-av");if(a)av.append(avatarOf(a,36));const t=el("span","hit-t");t.append(el("b",0,x.name+(x.role==="user"?" · bạn":"")),el("span",0,x.snippet));b.append(av,t);b.onclick=()=>{openThread(x.agentId);setTimeout(()=>{const f=$("#findInput");if(f){$("#findBar").classList.remove("hidden");f.value=q;runFind()}},700)};li.append(b);ul.append(li)})};
 $("#search").addEventListener("input",()=>{clearTimeout(tmr);const q=filter.trim();if(q.length<2){hits=[];hitQ="";return}tmr=setTimeout(()=>api("/search?q="+encodeURIComponent(q)).then(r=>{if(filter.trim()!==q)return;hits=r.hits||[];hitQ=q;renderList()}).catch(()=>{}),250)});
 })();

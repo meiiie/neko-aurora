@@ -8,6 +8,7 @@ const ctx=await b.newContext({viewport:{width:390,height:844},deviceScaleFactor:
 const errs=[];p.on('pageerror',e=>errs.push(String(e)));const H={'content-type':'application/json',origin:U};
 const get=async x=>{const r=await p.request.get(U+'/app/api/'+x,{timeout:60000});return r.ok()?r.json():null};
 const post=async(x,d)=>{const r=await p.request.post(U+'/app/api/'+x,{headers:H,data:d});return {s:r.status(),j:await r.json().catch(()=>null)}};
+const openT=async id=>{await p.goto(U+'/app/');await sl(2500);const r=await p.$(`#rows .row[data-id="${id}"] .rowin`)||await p.$(`.feat[data-id="${id}"]`);if(r)await r.tap();await sl(2500)};
 const shot=n=>p.screenshot({path:O+n+'.png'});
 const idle=async(id,max=240e3)=>{const t0=Date.now();await sl(5000);for(;;){const st=await get('state');const a=st.agents.find(x=>x.id===id);const busy=a.status==='working'||(a.members||[]).some(m=>st.agents.find(x=>x.id===m)?.status==='working');if(!busy&&Date.now()-t0>12000||Date.now()-t0>max)return;await sl(4000)}};
 let out={};
@@ -22,7 +23,7 @@ try{
  // 2) owner adds + edits memory through the API the panel uses
  await post(`agents/${aur}/memory`,{text:'Darren thích bảng so sánh ngắn'});out.memEdit=(await post(`agents/${aur}/memory/0`,{text:'Darren thích bảng so sánh ngắn, có nguồn'})).s;
  // UI: profile → memory panel
- await p.goto(U+'/app/#'+aur);await sl(2500);await p.tap('#whoBtn');await sl(1500);await shot('01-profile-memory-presets');
+ await openT(aur);await p.tap('#whoBtn');await sl(2500);out.prof=await p.evaluate(()=>({n:document.querySelector('#profBody').innerHTML.length,cells:[...document.querySelectorAll('#profBody .cell span')].map(x=>x.textContent).slice(0,12)}));await shot('01-profile-memory-presets');
  await p.evaluate(()=>document.querySelector('#presetBox')?.scrollIntoView({block:'center'}));await sl(500);await shot('02-presets');
  await p.tap('#prMem');await sl(1800);await shot('03-memory-panel');
  const it=await p.$('#memBody .mem-it');if(it){await it.tap();await sl(500);await shot('04-memory-edit');await p.tap('#memBody .mem-bar .pill.soft');await sl(1200)}
@@ -38,7 +39,7 @@ try{
  await post(`agents/${g.id}/messages`,{text:'Mình có bảng chi tiêu tuần: ăn 700k, xăng 300k, cafe 250k. Ai phân tích giúp tỷ lệ từng khoản? Aurora giao cho người hợp nhất.',clientNonce:'f3-'+Date.now()});
  await idle(g.id,300e3);await sl(6000);await idle(g.id,200e3);
  const gm=await get(`agents/${g.id}/messages`);out.groupMsgs=(gm.messages||gm).map(m=>({role:m.role,from:m.from,text:(m.text||'').slice(0,220)}));
- await p.goto(U+'/app/#'+g.id);await sl(3000);await shot('07-group-handoff');await p.evaluate(()=>{const m=document.getElementById('messages');m.scrollTop=0});await sl(500);await shot('08-group-top');
+ await openT(g.id);await shot('07-group-handoff');await p.evaluate(()=>{const m=document.getElementById('messages');m.scrollTop=0});await sl(500);await shot('08-group-top');
  // 6) search
  await p.goto(U+'/app/');await sl(2500);await p.fill('#search','thu do');await sl(2500);await shot('09-search');out.search=(await get('search?q=thu%20do')).hits.length;
  // 7) usage page
