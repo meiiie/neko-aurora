@@ -122,7 +122,11 @@ func TestBurstDuringStreamingMergesIntoOneReply(t *testing.T) {
 	time.Sleep(150 * time.Millisecond) // mid-stream
 	sendBurst(t, url)
 	checkOneReply(t, svc, bot, a)
-	if a.calls() > 1+maxInterrupts {
+	// bound: the first call, maxInterrupts rebuilt calls, plus one final
+	// re-answer in runTurn for messages that landed during the last
+	// (unwatched) call. The old "1+maxInterrupts" check ignored that last
+	// call and failed whenever the burst straddled it (timing-dependent).
+	if a.calls() > 2+maxInterrupts {
 		t.Fatalf("too many model calls: %d", a.calls())
 	}
 }
