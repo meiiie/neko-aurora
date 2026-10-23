@@ -5,8 +5,13 @@ const U=process.env.U,EMAIL=process.env.EMAIL,O=process.env.O||'/workspace/neko-
 const sl=ms=>new Promise(r=>setTimeout(r,ms));const log=(...a)=>{const s=a.map(x=>typeof x==='string'?x:JSON.stringify(x)).join(' ');console.log(s);fs.appendFileSync(O+'transcript.log',s+'\n')};
 const credit=()=>{const m=execSync('railway usage 2>/dev/null',{cwd:'/workspace/neko-computer'}).toString().match(/Current usage:\s+\$([\d.]+)/);return m?2.44-+m[1]:9};
 const b=await chromium.launch({executablePath:'/usr/bin/google-chrome',args:['--no-sandbox']});
-const ctx=await b.newContext({viewport:{width:390,height:844},deviceScaleFactor:2,isMobile:true,hasTouch:true,locale:'vi-VN',acceptDownloads:true,recordVideo:{dir:(process.env.O||'./')+'screen/',size:{width:390,height:844}}});
-const p=await ctx.newPage();p.on('pageerror',e=>console.log('PAGEERROR',String(e)));const H={'content-type':'application/json',origin:U};
+const ctx=await b.newContext({viewport:{width:390,height:844},deviceScaleFactor:2,isMobile:true,hasTouch:true,locale:'vi-VN',acceptDownloads:true});
+const p=await ctx.newPage();p.on('pageerror',e=>console.log('PAGEERROR',String(e)));
+// screen recording via CDP screencast (playwright recordVideo needs its own ffmpeg build)
+const SD=(process.env.O||'./')+'screen/';(await import('node:fs')).mkdirSync(SD,{recursive:true});const FS=await import('node:fs');const cdp=await ctx.newCDPSession(p);let fi=0;const fl=[];
+cdp.on('Page.screencastFrame',f=>{const n=String(fi++).padStart(6,'0')+'.jpg';FS.writeFileSync(SD+n,Buffer.from(f.data,'base64'));fl.push([n,f.metadata.timestamp]);cdp.send('Page.screencastFrameAck',{sessionId:f.sessionId}).catch(()=>{})});
+await cdp.send('Page.startScreencast',{format:'jpeg',quality:70,maxWidth:780,maxHeight:1688});
+const saveFrames=()=>{const L=[];for(let i=0;i<fl.length;i++){const d=i+1<fl.length?Math.min(fl[i+1][1]-fl[i][1],5):1;L.push(`file '${fl[i][0]}'\nduration ${d.toFixed(3)}`)}if(fl.length)L.push(`file '${fl.at(-1)[0]}'`);FS.writeFileSync(SD+'frames.txt',L.join('\n')+'\n')};const H={'content-type':'application/json',origin:U};
 const get=async x=>{const r=await p.request.get(U+'/app/api/'+x);return r.ok()?r.json():null};
 const post=async(x,d)=>(await p.request.post(U+'/app/api/'+x,{headers:H,data:d})).status();
 let bot,shot=0;const msgs=async()=>{const r=await get(`agents/${bot}/messages`);return Array.isArray(r)?r:[]};
@@ -48,4 +53,4 @@ try{
  const pc=await get(`agents/${bot}/computer`);log('final files:',(pc?.files||[]).map(f=>f.path+':'+f.size));log('cmd log:',(pc?.log||[]).map(x=>x.cmd.slice(0,120)+' → '+x.exitCode));
  for(const f of (pc?.files||[]).filter(f=>!f.dir&&/\.(pptx|mp4|webm|gif|md|txt|py|pdf|png)$/.test(f.path))){const r=await p.request.get(U+`/app/api/agents/${bot}/computer/download?path=${encodeURIComponent(f.path)}`);if(r.ok()){fs.writeFileSync(O+'out-'+f.path.replace(/\//g,'_'),await r.body());log('saved',f.path,r.status())}else log('download failed',f.path,r.status())}
  const all=await msgs();fs.writeFileSync(O+'messages.json',JSON.stringify(all,null,1));
-}finally{const d=await post('account/delete',{confirm:'DELETE'});log('account deleted',d);await ctx.close();await b.close()}
+}finally{const d=await post('account/delete',{confirm:'DELETE'});log('account deleted',d);saveFrames();await ctx.close();await b.close()}

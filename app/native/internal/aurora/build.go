@@ -39,6 +39,10 @@ type pcState struct {
 	targetMin float64
 	resumes   int // checkpointed continuations of this request
 	factKey   string
+	failSigs  map[string]int  // failure fingerprints of this request
+	stuck     string          // fingerprint that hit stopAt: no more commands
+	okScripts map[string]bool // .py files a command ran with exit 0
+	verifyTxt string
 	factOut   []string
 }
 
@@ -91,6 +95,12 @@ func (s *Service) noteRun(bot, cmd string, exit int) {
 			st.fixes++
 		} else {
 			st.fixes = 0
+			for _, m := range pyFileRe.FindAllStringSubmatch(cmd, -1) {
+				if st.okScripts == nil {
+					st.okScripts = map[string]bool{}
+				}
+				st.okScripts[m[1]] = true
+			}
 		}
 	})
 }
@@ -99,6 +109,7 @@ func (s *Service) noteRun(bot, cmd string, exit int) {
 func (s *Service) newRequest(bot, text string, computer bool) {
 	s.pcDo(bot, func(st *pcState) {
 		st.fixes, st.runs, st.resumes = 0, 0, 0
+		st.failSigs, st.stuck, st.okScripts = nil, "", nil
 		if !computer { // a new, unrelated request: the old checklist is done with
 			st.checklist, st.targetMin = nil, 0
 			return
@@ -113,7 +124,7 @@ func (s *Service) newRequest(bot, text string, computer bool) {
 // buildExhausted reports whether the bot must stop running commands.
 func (s *Service) buildExhausted(bot string) bool {
 	c := s.pcSnap(bot)
-	return c.fixes >= maxFixes || c.runs >= maxBuildRuns
+	return c.fixes >= maxFixes || c.runs >= maxBuildRuns || c.stuck != ""
 }
 
 // computerContext is the planning context for the next command: cwd rule,

@@ -122,3 +122,20 @@ WITHOUT WARRANTY OF ANY KIND.
 ## Neko Core (Meiiie / The Wiii Lab) — AGPL-3.0-only (outside sdk/)
 - Source: https://github.com/meiiie/neko-core
 - Used: design patterns only, re-implemented in Go/JS (non-blocking input queue that drains in order, abort-at-step-boundary steering, checkpointed continuation after interruption). No code copied. See docs/runtime-decision-2026-10-23.md.
+
+## pstack (Lauren Tan / poteto) — MIT, © 2026 Lauren Tan
+- Source: https://github.com/cursor/plugins/tree/main/pstack (commit 8b3326d)
+- Used: ideas "attack the premise" and "prove it works", re-implemented as Go gates
+  in app/native/internal/aurora/pivot.go (failure fingerprints: premise nudge on the
+  2nd repeat, honest stop with choices on the 3rd) and artifacts.go (a checklist item
+  closes only when a real file passes a type check; results in verify.txt). Prompt
+  text is our own Vietnamese wording. No code copied.
+
+Permission is hereby granted, free of charge, to any person obtaining a copy of this
+software and associated documentation files (the "Software"), to deal in the Software
+without restriction, including without limitation the rights to use, copy, modify,
+merge, publish, distribute, sublicense, and/or sell copies of the Software, and to
+permit persons to whom the Software is furnished to do so, subject to the following
+conditions: The above copyright notice and this permission notice shall be included in
+all copies or substantial portions of the Software. THE SOFTWARE IS PROVIDED "AS IS",
+WITHOUT WARRANTY OF ANY KIND.

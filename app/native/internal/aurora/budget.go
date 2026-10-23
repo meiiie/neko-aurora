@@ -45,7 +45,7 @@ const (
 // continuation. ok=false: still within budget, not a computer task, or the
 // request already used its continuations (then the turn finishes normally).
 func (s *Service) checkpoint(w ledger.Work, start time.Time) (directives, bool) {
-	if time.Since(start) < turnBudget || !computerTask(w) || s.PC == nil {
+	if time.Since(start) < turnBudget || !computerTask(w) || s.PC == nil || s.pcSnap(w.BotID).stuck != "" {
 		return directives{}, false
 	}
 	n := 0

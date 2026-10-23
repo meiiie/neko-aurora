@@ -99,7 +99,7 @@ func unaccentedVi(t string) string {
 
 const factPrompt = `Bạn kiểm tra sự thật cho một bài trình chiếu. Dưới đây là chữ trên từng slide (kèm GHI CHÚ thuyết trình) và GHI CHÚ NGHIÊN CỨU.
 Tìm: (1) slide mâu thuẫn với slide khác (số liệu, đồng vị, phản ứng, năm, tên người, tổ chức); (2) điều trái với ghi chú nghiên cứu hoặc sai rõ ràng về khoa học.
-Chỉ nêu lỗi chắc chắn. Mỗi lỗi một dòng đúng dạng: SAI: slide <số>: <điều sai> — <vì sao, đúng là gì>
+Chỉ nêu lỗi chắc chắn: điều GHI CHÚ NGHIÊN CỨU nói rõ là khác, hoặc hai slide nói ngược nhau. Không báo lỗi chỉ vì có cách diễn đạt/phản ứng khác cũng đúng (vd. Hg-198(n,2n)Hg-197 là đề xuất của Marathon Fusion 2025, đúng). Mỗi lỗi một dòng đúng dạng: SAI: slide <số>: <điều sai> — <vì sao, đúng là gì>
 Không có lỗi: trả lời đúng một chữ OK.`
 
 // factCheck runs one model pass over a built deck. Results are cached by the

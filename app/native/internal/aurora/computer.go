@@ -107,7 +107,11 @@ func (s *Service) runComputer(ctx context.Context, bot string, tc *toolCtx, c to
 			return tools.Result{}, err
 		}
 		s.noteRun(bot, c.arg, r.ExitCode)
-		return tools.Result{Summary: fmt.Sprintf("Chạy lệnh · mã thoát %d", r.ExitCode), Text: untrustedOut + fmtRun(r) + s.validateNew(ctx, bot, t0)}, nil
+		txt := untrustedOut + fmtRun(r) + s.validateNew(ctx, bot, t0)
+		if r.ExitCode != 0 {
+			txt += s.failNote(bot, "run", r.Output)
+		}
+		return tools.Result{Summary: fmt.Sprintf("Chạy lệnh · mã thoát %d", r.ExitCode), Text: txt}, nil
 	case "computer_read_file":
 		txt, cut, err := s.PC.ReadFile(bot, c.arg)
 		if err != nil {
@@ -201,7 +205,11 @@ func (s *Service) runApprovedCommand(w ledger.Work) {
 		s.record(w.BotID, w.RequestID, "delivery", fmt.Sprintf("Máy tính của %s chạy lệnh · %s", s.botName(w.BotID), d.Detail))
 		if err == nil {
 			s.noteRun(w.BotID, ap.Body, r.ExitCode)
-			follow := buildFollowUp(r, s.pcSnap(w.BotID)) + s.validateNew(ctx, w.BotID, t0) + checklistText(s.pcSnap(w.BotID).checklist)
+			follow := s.validateNew(ctx, w.BotID, t0)
+			if r.ExitCode != 0 {
+				follow += s.failNote(w.BotID, "run", r.Output)
+			}
+			follow = buildFollowUp(r, s.pcSnap(w.BotID)) + follow + checklistText(s.pcSnap(w.BotID).checklist)
 			if _, _, aerr := s.L.Accept(ledger.Input{BotID: w.BotID, ClientNonce: newID("computer-"), Text: clean(follow, 7000)}); aerr == nil {
 				s.poke()
 			}

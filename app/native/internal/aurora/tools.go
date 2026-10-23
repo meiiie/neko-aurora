@@ -225,7 +225,7 @@ func (s *Service) commitTool(w ledger.Work, tc *toolCtx, x *toolRun) {
 		})
 		tc.blocks = append(tc.blocks, fmt.Sprintf("Công cụ %s%s (nguồn %s):\n%s", name, map[bool]string{true: " “" + displayArg(x.call) + "”"}[arg != ""], strings.Join(refs, " "), truncateResult(text, maxResultChars)))
 	} else if err != nil {
-		tc.blocks = append(tc.blocks, fmt.Sprintf("Công cụ %s thất bại (%s): KHÔNG có dữ liệu, không được đoán số.", name, toolErr(name, err)))
+		tc.blocks = append(tc.blocks, fmt.Sprintf("Công cụ %s thất bại (%s): KHÔNG có dữ liệu, không được đoán số.", name, toolErr(name, err))+s.toolFail(w.BotID, name, err))
 	}
 	srcs := append([]ledger.DirectSource(nil), tc.sources...)
 	s.update(w.RequestID, func(r *ledger.DirectRun) {
@@ -274,4 +274,11 @@ func toolErr(name string, err error) string {
 		return clean(err.Error(), 300)
 	}
 	return tools.Short(err)
+}
+
+func (s *Service) toolFail(bot, name string, err error) string {
+	if !isComputerTool(name) || s.PC == nil {
+		return ""
+	}
+	return s.failNote(bot, "tool:"+name, err.Error())
 }

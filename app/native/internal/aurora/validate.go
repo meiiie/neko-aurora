@@ -349,6 +349,7 @@ type checkItem struct {
 	Key, Label string
 	Done       bool
 	Impossible string // the bot's honest reason
+	Why        string // what the check found (file and result)
 }
 
 var checkSpecs = []struct {
@@ -358,6 +359,8 @@ var checkSpecs = []struct {
 	{"deck", "file .pptx", regexp.MustCompile(`(?i)pptx|powerpoint|slide|thuyết trình|trình chiếu|presentation|\bdeck\b`)},
 	{"notes", "speaker notes / kịch bản nói từng slide", regexp.MustCompile(`(?i)kịch bản|speaker notes|ghi chú (thuyết trình|người nói)|script nói|lời thoại`)},
 	{"video", "video xem trước (.mp4)", regexp.MustCompile(`(?i)video|\bmp4\b|quay (lại|màn hình)|clip`)},
+	{"sheet", "bảng tính (.xlsx/.csv)", regexp.MustCompile(`(?i)xlsx|excel|bảng tính|spreadsheet|\bcsv\b`)},
+	{"code", "script chạy được (python)", regexp.MustCompile(`(?i)viết (một |cái )?(script|code|chương trình)|python script|\.py\b`)},
 }
 
 // mergeChecklist adds the items a new owner message asks for.
@@ -376,9 +379,8 @@ func mergeChecklist(cur []checkItem, text string) []checkItem {
 
 var impossibleRe = regexp.MustCompile(`(?mi)^\s*KHÔNG THỂ\s*:\s*([^\n—:-]+?)\s*[—:-]\s*(.+)$`)
 
-var videoExt = map[string]bool{".mp4": true, ".webm": true, ".mov": true, ".gif": true}
-
-// refreshChecklist verifies each item against the computer.
+// refreshChecklist verifies each item against the real files (see
+// artifacts.go): an item closes only when one of its files passes its check.
 func (s *Service) refreshChecklist(bot string) {
 	if s.PC == nil {
 		return
@@ -387,38 +389,14 @@ func (s *Service) refreshChecklist(bot string) {
 	if len(c.checklist) == 0 {
 		return
 	}
-	var deckOK, notesOK, videoOK bool
-	if l, err := s.PC.List(bot, ""); err == nil {
-		for _, e := range l {
-			if e.Dir || e.Size == 0 {
-				continue
-			}
-			ext := strings.ToLower(path.Ext(e.Path))
-			if videoExt[ext] && e.Size > 1000 {
-				videoOK = true
-			}
-			if ext == ".pptx" {
-				if f, size, err := s.PC.OpenFile(bot, e.Path); err == nil {
-					rep := validatePPTX(f, size, c.targetMin)
-					f.Close()
-					deckOK = deckOK || rep.Slides > 0 && rep.ok()
-					notesOK = notesOK || rep.Slides > 0 && !strings.Contains(strings.Join(rep.Fails, " "), "ghi chú") && !strings.Contains(strings.Join(rep.Fails, " "), "notes")
-				}
-			}
-		}
-	}
+	got := s.verifyArtifacts(bot, c)
 	s.pcDo(bot, func(st *pcState) {
 		for i := range st.checklist {
-			switch st.checklist[i].Key {
-			case "deck":
-				st.checklist[i].Done = deckOK
-			case "notes":
-				st.checklist[i].Done = notesOK
-			case "video":
-				st.checklist[i].Done = videoOK
-			}
+			v := got[st.checklist[i].Key]
+			st.checklist[i].Done, st.checklist[i].Why = v.ok, v.why
 		}
 	})
+	s.writeVerify(bot)
 }
 
 // noteImpossible records "KHÔNG THỂ: video — lý do" lines from a reply.
@@ -461,6 +439,9 @@ func checklistText(items []checkItem) string {
 			mark = "[không thể: " + c.Impossible + "]"
 		}
 		b.WriteString("\n" + mark + " " + c.Label)
+		if c.Why != "" {
+			b.WriteString(" — " + c.Why)
+		}
 	}
 	b.WriteString("\nChưa xong mục nào thì làm tiếp bằng TOOL; mục thật sự không làm được thì ghi một dòng “KHÔNG THỂ: <mục> — <lý do>”.")
 	return b.String()
@@ -495,6 +476,7 @@ func (s *Service) validateNew(ctx context.Context, bot string, since time.Time) 
 		fmt.Fprintf(&b, "\nKIỂM TRA TỰ ĐỘNG %s: %s", e.Path, rep)
 		if !rep.ok() {
 			b.WriteString("\n→ Sửa script tạo file theo các điểm CHƯA ĐẠT rồi chạy lại; chưa đạt thì chưa được báo xong.")
+			b.WriteString(s.failNote(bot, "deck", strings.Join(rep.Fails, "\n")))
 		}
 	}
 	s.refreshChecklist(bot)
