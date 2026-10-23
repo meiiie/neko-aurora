@@ -77,9 +77,13 @@ func scriptedAI(t *testing.T, replies ...string) *httptest.Server {
 		}
 		n++
 		w.Header().Set("Content-Type", "text/event-stream")
+		rep, cut := strings.CutSuffix(rep, "<<CUT>>") // provider stops at max_tokens
 		for _, part := range strings.SplitAfter(rep, " ") {
 			fmt.Fprintf(w, "data: {\"choices\":[{\"delta\":{\"content\":%q}}]}\n\n", part)
 			w.(http.Flusher).Flush()
+		}
+		if cut {
+			fmt.Fprint(w, "data: {\"choices\":[{\"delta\":{},\"finish_reason\":\"length\"}]}\n\n")
 		}
 		fmt.Fprint(w, "data: [DONE]\n\n")
 	}))

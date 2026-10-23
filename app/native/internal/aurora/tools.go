@@ -108,7 +108,7 @@ func toolsFromEnv() *tools.Kit {
 }
 
 var toolLabel = map[string]string{"gold_price": "Tra giá vàng trực tuyến", "web_search": "Tìm trên web", "web_fetch": "Đọc trang",
-	"computer_run": "Chạy lệnh trên máy tính", "computer_read_file": "Đọc file trên máy tính", "computer_write_file": "Ghi file trên máy tính", "computer_list": "Xem file trên máy tính"}
+	"computer_run": "Chạy lệnh trên máy tính", "computer_read_file": "Đọc file trên máy tính", "computer_write_file": "Ghi file trên máy tính", "computer_edit_file": "Sửa file trên máy tính", "computer_list": "Xem file trên máy tính"}
 
 // runTool runs one lookup (kept for the auto-prefetch path).
 func (s *Service) runTool(ctx context.Context, w ledger.Work, tc *toolCtx, name, arg string) {

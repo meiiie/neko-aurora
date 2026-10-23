@@ -47,7 +47,10 @@ func computerArg(t toolReq) string {
 	case "computer_run":
 		return t.Cmd
 	case "computer_write_file":
-		b, _ := json.Marshal(map[string]string{"path": t.Path, "content": t.Content})
+		b, _ := json.Marshal(map[string]any{"path": t.Path, "content": t.Content, "append": t.Append})
+		return string(b)
+	case "computer_edit_file":
+		b, _ := json.Marshal(map[string]string{"path": t.Path, "old": t.Old, "new": t.New})
 		return string(b)
 	}
 	return t.Path
@@ -55,7 +58,7 @@ func computerArg(t toolReq) string {
 
 // displayArg is what the tool card shows (never a whole file body).
 func displayArg(c toolCall) string {
-	if c.name == "computer_write_file" {
+	if c.name == "computer_write_file" || c.name == "computer_edit_file" {
 		var x struct{ Path string }
 		_ = json.Unmarshal([]byte(c.arg), &x)
 		return clean(x.Path, 200)
@@ -85,6 +88,11 @@ func (s *Service) runComputer(ctx context.Context, bot string, tc *toolCtx, c to
 		if s.buildExhausted(bot) {
 			return tools.Result{}, fmt.Errorf("đã chạy %d lệnh / lỗi liên tiếp %d lần cho yêu cầu này: dừng chạy lệnh, báo trung thực phần đã xong và phần còn lỗi", maxBuildRuns, maxFixes)
 		}
+		if msg := s.pyPrecheck(ctx, bot, c.arg); msg != "" {
+			// a script that cannot even compile: send the error straight
+			// back instead of an approval card for a doomed run (live run 7)
+			return tools.Result{Summary: "Script lỗi cú pháp", Text: msg}, nil
+		}
 		if s.PC.NeedsApproval(bot, c.arg) {
 			tc.mu.Lock()
 			if tc.pendingCmd == "" {
@@ -110,9 +118,15 @@ func (s *Service) runComputer(ctx context.Context, bot string, tc *toolCtx, c to
 		}
 		return tools.Result{Summary: "Đọc " + clean(c.arg, 80), Text: untrustedOut + txt}, nil
 	case "computer_write_file":
-		var x struct{ Path, Content string }
+		var x struct {
+			Path, Content string
+			Append        bool
+		}
 		if json.Unmarshal([]byte(c.arg), &x) != nil {
 			return tools.Result{}, computer.ErrPath
+		}
+		if x.Append {
+			return s.appendFile(bot, x.Path, x.Content)
 		}
 		content, scripts := x.Content, []string(nil)
 		if reviewExt.MatchString(x.Path) {
@@ -127,10 +141,13 @@ func (s *Service) runComputer(ctx context.Context, bot string, tc *toolCtx, c to
 		}
 		s.noteWrite(bot, x.Path)
 		txt := fmt.Sprintf("Đã ghi %s (%d byte) vào thư mục nhà /home/bot.", x.Path, len(content))
+		txt += bigFileHint(x.Path, len(content))
 		if fixes != "" {
 			txt += " Trước khi ghi, hệ thống đã đối chiếu với ghi chú nghiên cứu và sửa: " + fixes + ". Dùng bản đã sửa (đọc lại bằng computer_read_file nếu cần sửa tiếp)."
 		}
 		return tools.Result{Summary: "Ghi " + clean(x.Path, 80), Text: txt}, nil
+	case "computer_edit_file":
+		return s.editFile(bot, c.arg)
 	case "computer_list":
 		l, err := s.PC.List(bot, c.arg)
 		if err != nil {
@@ -282,7 +299,7 @@ func (s *Service) computerRoutes() {
 
 // deckGuide: what a real presentation deliverable needs (live runs 3-4
 // shipped decks with no notes, no animation and 10-12pt text).
-const deckGuide = "\nBÀI TRÌNH CHIẾU (.pptx bằng python-pptx): mỗi slide PHẢI có speaker notes chứa kịch bản nói của slide đó (slide.notes_slide.notes_text_frame.text), tổng thời lượng đúng yêu cầu (~130 từ/phút); sơ đồ/quy trình dựng bằng shape và có animation xuất hiện lần lượt (chèn p:timing vào XML slide); cỡ chữ: tiêu đề ≥ 32pt, nội dung ≥ 18pt, chú thích ≥ 14pt, tối đa 5 ý mỗi slide; chữ trên slide khớp ghi chú nghiên cứu. Sau khi tạo, kiểm tra bằng script: số slide, slide nào thiếu notes, cỡ chữ nhỏ nhất.\nVIDEO: máy có RAM hạn chế — KHÔNG gom mọi khung hình vào list/bộ nhớ; ghi lần lượt: w=imageio.get_writer('out/preview.mp4', fps=…, codec='libx264'); với mỗi khung hình w.append_data(numpy.asarray(img)); w.close(). Mỗi slide vẽ 1 khung rồi append lặp lại, không lưu hàng trăm PNG.\nLỆNH: mỗi computer_run chạy với set -e và pipefail: một phần lỗi là cả lệnh lỗi với đúng mã thoát đó (thêm `|| true` nếu lỗi được phép)."
+const deckGuide = "\nBÀI TRÌNH CHIẾU (.pptx bằng python-pptx): mỗi slide PHẢI có speaker notes chứa kịch bản nói của slide đó (slide.notes_slide.notes_text_frame.text), tổng thời lượng đúng yêu cầu (~130 từ/phút); sơ đồ/quy trình dựng bằng shape và có animation xuất hiện lần lượt (chèn p:timing vào XML slide); cỡ chữ: tiêu đề ≥ 32pt, nội dung ≥ 18pt, chú thích ≥ 14pt, tối đa 5 ý mỗi slide; chữ trên slide khớp ghi chú nghiên cứu. Sau khi tạo, kiểm tra bằng script: số slide, slide nào thiếu notes, cỡ chữ nhỏ nhất.\nVIDEO: máy có RAM hạn chế — KHÔNG gom mọi khung hình vào list/bộ nhớ; ghi lần lượt: w=imageio.get_writer('out/preview.mp4', fps=…, codec='libx264'); với mỗi khung hình w.append_data(numpy.asarray(img)); w.close(). Mỗi slide vẽ 1 khung rồi append lặp lại, không lưu hàng trăm PNG.\nSCRIPT LỚN: tách thành vài module nhỏ (mỗi file < ~6 KB, vd. deck_slides.py + build_deck.py import nó); sửa lỗi bằng computer_edit_file thay vì ghi lại cả file; chuỗi có dấu nháy đơn bên trong thì bọc bằng nháy kép.\nLỆNH: mỗi computer_run chạy với set -e và pipefail: một phần lỗi là cả lệnh lỗi với đúng mã thoát đó (thêm `|| true` nếu lỗi được phép)."
 
 // computerNote tells the model when commands cannot run on this host, so
 // it offers what does work (listing, reading, writing files) instead of

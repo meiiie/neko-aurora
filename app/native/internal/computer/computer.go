@@ -185,6 +185,16 @@ func (m *Manager) SetPolicy(bot string, p Policy) error {
 // Run executes cmd in the bot's sandbox and appends it to the command log.
 // Callers decide approval first (NeedsApproval).
 func (m *Manager) Run(ctx context.Context, bot, cmd string) (Result, error) {
+	return m.run(ctx, bot, cmd, true)
+}
+
+// Check runs a system-side check (e.g. a syntax check) that the owner never
+// asked for: same sandbox, but not added to the command log.
+func (m *Manager) Check(ctx context.Context, bot, cmd string) (Result, error) {
+	return m.run(ctx, bot, cmd, false)
+}
+
+func (m *Manager) run(ctx context.Context, bot, cmd string, logged bool) (Result, error) {
 	if strings.TrimSpace(cmd) == "" || len(cmd) > 8000 {
 		return Result{}, ErrPath
 	}
@@ -208,6 +218,9 @@ func (m *Manager) Run(ctx context.Context, bot, cmd string) (Result, error) {
 	r.ReadOnly = ReadOnly(cmd)
 	if used, _ := dirSize(h); used > m.Limits.HomeBytes {
 		r.Output += fmt.Sprintf("\n[cảnh báo: thư mục nhà vượt hạn mức %d MB; lệnh sau sẽ bị từ chối tới khi dọn bớt]", m.Limits.HomeBytes>>20)
+	}
+	if !logged {
+		return r, nil
 	}
 	x.Log = append(x.Log, r)
 	if len(x.Log) > maxLog {

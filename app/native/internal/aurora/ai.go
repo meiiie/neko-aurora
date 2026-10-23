@@ -12,6 +12,7 @@ import (
 	"math/rand/v2"
 	"net/http"
 	"os"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -24,14 +25,18 @@ const (
 // AI is an OpenAI-compatible chat-completions client (z.ai GLM Coding Plan).
 // The key is read from the environment on the server only and never leaves it.
 type AI struct {
-	BaseURL string
-	Model   string
-	key     string
-	http    *http.Client
+	BaseURL   string
+	Model     string
+	MaxTokens int // output cap per call; a big file write must fit
+	key       string
+	http      *http.Client
 }
 
 func AIFromEnv() *AI {
-	a := &AI{BaseURL: DefaultBaseURL, Model: DefaultModel, key: os.Getenv("ZAI_API_KEY"), http: &http.Client{Timeout: 3 * time.Minute}}
+	a := &AI{BaseURL: DefaultBaseURL, Model: DefaultModel, key: os.Getenv("ZAI_API_KEY"), http: &http.Client{Timeout: 10 * time.Minute}, MaxTokens: 32768} // the turn context bounds a call; 3 min cut long file writes mid-stream
+	if v, err := strconv.Atoi(Env("AI_MAX_TOKENS")); err == nil && v > 0 {
+		a.MaxTokens = v
+	}
 	if v := Env("AI_BASE_URL"); v != "" {
 		a.BaseURL = strings.TrimRight(v, "/")
 	}
@@ -109,7 +114,7 @@ func retryable(err error) bool {
 func (a *AI) streamOnce(ctx context.Context, msgs []ChatMsg, onDelta func(string)) (string, error) {
 	body, _ := json.Marshal(map[string]any{
 		"model": a.Model, "messages": msgs, "stream": true, "temperature": 0.6,
-		"thinking": map[string]string{"type": "disabled"},
+		"thinking": map[string]string{"type": "disabled"}, "max_tokens": a.MaxTokens,
 	})
 	req, err := http.NewRequestWithContext(ctx, "POST", a.BaseURL+"/chat/completions", bytes.NewReader(body))
 	if err != nil {
@@ -131,6 +136,7 @@ func (a *AI) streamOnce(ctx context.Context, msgs []ChatMsg, onDelta func(string
 		return "", fmt.Errorf("ai_http_%d: %s", res.StatusCode, scrub(string(b), a.key))
 	}
 	var full strings.Builder
+	cut := false
 	sc := bufio.NewScanner(res.Body)
 	sc.Buffer(make([]byte, 64*1024), 1<<20)
 	for sc.Scan() {
@@ -147,6 +153,7 @@ func (a *AI) streamOnce(ctx context.Context, msgs []ChatMsg, onDelta func(string
 				Delta struct {
 					Content string `json:"content"`
 				} `json:"delta"`
+				Finish string `json:"finish_reason"`
 			} `json:"choices"`
 		}
 		if json.Unmarshal([]byte(p), &ev) != nil || len(ev.Choices) == 0 {
@@ -156,12 +163,22 @@ func (a *AI) streamOnce(ctx context.Context, msgs []ChatMsg, onDelta func(string
 			full.WriteString(d)
 			onDelta(d)
 		}
+		if ev.Choices[0].Finish == "length" {
+			cut = true
+		}
 	}
 	if ctx.Err() != nil {
 		return full.String(), ctx.Err()
 	}
-	if err := sc.Err(); err != nil && full.Len() == 0 {
-		return "", errors.New("ai_stream_broken")
+	if err := sc.Err(); err != nil {
+		if full.Len() == 0 {
+			return "", errors.New("ai_stream_broken")
+		}
+		cut = true // broken mid-answer: the tail (often a file body) is missing
+	}
+	if cut {
+		log.Printf("aurora ai reply cut at %d chars (max_tokens=%d)", full.Len(), a.MaxTokens)
+		return full.String() + truncMark, nil
 	}
 	return full.String(), nil
 }

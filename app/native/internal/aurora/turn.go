@@ -33,7 +33,7 @@ CHOICES: ["lựa chọn A","lựa chọn B"]   ← khi cần Darren chọn nhanh
 APPROVAL: {"title":"<việc cần duyệt>","kind":"email|send|post|pay|other","to":"<email nếu là email>","subject":"<tiêu đề nếu là email>","body":"<toàn bộ nội dung đã soạn>"}   ← bắt buộc cho mọi hành động ra bên ngoài.
 SECRET: {"name":"TEN_IN_HOA","label":"<tên hiển thị>","desc":"<vì sao cần, lấy ở đâu>"}   ← khi cần Darren cung cấp mật khẩu/khoá API. Darren nhập vào thẻ ẩn, giá trị vào kho bí mật, bạn không bao giờ thấy. Không bao giờ xin Darren dán bí mật vào chat. Khi việc cần một mật khẩu/khoá chưa có, LUÔN thêm dòng SECRET (không chỉ mô tả bằng lời). Mật khẩu ứng dụng Gmail dùng tên GMAIL_APP_PASSWORD.
 TOOL: {"name":"web_search","q":"<truy vấn>"} | {"name":"web_fetch","url":"https://..."} | {"name":"gold_price"}   ← công cụ đọc dữ liệu thật trên máy chủ. Khi cần số liệu/tin tức hiện tại mà chưa có trong KẾT QUẢ CÔNG CỤ, in dòng TOOL rồi dừng; nhiều tra cứu độc lập (vd. giá từng mặt hàng) thì in tối đa 3 dòng TOOL cùng lúc, hệ thống chạy song song rồi gọi lại bạn.
-TOOL: {"name":"computer_write_file","path":"<đường dẫn trong /home/bot>","content":"<nội dung>"} | {"name":"computer_run","cmd":"<lệnh shell>"} | {"name":"computer_read_file","path":"..."} | {"name":"computer_list","path":""}   ← máy tính Linux riêng của bạn (thư mục nhà /home/bot giữ lại giữa các lượt; có python3; mặc định không có mạng). Dùng để viết và chạy script, phân tích file CSV/dữ liệu khi được nhờ chạy/tính thật. Người dùng chỉ xin đoạn code, bảng hay ví dụ thì viết thẳng vào câu trả lời (khối code markdown hoặc bảng markdown), không lưu file hay chạy lệnh. Ghi file trước rồi mới chạy lệnh; lệnh có thể thay đổi máy sẽ chờ Darren duyệt (hệ thống tự tạo thẻ duyệt, bạn không cần viết APPROVAL cho lệnh). Mỗi lượt in tối đa 1 dòng computer_run. Nếu không làm được đúng điều được nhờ (vd. chụp màn hình), làm ngay phương án thay thế cụ thể bằng công cụ (vd. chạy lệnh rồi đưa kết quả thật) thay vì chỉ hỏi lại. Đầu ra của lệnh là sự thật: không tính nhẩm để phản bác nó; nghi ngờ thì chạy lệnh kiểm tra.
+TOOL: {"name":"computer_write_file","path":"<đường dẫn trong /home/bot>","content":"<nội dung>"} | {"name":"computer_edit_file","path":"...","old":"<đoạn cũ, đúng nguyên văn, duy nhất>","new":"<đoạn mới>"} (sửa một chỗ, không ghi lại cả file) | {"name":"computer_write_file","path":"...","content":"<phần tiếp>","append":true} (ghi file dài thành nhiều phần) | {"name":"computer_run","cmd":"<lệnh shell>"} | {"name":"computer_read_file","path":"..."} | {"name":"computer_list","path":""}   ← máy tính Linux riêng của bạn (thư mục nhà /home/bot giữ lại giữa các lượt; có python3; mặc định không có mạng). Dùng để viết và chạy script, phân tích file CSV/dữ liệu khi được nhờ chạy/tính thật. Người dùng chỉ xin đoạn code, bảng hay ví dụ thì viết thẳng vào câu trả lời (khối code markdown hoặc bảng markdown), không lưu file hay chạy lệnh. Ghi file trước rồi mới chạy lệnh; lệnh có thể thay đổi máy sẽ chờ Darren duyệt (hệ thống tự tạo thẻ duyệt, bạn không cần viết APPROVAL cho lệnh). Mỗi lượt in tối đa 1 dòng computer_run. Nếu không làm được đúng điều được nhờ (vd. chụp màn hình), làm ngay phương án thay thế cụ thể bằng công cụ (vd. chạy lệnh rồi đưa kết quả thật) thay vì chỉ hỏi lại. Đầu ra của lệnh là sự thật: không tính nhẩm để phản bác nó; nghi ngờ thì chạy lệnh kiểm tra.
 MEMORY: {"text":"<một sở thích/bối cảnh lâu dài Darren vừa nói rõ hoặc xác nhận>"}   ← chỉ khi Darren nói rõ muốn bạn nhớ hoặc nêu sở thích lâu dài; không bao giờ ghi bí mật, mật khẩu.
 - Số liệu (giá, tỷ giá, ngày, phần trăm) chỉ được lấy từ KẾT QUẢ CÔNG CỤ, ghi nguồn dạng [1], [2]. Tuyệt đối không bịa hay ước đoán số; thiếu dữ liệu thì nói rõ thiếu. Khi đã có KẾT QUẢ CÔNG CỤ thì trả lời thẳng, không dùng PLAN.
 - Không bao giờ nhắc tên kỹ thuật của công cụ hay chỉ thị (web_search, web_fetch, gold_price, TOOL…) trong câu trả lời; nói bằng lời thường như "tìm trên web", "đọc trang".
@@ -51,6 +51,7 @@ type directives struct {
 	Secret   *ledger.DirectSecret
 	Tools    []toolReq // independent lookups, run in parallel (max 3)
 	Memory   string
+	Cut      bool // the reply hit the output cap or the stream broke
 }
 
 type toolReq struct {
@@ -61,6 +62,9 @@ type toolReq struct {
 	Cmd     string `json:"cmd,omitempty"`
 	Path    string `json:"path,omitempty"`
 	Content string `json:"content,omitempty"`
+	Append  bool   `json:"append,omitempty"` // computer_write_file: add to the end (chunked writes)
+	Old     string `json:"old,omitempty"`    // computer_edit_file: exact text to replace (once)
+	New     string `json:"new,omitempty"`
 }
 
 func validTool(t toolReq) bool {
@@ -75,6 +79,8 @@ func validTool(t toolReq) bool {
 		return strings.TrimSpace(t.Cmd) != ""
 	case "computer_read_file":
 		return t.Path != ""
+	case "computer_edit_file":
+		return t.Path != "" && t.Old != ""
 	case "computer_write_file":
 		return t.Path != "" && len(t.Content) <= 1<<20
 	}
@@ -388,7 +394,10 @@ func (s *Service) call(ctx context.Context, w ledger.Work, msgs []ChatMsg) (dire
 		}
 	})
 	flush()
-	return ParseDirectives(full), err
+	cut := strings.Contains(full, truncMark)
+	d := ParseDirectives(strings.ReplaceAll(full, truncMark, ""))
+	d.Cut = cut
+	return d, err
 }
 
 func (s *Service) endDraft(w ledger.Work) {
@@ -416,7 +425,7 @@ func (s *Service) runWork(w ledger.Work) {
 	name := s.botName(w.BotID)
 	s.record(w.BotID, w.RequestID, "message", "Bạn giao cho "+name+": "+w.Text)
 	s.agui(AGUIEvent{Type: RUN_STARTED, ThreadID: w.BotID, RunID: w.RequestID})
-	ctx, cancel := context.WithTimeout(s.ctx, 6*time.Minute)
+	ctx, cancel := context.WithTimeout(s.ctx, turnBudget+turnSlack)
 	defer cancel()
 	go s.watchCancel(ctx, cancel, w.RequestID)
 	go s.holdLease(ctx, w.RequestID)
@@ -587,6 +596,7 @@ func promiseOnly(d directives) bool {
 }
 
 func (s *Service) runTurn(ctx context.Context, w ledger.Work) (*Approval, []string, error) {
+	start := time.Now()
 	tc := &toolCtx{}
 	defer s.saveResearch(w.BotID, tc)
 	if s.absorbed(w.RequestID) {
@@ -660,6 +670,10 @@ func (s *Service) runTurn(ctx context.Context, w ledger.Work) (*Approval, []stri
 				d = directives{Text: computerAskText, Approval: computerApproval(tc.pendingCmd)}
 				break
 			}
+			if cp, ok := s.checkpoint(w, start); ok {
+				d = cp // out of time: continue as a fresh turn instead of a deadline error
+				break
+			}
 			d, err = s.ask(ctx, w, tc, func() []ChatMsg { return tc.inject(s.history(w.BotID, w.RequestID)) })
 		}
 		// A reply that narrates tool work ("[đã ghi render_video.py]") with no
@@ -667,8 +681,13 @@ func (s *Service) runTurn(ctx context.Context, w ledger.Work) (*Approval, []stri
 		if err != nil || attempt >= 3 {
 			break
 		}
+		if d.Approval != nil && d.Approval.Kind == "computer" || d.Text == checkpointText {
+			break
+		}
 		nudge := ""
-		if s.narratedOnly(w, d) {
+		if d.Cut && len(d.Tools) == 0 {
+			nudge = cutNudge // a file body cut by the output cap: the TOOL line was lost
+		} else if s.narratedOnly(w, d) {
 			d.Text, nudge = stripNarration(d.Text), directivesOnly
 		} else if n := s.continueNudge(w, d); n != "" {
 			// the task is not finished (open checklist items, or a reply that
@@ -676,6 +695,10 @@ func (s *Service) runTurn(ctx context.Context, w ledger.Work) (*Approval, []stri
 			nudge = n
 		}
 		if nudge == "" {
+			break
+		}
+		if cp, ok := s.checkpoint(w, start); ok {
+			d = cp
 			break
 		}
 		s.publish("draft_end", map[string]string{"id": w.RequestID, "agentId": threadOf(w)})

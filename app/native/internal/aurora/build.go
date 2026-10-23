@@ -37,6 +37,7 @@ type pcState struct {
 	research  string // sources + step results of the last researched turn
 	checklist []checkItem
 	targetMin float64
+	resumes   int // checkpointed continuations of this request
 }
 
 type pcBook struct {
@@ -95,7 +96,7 @@ func (s *Service) noteRun(bot, cmd string, exit int) {
 // newRequest resets the bounds when the owner asks for something new.
 func (s *Service) newRequest(bot, text string, computer bool) {
 	s.pcDo(bot, func(st *pcState) {
-		st.fixes, st.runs = 0, 0
+		st.fixes, st.runs, st.resumes = 0, 0, 0
 		if !computer { // a new, unrelated request: the old checklist is done with
 			st.checklist, st.targetMin = nil, 0
 			return

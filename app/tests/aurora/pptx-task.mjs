@@ -23,7 +23,7 @@ Yêu cầu:
 Dùng máy tính của bạn để làm file (python-pptx), xong gửi link tải file cho mình.`;
 try{
  await p.goto(U+'/app/');await p.waitForURL(/signin/);await p.fill('#email',EMAIL);const rp=p.waitForResponse(r=>r.url().endsWith('/app/auth/email'));await p.tap('#sendBtn');const s=await (await rp).json();
- await p.waitForSelector('#codeStep:not(.hidden)');await p.fill('#code',s.devCode);await p.waitForURL(/welcome/);await p.fill('#name','Darren');await p.tap('[data-goal=research]');await p.tap('#startBtn');await p.waitForURL(/#bot-/,{timeout:30000});
+ await p.waitForSelector('#codeStep:not(.hidden)');await p.fill('#code',s.devCode);await p.waitForURL(/welcome/);await p.fill('#name','Darren');await p.tap('[data-goal=research]');await p.tap('#startBtn');await p.waitForURL(/\/app\/(#bot-.*)?$/,{timeout:30000});for(let i=0;i<30&&!((await get('state')).agents||[]).some(a=>a.name==='Aurora');i++)await p.waitForTimeout(2000);
  bot=(await get('state')).agents.find(a=>a.name==='Aurora').id;await idle(120);
  let seen=(await msgs()).length;const t0=Date.now();
  await post(`agents/${bot}/messages`,{text:PROMPT,clientNonce:'pptx-'+Date.now()});log('USER:',PROMPT.slice(0,80));
