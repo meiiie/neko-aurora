@@ -21,7 +21,10 @@ RUN apk add --no-cache ca-certificates tzdata && adduser -D -u 10001 neko && mkd
 COPY --from=core /opt/neko-core /opt/neko-core
 COPY --from=build /out/neko-aurora /usr/local/bin/neko-aurora
 USER neko
-ENV TZ=Asia/Ho_Chi_Minh PORT=8080 NEKO_CORE_DIR=/opt/neko-core
+ENV TZ=Asia/Ho_Chi_Minh PORT=8080 NEKO_CORE_DIR=/opt/neko-core AURORA_COMPUTER=off
+# Hosted multi-user mode (Railway template): AURORA_MODE=hosted, AURORA_SECRET (>=32 chars),
+# ZAI_API_KEY, AURORA_SMTP_* for sign-in mail; AURORA_COMPUTER=railway + RAILWAY_TOKEN +
+# RAILWAY_ENVIRONMENT_ID gives every bot a Railway Sandbox. See docs/railway-template.md.
 VOLUME ["/data"]
 EXPOSE 8080
 # Binds 0.0.0.0:$PORT only when AURORA_PUBLIC_HOST and AURORA_OWNER_CODE (>=12 chars) are set;

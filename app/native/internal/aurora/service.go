@@ -52,7 +52,8 @@ type Service struct {
 	syncMu  sync.Mutex
 	briefM  sync.Mutex
 	// Now is overridable in tests.
-	Now func() time.Time
+	Now   func() time.Time
+	owner func() string
 	// OnDeleteAccount, when set, erases every bot, message, secret and backup
 	// on this server (the host wipes the state directory and restarts fresh).
 	OnDeleteAccount func() error
@@ -65,6 +66,11 @@ type Options struct {
 	// VaultKey, when set (hosted multi-user mode), encrypts this workspace's
 	// vault with a server-held per-user key instead of a vault.key file.
 	VaultKey []byte
+	// OwnerName names the account owner in prompts (hosted mode: each
+	// user's own name; single-owner default "Darren").
+	OwnerName func() string
+	// NoBriefLoop skips the scheduled morning brief (hosted workspaces).
+	NoBriefLoop bool
 }
 
 func New(ctx context.Context, store *ledger.Store, stateDir string, opt Options) (*Service, error) {
@@ -102,6 +108,7 @@ func New(ctx context.Context, store *ledger.Store, stateDir string, opt Options)
 	}
 	log.SetOutput(v.Writer(os.Stderr))
 	s := &Service{L: store, AI: model, Push: p, V: v, Tools: toolsFromEnv(), Mem: openMemory(stateDir), PC: openComputers(stateDir), Prefs: prefs, subs: map[chan Event]struct{}{}, ctx: ctx, wake: make(chan struct{}, 1), running: map[string]bool{}, seen: map[string]string{}, Now: time.Now}
+	s.owner = opt.OwnerName
 	s.Out = outbound.NewRouter(outbound.Switch{Resolve: s.mailer})
 	s.routes()
 	s.connectorRoutes()
@@ -112,7 +119,7 @@ func New(ctx context.Context, store *ledger.Store, stateDir string, opt Options)
 	if opt.RunTurns && !store.ReadOnly() {
 		s.recoverInterrupted()
 		go s.runLoop()
-		if Env("BRIEF_LOOP") != "off" {
+		if Env("BRIEF_LOOP") != "off" && !opt.NoBriefLoop {
 			go s.briefLoop()
 		}
 	}
@@ -323,7 +330,7 @@ func (s *Service) runBrief(w ledger.Work) {
 	for _, a := range s.activity(15) {
 		fmt.Fprintf(&sb, "- %s\n", a.Text)
 	}
-	text := fmt.Sprintf("Chào Darren. %d agent đang hoạt động, %d việc cần bạn.", n, len(pend))
+	text := fmt.Sprintf("Chào "+s.ownerName()+". %d agent đang hoạt động, %d việc cần bạn.", n, len(pend))
 	run := ledger.DirectRun{Runtime: s.AI.Runtime(), Kind: "brief"}
 	if s.AI.Configured() {
 		c, cancel := context.WithTimeout(s.ctx, 90*time.Second)

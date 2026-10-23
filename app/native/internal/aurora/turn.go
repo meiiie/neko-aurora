@@ -356,6 +356,7 @@ func (s *Service) agui(e AGUIEvent) { s.publish("agui", e) }
 
 // call streams one model call; deltas go to SSE as TEXT_MESSAGE_CONTENT.
 func (s *Service) call(ctx context.Context, w ledger.Work, msgs []ChatMsg) (directives, error) {
+	msgs = s.personalize(msgs)
 	s.agui(AGUIEvent{Type: TEXT_MESSAGE_START, ThreadID: w.BotID, RunID: w.RequestID, MessageID: w.RequestID})
 	// Deltas are coalesced (~60ms) and each event also carries the full text so far,
 	// so a burst that overflows a slow client's buffer can never drop characters.

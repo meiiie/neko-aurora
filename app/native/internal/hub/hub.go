@@ -147,7 +147,8 @@ func (h *Hub) tenant(uid string) (*tenant, error) {
 		return nil, err
 	}
 	ctx, cancel := context.WithCancel(h.ctx)
-	svc, err := aurora.New(ctx, st, filepath.Join(dir, "aurora"), aurora.Options{RunTurns: true, VaultKey: h.vaultKey(uid)})
+	svc, err := aurora.New(ctx, st, filepath.Join(dir, "aurora"), aurora.Options{RunTurns: true, VaultKey: h.vaultKey(uid), NoBriefLoop: true,
+		OwnerName: func() string { u, _ := h.users.get(uid); return u.Name }})
 	if err != nil {
 		cancel()
 		st.Close()
@@ -384,7 +385,7 @@ func (h *Hub) onboard(u User, name, goal string) error {
 	if name != "" {
 		who = name
 	}
-	msg := fmt.Sprintf("[Thiết lập] Mình là %s, vừa tạo tài khoản Neko Aurora. Mục tiêu chính: %s. Mình đã có thêm bot %s và %s. Hãy chào mình ngắn gọn, giải thích bạn và các bot giúp được gì, rồi gợi ý 3 việc đầu tiên mình có thể giao ngay (dùng CHOICES).", who, map[string]string{"work": "công việc hằng ngày", "research": "nghiên cứu, tìm hiểu", "study": "học tập", "money": "tài chính cá nhân"}[goal], helpers[0].Name, helpers[1].Name)
+	msg := fmt.Sprintf("Chào Aurora! Mình là %s, mình muốn dùng Neko Aurora cho %s. Giới thiệu ngắn bạn cùng %s và %s giúp được gì, rồi gợi ý 3 việc đầu tiên mình giao được ngay nhé.", who, map[string]string{"work": "công việc hằng ngày", "research": "nghiên cứu, tìm hiểu", "study": "học tập", "money": "tài chính cá nhân"}[goal], helpers[0].Name, helpers[1].Name)
 	if c, _ := call(t.svc, "POST", "/app/api/agents/bot-meiiie/messages", map[string]any{"text": msg, "clientNonce": "onboard-" + u.ID}); c >= 300 {
 		return fmt.Errorf("welcome: %d", c)
 	}

@@ -13,6 +13,8 @@ Trợ lý đa bot, đa kênh theo hướng **local-first**. Neko Aurora hướng
 
 Mốc source: [`v0.1.0-alpha.1`](https://github.com/meiiie/neko-aurora/tree/v0.1.0-alpha.1). Xem [ghi chú alpha](docs/releases.md) về version và các gate còn mở. Tag này không kèm binary hoặc installer.
 
+[![Deploy on Railway](https://railway.com/button.svg)](https://railway.com/new/template?template=https%3A%2F%2Fgithub.com%2Fmeiiie%2Fneko-aurora) — máy chủ nhiều người dùng một chạm, xem [docs/railway-template.md](docs/railway-template.md).
+
 [Bắt đầu](#build-và-chạy-local-trên-windows) · [Tài liệu](docs/README.md) · [Ảnh giao diện](#ảnh-giao-diện) · [Roadmap](#roadmap) · [Đóng góp](CONTRIBUTING.md)
 
 ## Ảnh giao diện

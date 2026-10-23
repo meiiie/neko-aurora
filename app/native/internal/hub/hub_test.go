@@ -37,8 +37,17 @@ func (f *fakeMail) Send(to, subject, body string) error {
 	return nil
 }
 
+var aiBodies struct {
+	sync.Mutex
+	l []string
+}
+
 func fakeAI(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		b, _ := io.ReadAll(r.Body)
+		aiBodies.Lock()
+		aiBodies.l = append(aiBodies.l, string(b))
+		aiBodies.Unlock()
 		w.Header().Set("Content-Type", "text/event-stream")
 		fmt.Fprint(w, "data: {\"choices\":[{\"delta\":{\"content\":\"Chào bạn, mình là Aurora.\"}}]}\n\ndata: [DONE]\n\n")
 	}))
@@ -173,6 +182,21 @@ func TestSignupIsolationQuotaOnboarding(t *testing.T) {
 	n := strings.Join(bots(b), ",")
 	if !strings.Contains(n, "Aurora") || !strings.Contains(n, "Nghiên cứu") || strings.Contains(n, "Davin") || strings.Contains(n, "Meiiie") {
 		t.Fatal(n)
+	}
+	for i := 0; i < 100; i++ {
+		aiBodies.Lock()
+		n := len(aiBodies.l)
+		aiBodies.Unlock()
+		if n > 0 {
+			break
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	aiBodies.Lock()
+	all := strings.Join(aiBodies.l, "")
+	aiBodies.Unlock()
+	if !strings.Contains(all, "Bình") || strings.Contains(all, "Darren") {
+		t.Fatal("prompt not personalised for the workspace owner")
 	}
 	// quota: free = 3 metered sends per day
 	codes := []int{}
