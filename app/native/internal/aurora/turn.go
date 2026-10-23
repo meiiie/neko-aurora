@@ -314,7 +314,7 @@ func (s *Service) sweepLeases() {
 func (s *Service) history(botID, current string) []ChatMsg {
 	v := newView(s.L.Snapshot())
 	b, _ := v.bot(botID)
-	msgs := []ChatMsg{{Role: "system", Content: fmt.Sprintf(systemPrompt, b.Name, v.desc(b)) + memoryPrompt(s.Mem.List(botID)) + s.computerNote()}}
+	msgs := []ChatMsg{{Role: "system", Content: fmt.Sprintf(systemPrompt, b.Name, v.desc(b)) + memoryPrompt(s.Mem.List(botID)) + s.computerNote(botID)}}
 	if cw, err := s.L.Get(current); err == nil && isEnglish(cw.Text) {
 		// the owner wrote English: the Vietnamese-first prompt must not win
 		msgs[0].Content += "\nLANGUAGE: the user's latest message is in English. Reply entirely in natural English (keep [n] citations and directive lines as specified)."

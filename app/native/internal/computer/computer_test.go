@@ -155,3 +155,18 @@ func TestReadOnly(t *testing.T) {
 		t.Fatal("stub backend ran")
 	}
 }
+
+func TestOpenFileBinaryAndEscape(t *testing.T) {
+	m, _ := New(t.TempDir(), nil)
+	if err := m.WriteFile("b", "deck.pptx", "PK\x03\x04binary"); err != nil {
+		t.Fatal(err)
+	}
+	f, n, err := m.OpenFile("b", "deck.pptx")
+	if err != nil || n != 10 {
+		t.Fatal(err, n)
+	}
+	f.Close()
+	if _, _, err := m.OpenFile("b", "../../etc/passwd"); err == nil {
+		t.Fatal("escape allowed")
+	}
+}

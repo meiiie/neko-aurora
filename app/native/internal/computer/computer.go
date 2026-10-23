@@ -444,3 +444,27 @@ func ReadOnly(cmd string) bool {
 // CanRun reports whether commands can execute on this host (the sandbox
 // backend is installed and usable); file listing/reading works regardless.
 func (m *Manager) CanRun() error { return m.sb.Available() }
+
+// OpenFile opens a regular file in the bot's home for download (binary
+// safe, e.g. a .pptx the bot built). The caller closes it.
+func (m *Manager) OpenFile(bot, p string) (*os.File, int64, error) {
+	rel, err := cleanRel(p)
+	if err != nil {
+		return nil, 0, err
+	}
+	r, err := m.root(bot)
+	if err != nil {
+		return nil, 0, err
+	}
+	defer r.Close()
+	f, err := r.Open(rel)
+	if err != nil {
+		return nil, 0, ErrPath
+	}
+	st, err := f.Stat()
+	if err != nil || !st.Mode().IsRegular() {
+		f.Close()
+		return nil, 0, ErrPath
+	}
+	return f, st.Size(), nil
+}

@@ -8,7 +8,7 @@
 (()=>{
 const el=(t,c,x)=>{const e=document.createElement(t);if(c)e.className=c;if(x!=null)e.textContent=x;return e};
 const host=u=>{try{return new URL(u).hostname.replace(/^www\./,"")}catch{return u}};
-const INL=/(\\[\\`*_~\[\]()#+\-.!>|]|`+[^`\n]*?`+|\*\*(?=\S)[^\n]*?\S\*\*|__(?=\S)[^\n]*?\S__|~~(?=\S)[^\n]*?\S~~|\[[^\]\n]+\]\((?:https?:\/\/|mailto:)[^\s)]+\)|https?:\/\/[^\s<>()]+[^\s<>().,;:!?'"]|\[\d{1,2}\](?:\s*,?\s*\[\d{1,2}\])*|(?<![\w*])\*(?=\S)[^*\n]*?\S\*(?![\w*])|(?<![\p{L}\p{N}_])_(?=\S)[^_\n]*?\S_(?![\p{L}\p{N}_]))/gu;
+const INL=/(\\[\\`*_~\[\]()#+\-.!>|]|`+[^`\n]*?`+|\*\*(?=\S)[^\n]*?\S\*\*|__(?=\S)[^\n]*?\S__|~~(?=\S)[^\n]*?\S~~|\[[^\]\n]+\]\((?:https?:\/\/|mailto:|\/app\/api\/agents\/[\w-]+\/computer\/download\?path=)[^\s)]+\)|https?:\/\/[^\s<>()]+[^\s<>().,;:!?'"]|\[\d{1,2}\](?:\s*,?\s*\[\d{1,2}\])*|(?<![\w*])\*(?=\S)[^*\n]*?\S\*(?![\w*])|(?<![\p{L}\p{N}_])_(?=\S)[^_\n]*?\S_(?![\p{L}\p{N}_]))/gu;
 function link(t,u){const a=el("a","lnk",t);a.href=u;a.target="_blank";a.rel="noopener noreferrer";return a}
 function inline(node,text,src){let last=0,m;INL.lastIndex=0;const re=new RegExp(INL.source,"gu");
  while((m=re.exec(text))){if(m.index>last)node.append(text.slice(last,m.index));const t=m[0];

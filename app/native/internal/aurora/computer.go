@@ -11,10 +11,13 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"log"
+	"mime"
 	"net/http"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 
@@ -199,6 +202,23 @@ func (s *Service) computerRoutes() {
 			writeJSON(w, 200, map[string]any{"text": txt, "truncated": cut})
 		}
 	})
+	m.HandleFunc("GET /app/api/agents/{id}/computer/download", func(w http.ResponseWriter, r *http.Request) {
+		if id, ok := bot(w, r); ok {
+			f, size, err := s.PC.OpenFile(id, r.URL.Query().Get("path"))
+			if err != nil {
+				fail(w, ErrNotFound)
+				return
+			}
+			defer f.Close()
+			name := filepath.Base(f.Name())
+			w.Header().Set("Content-Type", "application/octet-stream")
+			w.Header().Set("Content-Disposition", mime.FormatMediaType("attachment", map[string]string{"filename": name}))
+			w.Header().Set("Content-Length", strconv.FormatInt(size, 10))
+			w.Header().Set("X-Content-Type-Options", "nosniff")
+			w.Header().Set("Cache-Control", "no-store")
+			_, _ = io.Copy(w, f)
+		}
+	})
 	m.HandleFunc("POST /app/api/agents/{id}/computer/reset", func(w http.ResponseWriter, r *http.Request) {
 		if id, ok := bot(w, r); ok {
 			if err := s.PC.Reset(id); err != nil {
@@ -224,9 +244,16 @@ func (s *Service) computerRoutes() {
 // computerNote tells the model when commands cannot run on this host, so
 // it offers what does work (listing, reading, writing files) instead of
 // promising output it cannot produce.
-func (s *Service) computerNote() string {
-	if s.PC == nil || s.PC.CanRun() == nil {
+func (s *Service) computerNote(botID string) string {
+	if s.PC == nil {
 		return ""
+	}
+	dl := fmt.Sprintf("\nFILE CHO NGƯỜI DÙNG: file trên máy tính tải được qua link markdown [tên file](/app/api/agents/%s/computer/download?path=<đường dẫn trong /home/bot, bỏ /home/bot/>). Làm xong file (pptx, mp4, csv…) luôn đưa link này.", botID)
+	if s.PC.CanRun() == nil {
+		if s.PC.Backend() == "railway-sandbox" {
+			dl += " Máy tính này CÓ mạng: cài thư viện vào /tmp (không vào thư mục nhà): pip install -q --target /tmp/py python-pptx rồi chạy PYTHONPATH=/tmp/py python3 …; /tmp mất khi máy nghỉ, cài lại khi cần. Mỗi lệnh tối đa 10 phút."
+		}
+		return dl
 	}
 	return "\nLƯU Ý: trên máy chủ này máy tính của bạn tạm KHÔNG chạy được lệnh (computer_run); vẫn liệt kê, đọc, ghi file được. Nói rõ điều đó và đưa phương án cụ thể làm được ngay."
 }
