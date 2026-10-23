@@ -12,6 +12,7 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"unicode/utf8"
 	"unicode"
 
 	"nekoaurora.local/native/internal/computer"
@@ -643,7 +644,12 @@ func (s *Service) routes() {
 			return
 		}
 		id := r.PathValue("id")
-		text := clean(in.Text, 4000)
+		if utf8.RuneCountInString(in.Text) > maxMsgRunes || len(in.Text) > 32000 {
+			// never silently cut what the owner wrote (dogfood 2026-10-23)
+			writeJSON(w, http.StatusRequestEntityTooLarge, map[string]any{"error": "too_long", "max": maxMsgRunes})
+			return
+		}
+		text := clean(in.Text, maxMsgRunes)
 		if text == "" {
 			fail(w, ErrInvalid)
 			return
@@ -1011,3 +1017,6 @@ func (s *Service) events(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 }
+
+// maxMsgRunes bounds one chat message (the ledger caps its text at 32 KB).
+const maxMsgRunes = 10000

@@ -31,7 +31,7 @@ const API="/app/api";
 const CAP=window.Capacitor&&window.Capacitor.isNativePlatform&&window.Capacitor.isNativePlatform()?window.Capacitor.Plugins:null;
 
 async function api(path,body){const r=await fetch(API+path,{method:body===undefined?"GET":"POST",credentials:"same-origin",cache:"no-store",headers:body===undefined?{}:{"Content-Type":"application/json"},body:body===undefined?undefined:JSON.stringify(body)});
- if(!r.ok){const e=new Error(String(r.status));e.status=r.status;throw e}return r.json()}
+ if(!r.ok){const e=new Error(String(r.status));e.status=r.status;e.body=await r.json().catch(()=>null);throw e}return r.json()}
 const T=x=>new Date(x).getTime();
 const isGroup=a=>a&&a.kind==="group";
 const bots=()=>S.agents.filter(a=>!isGroup(a));
@@ -256,12 +256,19 @@ let stopping=false;async function stopAgent(){if(!cur||stopping)return;stopping=
 // reuse the nonce so the server stores it exactly once. The running bot folds
 // new messages into its current turn (server inbox), so nothing waits.
 const outbox=[];let pumping=false;const sleep=ms=>new Promise(r=>setTimeout(r,ms));
+const MAX_MSG=10000;
 function sendMsg(text){const a=cur;text=text.trim();if(!a||!text)return false;
+ if([...text].length>MAX_MSG){toast(`Tin quá dài (tối đa ${MAX_MSG.toLocaleString("vi-VN")} ký tự). Chia nhỏ hoặc gửi dạng file nhé.`);return false}
  outbox.push({agentId:a.id,text,n:"c"+Date.now().toString(36)+Math.random().toString(36).slice(2,10),t:Date.now()});buzz("tap");renderThread();pump();return true}
 async function pump(){if(pumping)return;pumping=true;try{while(outbox.length){const it=outbox[0];
   try{const m=await api(`/agents/${it.agentId}/messages`,{text:it.text,clientNonce:it.n});outbox.shift();
    if(m&&m.id){const L=S.msgs[it.agentId]||(S.msgs[it.agentId]=[]);if(!L.some(x=>x.id===m.id))L.push(m)}if(cur&&cur.id===it.agentId)renderThread()}
-  catch(e){if(e.status&&e.status>=400&&e.status<500&&e.status!==429){outbox.shift();toast("Không gửi được, thử lại");if(cur&&cur.id===it.agentId)renderThread();continue}
+  catch(e){const quota=e.status===429&&e.body&&e.body.error==="quota_exceeded";
+   if(quota||e.status&&e.status>=400&&e.status<500&&e.status!==429){
+    // final refusal: never retry, and give the text back so nothing is lost
+    const drop=quota?outbox.filter(x=>x.agentId===it.agentId):[outbox[0]];for(const x of drop)outbox.splice(outbox.indexOf(x),1);
+    const inp=$("#input");if(cur&&cur.id===it.agentId&&!inp.value.trim()){inp.value=drop.map(x=>x.text).join("\n");inp.dispatchEvent(new Event("input"))}
+    toast(quota?`Hết lượt hôm nay (${e.body.daily} tin/ngày). Mai dùng tiếp nhé.`:e.status===413?"Tin quá dài, chia nhỏ giúp mình nhé":"Không gửi được, thử lại");if(cur&&cur.id===it.agentId)renderThread();continue}
    it.wait=true;if(cur&&cur.id===it.agentId)renderThread();await sleep(e.status===429?4000:!navigator.onLine?1500:2000)}}}finally{pumping=false}}
 addEventListener("online",pump);
 // edge-swipe back (iOS style), anywhere on screen while a thread is open
