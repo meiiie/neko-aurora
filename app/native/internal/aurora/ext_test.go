@@ -278,3 +278,13 @@ func TestImageUploadRoute(t *testing.T) {
 		t.Fatal(err, size)
 	}
 }
+
+// The no-browser fallback goes through the private-network blocking client:
+// a loopback page is never read, whatever URL the model picks.
+func TestPageReadRefusesPrivate(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { w.Write([]byte("<title>x</title>secret")) }))
+	defer srv.Close()
+	if r, err := pageRead(context.Background(), srv.URL); err == nil || strings.Contains(r.Text, "secret") {
+		t.Fatalf("loopback read: %v %q", err, r.Text)
+	}
+}

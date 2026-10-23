@@ -369,9 +369,13 @@ func (s *Service) describeImage(ctx context.Context, bot, p, q string) (tools.Re
 	if !ok || a == nil {
 		return tools.Result{}, errors.New("chưa cấu hình mô hình đọc ảnh")
 	}
-	if a.http == nil {
-		a = &AI{BaseURL: a.BaseURL, Model: a.Model, key: a.key, http: &http.Client{Timeout: 3 * time.Minute}, MaxTokens: 2048}
+	// own copy: vision models cap max_tokens lower (glm-4.5v: 16384) than
+	// the chat default (32768), which the provider rejects with HTTP 400
+	hc := a.http
+	if hc == nil {
+		hc = &http.Client{Timeout: 3 * time.Minute}
 	}
+	a = &AI{BaseURL: a.BaseURL, Model: a.Model, key: a.key, http: hc, MaxTokens: 2048}
 	cc.Images = []string{"data:" + mime + ";base64," + std64(b)}
 	if q == "" {
 		q = "Mô tả chi tiết ảnh này bằng tiếng Việt: nội dung, chữ/số đọc được (chép nguyên văn), bảng biểu nếu có."

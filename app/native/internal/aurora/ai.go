@@ -110,7 +110,7 @@ func (a *AI) StreamWith(ctx context.Context, cc callCfg, msgs []ChatMsg, onDelta
 		case <-time.After(backoff(try)):
 		}
 	}
-	log.Printf("aurora ai model=%s ttft_ms=%d total_ms=%d chars=%d err=%v", cc.Model, first.Milliseconds(), time.Since(t0).Milliseconds(), len(out), err != nil)
+	log.Printf("aurora ai model=%s ttft_ms=%d total_ms=%d chars=%d err=%v", cc.Model, first.Milliseconds(), time.Since(t0).Milliseconds(), len(out), errClass(err))
 	return out, err
 }
 
@@ -258,4 +258,13 @@ func (a *AI) Models(ctx context.Context) ([]string, error) {
 		ids = append(ids, d.ID)
 	}
 	return ids, nil
+}
+
+// errClass is the loggable part of a provider error: the code and a short,
+// key-scrubbed provider message (never the request).
+func errClass(err error) string {
+	if err == nil {
+		return "false"
+	}
+	return clean(err.Error(), 160)
 }
