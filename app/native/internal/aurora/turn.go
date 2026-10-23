@@ -365,7 +365,7 @@ func (s *Service) history(botID, current string) []ChatMsg {
 			msgs = append(msgs, ChatMsg{"assistant", c})
 		}
 	}
-	return compactHistory(msgs)
+	return s.compact(botID, msgs)
 }
 
 func (s *Service) agui(e AGUIEvent) { s.publish("agui", e) }
@@ -386,7 +386,7 @@ func (s *Service) call(ctx context.Context, w ledger.Work, msgs []ChatMsg) (dire
 		s.publish("delta", map[string]any{"type": TEXT_MESSAGE_CONTENT, "agentId": threadOf(w), "from": w.BotID, "id": w.RequestID, "messageId": w.RequestID, "delta": pend, "text": sb.String()})
 		pend, last = "", time.Now()
 	}
-	full, err := s.AI.Stream(ctx, msgs, func(d string) {
+	full, err := s.stream(ctx, w.BotID, "chat", msgs, func(d string) {
 		sb.WriteString(d)
 		pend += d
 		if time.Since(last) >= 60*time.Millisecond {
@@ -1029,7 +1029,7 @@ func (s *Service) fixScript(ctx context.Context, w ledger.Work, d *directives) {
 		if !hasHan(t) && (en || !hasStrayEnglish(t)) {
 			return t
 		}
-		out, err := s.AI.Stream(ctx, []ChatMsg{{"system", "Bạn là biên tập viên tiếng Việt. Viết lại nguyên văn đoạn sau, chỉ thay các cụm chữ Hán/Nhật/Hàn và các từ nối tiếng Anh lạc vào câu (with, the, and, however…) bằng tiếng Việt tự nhiên đúng nghĩa. Giữ nguyên tên riêng, thuật ngữ, mã, URL, số liệu, xuống dòng và [n]. Chỉ trả về đoạn đã sửa."}, {"user", t}}, func(string) {})
+		out, err := s.stream(ctx, w.BotID, "rewrite", []ChatMsg{{"system", "Bạn là biên tập viên tiếng Việt. Viết lại nguyên văn đoạn sau, chỉ thay các cụm chữ Hán/Nhật/Hàn và các từ nối tiếng Anh lạc vào câu (with, the, and, however…) bằng tiếng Việt tự nhiên đúng nghĩa. Giữ nguyên tên riêng, thuật ngữ, mã, URL, số liệu, xuống dòng và [n]. Chỉ trả về đoạn đã sửa."}, {"user", t}}, func(string) {})
 		if out = strings.TrimSpace(out); err != nil || out == "" || hasHan(out) || len(out) < len(t)/2 {
 			out = stripHan(t)
 		}

@@ -65,44 +65,9 @@ func budgetBlocks(blocks []string, max int) []string {
 	return out
 }
 
-// compactHistory folds turns older than the recent window into one digest
-// message (deterministic, no extra model call) and caps long old replies,
-// so long chats keep their thread of decisions without blowing the context.
-func compactHistory(msgs []ChatMsg) []ChatMsg {
-	if len(msgs) <= 1 {
-		return msgs
-	}
-	sys, rest := msgs[0], msgs[1:]
-	// Count turns by user messages.
-	var users []int
-	for i, m := range rest {
-		if m.Role == "user" {
-			users = append(users, i)
-		}
-	}
-	if len(users) > keepFullTurns {
-		cut := users[len(users)-keepFullTurns]
-		var sb strings.Builder
-		sb.WriteString("TÓM TẮT CÁC LƯỢT CŨ (rút gọn tự động; chi tiết đầy đủ đã lược):\n")
-		for _, m := range rest[:cut] {
-			who := "Darren"
-			if m.Role != "user" {
-				who = "Bạn"
-			}
-			fmt.Fprintf(&sb, "- %s: %s\n", who, clean(firstLine(m.Content), 160))
-		}
-		rest = append([]ChatMsg{{Role: "system", Content: sb.String()}}, rest[cut:]...)
-	}
-	out := []ChatMsg{sys}
-	n := len(rest)
-	for i, m := range rest {
-		if m.Role == "assistant" && i < n-4 && len(m.Content) > maxOldReply {
-			m.Content = truncateResult(m.Content, maxOldReply)
-		}
-		out = append(out, m)
-	}
-	return out
-}
+// compactHistory folds turns older than the recent window into a
+// checkpoint (owner messages verbatim, own replies digested); see steward.go.
+func compactHistory(msgs []ChatMsg) []ChatMsg { return compactWith(msgs, nil) }
 
 // ---- per-bot memory ----
 

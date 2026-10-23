@@ -40,6 +40,8 @@ type Service struct {
 	V        *vault.Vault
 	Tools    *tools.Kit
 	Mem      *memStore
+	steward  *steward
+	usage    *usageLog
 	PC       *computer.Manager // per-bot sandboxed computers (nil = off)
 	mux      *http.ServeMux
 	pcb      pcBook // bot computer build state (build.go)
@@ -109,12 +111,13 @@ func New(ctx context.Context, store *ledger.Store, stateDir string, opt Options)
 		return nil, err
 	}
 	log.SetOutput(v.Writer(os.Stderr))
-	s := &Service{L: store, AI: model, Push: p, V: v, Tools: toolsFromEnv(), Mem: openMemory(stateDir), PC: openComputers(stateDir), Prefs: prefs, subs: map[chan Event]struct{}{}, ctx: ctx, wake: make(chan struct{}, 1), running: map[string]bool{}, seen: map[string]string{}, Now: time.Now}
+	s := &Service{L: store, AI: model, Push: p, V: v, Tools: toolsFromEnv(), Mem: openMemory(stateDir), steward: openSteward(stateDir), usage: openUsage(stateDir), PC: openComputers(stateDir), Prefs: prefs, subs: map[chan Event]struct{}{}, ctx: ctx, wake: make(chan struct{}, 1), running: map[string]bool{}, seen: map[string]string{}, Now: time.Now}
 	s.owner = opt.OwnerName
 	s.Out = outbound.NewRouter(outbound.Switch{Resolve: s.mailer})
 	s.routes()
 	s.connectorRoutes()
 	s.memoryRoutes()
+	s.usageRoutes()
 	s.computerRoutes()
 	s.sync()
 	go s.watch()
@@ -336,7 +339,7 @@ func (s *Service) runBrief(w ledger.Work) {
 	run := ledger.DirectRun{Runtime: s.AI.Runtime(), Kind: "brief"}
 	if s.AI.Configured() {
 		c, cancel := context.WithTimeout(s.ctx, 90*time.Second)
-		out, err := s.AI.Stream(c, []ChatMsg{
+		out, err := s.stream(c, w.BotID, "brief", []ChatMsg{
 			{"system", `Bạn viết bản tin sáng cho Darren từ trạng thái các agent. Trả về DUY NHẤT JSON: {"text":"1-2 câu chào và tóm tắt","items":["tối đa 5 dòng ngắn, ưu tiên việc cần Darren duyệt"]}. Tiếng Việt. Không bịa dữ kiện ngoài dữ liệu.`},
 			{"user", sb.String()},
 		}, func(string) {})

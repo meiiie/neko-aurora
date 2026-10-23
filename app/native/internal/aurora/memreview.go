@@ -37,7 +37,7 @@ func (s *Service) reviewMemory(w ledger.Work, saved string) {
 	go func() {
 		ctx, cancel := context.WithTimeout(context.Background(), 40*time.Second)
 		defer cancel()
-		out, err := s.AI.Stream(ctx, []ChatMsg{{"system", memReviewPrompt}, {"user", "DANH SÁCH ĐÃ NHỚ:\n" + known.String() + "\nTIN NHẮN:\n" + w.Text}}, func(string) {})
+		out, err := s.stream(ctx, w.BotID, "memory", []ChatMsg{{"system", memReviewPrompt}, {"user", "DANH SÁCH ĐÃ NHỚ:\n" + known.String() + "\nTIN NHẮN:\n" + w.Text}}, func(string) {})
 		if fact := memFact(out); err == nil && fact != "" {
 			s.remember(w, fact)
 		}

@@ -122,7 +122,7 @@ func (s *Service) factCheck(ctx context.Context, bot string, rep deckReport) []s
 	}
 	cctx, cancel := context.WithTimeout(ctx, 2*time.Minute)
 	defer cancel()
-	out, err := s.AI.Stream(cctx, []ChatMsg{{"system", factPrompt}, {"user", "GHI CHÚ NGHIÊN CỨU:\n" + notes + "\n\n" + b.String()}}, func(string) {})
+	out, err := s.stream(cctx, bot, "factcheck", []ChatMsg{{"system", factPrompt}, {"user", "GHI CHÚ NGHIÊN CỨU:\n" + notes + "\n\n" + b.String()}}, func(string) {})
 	if err != nil {
 		return nil // never block a build on the checker itself
 	}

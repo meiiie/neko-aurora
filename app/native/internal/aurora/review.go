@@ -175,7 +175,7 @@ func (s *Service) reviewDeliverable(ctx context.Context, bot string, tc *toolCtx
 	}
 	rctx, cancel := context.WithTimeout(ctx, 3*time.Minute)
 	defer cancel()
-	out, err := s.AI.Stream(rctx, []ChatMsg{{"system", reviewPrompt}, {"user", user}}, func(string) {})
+	out, err := s.stream(rctx, bot, "review", []ChatMsg{{"system", reviewPrompt}, {"user", user}}, func(string) {})
 	if err != nil {
 		return content, ""
 	}
