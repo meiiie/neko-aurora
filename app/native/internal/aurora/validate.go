@@ -12,6 +12,7 @@ package aurora
 
 import (
 	"archive/zip"
+	"context"
 	"encoding/xml"
 	"fmt"
 	"io"
@@ -32,6 +33,7 @@ type deckReport struct {
 	NotesWords int
 	Fails      []string
 	Warns      []string
+	SlideText  []string // per slide: shape text, then notes (for the fact pass)
 }
 
 func (r deckReport) ok() bool { return len(r.Fails) == 0 }
@@ -195,7 +197,7 @@ func validatePPTX(r io.ReaderAt, size int64, targetMin float64) deckReport {
 		}
 		return &n
 	}
-	var missingNotes, hiddenNoAnim, hiddenAnim, lowContrast, tiny []string
+	var missingNotes, hiddenNoAnim, hiddenAnim, lowContrast, tiny, overlapped []string
 	for _, i := range slides {
 		sl := read(fmt.Sprintf("ppt/slides/slide%d.xml", i))
 		if sl == nil {
@@ -223,9 +225,17 @@ func validatePPTX(r io.ReaderAt, size int64, targetMin float64) deckReport {
 		}
 		var titleTxt, titleClr, titleBg string
 		titleSz := 0
-		sl.walk(func(x *xnode, _ []*xnode) {
+		var stxt strings.Builder
+		var boxes []textBox
+		sl.walk(func(x *xnode, ps []*xnode) {
 			if x.XMLName.Local != "sp" {
 				return
+			}
+			if t := x.text(); t != "" {
+				stxt.WriteString(t + "\n")
+				if b, ok := boxOf(x, ps); ok {
+					boxes = append(boxes, b)
+				}
 			}
 			nv := x.find("cNvPr")
 			if nv != nil && (nv.attr("hidden") == "1" || nv.attr("hidden") == "true") {
@@ -280,6 +290,7 @@ func validatePPTX(r io.ReaderAt, size int64, targetMin float64) deckReport {
 							if sp.XMLName.Local == "sp" {
 								if ph := sp.find("ph"); ph != nil && ph.attr("type") == "body" {
 									words += len(strings.FieldsFunc(sp.text(), func(r rune) bool { return unicode.IsSpace(r) }))
+									stxt.WriteString("GHI CHÚ: " + sp.text() + "\n")
 								}
 							}
 						})
@@ -291,6 +302,13 @@ func validatePPTX(r io.ReaderAt, size int64, targetMin float64) deckReport {
 			missingNotes = append(missingNotes, strconv.Itoa(i))
 		}
 		rep.NotesWords += words
+		rep.SlideText = append(rep.SlideText, stxt.String())
+		for _, o := range overlaps(boxes) {
+			overlapped = append(overlapped, fmt.Sprintf("slide %d %s", i, o))
+		}
+	}
+	if m := unaccentedVi(strings.Join(rep.SlideText, "\n")); m != "" {
+		rep.Fails = append(rep.Fails, m)
 	}
 	list := func(xs []string) string {
 		if len(xs) > 6 {
@@ -315,6 +333,9 @@ func validatePPTX(r io.ReaderAt, size int64, targetMin float64) deckReport {
 		if got := float64(rep.NotesWords); got < want*0.8 || got > want*1.2 {
 			rep.Fails = append(rep.Fails, fmt.Sprintf("ghi chú %d từ ≈ %.1f phút, yêu cầu %.0f phút (cần %d–%d từ ở %d từ/phút)", rep.NotesWords, got/wordsPerMinute, targetMin, int(want*0.8), int(want*1.2), wordsPerMinute))
 		}
+	}
+	if len(overlapped) > 0 {
+		rep.Fails = append(rep.Fails, "chữ chồng lên nhau (khung chữ đè nhau): "+list(overlapped)+" — dời vị trí/thu nhỏ để các khung chữ không giao nhau")
 	}
 	if len(tiny) > 0 {
 		rep.Warns = append(rep.Warns, "chữ nhỏ hơn 12pt: "+list(tiny))
@@ -447,7 +468,7 @@ func checklistText(items []checkItem) string {
 
 // validateNew checks the decks changed since `since` and reports them for
 // the build loop.
-func (s *Service) validateNew(bot string, since time.Time) string {
+func (s *Service) validateNew(ctx context.Context, bot string, since time.Time) string {
 	if s.PC == nil {
 		return ""
 	}
@@ -470,6 +491,7 @@ func (s *Service) validateNew(bot string, since time.Time) string {
 		}
 		rep := validatePPTX(f, size, target)
 		f.Close()
+		rep.Fails = append(rep.Fails, s.factCheck(ctx, bot, rep)...)
 		fmt.Fprintf(&b, "\nKIỂM TRA TỰ ĐỘNG %s: %s", e.Path, rep)
 		if !rep.ok() {
 			b.WriteString("\n→ Sửa script tạo file theo các điểm CHƯA ĐẠT rồi chạy lại; chưa đạt thì chưa được báo xong.")

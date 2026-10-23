@@ -38,6 +38,8 @@ type pcState struct {
 	checklist []checkItem
 	targetMin float64
 	resumes   int // checkpointed continuations of this request
+	factKey   string
+	factOut   []string
 }
 
 type pcBook struct {

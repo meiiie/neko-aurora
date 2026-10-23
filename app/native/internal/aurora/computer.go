@@ -107,7 +107,7 @@ func (s *Service) runComputer(ctx context.Context, bot string, tc *toolCtx, c to
 			return tools.Result{}, err
 		}
 		s.noteRun(bot, c.arg, r.ExitCode)
-		return tools.Result{Summary: fmt.Sprintf("Chạy lệnh · mã thoát %d", r.ExitCode), Text: untrustedOut + fmtRun(r) + s.validateNew(bot, t0)}, nil
+		return tools.Result{Summary: fmt.Sprintf("Chạy lệnh · mã thoát %d", r.ExitCode), Text: untrustedOut + fmtRun(r) + s.validateNew(ctx, bot, t0)}, nil
 	case "computer_read_file":
 		txt, cut, err := s.PC.ReadFile(bot, c.arg)
 		if err != nil {
@@ -142,6 +142,11 @@ func (s *Service) runComputer(ctx context.Context, bot string, tc *toolCtx, c to
 		s.noteWrite(bot, x.Path)
 		txt := fmt.Sprintf("Đã ghi %s (%d byte) vào thư mục nhà /home/bot.", x.Path, len(content))
 		txt += bigFileHint(x.Path, len(content))
+		if reviewExt.MatchString(x.Path) {
+			if m := unaccentedVi(content); m != "" {
+				txt += " CẢNH BÁO: " + m + ". Ghi lại file với chữ có dấu."
+			}
+		}
 		if fixes != "" {
 			txt += " Trước khi ghi, hệ thống đã đối chiếu với ghi chú nghiên cứu và sửa: " + fixes + ". Dùng bản đã sửa (đọc lại bằng computer_read_file nếu cần sửa tiếp)."
 		}
@@ -196,7 +201,7 @@ func (s *Service) runApprovedCommand(w ledger.Work) {
 		s.record(w.BotID, w.RequestID, "delivery", fmt.Sprintf("Máy tính của %s chạy lệnh · %s", s.botName(w.BotID), d.Detail))
 		if err == nil {
 			s.noteRun(w.BotID, ap.Body, r.ExitCode)
-			follow := buildFollowUp(r, s.pcSnap(w.BotID)) + s.validateNew(w.BotID, t0) + checklistText(s.pcSnap(w.BotID).checklist)
+			follow := buildFollowUp(r, s.pcSnap(w.BotID)) + s.validateNew(ctx, w.BotID, t0) + checklistText(s.pcSnap(w.BotID).checklist)
 			if _, _, aerr := s.L.Accept(ledger.Input{BotID: w.BotID, ClientNonce: newID("computer-"), Text: clean(follow, 7000)}); aerr == nil {
 				s.poke()
 			}
@@ -299,7 +304,7 @@ func (s *Service) computerRoutes() {
 
 // deckGuide: what a real presentation deliverable needs (live runs 3-4
 // shipped decks with no notes, no animation and 10-12pt text).
-const deckGuide = "\nBÀI TRÌNH CHIẾU (.pptx bằng python-pptx): mỗi slide PHẢI có speaker notes chứa kịch bản nói của slide đó (slide.notes_slide.notes_text_frame.text), tổng thời lượng đúng yêu cầu (~130 từ/phút); sơ đồ/quy trình dựng bằng shape và có animation xuất hiện lần lượt (chèn p:timing vào XML slide); cỡ chữ: tiêu đề ≥ 32pt, nội dung ≥ 18pt, chú thích ≥ 14pt, tối đa 5 ý mỗi slide; chữ trên slide khớp ghi chú nghiên cứu. Sau khi tạo, kiểm tra bằng script: số slide, slide nào thiếu notes, cỡ chữ nhỏ nhất.\nVIDEO: máy có RAM hạn chế — KHÔNG gom mọi khung hình vào list/bộ nhớ; ghi lần lượt: w=imageio.get_writer('out/preview.mp4', fps=…, codec='libx264'); với mỗi khung hình w.append_data(numpy.asarray(img)); w.close(). Mỗi slide vẽ 1 khung rồi append lặp lại, không lưu hàng trăm PNG.\nSCRIPT LỚN: tách thành vài module nhỏ (mỗi file < ~6 KB, vd. deck_slides.py + build_deck.py import nó); sửa lỗi bằng computer_edit_file thay vì ghi lại cả file; chuỗi có dấu nháy đơn bên trong thì bọc bằng nháy kép.\nLỆNH: mỗi computer_run chạy với set -e và pipefail: một phần lỗi là cả lệnh lỗi với đúng mã thoát đó (thêm `|| true` nếu lỗi được phép)."
+const deckGuide = "\nBÀI TRÌNH CHIẾU (.pptx bằng python-pptx): mỗi slide PHẢI có speaker notes chứa kịch bản nói của slide đó (slide.notes_slide.notes_text_frame.text), tổng thời lượng đúng yêu cầu (~130 từ/phút); sơ đồ/quy trình dựng bằng shape và có animation xuất hiện lần lượt (chèn p:timing vào XML slide); cỡ chữ: tiêu đề ≥ 32pt, nội dung ≥ 18pt, chú thích ≥ 14pt, tối đa 5 ý mỗi slide; chữ trên slide khớp ghi chú nghiên cứu. Sau khi tạo, kiểm tra bằng script: số slide, slide nào thiếu notes, cỡ chữ nhỏ nhất.\nVIDEO: máy có RAM hạn chế — KHÔNG gom mọi khung hình vào list/bộ nhớ; ghi lần lượt: w=imageio.get_writer('out/preview.mp4', fps=…, codec='libx264'); với mỗi khung hình w.append_data(numpy.asarray(img)); w.close(). Mỗi slide vẽ 1 khung rồi append lặp lại, không lưu hàng trăm PNG.\nTIẾNG VIỆT: mọi chữ trên slide, ghi chú, video phải CÓ DẤU đầy đủ (Unicode, file UTF-8); font Arial cho pptx, DejaVu Sans (/usr/share/fonts/truetype/dejavu/) cho ảnh/video — đều đủ dấu. Đặt các khung chữ không đè lên nhau.\nSCRIPT LỚN: tách thành vài module nhỏ (mỗi file < ~6 KB, vd. deck_slides.py + build_deck.py import nó); sửa lỗi bằng computer_edit_file thay vì ghi lại cả file; chuỗi có dấu nháy đơn bên trong thì bọc bằng nháy kép.\nLỆNH: mỗi computer_run chạy với set -e và pipefail: một phần lỗi là cả lệnh lỗi với đúng mã thoát đó (thêm `|| true` nếu lỗi được phép)."
 
 // computerNote tells the model when commands cannot run on this host, so
 // it offers what does work (listing, reading, writing files) instead of
