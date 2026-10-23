@@ -352,9 +352,9 @@ func workMessages(w ledger.Work, botRunning bool) []*Message {
 		}
 		return out
 	}
-	if d.Ack != "" {
-		out = append(out, &Message{ID: w.RequestID + ":ack", TaskID: w.RequestID, AgentID: w.BotID, Role: "agent", Text: d.Ack, Created: at})
-	}
+	// The acknowledgement is not its own bubble: one reply per turn, with the
+	// live status line ("Đang tìm nguồn…") covering the wait (field report
+	// 2026-10-23: a preamble bubble then the full answer read as two replies).
 	if len(d.Plan) > 0 {
 		out = append(out, &Message{ID: w.RequestID + ":plan", TaskID: w.RequestID, AgentID: w.BotID, Role: "agent", Text: d.PlanIntro, Plan: &Plan{Steps: append([]Step(nil), d.Plan...)}, Created: at})
 	}

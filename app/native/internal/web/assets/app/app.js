@@ -58,7 +58,7 @@ addEventListener("online",()=>{net();if(es&&es.readyState===2)connect()});addEve
 function connect(){es=new EventSource(API+"/events");
  es.onopen=()=>{if(esDown){esDown=false;loadState().catch(()=>{})}net()};
  es.onerror=()=>{esDown=true;setTimeout(net,2500)};
- es.addEventListener("agent",e=>{const a=JSON.parse(e.data);if(seen&&seen[a.id]==null)markSeen(a.id);upsert(a);if(cur&&cur.id===a.id){cur=a;markSeen(a.id);renderThread()}renderListSoon()});
+ es.addEventListener("agent",e=>{const a=JSON.parse(e.data);const was=S.agents.find(x=>x.id===a.id);if(was&&was.status==="working"&&a.status!=="working"&&S.msgs[a.id])loadMsgs(a.id).catch(()=>{});/* adopt server order once a turn ends (messages folded in mid-turn sit before the answer) */if(seen&&seen[a.id]==null)markSeen(a.id);upsert(a);if(cur&&cur.id===a.id){cur=a;markSeen(a.id);renderThread()}renderListSoon()});
  es.addEventListener("archived",e=>{const {id}=JSON.parse(e.data);S.agents=S.agents.filter(a=>a.id!==id);S.pending=S.pending.filter(m=>m.agentId!==id);renderListSoon()});
  es.addEventListener("message",e=>{const m=JSON.parse(e.data);const L=S.msgs[m.agentId];delete S.drafts[m.id];
   if(L){const i=L.findIndex(x=>x.id===m.id);if(i>=0)L[i]=m;else{const j=/:step\d+$/.test(m.id)?L.findIndex(x=>x.id===m.taskId):-1;if(j>=0)L.splice(j,0,m);else L.push(m)}}
@@ -210,7 +210,7 @@ function uniqSources(list){const seen=new Map();(list||[]).forEach((x,i)=>{if(!s
 // markdown lives in md.js (AURORA_MD); drafts render with streaming:true
 const md=(node,text,src,streaming)=>AURORA_MD.render(node,text,src,{streaming});
 document.addEventListener("aurora-copied",()=>{buzz("confirm");toast("Đã sao chép")});
-function sourceList(m){const w=el("details","sources");const sm=el("summary");const u=uniqSources(m.sources);const ok=u.length>0;sm.append(el("span",0,ok?`Nguồn · ${u.length}`:"Không lấy được dữ liệu"),I("chevron-down",14));w.append(sm);
+function sourceList(m){const w=el("details","sources");const sm=el("summary");const u=uniqSources(m.sources);const ok=u.length>0,T=m.tools||[],bad=T.length>0&&T.every(t=>t.status==="failed");sm.append(el("span",0,ok?`Nguồn · ${u.length}`:bad?"Không lấy được dữ liệu":`Các bước · ${T.length}`),I("chevron-down",14));w.append(sm);
  (m.tools||[]).forEach(t=>{const r=el("p","tool-line"+(t.status==="failed"?" bad":""),(t.summary||t.name)+(t.ms?" · "+(t.ms/1000).toFixed(1).replace(".",",")+"s":""));w.append(r)});const ol=el("ol");
  u.forEach(x=>{const li=el("li");const l=el("a");l.href=x.url;l.target="_blank";l.rel="noopener noreferrer";l.append(el("b",0,"["+x.n+"] "+(x.title||srcHost(x.url))),el("small",0,srcHost(x.url)+(x.at?" · "+new Date(x.at).toLocaleTimeString("vi-VN",{hour:"2-digit",minute:"2-digit"}):"")));li.append(l);ol.append(li)});w.append(ol);return w}
 function speaker(box,m,last){if(!isGroup(cur)||m.role!=="agent"||!m.from)return;if(last.v===m.from)return;last.v=m.from;const b=byId(m.from);const h=el("div","speaker");h.append(face(b&&b.av,20),el("span",0,b?b.name:"Bot"));box.append(h)}
@@ -220,13 +220,14 @@ function renderThread(){const a=cur;if(!a)return;$("#threadState").textContent=s
  box.innerHTML="";const L=S.msgs[a.id]||[];const last={v:null};
  const pin=atBottom(box);let prevT=0;
  L.forEach((m,idx)=>{if(m.role!=="agent")last.v=null;const t=T(m.t);if(m.role==="user"&&t>0&&(!prevT||t-prevT>15*60e3))box.append(el("div","daystamp",dayStamp(t)));if(t>0)prevT=t;
-  if(m.text){speaker(box,m,last);const b=el("div","msg"+(m.role==="user"?" mine":m.role==="system"?" sys":" bot"));if(m.role==="agent")md(b,m.text,m.sources);else b.textContent=m.text;if(m.queued){b.append(el("span","chip","Đang chờ lượt"))}box.append(b)}
+  if(m.text){speaker(box,m,last);const b=el("div","msg"+(m.role==="user"?" mine":m.role==="system"?" sys":" bot"));if(m.role==="agent")md(b,m.text,m.sources);else b.textContent=m.text;box.append(b)}
   if(m.plan)box.append(planCard(m));
   if(m.choices&&m.choices.length){const wrap=el("div","choices");const later=L.slice(idx+1).some(x=>x.role==="user");m.choices.forEach(ch=>{const b=el("button","choice",ch);b.disabled=later||usedChoice.has(m.id);b.onclick=async()=>{if(usedChoice.has(m.id))return;usedChoice.add(m.id);renderThread();if(!(await sendMsg(ch)))usedChoice.delete(m.id)};wrap.append(b)});box.append(wrap)}
   if(m.tools&&m.tools.length&&m.text&&!(a.status==="working"&&idx===L.length-1&&!m.text))box.append(sourceList(m));
   if(m.approval)box.append(approvalCard(m));if(m.secret)box.append(secretCard(m))});
  keepSec.forEach(([id,v])=>{const i=box.querySelector(`.secret[data-id="${id}"] input[data-secret]`);if(i)i.value=v});
  keepEdit.forEach(([id,v,sj])=>{const c=box.querySelector(`.approval[data-id="${id}"]`);if(c){const t=c.querySelector(".ap-body");if(t)t.value=v;const s2=c.querySelector(".ap-subject");if(s2&&sj!=null)s2.value=sj}});
+ outbox.filter(o=>o.agentId===a.id).forEach(o=>{last.v=null;const b=el("div","msg mine pending",o.text);if(o.wait)b.append(el("span","chip","đang gửi…"));box.append(b)});
  Object.entries(S.drafts).forEach(([id,d])=>{if(d.agentId===a.id&&shown(d)){speaker(box,{role:"agent",from:d.from},last);const b=el("div","msg bot draft");md(b,visible(d.text),srcOf(id),true);b.id="d_"+id;box.append(b)}});
  if(a.status==="working"&&!Object.values(S.drafts).some(d=>d.agentId===a.id&&shown(d)))box.append(turnStatus(a,L));
  setSendMode();
@@ -249,9 +250,20 @@ async function decide(m,v,bs,extra){if(deciding.has(m.id))return;deciding.add(m.
 // send ↔ stop in the same spot while the agent works (stopping holds queued follow-ups)
 function setSendMode(){const b=$("#composer .send");const empty=!$("#input").value.trim(),run=!!(cur&&cur.status==="working")&&empty,voice=empty&&!run;b.classList.toggle("stop",run);b.classList.toggle("voice",voice);b.replaceChildren(I(run?"square":voice?"audio-lines":"arrow-up"));b.setAttribute("aria-label",run?"Dừng":voice?"Nói":"Gửi")}
 let stopping=false;async function stopAgent(){if(!cur||stopping)return;stopping=true;try{await api(`/agents/${cur.id}/stop`,{});buzz("soft");toast("Đã dừng")}catch{toast("Không dừng được")}finally{stopping=false}}
-let sending=false;
-async function sendMsg(text){const a=cur;text=text.trim();if(!a||!text||sending)return false;sending=true;
- try{await api(`/agents/${a.id}/messages`,{text});buzz("tap");return true}catch(e){toast(e.status===429?"Bạn gửi nhanh quá, đợi vài giây rồi gửi lại nhé":!navigator.onLine?"Đang ngoại tuyến, tin chưa gửi":"Không gửi được, thử lại");return false}finally{sending=false}}
+
+// Outbox: the composer never blocks. Every message gets a client nonce, shows
+// at once, and is delivered in order; retries (offline, reconnect, 429/5xx)
+// reuse the nonce so the server stores it exactly once. The running bot folds
+// new messages into its current turn (server inbox), so nothing waits.
+const outbox=[];let pumping=false;const sleep=ms=>new Promise(r=>setTimeout(r,ms));
+function sendMsg(text){const a=cur;text=text.trim();if(!a||!text)return false;
+ outbox.push({agentId:a.id,text,n:"c"+Date.now().toString(36)+Math.random().toString(36).slice(2,10),t:Date.now()});buzz("tap");renderThread();pump();return true}
+async function pump(){if(pumping)return;pumping=true;try{while(outbox.length){const it=outbox[0];
+  try{const m=await api(`/agents/${it.agentId}/messages`,{text:it.text,clientNonce:it.n});outbox.shift();
+   if(m&&m.id){const L=S.msgs[it.agentId]||(S.msgs[it.agentId]=[]);if(!L.some(x=>x.id===m.id))L.push(m)}if(cur&&cur.id===it.agentId)renderThread()}
+  catch(e){if(e.status&&e.status>=400&&e.status<500&&e.status!==429){outbox.shift();toast("Không gửi được, thử lại");if(cur&&cur.id===it.agentId)renderThread();continue}
+   it.wait=true;if(cur&&cur.id===it.agentId)renderThread();await sleep(e.status===429?4000:!navigator.onLine?1500:2000)}}}finally{pumping=false}}
+addEventListener("online",pump);
 // edge-swipe back (iOS style), anywhere on screen while a thread is open
 (()=>{const th=$("#thread"),ls=$("#list"),root=$("#app");let x0=null,y0,dx=0,on=false;
  root.addEventListener("touchstart",e=>{const t=e.touches[0];if(!cur||sheetOpen||profId||t.clientX>28){x0=null;return}x0=t.clientX;y0=t.clientY;dx=0;on=false},{passive:true});
@@ -506,7 +518,7 @@ $("#search").oninput=e=>{filter=e.target.value;renderList()};
 $("#search").onkeydown=e=>{if(e.key==="Enter")e.target.blur()};
 // Grok-style composer: one line inline with mic/send; once text wraps, the field takes the full width and the buttons drop to a row below.
 const inp=$("#input"),ask=inp.parentElement;inp.oninput=()=>{const was=ask.classList.contains("multi");if(!inp.value)ask.classList.remove("multi");inp.style.height="auto";if(!was&&inp.value&&inp.scrollHeight>52)ask.classList.add("multi");inp.style.height="auto";inp.style.height=Math.min(160,inp.scrollHeight)+"px";setSendMode()};
-$("#composer").onsubmit=async e=>{e.preventDefault();stopVoice();const v=inp.value;if(!v.trim()){if(cur&&cur.status==="working")stopAgent();else if(SR)$("#micBtn").click();else inp.focus();return}inp.value="";inp.style.height="";ask.classList.remove("multi");inp.blur();justSent=true;setSendMode();if(!(await sendMsg(v))){inp.value=v;inp.oninput()}};
+$("#composer").onsubmit=async e=>{e.preventDefault();stopVoice();const v=inp.value;if(!v.trim()){if(cur&&cur.status==="working")stopAgent();else if(SR)$("#micBtn").click();else inp.focus();return}inp.value="";inp.style.height="";ask.classList.remove("multi");justSent=true;setSendMode();if(!sendMsg(v)){inp.value=v;inp.oninput()}};
 inp.onkeydown=e=>{if(e.key==="Enter"&&!e.shiftKey&&!e.isComposing){e.preventDefault();$("#composer").requestSubmit()}};
 document.addEventListener("visibilitychange",()=>{if(!document.hidden&&es)loadState().catch(()=>{})});
 if("serviceWorker"in navigator)navigator.serviceWorker.register("/app/sw.js",{scope:"/app/"}).then(r=>r.pushManager?.getSubscription()).then(s=>{if(s)pushOn=true}).catch(()=>{});

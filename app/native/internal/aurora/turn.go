@@ -33,7 +33,7 @@ CHOICES: ["lựa chọn A","lựa chọn B"]   ← khi cần Darren chọn nhanh
 APPROVAL: {"title":"<việc cần duyệt>","kind":"email|send|post|pay|other","to":"<email nếu là email>","subject":"<tiêu đề nếu là email>","body":"<toàn bộ nội dung đã soạn>"}   ← bắt buộc cho mọi hành động ra bên ngoài.
 SECRET: {"name":"TEN_IN_HOA","label":"<tên hiển thị>","desc":"<vì sao cần, lấy ở đâu>"}   ← khi cần Darren cung cấp mật khẩu/khoá API. Darren nhập vào thẻ ẩn, giá trị vào kho bí mật, bạn không bao giờ thấy. Không bao giờ xin Darren dán bí mật vào chat. Khi việc cần một mật khẩu/khoá chưa có, LUÔN thêm dòng SECRET (không chỉ mô tả bằng lời). Mật khẩu ứng dụng Gmail dùng tên GMAIL_APP_PASSWORD.
 TOOL: {"name":"web_search","q":"<truy vấn>"} | {"name":"web_fetch","url":"https://..."} | {"name":"gold_price"}   ← công cụ đọc dữ liệu thật trên máy chủ. Khi cần số liệu/tin tức hiện tại mà chưa có trong KẾT QUẢ CÔNG CỤ, in dòng TOOL rồi dừng; nhiều tra cứu độc lập (vd. giá từng mặt hàng) thì in tối đa 3 dòng TOOL cùng lúc, hệ thống chạy song song rồi gọi lại bạn.
-TOOL: {"name":"computer_write_file","path":"<đường dẫn trong /home/bot>","content":"<nội dung>"} | {"name":"computer_run","cmd":"<lệnh shell>"} | {"name":"computer_read_file","path":"..."} | {"name":"computer_list","path":""}   ← máy tính Linux riêng của bạn (thư mục nhà /home/bot giữ lại giữa các lượt; có python3; mặc định không có mạng). Dùng để viết và chạy script, phân tích file CSV/dữ liệu. Ghi file trước rồi mới chạy lệnh; lệnh có thể thay đổi máy sẽ chờ Darren duyệt (hệ thống tự tạo thẻ duyệt, bạn không cần viết APPROVAL cho lệnh). Mỗi lượt in tối đa 1 dòng computer_run.
+TOOL: {"name":"computer_write_file","path":"<đường dẫn trong /home/bot>","content":"<nội dung>"} | {"name":"computer_run","cmd":"<lệnh shell>"} | {"name":"computer_read_file","path":"..."} | {"name":"computer_list","path":""}   ← máy tính Linux riêng của bạn (thư mục nhà /home/bot giữ lại giữa các lượt; có python3; mặc định không có mạng). Dùng để viết và chạy script, phân tích file CSV/dữ liệu. Ghi file trước rồi mới chạy lệnh; lệnh có thể thay đổi máy sẽ chờ Darren duyệt (hệ thống tự tạo thẻ duyệt, bạn không cần viết APPROVAL cho lệnh). Mỗi lượt in tối đa 1 dòng computer_run. Nếu không làm được đúng điều được nhờ (vd. chụp màn hình), làm ngay phương án thay thế cụ thể bằng công cụ (vd. chạy lệnh rồi đưa kết quả thật) thay vì chỉ hỏi lại.
 MEMORY: {"text":"<một sở thích/bối cảnh lâu dài Darren vừa nói rõ hoặc xác nhận>"}   ← chỉ khi Darren nói rõ muốn bạn nhớ hoặc nêu sở thích lâu dài; không bao giờ ghi bí mật, mật khẩu.
 - Số liệu (giá, tỷ giá, ngày, phần trăm) chỉ được lấy từ KẾT QUẢ CÔNG CỤ, ghi nguồn dạng [1], [2]. Tuyệt đối không bịa hay ước đoán số; thiếu dữ liệu thì nói rõ thiếu. Khi đã có KẾT QUẢ CÔNG CỤ thì trả lời thẳng, không dùng PLAN.
 - Không bao giờ nhắc tên kỹ thuật của công cụ hay chỉ thị (web_search, web_fetch, gold_price, TOOL…) trong câu trả lời; nói bằng lời thường như "tìm trên web", "đọc trang".
@@ -447,6 +447,9 @@ func (s *Service) runWork(w ledger.Work) {
 	})
 	s.endDraft(w)
 	s.agui(AGUIEvent{Type: RUN_FINISHED, ThreadID: w.BotID, RunID: w.RequestID})
+	if s.absorbed(w.RequestID) {
+		return // folded into an earlier run: no activity line or push of its own
+	}
 	if done, _ := s.L.Get(w.RequestID); done.Direct != nil && len(done.Direct.Plan) > 0 {
 		s.record(w.BotID, w.RequestID, "plan", name+" chạy kế hoạch "+itoa(len(done.Direct.Plan))+" bước")
 	} else {
@@ -538,6 +541,11 @@ func promiseOnly(d directives) bool {
 
 func (s *Service) runTurn(ctx context.Context, w ledger.Work) (*Approval, []string, error) {
 	tc := &toolCtx{}
+	if s.absorbed(w.RequestID) {
+		// Already folded into the previous run (shown above its answer):
+		// finish silently instead of a second, redundant reply.
+		return nil, nil, nil
+	}
 	// Reply flow: short acknowledgement first, then the tool status line, then
 	// the result as its own message (progress only at milestones).
 	if auto := s.autoTools(w); len(auto) > 0 {
@@ -545,11 +553,6 @@ func (s *Service) runTurn(ctx context.Context, w ledger.Work) (*Approval, []stri
 		for _, c := range auto {
 			s.runTool(ctx, w, tc, c.name, c.arg)
 		}
-	}
-	if s.absorbed(w.RequestID) {
-		// Already folded into the previous run (shown above its answer):
-		// finish silently instead of a second, redundant reply.
-		return nil, nil, nil
 	}
 	var d directives
 	var err error
@@ -562,9 +565,9 @@ func (s *Service) runTurn(ctx context.Context, w ledger.Work) (*Approval, []stri
 	} else if !followUp && multiPart(w.Text) && threadOf(w) == w.BotID {
 		// Long multi-part request without numbered steps: ask the model to
 		// propose the plan first, so it runs with milestones.
-		d, err = s.call(ctx, w, append(tc.inject(s.history(w.BotID, w.RequestID)), ChatMsg{Role: "system", Content: planNudge}))
+		d, err = s.ask(ctx, w, tc, func() []ChatMsg { return append(tc.inject(s.history(w.BotID, w.RequestID)), ChatMsg{Role: "system", Content: planNudge}) })
 	} else {
-		d, err = s.call(ctx, w, tc.inject(s.history(w.BotID, w.RequestID)))
+		d, err = s.ask(ctx, w, tc, func() []ChatMsg { return tc.inject(s.history(w.BotID, w.RequestID)) })
 	}
 	if err == nil && promiseOnly(d) {
 		// "Em sẽ làm từng bước…" and then nothing: ask once for the action itself.
@@ -572,7 +575,7 @@ func (s *Service) runTurn(ctx context.Context, w ledger.Work) (*Approval, []stri
 		if cur, _ := s.L.Get(w.RequestID); cur.Direct != nil && cur.Direct.Ack == "" {
 			s.ack(w, firstLine(d.Text))
 		}
-		d, err = s.call(ctx, w, append(tc.inject(s.history(w.BotID, w.RequestID)), ChatMsg{Role: "system", Content: actNudge}))
+		d, err = s.ask(ctx, w, tc, func() []ChatMsg { return append(tc.inject(s.history(w.BotID, w.RequestID)), ChatMsg{Role: "system", Content: actNudge}) })
 	}
 	for round := 0; err == nil && len(d.Tools) > 0 && round < maxToolRounds && s.Tools != nil; round++ {
 		s.publish("draft_end", map[string]string{"id": w.RequestID, "agentId": threadOf(w)})
@@ -586,8 +589,7 @@ func (s *Service) runTurn(ctx context.Context, w ledger.Work) (*Approval, []stri
 			d = directives{Text: "Mình cần bạn duyệt lệnh này trước khi chạy trên máy tính của mình.", Approval: computerApproval(tc.pendingCmd)}
 			break
 		}
-		s.steer(w, tc)
-		d, err = s.call(ctx, w, tc.inject(s.history(w.BotID, w.RequestID)))
+		d, err = s.ask(ctx, w, tc, func() []ChatMsg { return tc.inject(s.history(w.BotID, w.RequestID)) })
 	}
 	if err == nil && len(d.Tools) > 0 && len(tc.blocks) > 0 {
 		// Out of lookups but holding real results: write the answer from them
@@ -695,16 +697,14 @@ func (s *Service) stepCall(ctx context.Context, w ledger.Work, tc *toolCtx, prom
 	mk := func(extra ...ChatMsg) []ChatMsg {
 		return append(append(tc.inject(s.history(w.BotID, w.RequestID)), ChatMsg{Role: "user", Content: prompt}), extra...)
 	}
-	s.steer(w, tc)
-	d, err := s.call(ctx, w, mk())
+	d, err := s.ask(ctx, w, tc, func() []ChatMsg { return mk() })
 	for r := 0; err == nil && len(d.Tools) > 0 && r < 4 && s.Tools != nil; r++ {
 		s.publish("draft_end", map[string]string{"id": w.RequestID, "agentId": threadOf(w)})
 		s.runTools(ctx, w, tc, callsOf(d.Tools))
 		if tc.pendingCmd != "" {
 			return directives{Text: "Bước này cần chạy lệnh trên máy tính của mình, bạn duyệt giúp nhé.", Approval: computerApproval(tc.pendingCmd)}, nil
 		}
-		s.steer(w, tc)
-		d, err = s.call(ctx, w, mk())
+		d, err = s.ask(ctx, w, tc, func() []ChatMsg { return mk() })
 	}
 	if err == nil && len(d.Tools) > 0 {
 		s.publish("draft_end", map[string]string{"id": w.RequestID, "agentId": threadOf(w)})

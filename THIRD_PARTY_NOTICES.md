@@ -118,3 +118,7 @@ WITHOUT WARRANTY OF ANY KIND.
   of sources from apps/mobile/src/search-tool-card.tsx (commit 1ac68f3).
 - Versioned, domain-separated AES-GCM envelope (packages/integrations/src/vault.ts):
   our vault entries now carry `v: 1` with AAD `neko-aurora:secret:v1:<name>`.
+
+## Neko Core (Meiiie / The Wiii Lab) — AGPL-3.0-only (outside sdk/)
+- Source: https://github.com/meiiie/neko-core
+- Used: design patterns only, re-implemented in Go/JS (non-blocking input queue that drains in order, abort-at-step-boundary steering, checkpointed continuation after interruption). No code copied. See docs/runtime-decision-2026-10-23.md.

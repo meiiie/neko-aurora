@@ -67,7 +67,7 @@ func TestSteeredMessageShownBeforeRewrittenAnswer(t *testing.T) {
 	for _, m := range newView(st.Snapshot()).messages(bot, 0) {
 		ids = append(ids, m.ID)
 	}
-	want := []string{a.RequestID + ":u", a.RequestID + ":ack", b.RequestID + ":u", a.RequestID}
+	want := []string{a.RequestID + ":u", b.RequestID + ":u", a.RequestID}
 	got := strings.Join(ids, ",")
 	if got != strings.Join(want, ",") {
 		t.Fatalf("order %s", got)

@@ -163,7 +163,7 @@ func validDirectRun(d *DirectRun) bool {
 	if d == nil || d.Version != 1 || (d.Runtime != "neko-core-cli" && d.Runtime != "direct-http" && d.Runtime != "imported") || (d.Kind != "" && d.Kind != "brief" && d.Kind != "note" && d.Kind != "computer") {
 		return false
 	}
-	if !directText(d.Model, 128) || d.StartedAt == "" || !directText(d.PlanIntro, 2000) || !directText(d.Ack, 600) || len(d.Plan) > 8 || len(d.Steered) > 4 || len(d.Choices) > 4 || len(d.Items) > 8 {
+	if !directText(d.Model, 128) || d.StartedAt == "" || !directText(d.PlanIntro, 2000) || !directText(d.Ack, 600) || len(d.Plan) > 8 || len(d.Steered) > MaxSteered || len(d.Choices) > 4 || len(d.Items) > 8 {
 		return false
 	}
 	for _, st := range d.Plan {
@@ -241,6 +241,9 @@ func validDirectReplay(old, w Work, typ string) bool {
 // MaxDirectResumes bounds automatic restarts of one direct run so a turn
 // that crashes the process cannot loop forever.
 const MaxDirectResumes = 2
+
+// MaxSteered bounds owner messages one run can absorb mid-turn.
+const MaxSteered = 8
 
 // DirectResume puts an unfinished direct run (its process died or its lease
 // expired) back in the queue: the partial run and reply are dropped and the

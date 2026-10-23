@@ -7,6 +7,9 @@ package aurora
 // OpenDots (MIT: MAX_RESULT_CHARS + "[truncated]").
 
 import (
+	"context"
+	"errors"
+	"sync/atomic"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -231,32 +234,94 @@ func (s *Service) steer(w ledger.Work, tc *toolCtx) bool {
 	if threadOf(w) != w.BotID {
 		return false
 	}
-	v := newView(s.L.Snapshot())
-	taken := v.steeredBy()
-	after, got := false, false
-	for _, q := range v.byBot[w.BotID] {
-		if q.RequestID == w.RequestID {
-			after = true
-			continue
-		}
-		if !after || !eligible(q) || strings.HasPrefix(q.ClientNonce, "brief-") || taken[q.RequestID] != "" {
-			continue
-		}
+	got := false
+	for _, q := range s.inbox(w) {
 		id := q.RequestID
 		ok := false
 		s.update(w.RequestID, func(r *ledger.DirectRun) {
-			if len(r.Steered) < 4 {
+			if len(r.Steered) < ledger.MaxSteered {
 				r.Steered, ok = append(r.Steered, id), true
 			}
 		})
 		if !ok {
 			continue
 		}
-		tc.note("DARREN VỪA NHẮN THÊM GIỮA CHỪNG (điều chỉnh việc đang làm theo tin này; nói thẳng với Darren bằng “bạn”, không thuật lại kiểu “Darren đổi ý” hay “bạn đổi ý”; vẫn trích nguồn [n]): " + clean(q.Text, 1500))
+		tc.note("NGƯỜI DÙNG VỪA NHẮN THÊM GIỮA CHỪNG (gộp vào việc đang làm: trả lời/điều chỉnh theo tin này trong CÙNG câu trả lời; nói thẳng bằng “bạn”, không thuật lại kiểu “bạn đổi ý”; vẫn trích nguồn [n]): " + clean(q.Text, 1500))
 		s.record(w.BotID, w.RequestID, "step", "Nhận chỉ dẫn mới giữa chừng")
 		got = true
 	}
 	return got
+}
+
+// inbox lists owner messages queued for this bot after the running turn
+// that no run has absorbed yet (per-bot single runner + inbox: the runner
+// drains it at every step boundary instead of making messages wait).
+func (s *Service) inbox(w ledger.Work) []ledger.Work {
+	if threadOf(w) != w.BotID {
+		return nil
+	}
+	v := newView(s.L.Snapshot())
+	taken := v.steeredBy()
+	var out []ledger.Work
+	after := false
+	for _, q := range v.byBot[w.BotID] {
+		if q.RequestID == w.RequestID {
+			after = true
+			continue
+		}
+		if after && eligible(q) && !strings.HasPrefix(q.ClientNonce, "brief-") && !strings.HasPrefix(q.ClientNonce, "computer-") && taken[q.RequestID] == "" {
+			out = append(out, q)
+		}
+	}
+	return out
+}
+
+var errSteered = errors.New("steered")
+
+// ask runs one model call that a new owner message can interrupt
+// (interrupt-and-merge, as Claude Code / Codex steering and neko-core's
+// checkpointed continuation): while the answer streams, the inbox is
+// polled; a new message cancels the stream, the draft is discarded, the
+// message is folded in and the call is rebuilt. Bounded so a stream of
+// messages cannot starve the answer forever.
+func (s *Service) ask(ctx context.Context, w ledger.Work, tc *toolCtx, build func() []ChatMsg) (directives, error) {
+	for i := 0; ; i++ {
+		if i < maxInterrupts {
+			s.steer(w, tc)
+		}
+		cctx, cancel := context.WithCancel(ctx)
+		var hit atomic.Bool
+		if i < maxInterrupts {
+			go s.watchInbox(cctx, w, func() { hit.Store(true); cancel() })
+		}
+		d, err := s.call(cctx, w, build())
+		cancel()
+		if hit.Load() && ctx.Err() == nil {
+			s.publish("draft_end", map[string]string{"id": w.RequestID, "agentId": threadOf(w)})
+			continue
+		}
+		return d, err
+	}
+}
+
+const maxInterrupts = 3
+
+var inboxPoll = 250 * time.Millisecond
+
+func (s *Service) watchInbox(ctx context.Context, w ledger.Work, fire func()) {
+	t := time.NewTicker(inboxPoll)
+	defer t.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-t.C:
+			if len(s.inbox(w)) > 0 {
+				fire()
+				return
+			}
+		}
+	}
 }
 
 // steeredBy maps a steered request id to the run that absorbed it.
