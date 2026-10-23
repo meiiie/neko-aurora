@@ -558,7 +558,7 @@ const maxToolRounds = 5
 
 const finalNudge = "Đã hết lượt tra cứu cho lượt này. Viết NGAY câu trả lời cuối cùng chỉ từ KẾT QUẢ CÔNG CỤ ở trên, trích [n], nói rõ phần nào còn thiếu dữ liệu. Không viết dòng TOOL."
 
-const actNudge = "Bạn vừa nói sẽ làm nhưng chưa làm gì. Làm ngay trong lượt này: việc nhiều bước thì viết PLAN, cần số liệu thì in đúng một dòng TOOL, còn lại thì trả lời đầy đủ luôn. Không hứa thêm."
+const actNudge = "Bạn vừa nói sẽ làm (hoặc chép dòng “(đã gọi công cụ …)” — dòng đó KHÔNG gọi công cụ) nhưng chưa làm gì. Làm ngay trong lượt này: việc nhiều bước thì viết PLAN, cần số liệu thì in đúng một dòng TOOL, còn lại thì trả lời đầy đủ luôn. Không hứa thêm."
 
 const planNudge = "Yêu cầu này gồm nhiều phần. Trả lời đúng 1 câu nêu cách làm, rồi một dòng PLAN 3-6 bước ngắn (bước cuối là tổng hợp/viết kết quả). Chưa tra cứu, chưa trả lời chi tiết. Nếu thật ra chỉ là một câu hỏi đơn giản thì trả lời luôn."
 
@@ -575,6 +575,11 @@ var promiseRe = regexp.MustCompile(`(?i)(^|\s)(sẽ|để (em|mình|tôi) (tra|l
 // promiseOnly reports a short reply that only announces work it never does
 // (no directive, no question): dogfood v16 long-task failure.
 func promiseOnly(d directives) bool {
+	if len(d.Tools) == 0 && toolMimicRe.MatchString(d.Text) {
+		// live run 3: the model copied the history's "(đã gọi công cụ
+		// computer_write_file, trạng thái: pending)" line instead of a TOOL line
+		return true
+	}
 	t := strings.TrimSpace(d.Text)
 	return len(d.Tools) == 0 && d.Approval == nil && d.Secret == nil && len(d.Plan) == 0 && len(d.Choices) == 0 &&
 		t != "" && len([]rune(t)) < 220 && !strings.Contains(t, "?") && promiseRe.MatchString(t)
@@ -897,7 +902,11 @@ var internalName = map[string]string{"web_fetch": "đọc trang", "web_search": 
 
 // scrubInternal replaces internal tool identifiers that leak into replies
 // ("Định dạng web_fetch bị chặn") with plain Vietnamese.
+// toolMimicRe is the history's tool-call note copied into a reply.
+var toolMimicRe = regexp.MustCompile(`(?m)^[ \t]*\(đã gọi công cụ [a-z_]+, trạng thái[^)\n]*\)[ \t]*$`)
+
 func scrubInternal(t string) string {
+	t = strings.TrimSpace(toolMimicRe.ReplaceAllString(t, ""))
 	return internalRe.ReplaceAllStringFunc(t, func(m string) string {
 		k := strings.ToLower(internalRe.FindStringSubmatch(m)[2])
 		return "việc " + internalName[k]

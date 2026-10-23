@@ -67,7 +67,7 @@ func (b *Bwrap) probe() error {
 
 // sandboxEnv is the complete environment inside the sandbox. It is built
 // from constants, never from os.Environ, so no host secret can leak in.
-var sandboxEnv = []string{"PATH=/usr/local/bin:/usr/bin:/bin", "HOME=/home/bot", "USER=bot", "LANG=C.UTF-8", "LC_ALL=C.UTF-8", "TERM=dumb", "PYTHONDONTWRITEBYTECODE=1", "MPLBACKEND=Agg", "TMPDIR=/tmp"}
+var sandboxEnv = []string{"PATH=/usr/local/bin:/usr/bin:/bin", "HOME=/home/bot", "USER=bot", "LANG=C.UTF-8", "LC_ALL=C.UTF-8", "TERM=dumb", "PYTHONDONTWRITEBYTECODE=1", "MPLBACKEND=Agg", "TMPDIR=/tmp", "PIP_NO_CACHE_DIR=1", "PIP_ROOT_USER_ACTION=ignore", "PIP_DISABLE_PIP_VERSION_CHECK=1"}
 
 func (b *Bwrap) args(s Spec) []string {
 	l := s.Limits

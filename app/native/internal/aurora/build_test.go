@@ -277,3 +277,13 @@ func TestNewCommandCardSupersedesOlder(t *testing.T) {
 		t.Fatal("superseded command ran")
 	}
 }
+
+func TestCopiedToolNoteIsNotAReply(t *testing.T) {
+	d := ParseDirectives("(đã gọi công cụ computer_write_file, trạng thái: pending)\n(đã gọi công cụ computer_write_file, trạng thái: pending)")
+	if !promiseOnly(d) {
+		t.Fatal("copied tool note must trigger the act nudge")
+	}
+	if got := scrubInternal("Mình viết script.\n(đã gọi công cụ computer_run, trạng thái duyệt: approved)\nXong phần 1."); strings.Contains(got, "đã gọi công cụ") || !strings.Contains(got, "Xong phần 1.") {
+		t.Fatalf("%q", got)
+	}
+}

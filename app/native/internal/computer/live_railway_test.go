@@ -91,7 +91,9 @@ func TestRailwayGoneError(t *testing.T) {
 	t.Logf("err=%v gone=%v", err, err == errSandboxGone)
 }
 
-// RAILWAY_BAKE=<checkpoint name>: boot from the current base, preinstall the
+// RAILWAY_BAKE=<checkpoint name>: boot from the current base, install with
+// the python3 that commands see (PATH=/usr/local/bin:/usr/bin:/bin under env -i;
+// a plain pip went to mise's python and bots could not import pptx), preinstall the
 // document/video stack (python-pptx, Pillow, imageio + its bundled ffmpeg)
 // and save it as a new checkpoint, so bots stop pip-installing per task.
 func TestRailwayBakeCheckpoint(t *testing.T) {
@@ -107,7 +109,7 @@ func TestRailwayBakeCheckpoint(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer r.destroyID(ctx, id)
-	o, err := r.exec(ctx, id, "pip install -q --break-system-packages python-pptx Pillow imageio imageio-ffmpeg 2>&1 | tail -3 || pip install -q python-pptx Pillow imageio imageio-ffmpeg 2>&1 | tail -3; python3 -c 'import pptx,PIL,imageio,imageio_ffmpeg;print(pptx.__version__,PIL.__version__,imageio.__version__,imageio_ffmpeg.get_ffmpeg_exe())'; pip cache purge >/dev/null 2>&1; df -h / | tail -1", 600)
+	o, err := r.exec(ctx, id, "E='env -i PATH=/usr/local/bin:/usr/bin:/bin HOME=/root'; $E which python3; ($E python3 -m pip --version || (apt-get install -y -qq python3-pip >/dev/null 2>&1)); $E python3 -m pip install -q --break-system-packages --no-cache-dir python-pptx Pillow imageio imageio-ffmpeg 2>&1 | tail -3; cd /tmp && $E python3 -c 'import pptx,PIL,imageio,imageio_ffmpeg;print(pptx.__version__,PIL.__version__,imageio.__version__,imageio_ffmpeg.get_ffmpeg_exe())'", 600)
 	t.Logf("%v exit=%v out=%s err=%s", err, o.ExitCode, o.Stdout, o.Stderr)
 	if err != nil || o.ExitCode == nil || *o.ExitCode != 0 || !strings.Contains(o.Stdout, "ffmpeg") {
 		t.Fatal("install failed")

@@ -28,7 +28,7 @@ try{
  let seen=(await msgs()).length;const t0=Date.now();
  await post(`agents/${bot}/messages`,{text:PROMPT,clientNonce:'pptx-'+Date.now()});log('USER:',PROMPT.slice(0,80));
  const nudges=['Tiếp tục làm file .pptx trên máy tính của bạn nhé (cài python-pptx nếu cần), xong gửi link tải.','Giờ dựng video xem trước (vd. render slide ra ảnh rồi ghép mp4 bằng ffmpeg nếu có) và gửi link tải.','Gửi mình link tải file pptx, kịch bản và video nhé.'];let ni=0;
- for(let round=0;round<8;round++){
+ for(let round=0;round<(+process.env.ROUNDS||8);round++){
   if(credit()<1.2){log('STOP: credit < $1.2');break}
   await idle(600);const L=await msgs();const nw=L.slice(seen);seen=L.length;
   for(const m of nw)log(`[r${round}] ${m.role}:`,(m.text||'').slice(0,600).replace(/\n/g,' ⏎ '),m.approval?`APPROVAL(${m.approval.state}): ${(m.approval.body||m.approval.title||'').slice(0,300)}`:'',(m.tools||[]).map(t=>t.name+':'+t.status).join(','),(m.sources||[]).length?`sources=${m.sources.length}`:'');
