@@ -256,6 +256,25 @@ type handoff struct {
 
 var allMention = []string{"@all", "@tat ca", "@moi nguoi", "@ca nhom"}
 
+// everyone phrases without an @ (folded): the owner talks to the whole group
+// ("hai bạn chào mình", "mỗi bạn giới thiệu", "cả nhóm góp ý").
+var allPhrases = []string{"hai ban", "ba ban", "bon ban", "cac ban", "ca hai", "ca ba", "ca nhom", "moi nguoi", "tat ca cac", "moi ban", "tung ban", "everyone", "all of you", "both of you", "each of you"}
+
+func hasWord(f, w string) bool {
+	for i := 0; ; {
+		j := strings.Index(f[i:], w)
+		if j < 0 {
+			return false
+		}
+		j += i
+		end := j + len(w)
+		if (j == 0 || !isWordByte(f[j-1])) && (end == len(f) || !isWordByte(f[end])) {
+			return true
+		}
+		i = j + 1
+	}
+}
+
 // mentioned returns the members named with @ in text, in member order; all
 // is true for an everyone-mention.
 func (v *view) mentioned(c ledger.Channel, text string) (ids []string, all bool) {
@@ -281,7 +300,27 @@ func (v *view) mentioned(c ledger.Channel, text string) (ids []string, all bool)
 			}
 		}
 	}
-	return ids, false
+	if len(ids) > 0 {
+		return ids, false
+	}
+	for _, ph := range allPhrases {
+		if hasWord(f, ph) {
+			return nil, true
+		}
+	}
+	// two or more members named without @ ("Thư ký và Phân tích, …")
+	var named []string
+	for _, id := range c.BotIDs {
+		if b, ok := v.bot(id); ok && !v.archived[id] {
+			if n := foldText(displayName(b)); len(n) >= 3 && hasWord(f, n) {
+				named = append(named, id)
+			}
+		}
+	}
+	if len(named) >= 2 {
+		return named, false
+	}
+	return nil, false
 }
 
 func isWordByte(b byte) bool {

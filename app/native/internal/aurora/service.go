@@ -31,6 +31,7 @@ type Event struct {
 // no bot, message or task model: agents are ledger bots, messages are ledger
 // work items, plans and approvals are journaled on that work.
 type Service struct {
+	bg       sync.WaitGroup // turn runners and post-turn reviews; Wait() joins them on shutdown
 	sendRate rate
 	L        *ledger.Store
 	AI       Model
@@ -1035,3 +1036,8 @@ func (s *Service) events(w http.ResponseWriter, r *http.Request) {
 
 // maxMsgRunes bounds one chat message (the ledger caps its text at 32 KB).
 const maxMsgRunes = 10000
+
+// Wait blocks until running turns and background reviews have returned
+// (after the service context is cancelled), so shutdown and tests never
+// race their last writes into the state directory.
+func (s *Service) Wait() { s.bg.Wait() }

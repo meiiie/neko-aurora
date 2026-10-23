@@ -285,7 +285,9 @@ func (s *Service) runLoop() {
 				s.mu.Lock()
 				s.running[botID] = true
 				s.mu.Unlock()
+				s.bg.Add(1)
 				go func(w ledger.Work) {
+					defer s.bg.Done()
 					defer func() { s.mu.Lock(); delete(s.running, w.BotID); s.mu.Unlock(); s.poke() }()
 					s.runWork(w)
 				}(w)

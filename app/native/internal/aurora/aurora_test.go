@@ -104,6 +104,7 @@ func newSvcIn(t *testing.T, dir string) (*Service, *ledger.Store) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	t.Cleanup(func() { cancel(); svc.Wait() }) // join running turns before the temp dir goes
 	return svc, st
 }
 

@@ -126,6 +126,18 @@ func TestGroupRoutingAndHandoff(t *testing.T) {
 	if ids := svc.view().recipients(c, "@mọi người ơi"); len(ids) != 2 {
 		t.Fatal(ids)
 	}
+	// plural address without @, and two members named plainly, reach everyone named
+	for _, txt := range []string{"Hai bạn chào mình một câu ngắn nhé", "Mỗi bạn giới thiệu ngắn một câu", "cả nhóm góp ý giúp", displayName(main) + " và " + displayName(other) + " cùng xem nhé"} {
+		if ids := svc.view().recipients(c, txt); len(ids) != 2 {
+			t.Fatal(txt, ids)
+		}
+	}
+	// talking about one member, or a phrase only inside a word, stays with the router
+	for _, txt := range []string{"Ai phân tích doanh thu giúp mình?", "nhờ " + displayName(other) + " xem file"} {
+		if ids := svc.view().recipients(c, txt); len(ids) != 1 {
+			t.Fatal(txt, ids)
+		}
+	}
 }
 
 func TestStreamMasksSecretsAndGroupMemory(t *testing.T) {
