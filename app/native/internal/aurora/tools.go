@@ -2,6 +2,7 @@ package aurora
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log"
 	"os"
@@ -202,8 +203,8 @@ func (s *Service) commitTool(w ledger.Work, tc *toolCtx, x *toolRun) {
 	name, arg, res, err := x.call.name, x.call.arg, x.res, x.err
 	st, sum := "done", res.Summary
 	if err != nil {
-		st, sum = "failed", toolLabel[name]+": "+tools.Short(err)
-		log.Printf("aurora tool %s failed: %s", name, tools.Short(err))
+		st, sum = "failed", toolLabel[name]+": "+toolErr(name, err)
+		log.Printf("aurora tool %s failed: %s", name, toolErr(name, err))
 	}
 	if res.Text != "" {
 		var refs []string
@@ -224,7 +225,7 @@ func (s *Service) commitTool(w ledger.Work, tc *toolCtx, x *toolRun) {
 		})
 		tc.blocks = append(tc.blocks, fmt.Sprintf("Công cụ %s%s (nguồn %s):\n%s", name, map[bool]string{true: " “" + displayArg(x.call) + "”"}[arg != ""], strings.Join(refs, " "), truncateResult(text, maxResultChars)))
 	} else if err != nil {
-		tc.blocks = append(tc.blocks, fmt.Sprintf("Công cụ %s thất bại (%s): KHÔNG có dữ liệu, không được đoán số.", name, tools.Short(err)))
+		tc.blocks = append(tc.blocks, fmt.Sprintf("Công cụ %s thất bại (%s): KHÔNG có dữ liệu, không được đoán số.", name, toolErr(name, err)))
 	}
 	srcs := append([]ledger.DirectSource(nil), tc.sources...)
 	s.update(w.RequestID, func(r *ledger.DirectRun) {
@@ -263,4 +264,14 @@ func (s *Service) ack(w ledger.Work, text string) {
 		return
 	}
 	s.update(w.RequestID, func(r *ledger.DirectRun) { r.Ack = text })
+}
+
+// toolErr is the error the owner and the bot see. Computer tool errors are
+// our own messages ("không tìm thấy đoạn old…") and say how to fix the call;
+// collapsing them to "lỗi mạng" left the bot retrying blind (live run 9).
+func toolErr(name string, err error) string {
+	if isComputerTool(name) && !errors.Is(err, context.DeadlineExceeded) {
+		return clean(err.Error(), 300)
+	}
+	return tools.Short(err)
 }

@@ -708,6 +708,9 @@ func (s *Service) runTurn(ctx context.Context, w ledger.Work) (*Approval, []stri
 	}
 	if err == nil && len(d.Tools) == 0 && d.Approval == nil {
 		d.Text = stripNarration(d.Text) // never show a claimed action that did not happen
+		if cp, ok := s.unfinished(w, d); ok {
+			d = cp
+		}
 	}
 	if err == nil && len(d.Tools) > 0 && len(tc.blocks) > 0 {
 		// Out of lookups but holding real results: write the answer from them

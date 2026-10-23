@@ -5,7 +5,7 @@ const U=process.env.U,EMAIL=process.env.EMAIL,O=process.env.O||'/workspace/neko-
 const sl=ms=>new Promise(r=>setTimeout(r,ms));const log=(...a)=>{const s=a.map(x=>typeof x==='string'?x:JSON.stringify(x)).join(' ');console.log(s);fs.appendFileSync(O+'transcript.log',s+'\n')};
 const credit=()=>{const m=execSync('railway usage 2>/dev/null',{cwd:'/workspace/neko-computer'}).toString().match(/Current usage:\s+\$([\d.]+)/);return m?2.44-+m[1]:9};
 const b=await chromium.launch({executablePath:'/usr/bin/google-chrome',args:['--no-sandbox']});
-const ctx=await b.newContext({viewport:{width:390,height:844},deviceScaleFactor:2,isMobile:true,hasTouch:true,locale:'vi-VN',acceptDownloads:true});
+const ctx=await b.newContext({viewport:{width:390,height:844},deviceScaleFactor:2,isMobile:true,hasTouch:true,locale:'vi-VN',acceptDownloads:true,recordVideo:{dir:(process.env.O||'./')+'screen/',size:{width:390,height:844}}});
 const p=await ctx.newPage();const H={'content-type':'application/json',origin:U};
 const get=async x=>{const r=await p.request.get(U+'/app/api/'+x);return r.ok()?r.json():null};
 const post=async(x,d)=>(await p.request.post(U+'/app/api/'+x,{headers:H,data:d})).status();
@@ -48,4 +48,4 @@ try{
  const pc=await get(`agents/${bot}/computer`);log('final files:',(pc?.files||[]).map(f=>f.path+':'+f.size));log('cmd log:',(pc?.log||[]).map(x=>x.cmd.slice(0,120)+' → '+x.exitCode));
  for(const f of (pc?.files||[]).filter(f=>!f.dir&&/\.(pptx|mp4|webm|gif|md|txt|py|pdf|png)$/.test(f.path))){const r=await p.request.get(U+`/app/api/agents/${bot}/computer/download?path=${encodeURIComponent(f.path)}`);if(r.ok()){fs.writeFileSync(O+'out-'+f.path.replace(/\//g,'_'),await r.body());log('saved',f.path,r.status())}else log('download failed',f.path,r.status())}
  const all=await msgs();fs.writeFileSync(O+'messages.json',JSON.stringify(all,null,1));
-}finally{const d=await post('account/delete',{confirm:'DELETE'});log('account deleted',d);await b.close()}
+}finally{const d=await post('account/delete',{confirm:'DELETE'});log('account deleted',d);await ctx.close();await b.close()}

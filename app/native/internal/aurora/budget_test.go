@@ -2,6 +2,7 @@ package aurora
 
 import (
 	"encoding/json"
+	"errors"
 	"net/http/httptest"
 	"strings"
 	"testing"
@@ -158,5 +159,47 @@ func TestEditFileNeedsUniqueMatch(t *testing.T) {
 	}
 	if bigFileHint("a.py", 9000) == "" || bigFileHint("a.md", 9000) != "" {
 		t.Fatal("hint")
+	}
+}
+
+// Live run 9: a failed edit reached the bot and the card as "lỗi mạng".
+func TestComputerToolErrorIsSpecific(t *testing.T) {
+	if got := toolErr("computer_edit_file", errors.New("không tìm thấy đoạn old trong file")); !strings.Contains(got, "không tìm thấy") {
+		t.Fatal(got)
+	}
+	if toolErr("web_fetch", errors.New("dial tcp 1.2.3.4: refused")) != "lỗi mạng" {
+		t.Fatal("web errors must stay short")
+	}
+}
+
+// Live run 9: turns ended on an empty bubble after tool steps while the video
+// was still missing. Now the work continues as a new turn.
+func TestEmptyReplyWithOpenItemsContinues(t *testing.T) {
+	svc, u, bot := liveSvc(t,
+		tool(map[string]any{"name": "computer_read_file", "path": "x.py"}),
+		"",
+		"", "", "",
+		"Video đã xong.\nKHÔNG THỂ: video — thử nghiệm")
+	svc.PC.WriteFile(bot, "x.py", "print(1)")
+	post(t, u+"/app/api/agents/"+bot+"/messages", `{"text":"quay video xem trước trên máy tính"}`)
+	waitFor(t, "continued turn", func() bool { return strings.Contains(lastReply(svc, bot), "KHÔNG THỂ: video") })
+	all, _ := json.Marshal(svc.L.Snapshot())
+	if !strings.Contains(string(all), checkpointText) {
+		t.Fatal("no continuation note")
+	}
+}
+
+func TestEmptyReplyNoItemsGetsStatus(t *testing.T) {
+	svc := quietSvc(t)
+	if svc.PC == nil {
+		t.Skip()
+	}
+	w := startWorkLite(firstBot(svc), "chạy script trên máy tính")
+	d, ok := svc.unfinished(w, directives{})
+	if !ok || d.Text == "" {
+		t.Fatal("blank bubble")
+	}
+	if _, ok := svc.unfinished(w, directives{Text: "Xong, đây là kết quả."}); ok {
+		t.Fatal("finished reply touched")
 	}
 }

@@ -65,6 +65,41 @@ func (s *Service) checkpoint(w ledger.Work, start time.Time) (directives, bool) 
 const pyCheckCmd = `python3 -c 'import sys
 for f in sys.argv[1:]: compile(open(f, encoding="utf-8").read(), f, "exec")' `
 
+// unfinished: a computer turn that ends with checklist items still open and
+// no card or question for the owner. Live run 9: replies were empty after
+// tool steps, or asked "nhắn 'tiếp tục'" instead of continuing. The work
+// goes on as a new turn (bounded by maxResumes); an empty reply becomes a
+// short honest status instead of a blank bubble.
+func (s *Service) unfinished(w ledger.Work, d directives) (directives, bool) {
+	if !computerTask(w) || s.PC == nil || len(d.Choices) > 0 || d.Secret != nil {
+		return d, false
+	}
+	open := s.openItems(w.BotID)
+	empty := strings.TrimSpace(d.Text) == ""
+	if len(open) == 0 {
+		if empty {
+			d.Text = "Mình đã làm các bước trên máy tính (xem Các bước) nhưng chưa có kết quả mới để báo."
+			return d, true
+		}
+		return d, false
+	}
+	if cp, ok := s.checkpoint(w, time.Time{}); ok {
+		if !empty {
+			cp.Text = strings.TrimSpace(d.Text) + "\n\n" + checkpointText
+		}
+		return cp, true
+	}
+	if empty {
+		var xs []string
+		for _, it := range open {
+			xs = append(xs, it.Label)
+		}
+		d.Text = "Mình chưa xong: còn " + strings.Join(xs, ", ") + ". Mình đã thử nhiều lần trong lượt này nhưng chưa được; bạn xem Các bước để biết lỗi gần nhất."
+		return d, true
+	}
+	return d, false
+}
+
 var pyFileRe = regexp.MustCompile(`(?:^|[\s;&|(])((?:[\w.-]+/)*[\w.-]+\.py)\b`)
 
 // pyPrecheck compiles the .py files a command runs. It returns the error
