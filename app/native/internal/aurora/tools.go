@@ -89,10 +89,10 @@ type toolCall struct{ name, arg string }
 // autoTools prefetches clear data intents (gold prices) and owner-typed
 // allowlisted URLs, saving a model round trip.
 func (s *Service) autoTools(w ledger.Work) []toolCall {
+	out := imageAuto(w.Text)
 	if s.Tools == nil {
-		return nil
+		return out
 	}
-	var out []toolCall
 	for _, n := range tools.Auto(w.Text) {
 		out = append(out, toolCall{n, ""})
 	}
@@ -255,6 +255,9 @@ var ackLabel = map[string]string{"gold_price": "giá vàng trong nước và th�
 func ackFor(calls []toolCall) string {
 	seen, parts := map[string]bool{}, []string{}
 	for _, c := range calls {
+		if c.name == "image_describe" {
+			return "Được, mình xem ảnh rồi trả lời bạn."
+		}
 		if isComputerTool(c.name) {
 			return "Được, mình làm việc này trên máy tính riêng của mình rồi báo bạn."
 		}

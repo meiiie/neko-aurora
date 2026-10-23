@@ -3,6 +3,8 @@ package aurora
 import (
 	"context"
 	"encoding/json"
+	"io"
+	"regexp"
 	"net/http"
 	"strings"
 	"time"
@@ -410,3 +412,44 @@ func (s *Service) modelProviderOK(p string) string {
 }
 
 func mustJSON(v any) string { b, _ := json.Marshal(v); return string(b) }
+
+var uploadName = regexp.MustCompile(`[^\p{L}\p{N}._-]+`)
+
+// uploadRoutes: the owner sends a photo/file into the bot's computer
+// (uploads/<name>); images are then read by the vision fallback model.
+func (s *Service) uploadRoutes() {
+	s.mux.HandleFunc("POST /app/api/agents/{id}/computer/upload", func(w http.ResponseWriter, r *http.Request) {
+		id := r.PathValue("id")
+		if _, ok := s.view().bot(id); !ok || s.PC == nil {
+			fail(w, ErrNotFound)
+			return
+		}
+		name := strings.Trim(uploadName.ReplaceAllString(r.URL.Query().Get("name"), "-"), "-.")
+		if name == "" || len(name) > 80 {
+			name = "anh-" + time.Now().Format("150405") + ".jpg"
+		}
+		b, err := io.ReadAll(http.MaxBytesReader(w, r.Body, 1<<20))
+		if err != nil || len(b) == 0 {
+			writeJSON(w, 413, map[string]string{"error": "too_large"})
+			return
+		}
+		p := "uploads/" + name
+		if err := s.PC.WriteFile(id, p, string(b)); err != nil {
+			writeJSON(w, 400, map[string]string{"error": "write_failed"})
+			return
+		}
+		writeJSON(w, 200, map[string]string{"path": p})
+	})
+}
+
+var imgRef = regexp.MustCompile(`\[Ảnh: (uploads/[^\]\s]{1,90})\]`)
+
+// imageAuto describes images the owner attached to this message.
+func imageAuto(text string) []toolCall {
+	var out []toolCall
+	for _, m := range imgRef.FindAllStringSubmatch(text, 3) {
+		b, _ := json.Marshal(toolReq{Name: "image_describe", Path: m[1]})
+		out = append(out, toolCall{"image_describe", string(b)})
+	}
+	return out
+}

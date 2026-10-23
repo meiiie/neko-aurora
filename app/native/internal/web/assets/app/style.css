@@ -429,3 +429,10 @@ button.cell:active{background:var(--sunk)}
 .ap-more .ap-cmd{margin-top:0}
 .ref-chip{display:flex;align-items:center;justify-content:space-between;gap:8px;margin:0 12px 6px;padding:6px 12px;border-radius:12px;background:var(--sunk);font-size:14px}
 .ref-line{text-align:right;margin-right:16px}
+
+/* extras */
+.think{margin:2px 0 6px 44px;max-width:82%;font-size:13px;color:var(--muted,#888)}.think summary{cursor:pointer;list-style:none;padding:4px 0}.think summary::before{content:"› ";}.think[open] summary::before{content:"⌄ "}.think pre{white-space:pre-wrap;font:inherit;margin:4px 0 0;padding:8px 10px;border-left:2px solid currentColor;opacity:.85;max-height:240px;overflow:auto}
+.form-card{margin:6px 0 10px 44px;max-width:84%;padding:12px;display:flex;flex-direction:column;gap:10px}.form-card h4{margin:0;font-size:15px}
+.fm-row{display:flex;flex-direction:column;gap:4px;font-size:13px}.fm-row input,.fm-row select,.fm-row textarea,.ext-in,.ext-sel{font:inherit;font-size:15px;padding:10px 12px;border-radius:10px;border:1px solid var(--line,#ccc3);background:var(--field,transparent);color:inherit;width:100%;box-sizing:border-box}
+.card.pad{padding:12px;display:flex;flex-direction:column;gap:8px}.row-in{display:flex;gap:8px}.row-in .ext-in{flex:1}
+.mcp-add{display:flex;flex-direction:column;gap:8px;padding:12px}.mem-tools{display:flex;gap:8px;margin:8px 0}.mem-ans{padding:10px 12px;border-radius:12px;background:var(--soft,#8881);margin:6px 0;white-space:pre-wrap}.mem-prop{padding:12px;margin:8px 0}.mem-prop ul{margin:6px 0;padding-left:18px}
