@@ -46,6 +46,25 @@ try{
  const steps=ms.filter(m=>/:step\d+$/.test(m.id)).length;const fin=ms.filter(m=>m.role==='agent').at(-1);
  ok('plan: 3 milestone updates + final with SJC price',steps===3&&/14\d|SJC/.test(fin?.text||''),{steps,doing:[...doing],fin:(fin?.text||'').slice(0,160)});
  }
+ if(ONLY==='restart'){
+ const {execSync}=await import('node:child_process');
+ const sbs=()=>execSync('railway sandbox list --all 2>/dev/null',{cwd:'/workspace/neko-computer'}).toString().split('\n').filter(l=>/RUNNING|DESTROYED/.test(l)).length;
+ const runCmd=async(cmd,tag)=>{const s0=(await msgs()).length;await postj(`agents/${bot}/messages`,{text:'Chạy lệnh trên máy tính của bạn: '+cmd,clientNonce:'rs-'+tag+Date.now()});
+  let ap=null;for(let i=0;i<120&&!ap;i++){await sl(1000);ap=(await msgs()).slice(s0).find(m=>m.approval&&m.approval.state==='pending')}if(!ap){console.log('no approval',JSON.stringify((await msgs()).slice(s0).map(m=>m.role+':'+(m.text||'').slice(0,80))));return false}
+  await postj(`approvals/${ap.taskId||ap.id}`,{decision:'approved'});for(let i=0;i<120;i++){await sl(1000);if((await msgs()).slice(s0).some(m=>m.approval&&/rs-ok/.test(m.approval.outcome||'')))return true}console.log('no output',JSON.stringify((await msgs()).slice(s0).map(m=>m.role+':'+(m.text||'').slice(0,80)+(m.approval?' AP:'+m.approval.state+' '+(m.approval.outcome||'').slice(0,120):''))));return false};
+ ok('restart: command before restart',await runCmd('echo rs-ok-1','a'));await idle(120);const before=sbs();
+ let n0=(await msgs()).length;await postj(`agents/${bot}/messages`,{text:'Làm giúp mình: (1) tra tỷ giá USD/VND hôm nay (2) tra giá xăng RON95 hôm nay (3) viết 3 dòng nhận xét.',clientNonce:'rs-plan-'+Date.now()});
+ let s1=null;for(let i=0;i<240&&!s1;i++){await sl(1000);s1=(await msgs()).slice(n0).find(m=>/:step1$/.test(m.id))}
+ ok('restart: step 1 finished before restart',!!s1);
+ execSync('timeout 60 railway restart --yes --service neko-aurora </dev/null >/dev/null 2>&1 || true',{cwd:'/workspace/neko-computer'});const tR=Date.now();
+ let up=false;for(let i=0;i<180&&!up;i++){await sl(2000);try{const r=await p.request.get(U+'/app/api/state');up=r.ok()&&Date.now()-tR>20000}catch{}}
+ ok('restart: service back with the session',up,{secs:Math.round((Date.now()-tR)/1000)});
+ await idle(300);await sl(3000);const L=(await msgs()).slice(n0);const steps=L.filter(m=>/:step\d$/.test(m.id));
+ const fin=L.filter(m=>m.role==='agent'&&!/:step\d$/.test(m.id)&&(m.text||'').trim()).at(-1);
+ ok('restart: resumed from checkpoint (step 1 kept as-is, 3 steps, one final)',s1&&steps.length===3&&steps[0].text===s1.text&&!!fin,{steps:steps.map(m=>m.text.slice(0,60)),fin:(fin?.text||'').slice(0,120),L:L.map(m=>m.id.slice(-8)+':'+(m.text||'').slice(0,40))});
+ await open();await p.evaluate(()=>{const m=document.querySelector('#messages');m.scrollTop=m.scrollHeight});await sl(400);await p.screenshot({path:O+'restart-resumed.png'});
+ ok('restart: command after restart reuses the recorded VM',await runCmd('echo rs-ok-2','b')&&sbs()===before,{before,after:sbs()});
+}
  if(ONLY==='sandbox'){
  const shot=async f=>{await open();await p.evaluate(()=>{const m=document.querySelector('#messages');m.scrollTop=m.scrollHeight});await sl(400);await p.screenshot({path:O+f})};
  const cmdTurn=async(text,re,tag)=>{const s0=(await msgs()).length;await postj(`agents/${bot}/messages`,{text,clientNonce:'live-sb-'+tag+Date.now()});
@@ -60,7 +79,7 @@ try{
  await cmdTurn('Chạy lại python3 /home/bot/stats.py (đừng tạo lại file) và cho mình biết nó in gì.',/TONG=100000/,'persist');
  const files=await get(`agents/${bot}/computer`).catch(()=>null);console.log('home listing',JSON.stringify(files).slice(0,300));
 }
- if(ONLY!=='sandbox'){n0=(await msgs()).length;await postj(`agents/${bot}/messages`,{text:'Trên máy tính của bạn, chạy lệnh: echo xin-chao > /home/bot/hi.txt && cat /home/bot/hi.txt && uname -s',clientNonce:'live-cmd-'+Date.now()});
+ if(ONLY!=='sandbox'&&ONLY!=='restart'){n0=(await msgs()).length;await postj(`agents/${bot}/messages`,{text:'Trên máy tính của bạn, chạy lệnh: echo xin-chao > /home/bot/hi.txt && cat /home/bot/hi.txt && uname -s',clientNonce:'live-cmd-'+Date.now()});
  let ap=null;for(let i=0;i<120&&!ap;i++){await sl(1000);ap=(await msgs()).slice(n0).find(m=>m.approval&&m.approval.state==='pending')}
  ok('computer: approval card appeared',!!ap,ap?undefined:(await msgs()).slice(n0).map(m=>m.role+':'+(m.text||'').slice(0,120)+' tools='+JSON.stringify(m.tools||[]).slice(0,200)));
  if(ap){await open();await p.evaluate(()=>{const m=document.querySelector('#messages');m.scrollTop=m.scrollHeight});await p.screenshot({path:O+'4-approval.png'});const r=await postj(`approvals/${ap.taskId||ap.id}`,{decision:'approved'});ok('computer: approved via API',r.status<300,r.status);

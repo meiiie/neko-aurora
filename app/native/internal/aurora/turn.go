@@ -679,7 +679,7 @@ func (s *Service) runTurn(ctx context.Context, w ledger.Work) (*Approval, []stri
 		}
 		setStep(i, "running")
 		s.agui(AGUIEvent{Type: STEP_STARTED, ThreadID: w.BotID, RunID: w.RequestID, StepName: title})
-		prompt := fmt.Sprintf("[Hệ thống] Thực hiện bước %d/%d: %s. Chỉ làm bước này. Cần số liệu hiện tại thì in đúng một dòng TOOL. Trả lời ngắn gọn (tối đa 5 gạch đầu dòng; bước yêu cầu bảng hay code thì đưa đủ bảng markdown hoặc khối code markdown) chỉ nêu kết quả của bước, có [n] nếu dùng nguồn; không viết “Kết quả bước…” hay “Bước tiếp theo…”. Không hỏi lựa chọn khi bước đã làm xong. Không viết PLAN. Đừng tự tạo bước chờ Darren duyệt. Nếu thật sự thiếu thông tin chỉ Darren biết, hỏi 1 câu và dùng CHOICES. Chỉ dùng APPROVAL nếu bước này cần hành động ra bên ngoài.", i+1, len(d.Plan), title)
+		prompt := fmt.Sprintf("[Hệ thống] Thực hiện bước %d/%d: %s. Chỉ làm bước này. Cần số liệu hiện tại thì in đúng một dòng TOOL (tra cứu thông tin luôn dùng công cụ web/giá; máy tính riêng không có mạng, chỉ dùng khi bước yêu cầu chạy/tính trên file). Trả lời ngắn gọn (tối đa 5 gạch đầu dòng; bước yêu cầu bảng hay code thì đưa đủ bảng markdown hoặc khối code markdown) chỉ nêu kết quả của bước, có [n] nếu dùng nguồn; không viết “Kết quả bước…” hay “Bước tiếp theo…”. Không hỏi lựa chọn khi bước đã làm xong. Không viết PLAN. Đừng tự tạo bước chờ Darren duyệt. Nếu thật sự thiếu thông tin chỉ Darren biết, hỏi 1 câu và dùng CHOICES. Chỉ dùng APPROVAL nếu bước này cần hành động ra bên ngoài.", i+1, len(d.Plan), title)
 		sd, err := s.stepCall(ctx, w, tc, prompt)
 		if err != nil {
 			st := "failed"
