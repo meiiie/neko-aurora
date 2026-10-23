@@ -54,6 +54,7 @@ type directives struct {
 	Handoffs   []handoff // group chats: pass work to another member
 	MemoryTeam bool      // MEMORY scope "team": shared by every bot of the owner
 	Cut        bool      // the reply hit the output cap or the stream broke
+	Stop       bool      // a checkpoint ended this turn: no more nudges
 }
 
 type toolReq struct {
@@ -696,7 +697,7 @@ func (s *Service) runTurn(ctx context.Context, w ledger.Work) (*Approval, []stri
 		if err != nil || attempt >= 3 {
 			break
 		}
-		if d.Approval != nil && d.Approval.Kind == "computer" || d.Text == checkpointText {
+		if d.Approval != nil && d.Approval.Kind == "computer" || d.Text == checkpointText || d.Stop {
 			break
 		}
 		nudge := ""
