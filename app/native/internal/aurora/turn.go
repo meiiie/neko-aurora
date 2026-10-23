@@ -34,7 +34,7 @@ APPROVAL: {"title":"<việc cần duyệt>","kind":"email|send|post|pay|other","
 SECRET: {"name":"TEN_IN_HOA","label":"<tên hiển thị>","desc":"<vì sao cần, lấy ở đâu>"}   ← khi cần Darren cung cấp mật khẩu/khoá API. Darren nhập vào thẻ ẩn, giá trị vào kho bí mật, bạn không bao giờ thấy. Không bao giờ xin Darren dán bí mật vào chat. Khi việc cần một mật khẩu/khoá chưa có, LUÔN thêm dòng SECRET (không chỉ mô tả bằng lời). Mật khẩu ứng dụng Gmail dùng tên GMAIL_APP_PASSWORD.
 TOOL: {"name":"web_search","q":"<truy vấn>"} | {"name":"web_fetch","url":"https://..."} | {"name":"gold_price"}   ← công cụ đọc dữ liệu thật trên máy chủ. Khi cần số liệu/tin tức hiện tại mà chưa có trong KẾT QUẢ CÔNG CỤ, in dòng TOOL rồi dừng; nhiều tra cứu độc lập (vd. giá từng mặt hàng) thì in tối đa 3 dòng TOOL cùng lúc, hệ thống chạy song song rồi gọi lại bạn.
 TOOL: {"name":"computer_write_file","path":"<đường dẫn trong /home/bot>","content":"<nội dung>"} | {"name":"computer_edit_file","path":"...","old":"<đoạn cũ, đúng nguyên văn, duy nhất>","new":"<đoạn mới>"} (sửa một chỗ, không ghi lại cả file) | {"name":"computer_write_file","path":"...","content":"<phần tiếp>","append":true} (ghi file dài thành nhiều phần) | {"name":"computer_run","cmd":"<lệnh shell>"} | {"name":"computer_read_file","path":"..."} | {"name":"computer_list","path":""}   ← máy tính Linux riêng của bạn (thư mục nhà /home/bot giữ lại giữa các lượt; có python3; mặc định không có mạng). Dùng để viết và chạy script, phân tích file CSV/dữ liệu khi được nhờ chạy/tính thật. Người dùng chỉ xin đoạn code, bảng hay ví dụ thì viết thẳng vào câu trả lời (khối code markdown hoặc bảng markdown), không lưu file hay chạy lệnh. Ghi file trước rồi chạy NGAY bằng computer_run: đây là máy riêng, cách ly của bạn nên lệnh (ghi file, pip install, chạy python) chạy luôn, không cần Darren duyệt; chỉ việc gửi ra ngoài thì hệ thống tự tạo thẻ duyệt (bạn không cần viết APPROVAL cho lệnh). Không ghi lại cùng một file nhiều lần: ghi xong thì chạy. Mỗi lượt in tối đa 1 dòng computer_run. Nếu không làm được đúng điều được nhờ (vd. chụp màn hình), làm ngay phương án thay thế cụ thể bằng công cụ (vd. chạy lệnh rồi đưa kết quả thật) thay vì chỉ hỏi lại. Đầu ra của lệnh là sự thật: không tính nhẩm để phản bác nó; nghi ngờ thì chạy lệnh kiểm tra.
-MEMORY: {"text":"<một sở thích/bối cảnh lâu dài Darren vừa nói rõ hoặc xác nhận>"}   ← chỉ khi Darren nói rõ muốn bạn nhớ hoặc nêu sở thích lâu dài; không bao giờ ghi bí mật, mật khẩu.
+MEMORY: {"text":"<một sở thích/bối cảnh lâu dài Darren vừa nói rõ hoặc xác nhận>"}   ← chỉ khi Darren nói rõ muốn bạn nhớ hoặc nêu sở thích lâu dài; thêm "scope":"team" nếu điều đó áp dụng cho mọi bot (tên, cách xưng hô, ngôn ngữ); không bao giờ ghi bí mật, mật khẩu.
 - Số liệu (giá, tỷ giá, ngày, phần trăm) chỉ được lấy từ KẾT QUẢ CÔNG CỤ, ghi nguồn dạng [1], [2]. Tuyệt đối không bịa hay ước đoán số; thiếu dữ liệu thì nói rõ thiếu. Khi đã có KẾT QUẢ CÔNG CỤ thì trả lời thẳng, không dùng PLAN.
 - Không bao giờ nhắc tên kỹ thuật của công cụ hay chỉ thị (web_search, web_fetch, gold_price, TOOL…) trong câu trả lời; nói bằng lời thường như "tìm trên web", "đọc trang".
 - Với email: kind là "email", dùng đúng địa chỉ Darren đưa; không lặp lại toàn văn thư ở phần trả lời.`
@@ -44,14 +44,15 @@ var gluedDirective = regexp.MustCompile(`([^\s\n])[ \t]*((?:PLAN|CHOICES|APPROVA
 var directiveRe = regexp.MustCompile(`(?m)^\s*(PLAN|CHOICES|APPROVAL|SECRET|TOOL|MEMORY):\s*(.+?)\s*$`)
 
 type directives struct {
-	Text     string
-	Plan     []string
-	Choices  []string
-	Approval *Approval
-	Secret   *ledger.DirectSecret
-	Tools    []toolReq // independent lookups, run in parallel (max 3)
-	Memory   string
-	Cut      bool // the reply hit the output cap or the stream broke
+	Text       string
+	Plan       []string
+	Choices    []string
+	Approval   *Approval
+	Secret     *ledger.DirectSecret
+	Tools      []toolReq // independent lookups, run in parallel (max 3)
+	Memory     string
+	MemoryTeam bool // MEMORY scope "team": shared by every bot of the owner
+	Cut        bool // the reply hit the output cap or the stream broke
 }
 
 type toolReq struct {
@@ -106,10 +107,12 @@ func ParseDirectives(text string) directives {
 		}
 		if m[1] == "MEMORY" {
 			var x struct {
-				Text string `json:"text"`
+				Text  string `json:"text"`
+				Scope string `json:"scope"`
 			}
 			if json.Unmarshal([]byte(m[2]), &x) == nil {
 				d.Memory = clean(x.Text, 300)
+				d.MemoryTeam = x.Scope == "team"
 			}
 			continue
 		}
@@ -321,7 +324,7 @@ func (s *Service) sweepLeases() {
 func (s *Service) history(botID, current string) []ChatMsg {
 	v := newView(s.L.Snapshot())
 	b, _ := v.bot(botID)
-	msgs := []ChatMsg{{Role: "system", Content: fmt.Sprintf(systemPrompt, b.Name, v.desc(b)) + memoryPrompt(s.Mem.List(botID)) + s.computerNote(botID) + clockNote(time.Now())}}
+	msgs := []ChatMsg{{Role: "system", Content: fmt.Sprintf(systemPrompt, b.Name, v.desc(b)) + memoryPrompt(s.Mem.List(botID)) + teamPrompt(s.Mem.List(teamKey)) + s.computerNote(botID) + clockNote(time.Now())}}
 	if cw, err := s.L.Get(current); err == nil && isEnglish(cw.Text) {
 		// the owner wrote English: the Vietnamese-first prompt must not win
 		msgs[0].Content += "\nLANGUAGE: the user's latest message is in English. Reply entirely in natural English (keep [n] citations and directive lines as specified)."
@@ -734,7 +737,7 @@ func (s *Service) runTurn(ctx context.Context, w ledger.Work) (*Approval, []stri
 		return nil, nil, err
 	}
 	s.fixScript(ctx, w, &d)
-	s.remember(w, d.Memory)
+	s.rememberD(w, d)
 	s.reviewMemory(w, d.Memory)
 	if len(d.Tools) > 0 { // tools exhausted or disabled: never leave a bare TOOL line
 		d.Text = strings.TrimSpace(d.Text + "\n(Mình chưa lấy thêm được dữ liệu, nên không đưa số liệu chưa kiểm chứng.)")
@@ -898,7 +901,7 @@ func (s *Service) stepCall(ctx context.Context, w ledger.Work, tc *toolCtx, prom
 	if len(d.Tools) == 0 && d.Approval == nil {
 		d.Text = stripNarration(d.Text)
 	}
-	s.remember(w, d.Memory)
+	s.rememberD(w, d)
 	s.reviewMemory(w, d.Memory)
 	d.Tools, d.Plan, d.Memory = nil, nil, ""
 	return d, err
@@ -1076,6 +1079,16 @@ func callsOf(ts []toolReq) []toolCall {
 		out = append(out, toolCall{t.Name, t.Q + t.URL})
 	}
 	return out
+}
+
+func (s *Service) rememberD(w ledger.Work, d directives) {
+	if d.MemoryTeam && d.Memory != "" {
+		if s.Mem.Remember(teamKey, d.Memory) {
+			s.record(w.BotID, w.RequestID, "step", "Đã ghi vào bộ nhớ chung: "+clean(d.Memory, 120))
+		}
+		return
+	}
+	s.remember(w, d.Memory)
 }
 
 func (s *Service) remember(w ledger.Work, text string) {
