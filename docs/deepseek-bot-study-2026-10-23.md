@@ -77,8 +77,8 @@ Ideas only; no code copied (Apache-2.0, credited in THIRD_PARTY_NOTICES). Railwa
 | create_bot / update_bot by bots | done, DS Bot behaviour: Main Bot creates bots and edits others, any bot edits itself (name, role, model, thinking, folder); applied directly |
 | ask_user non-blocking | done (CHOICES) |
 | show_view cards incl. forms | done: FORM directive → form card (text/number/date/select/textarea), answers come back as a message |
-| Bot browser | done: headless Chrome/Chromium per call (fresh profile, read-only, public URLs only); hosts without a browser binary (the slim Railway image) fall back to the page reader and say so |
+| Bot browser | done: headless Chrome/Chromium per call (fresh profile, read-only, public URLs only); hosts without a browser binary (the slim Railway image) fall back to a plain public-page read through the private-network-blocking client (no JS) and say so |
 | Secret cards, web search, voice, themes/pin/avatars, home-lock, mid-turn steer, XML tool calls | existing |
 | UX: fold long commands, Vietnamese file names, stacked bubbles, sandbox bold font | done (3548d58) |
 
-Known limit: the Railway image ships no Chrome, so live "browser" runs use the fallback reader there; the desktop app and the box use real headless Chrome.
+Known limit: the Railway image ships no Chrome, so live "browser" runs use the fallback reader there (live3: example.com read, title "Example Domain"); the desktop app and the box use real headless Chrome. The vision call uses its own 2048 max_tokens (glm-4.5v rejects the 32768 chat default with HTTP 400; fixed in b21117b, live3 read the photo correctly). Evidence: /workspace/neko-bot-shots/aurora/dsbot-extras/live3/.
