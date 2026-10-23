@@ -113,7 +113,7 @@ func TestProviderModelThinkingAndForm(t *testing.T) {
 	}
 }
 
-// minimal Streamable-HTTP MCP server: one read-only tool, one write tool.
+// minimal Streamable-HTTP MCP server with two tools.
 func fakeMCP(t *testing.T, calls *atomic.Int32) *httptest.Server {
 	s := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		var in struct {
@@ -136,7 +136,7 @@ func fakeMCP(t *testing.T, calls *atomic.Int32) *httptest.Server {
 				t.Error("no session id")
 			}
 			res = map[string]any{"tools": []map[string]any{
-				{"name": "lookup", "description": "tra cứu", "inputSchema": map[string]any{"type": "object"}, "annotations": map[string]any{"readOnlyHint": true}},
+				{"name": "lookup", "description": "tra cứu", "inputSchema": map[string]any{"type": "object"}},
 				{"name": "post_note", "description": "đăng ghi chú", "inputSchema": map[string]any{"type": "object"}},
 			}}
 		case "tools/call":
@@ -152,77 +152,6 @@ func fakeMCP(t *testing.T, calls *atomic.Int32) *httptest.Server {
 	}))
 	t.Cleanup(s.Close)
 	return s
-}
-
-func TestMCPReadOnlyRunsWriteNeedsApproval(t *testing.T) {
-	var calls atomic.Int32
-	m := fakeMCP(t, &calls)
-	svc, u, bot := liveSvc(t,
-		tool(map[string]any{"name": "mcp", "server": "kb", "tool": "lookup", "args": map[string]any{"q": "x"}}),
-		"Đã tra xong.",
-		tool(map[string]any{"name": "mcp", "server": "kb", "tool": "post_note", "args": map[string]any{"t": "hi"}}),
-		"Tóm tắt: đã đăng.")
-	post(t, u+"/app/api/confirm", `{"mcp":true}`) // owner switched confirmation on
-	if r := post(t, u+"/app/api/agents/"+bot+"/ext", `{"mcp":[{"name":"kb","url":"`+m.URL+`"}]}`); r.StatusCode != 200 {
-		t.Fatal(r.StatusCode)
-	}
-	var ext map[string]any
-	getJSON(t, u+"/app/api/agents/"+bot+"/ext", &ext)
-	if !strings.Contains(mustJSON(ext["mcp"]), `"post_note","readOnly":false`) {
-		t.Fatal(ext)
-	}
-	post(t, u+"/app/api/agents/"+bot+"/messages", `{"text":"tra giúp","clientNonce":"mc-1"}`)
-	waitTask(t, svc, bot)
-	if calls.Load() != 1 {
-		t.Fatal("read-only tool not run", calls.Load())
-	}
-	post(t, u+"/app/api/agents/"+bot+"/messages", `{"text":"đăng ghi chú","clientNonce":"mc-2"}`)
-	waitTask(t, svc, bot)
-	if calls.Load() != 1 {
-		t.Fatal("write tool ran without approval")
-	}
-	var ap *Message
-	var ms []*Message
-	getJSON(t, u+"/app/api/agents/"+bot+"/messages", &ms)
-	for _, x := range ms {
-		if x.Approval != nil && x.Approval.Kind == "mcp" {
-			ap = x
-		}
-	}
-	if ap == nil || ap.Approval.State != "pending" {
-		t.Fatalf("no mcp card: %s", mustJSON(ms))
-	}
-	post(t, u+"/app/api/approvals/"+ap.TaskID, `{"decision":"approved"}`)
-	waitFor(t, "mcp call", func() bool { return calls.Load() == 2 })
-	waitTask(t, svc, bot)
-}
-
-func TestBotCreateNeedsConfirmation(t *testing.T) {
-	svc, u, bot := liveSvc(t, tool(map[string]any{"name": "bot_create", "bot": "Kế toán", "desc": "ghi sổ chi tiêu"}), "Ok.")
-	post(t, u+"/app/api/confirm", `{"bots":true}`)
-	n0 := len(svc.L.Snapshot().Bots)
-	post(t, u+"/app/api/agents/"+bot+"/messages", `{"text":"tạo giúp bot kế toán","clientNonce":"bc-1"}`)
-	waitTask(t, svc, bot)
-	if len(svc.L.Snapshot().Bots) != n0 {
-		t.Fatal("bot created without confirmation")
-	}
-	var task string
-	for _, w := range svc.view().byBot[bot] {
-		if w.Direct != nil && w.Direct.Approval != nil && w.Direct.Approval.Kind == "bot" {
-			task = w.RequestID
-		}
-	}
-	if task == "" {
-		t.Fatal("no bot card")
-	}
-	post(t, u+"/app/api/approvals/"+task, `{"decision":"approved"}`)
-	if len(svc.L.Snapshot().Bots) != n0+1 {
-		t.Fatal("not created")
-	}
-	w, _ := svc.L.Get(task)
-	if w.Direct.Approval.Delivery == nil || w.Direct.Approval.Delivery.Status != "sent" {
-		t.Fatalf("%+v", w.Direct.Approval)
-	}
 }
 
 func TestRecallSkillsCapsAndMemorySummary(t *testing.T) {

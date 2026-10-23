@@ -2,10 +2,10 @@ package aurora
 
 import (
 	"context"
-	"encoding/json"
 	"encoding/base64"
-	"regexp"
+	"encoding/json"
 	"net/http"
+	"regexp"
 	"strings"
 	"time"
 
@@ -64,28 +64,7 @@ func (s *Service) providersView() []map[string]any {
 func (s *Service) extRoutes() {
 	m := s.mux
 	m.HandleFunc("GET /app/api/models", func(w http.ResponseWriter, r *http.Request) {
-		cb, cm := s.ext.confirm()
-		writeJSON(w, 200, map[string]any{"models": s.modelMenu(), "providers": s.providersView(), "vision": s.visionModel(), "browser": browserBin() != "", "confirmBots": cb, "confirmMcp": cm})
-	})
-	m.HandleFunc("POST /app/api/confirm", func(w http.ResponseWriter, r *http.Request) {
-		var in struct {
-			Bots *bool `json:"bots"`
-			MCP  *bool `json:"mcp"`
-		}
-		if decodeStrict(r, &in) != nil {
-			fail(w, ErrInvalid)
-			return
-		}
-		s.ext.mu.Lock()
-		if in.Bots != nil {
-			s.ext.d.ConfirmBots = *in.Bots
-		}
-		if in.MCP != nil {
-			s.ext.d.ConfirmMCP = *in.MCP
-		}
-		s.ext.saveLocked()
-		s.ext.mu.Unlock()
-		writeJSON(w, 200, map[string]bool{"ok": true})
+		writeJSON(w, 200, map[string]any{"models": s.modelMenu(), "providers": s.providersView(), "vision": s.visionModel(), "browser": browserBin() != ""})
 	})
 	m.HandleFunc("POST /app/api/providers", func(w http.ResponseWriter, r *http.Request) {
 		var in struct {
@@ -203,7 +182,7 @@ func (s *Service) extRoutes() {
 			ts, err := s.mcpTools(ctx, id, x)
 			names := []map[string]any{}
 			for _, t := range ts {
-				names = append(names, map[string]any{"name": t.Name, "readOnly": t.Annotations.ReadOnly && !t.Annotations.Destructive})
+				names = append(names, map[string]any{"name": t.Name})
 			}
 			e := ""
 			if err != nil {

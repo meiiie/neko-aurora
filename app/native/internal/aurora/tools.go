@@ -25,7 +25,6 @@ type toolCtx struct {
 
 	mu         sync.Mutex
 	pendingCmd string // computer_run waiting for the owner's approval
-	pendingAp  *Approval // an MCP call or bot change waiting for the owner
 	lookupOnly bool   // plan of a request that never asked to run anything
 }
 

@@ -73,17 +73,14 @@ type form struct {
 }
 
 type extData struct {
-	Providers []provider           `json:"providers"`
-	Bots      map[string]*botExt   `json:"bots"`
-	Skills    []skill              `json:"skills"`
-	Vision    string               `json:"vision,omitempty"`
-	// DS Bot defaults: bot changes and remote MCP calls run directly; the
-	// owner can switch confirmation cards on.
-	ConfirmBots bool `json:"confirmBots,omitempty"`
-	ConfirmMCP  bool `json:"confirmMcp,omitempty"`
-	Thoughts  map[string]string    `json:"thoughts"`
-	Forms     map[string]*form     `json:"forms"`
-	Order     []string             `json:"order"` // thoughts/forms eviction order
+	Providers []provider         `json:"providers"`
+	Bots      map[string]*botExt `json:"bots"`
+	Skills    []skill            `json:"skills"`
+	Vision    string             `json:"vision,omitempty"`
+
+	Thoughts map[string]string `json:"thoughts"`
+	Forms    map[string]*form  `json:"forms"`
+	Order    []string          `json:"order"` // thoughts/forms eviction order
 }
 
 type extStore struct {
@@ -217,7 +214,9 @@ func (e *extStore) skill(name string) (skill, bool) {
 	return skill{}, false
 }
 
-func providerKey(id string) string { return "PROVIDER_" + strings.ToUpper(strings.ReplaceAll(id, "-", "_")) + "_KEY" }
+func providerKey(id string) string {
+	return "PROVIDER_" + strings.ToUpper(strings.ReplaceAll(id, "-", "_")) + "_KEY"
+}
 
 var providerID = regexp.MustCompile(`^[a-z][a-z0-9-]{1,23}$`)
 
@@ -543,10 +542,4 @@ func ownerURL(raw string) bool {
 	}
 	u, err := url.Parse(raw)
 	return err == nil && (u.Scheme == "https" || u.Scheme == "http") && u.Host != "" && u.User == nil
-}
-
-func (e *extStore) confirm() (bots, mcp bool) {
-	e.mu.Lock()
-	defer e.mu.Unlock()
-	return e.d.ConfirmBots, e.d.ConfirmMCP
 }

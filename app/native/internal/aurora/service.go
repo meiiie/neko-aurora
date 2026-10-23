@@ -740,8 +740,6 @@ func (s *Service) routes() {
 			switch {
 			case in.Decision == "declined":
 				a.Outcome = "Ok, mình giữ lại “" + a.Title + "” và không làm gì thêm."
-			case a.Kind == "bot" || a.Kind == "mcp":
-				// applied right after the decision (applyApproved)
 			case a.Kind == "computer":
 				if s.PC == nil {
 					a.Outcome = "Máy tính của bot đang tắt trên máy chủ nên lệnh chưa chạy."
@@ -763,10 +761,7 @@ func (s *Service) routes() {
 			verb := map[string]string{"approved": "Bạn duyệt", "declined": "Bạn hoãn"}[ap.State]
 			s.record(work.BotID, work.RequestID, "decision", verb+" “"+ap.Title+"” của "+s.botName(work.BotID))
 		}
-		if ap := work.Direct.Approval; in.Decision == "approved" && (ap.Kind == "bot" || ap.Kind == "mcp") {
-			s.applyApproved(work)
-			work, _ = s.L.Get(work.RequestID)
-		} else if in.Decision == "approved" && ap.Kind == "computer" && s.PC != nil {
+		if ap := work.Direct.Approval; in.Decision == "approved" && ap.Kind == "computer" && s.PC != nil {
 			s.runApprovedCommand(work)
 			work, _ = s.L.Get(work.RequestID)
 		} else if in.Decision == "approved" && s.hasChannel(ap.Kind) && ap.To != "" {

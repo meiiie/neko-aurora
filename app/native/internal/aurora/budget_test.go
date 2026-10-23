@@ -46,11 +46,11 @@ func TestPySyntaxErrorGoesBackBeforeApproval(t *testing.T) {
 	bad := "x = 1\nprint('khong phai 'co the'')\n"
 	svc, u, bot := liveSvc(t,
 		tool(map[string]any{"name": "computer_write_file", "path": "deck/build.py", "content": bad}),
-		tool(map[string]any{"name": "computer_run", "cmd": "mkdir -p out && python3 deck/build.py"}),
+		tool(map[string]any{"name": "computer_run", "cmd": "mkdir -p out && python3 deck/build.py" + outMark}),
 		tool(map[string]any{"name": "computer_edit_file", "path": "deck/build.py", "old": "print('khong phai 'co the'')", "new": `print("khong phai 'co the'")`}),
-		tool(map[string]any{"name": "computer_run", "cmd": "mkdir -p out && python3 deck/build.py"}),
+		tool(map[string]any{"name": "computer_run", "cmd": "mkdir -p out && python3 deck/build.py" + outMark}),
 		"Xong.")
-	askFirst(svc, bot) // card flow
+	cardFlow(svc, bot) // card flow
 	post(t, u+"/app/api/agents/"+bot+"/messages", `{"text":"viết script python rồi chạy trên máy tính"}`)
 	waitTask(t, svc, bot)
 	txt, _, _ := svc.PC.ReadFile(bot, "deck/build.py")
@@ -70,7 +70,7 @@ func TestPySyntaxErrorGoesBackBeforeApproval(t *testing.T) {
 			t.Fatal("check left __pycache__")
 		}
 	}
-	if svc.pyPrecheck(t.Context(), bot, "python3 deck/build.py") != "" {
+	if svc.pyPrecheck(t.Context(), bot, "python3 deck/build.py"+outMark) != "" {
 		t.Fatal("fixed script still flagged")
 	}
 }
@@ -212,8 +212,11 @@ func ledgerInput(bot, nonce, text string) ledger.Input {
 	return ledger.Input{BotID: bot, ClientNonce: nonce, Text: text}
 }
 
-// askFirst turns on "Hỏi trước khi chạy lệnh" for tests of the card flow.
-func askFirst(svc *Service, bot string) { svc.PC.SetPolicy(bot, computer.Policy{AskFirst: true}) }
+// cardFlow gives the bot network (the "full" preset), so a command that
+// talks to an outside service (marked "# mail" in these tests) needs a card.
+func cardFlow(svc *Service, bot string) { svc.PC.SetPolicy(bot, computer.Policy{Preset: "full"}) }
+
+const outMark = " # mail"
 
 // Darren: the bot's own sandbox needs no approvals (writes, pip, scripts).
 func TestSandboxCommandsRunWithoutCard(t *testing.T) {

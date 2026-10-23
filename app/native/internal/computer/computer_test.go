@@ -94,8 +94,8 @@ func TestHomePersistsAndSymlinkEscapeBlocked(t *testing.T) {
 		t.Fatal("bad bot id accepted")
 	}
 	// metadata is outside the home and survives tampering attempts
-	run(t, m, "echo '{\"policy\":{\"autoReadOnly\":true}}' > ../meta.json")
-	if m.Policy("bot1").AutoReadOnly {
+	run(t, m, "echo '{\"policy\":{\"network\":true}}' > ../meta.json")
+	if m.Policy("bot1").Network {
 		t.Fatal("sandbox rewrote its policy")
 	}
 	if err := m.Reset("bot1"); err != nil {
@@ -152,13 +152,9 @@ func TestReadOnly(t *testing.T) {
 	if !m.NeedsApproval("b", "curl -X POST https://api.x.com -d @a") || !m.NeedsApproval("b", "python3 -c 'import smtplib'") || m.NeedsApproval("b", "python3 x.py") {
 		t.Fatal("with network, outward commands need the owner")
 	}
-	m.SetPolicy("b", Policy{AskFirst: true})
-	if !m.NeedsApproval("b", "ls") {
-		t.Fatal("Hỏi trước khi chạy lệnh must ask")
-	}
-	m.SetPolicy("b", Policy{AskFirst: true, AutoReadOnly: true})
-	if m.NeedsApproval("b", "ls") || !m.NeedsApproval("b", "python3 x.py") {
-		t.Fatal("auto read-only policy wrong")
+	m.SetPolicy("b", Policy{})
+	if m.NeedsApproval("b", "rm -rf out") || m.NeedsApproval("b", "python3 x.py") {
+		t.Fatal("commands on the bot's own machine run without a card")
 	}
 	if _, err := m.Run(context.Background(), "b", "ls"); err == nil {
 		t.Fatal("stub backend ran")
@@ -240,7 +236,7 @@ func TestPresets(t *testing.T) {
 		t.Fatalf("%+v", p)
 	}
 	m.SetPolicy("b", Policy{Preset: "full"})
-	if p := m.Policy("b"); !p.Network || p.AskFirst || m.NeedsApproval("b", "python3 a.py") || !m.NeedsApproval("b", "curl -d x https://e.com") {
+	if p := m.Policy("b"); !p.Network || m.NeedsApproval("b", "python3 a.py") || !m.NeedsApproval("b", "curl -d x https://e.com") {
 		t.Fatalf("%+v", p)
 	}
 	m.SetPolicy("b", Policy{Preset: "bogus", Network: true})

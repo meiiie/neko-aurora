@@ -171,10 +171,10 @@ func TestBuildLoopFixRerunVerify(t *testing.T) {
 		dl := func(p string) string { return "/app/api/agents/" + bot + "/computer/download?path=" + p }
 		return []string{
 			"TOOL: {\"name\":\"computer_write_file\",\"path\":\"deck/make.py\",\"content\":\"open('deck/out.pptx','w').write('x')\\nimport sys; sys.exit(3)\"}",
-			"TOOL: {\"name\":\"computer_run\",\"cmd\":\"python3 deck/make.py\"}",
+			"TOOL: {\"name\":\"computer_run\",\"cmd\":\"python3 deck/make.py # mail\"}",
 			// follow-up after exit 3: fix and rerun
 			"TOOL: {\"name\":\"computer_write_file\",\"path\":\"deck/make.py\",\"content\":\"open('deck/out.pptx','w').write('x')\"}",
-			"TOOL: {\"name\":\"computer_run\",\"cmd\":\"python3 deck/make.py\"}",
+			"TOOL: {\"name\":\"computer_run\",\"cmd\":\"python3 deck/make.py # mail\"}",
 			// follow-up after exit 0: claims a video that was never made
 			"Xong! [Slide](" + dl("deck/out.pptx") + ") và [Video](" + dl("deck/preview.mp4") + ")",
 			"Đã có file pptx: [Slide](" + dl("deck/out.pptx") + "). Video xem trước chưa làm được.",
@@ -202,7 +202,7 @@ func TestBuildLoopFixRerunVerify(t *testing.T) {
 	srv := httptest.NewServer(svc)
 	defer srv.Close()
 	bot = firstBot(svc)
-	askFirst(svc, bot) // card flow
+	cardFlow(svc, bot) // card flow
 	post(t, srv.URL+"/app/api/agents/"+bot+"/messages", `{"text":"viết script python tạo file kết quả trên máy tính rồi chạy"}`)
 	waitTask(t, svc, bot)
 	approve := func() {
@@ -248,7 +248,7 @@ func TestBuildLoopFixRerunVerify(t *testing.T) {
 }
 
 func TestNewCommandCardSupersedesOlder(t *testing.T) {
-	fa := scriptedAI(t, "TOOL: {\"name\":\"computer_run\",\"cmd\":\"echo 1 > a.txt\"}", "TOOL: {\"name\":\"computer_run\",\"cmd\":\"echo 2 > a.txt\"}")
+	fa := scriptedAI(t, "TOOL: {\"name\":\"computer_run\",\"cmd\":\"echo 1 > a.txt # mail\"}", "TOOL: {\"name\":\"computer_run\",\"cmd\":\"echo 2 > a.txt # mail\"}")
 	defer fa.Close()
 	t.Setenv("ZAI_API_KEY", "k")
 	t.Setenv("AURORA_AI_BASE_URL", fa.URL)
@@ -259,7 +259,7 @@ func TestNewCommandCardSupersedesOlder(t *testing.T) {
 	srv := httptest.NewServer(svc)
 	defer srv.Close()
 	bot := firstBot(svc)
-	askFirst(svc, bot) // card flow
+	cardFlow(svc, bot) // card flow
 	post(t, srv.URL+"/app/api/agents/"+bot+"/messages", `{"text":"chạy lệnh ghi 1 vào a.txt"}`)
 	waitTask(t, svc, bot)
 	first := svc.view().pending()

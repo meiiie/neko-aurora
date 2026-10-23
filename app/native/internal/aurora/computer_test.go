@@ -19,7 +19,7 @@ func TestComputerRunNeedsApproval(t *testing.T) {
 	}
 	fa := scriptedAI(t,
 		"TOOL: {\"name\":\"computer_write_file\",\"path\":\"a.py\",\"content\":\"import os\\nprint(6*7, sorted(k for k in os.environ if 'KEY' in k))\"}",
-		"TOOL: {\"name\":\"computer_run\",\"cmd\":\"python3 a.py\"}",
+		"TOOL: {\"name\":\"computer_run\",\"cmd\":\"python3 a.py # mail\"}",
 		"Kết quả là 42.")
 	defer fa.Close()
 	t.Setenv("ZAI_API_KEY", "k-should-not-leak")
@@ -34,7 +34,7 @@ func TestComputerRunNeedsApproval(t *testing.T) {
 	srv := httptest.NewServer(svc)
 	defer srv.Close()
 	bot := firstBot(svc)
-	askFirst(svc, bot) // card flow
+	cardFlow(svc, bot) // card flow
 	post(t, srv.URL+"/app/api/agents/"+bot+"/messages", `{"text":"viết script python tính 6*7 rồi chạy"}`)
 	waitTask(t, svc, bot)
 	st, _ := svc.PC.Status(bot)
@@ -42,7 +42,7 @@ func TestComputerRunNeedsApproval(t *testing.T) {
 		t.Fatalf("file written / nothing run yet: %+v", st)
 	}
 	p := svc.view().pending()
-	if len(p) != 1 || p[0].Approval.Kind != "computer" || p[0].Approval.Body != "python3 a.py" {
+	if len(p) != 1 || p[0].Approval.Kind != "computer" || p[0].Approval.Body != "python3 a.py # mail" {
 		t.Fatalf("pending %+v", p)
 	}
 	post(t, srv.URL+"/app/api/approvals/"+p[0].ID, `{"decision":"approved"}`)
@@ -98,7 +98,7 @@ func TestComputerRunNeedsApproval(t *testing.T) {
 	}
 }
 
-func TestComputerAutoReadOnly(t *testing.T) {
+func TestReadOnlyPresetRunsReadCommands(t *testing.T) {
 	if computer.NewBwrap().Available() != nil {
 		t.Skip("no bwrap")
 	}
@@ -113,7 +113,7 @@ func TestComputerAutoReadOnly(t *testing.T) {
 	srv := httptest.NewServer(svc)
 	defer srv.Close()
 	bot := firstBot(svc)
-	if r := post(t, srv.URL+"/app/api/agents/"+bot+"/computer/policy", `{"autoReadOnly":true}`); r.StatusCode != 200 {
+	if r := post(t, srv.URL+"/app/api/agents/"+bot+"/computer/policy", `{"preset":"readonly"}`); r.StatusCode != 200 {
 		t.Fatal(r.StatusCode)
 	}
 	post(t, srv.URL+"/app/api/agents/"+bot+"/messages", `{"text":"xem thư mục nhà"}`)

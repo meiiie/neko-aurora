@@ -72,9 +72,7 @@ type Sandbox interface {
 
 // Policy is the per-bot setting.
 type Policy struct {
-	AskFirst     bool `json:"askFirst"`     // "Hỏi trước khi chạy lệnh" (default off)
-	AutoReadOnly bool `json:"autoReadOnly"` // with AskFirst: still run read-only commands without asking
-	Network      bool `json:"network"`      // sandbox may reach the internet
+	Network bool `json:"network"` // sandbox may reach the internet
 	// Preset (idea from DS Bot's permission presets) names a combination
 	// the owner picks in one tap; SetPolicy derives the flags from it.
 	//   readonly:  every command that could change files asks first, file
@@ -91,11 +89,11 @@ var Presets = []string{"readonly", "workspace", "full"}
 func (p Policy) Normalize() Policy {
 	switch p.Preset {
 	case "readonly":
-		return Policy{Preset: p.Preset, AskFirst: true, AutoReadOnly: true}
+		return Policy{Preset: p.Preset}
 	case "workspace":
-		return Policy{Preset: p.Preset, AskFirst: p.AskFirst}
+		return Policy{Preset: p.Preset}
 	case "full":
-		return Policy{Preset: p.Preset, AskFirst: p.AskFirst, Network: true}
+		return Policy{Preset: p.Preset, Network: true}
 	}
 	p.Preset = ""
 	return p
@@ -261,14 +259,15 @@ func (m *Manager) run(ctx context.Context, bot, cmd string, logged bool) (Result
 
 // NeedsApproval: the sandbox is the bot's own isolated machine, so its
 // commands (writes, pip installs, scripts) run without a card. A card is
-// needed when the owner turned on "Hỏi trước khi chạy lệnh", or when the
-// sandbox has network and the command talks to an outside service.
+// needed only in the read-only preset (for a command that could change
+// something) or when the sandbox has network and the command talks to an
+// outside service.
 func (m *Manager) NeedsApproval(bot, cmd string) bool {
 	p := m.Policy(bot)
 	if p.Network && outward(cmd) {
 		return true
 	}
-	return p.AskFirst && !(p.AutoReadOnly && ReadOnly(cmd))
+	return p.ReadOnlyMode() && !ReadOnly(cmd)
 }
 
 var outwardRe = regexp.MustCompile(`(?i)\b(curl|wget|ssh|scp|rsync|nc|ncat|telnet|ftp|sendmail|mail|smtplib|requests\.(post|put|patch|delete)|httpx|urllib\.request|aiohttp|git\s+push|twine|npm\s+publish)\b`)

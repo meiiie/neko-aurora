@@ -15,7 +15,6 @@ let out={};
 const lastAgent=async id=>{const ms=await get(`agents/${id}/messages`);return (ms.messages||ms).filter(m=>m.role==='agent').at(-1)||{}};
 const msgs=async id=>{const ms=await get(`agents/${id}/messages`);return ms.messages||ms};
 const say=async(id,t)=>{const r=await post(`agents/${id}/messages`,{text:t,clientNonce:'x-'+Date.now()+'-'+(Math.random()*1e6|0)});if(r.s>=300)(out.sayErr=out.sayErr||[]).push(r.s);await idle(id)};
-const card=async kind=>{for(let i=0;i<10;i++){const L=await msgs(aur);const m=L.filter(x=>x.approval&&x.approval.kind===kind).at(-1);if(m)return m;await sl(3000)}return null};
 let aur;
 try{
  await p.goto(U+'/app/');await p.waitForURL(/signin/);await p.fill('#email',EMAIL);const rp=p.waitForResponse(r=>r.url().endsWith('/app/auth/email'));await p.tap('#sendBtn');const s=await (await rp).json();
@@ -45,15 +44,10 @@ try{
  await say(aur,'Viết lời chúc sinh nhật cho chị Lan.');out.skill=(await msgs(aur)).at(-1);
  // F) MCP
  await say(aur,'Dùng máy chủ deepwiki hỏi repo facebook/react: React dùng cơ chế gì để lên lịch render? Trả lời 2 câu.');
- let mc=await card('mcp');out.mcpCard=mc&&mc.approval;out.mcpTools=(await msgs(aur)).flatMap(m=>m.tools||[]).filter(t=>t.name==='mcp');
- await openT(aur);await shot('07-mcp');
- if(mc&&mc.approval.state==='pending'){const btn=await p.$(`.approval[data-id="${mc.id}"] button.go`)||await p.$('.approval .pill:not(.soft)');if(btn)await btn.tap();else await post('approvals/'+mc.taskId,{decision:'approved'});await sl(4000);await idle(aur);await openT(aur);await shot('08-mcp-done')}
+ out.mcpTools=(await msgs(aur)).flatMap(m=>m.tools||[]).filter(t=>t.name==='mcp');await openT(aur);await shot('07-mcp');
  out.mcpReply=(await lastAgent(aur)).text;
  // G) bot creation with confirmation card
- const n0=(await get('state')).agents.length;await say(aur,'Tạo giúp mình một bot tên Kế toán chuyên ghi sổ chi tiêu hằng ngày.');const bc=await card('bot');out.botCard=bc&&bc.approval;
- await openT(aur);await shot('09-bot-card');out.botsBefore=(await get('state')).agents.length===n0;
- if(bc){const btn=await p.$(`.approval[data-id="${bc.id}"] button.go`);if(btn)await btn.tap();else await post('approvals/'+bc.taskId,{decision:'approved'});await sl(3000)}
- out.botCreated=(await get('state')).agents.some(a=>a.name.startsWith('Kế toán'));await openT(aur);await shot('10-bot-created');
+ await say(aur,'Tạo giúp mình một bot tên Kế toán chuyên ghi sổ chi tiêu hằng ngày.');out.botCreated=(await get('state')).agents.some(a=>a.name.startsWith('Kế toán'));await openT(aur);await shot('09-bot-created');
  // H) form card
  await say(aur,'Mình muốn đặt một cuộc họp. Gửi mình một form để điền: tiêu đề, ngày, giờ, hình thức (online hoặc offline).');out.form=(await msgs(aur)).filter(m=>m.form).at(-1)?.form;
  await openT(aur);await p.evaluate(()=>document.querySelector('.form-card')?.scrollIntoView({block:'center'}));await sl(500);await shot('11-form');

@@ -722,9 +722,9 @@ func (s *Service) runTurn(ctx context.Context, w ledger.Work) (*Approval, []stri
 				s.ack(w, ackText(d.Text, threadOf(w) != w.BotID, calls))
 			}
 			s.runTools(ctx, w, tc, calls)
-			if tc.pending() {
+			if tc.pendingCmd != "" {
 				// a command needs the owner: end the turn on its approval card
-				d = directives{Text: tc.askText(), Approval: tc.approval()}
+				d = directives{Text: computerAskText, Approval: computerApproval(tc.pendingCmd)}
 				break
 			}
 			if cp, ok := s.checkpoint(w, start); ok {
@@ -738,7 +738,7 @@ func (s *Service) runTurn(ctx context.Context, w ledger.Work) (*Approval, []stri
 		if err != nil || attempt >= 3 {
 			break
 		}
-		if d.Approval != nil && gatedKind(d.Approval.Kind) || d.Text == checkpointText || d.Stop {
+		if d.Approval != nil && d.Approval.Kind == "computer" || d.Text == checkpointText || d.Stop {
 			break
 		}
 		nudge := ""
@@ -911,8 +911,8 @@ func (s *Service) verifyFinal(ctx context.Context, w ledger.Work, tc *toolCtx, d
 	for r := 0; len(nd.Tools) > 0 && r < 4 && s.Tools != nil; r++ { // it may go back to work (file writes, a command card)
 		s.publish("draft_end", map[string]string{"id": w.RequestID, "agentId": threadOf(w)})
 		s.runTools(ctx, w, tc, callsOf(nd.Tools))
-		if tc.pending() {
-			*d = directives{Text: tc.askText(), Approval: tc.approval()}
+		if tc.pendingCmd != "" {
+			*d = directives{Text: computerAskText, Approval: computerApproval(tc.pendingCmd)}
 			return
 		}
 		if nd, err = s.ask(ctx, w, tc, func() []ChatMsg { return tc.inject(s.history(w.BotID, w.RequestID)) }); err != nil {
@@ -933,8 +933,8 @@ func (s *Service) stepCall(ctx context.Context, w ledger.Work, tc *toolCtx, prom
 	for r := 0; err == nil && len(d.Tools) > 0 && r < 4 && s.Tools != nil; r++ {
 		s.publish("draft_end", map[string]string{"id": w.RequestID, "agentId": threadOf(w)})
 		s.runTools(ctx, w, tc, callsOf(d.Tools))
-		if tc.pending() {
-			return directives{Text: "Bước này cần chạy lệnh trên máy tính của mình, bạn duyệt giúp nhé.", Approval: tc.approval()}, nil
+		if tc.pendingCmd != "" {
+			return directives{Text: "Bước này cần chạy lệnh trên máy tính của mình, bạn duyệt giúp nhé.", Approval: computerApproval(tc.pendingCmd)}, nil
 		}
 		d, err = s.ask(ctx, w, tc, func() []ChatMsg { return mk() })
 	}
@@ -944,8 +944,8 @@ func (s *Service) stepCall(ctx context.Context, w ledger.Work, tc *toolCtx, prom
 		for r := 0; err == nil && len(d.Tools) > 0 && r < 4 && s.Tools != nil; r++ {
 			s.publish("draft_end", map[string]string{"id": w.RequestID, "agentId": threadOf(w)})
 			s.runTools(ctx, w, tc, callsOf(d.Tools))
-			if tc.pending() {
-				return directives{Text: "Bước này cần chạy lệnh trên máy tính của mình, bạn duyệt giúp nhé.", Approval: tc.approval()}, nil
+			if tc.pendingCmd != "" {
+				return directives{Text: "Bước này cần chạy lệnh trên máy tính của mình, bạn duyệt giúp nhé.", Approval: computerApproval(tc.pendingCmd)}, nil
 			}
 			d, err = s.ask(ctx, w, tc, func() []ChatMsg { return mk() })
 		}

@@ -86,8 +86,8 @@ type Message struct {
 	Tools    []ledger.DirectTool   `json:"tools,omitempty"`
 	Sources  []ledger.DirectSource `json:"sources,omitempty"`
 	Queued   bool                  `json:"queued,omitempty"`
-	Ref      string                `json:"ref,omitempty"`  // name of a chat attached as context
-	From     string                `json:"from,omitempty"` // speaking bot, in group threads
+	Ref      string                `json:"ref,omitempty"`      // name of a chat attached as context
+	From     string                `json:"from,omitempty"`     // speaking bot, in group threads
 	Thinking string                `json:"thinking,omitempty"` // folded model reasoning (thinking toggle)
 	Form     *form                 `json:"form,omitempty"`     // interactive form card
 	Created  time.Time             `json:"t"`

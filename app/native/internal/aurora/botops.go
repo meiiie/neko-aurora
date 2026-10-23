@@ -5,20 +5,17 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"errors"
-	"fmt"
 	"io"
 	"path"
 	"regexp"
 	"strings"
-	"time"
 
 	"nekoaurora.local/native/internal/ledger"
 	"nekoaurora.local/native/internal/tools"
 )
 
-
 func ioReadFull(r io.Reader, b []byte) (int, error) { return io.ReadFull(r, b) }
-func std64(b []byte) string { return base64.StdEncoding.EncodeToString(b) }
+func std64(b []byte) string                         { return base64.StdEncoding.EncodeToString(b) }
 
 func extArg(name string) bool {
 	switch name {
@@ -29,44 +26,6 @@ func extArg(name string) bool {
 }
 
 func isExtTool(name string) bool { return extArg(name) }
-
-func gatedKind(k string) bool { return k == "computer" || k == "mcp" || k == "bot" }
-
-func (c *toolCtx) pending() bool {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	return c.pendingCmd != "" || c.pendingAp != nil
-}
-
-func (c *toolCtx) approval() *Approval {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	if c.pendingAp != nil {
-		a := *c.pendingAp
-		return &a
-	}
-	return computerApproval(c.pendingCmd)
-}
-
-func (c *toolCtx) askText() string {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	if c.pendingAp != nil && c.pendingAp.Kind == "bot" {
-		return "Mình đã chuẩn bị thay đổi bot, bạn xác nhận trên thẻ giúp nhé."
-	}
-	if c.pendingAp != nil {
-		return "Việc này tác động ra bên ngoài qua máy chủ MCP, bạn duyệt giúp nhé."
-	}
-	return computerAskText
-}
-
-func (c *toolCtx) park(a *Approval) {
-	c.mu.Lock()
-	if c.pendingAp == nil && c.pendingCmd == "" {
-		c.pendingAp = a
-	}
-	c.mu.Unlock()
-}
 
 // folderCall rewrites relative computer paths into the bot's working folder.
 func folderCall(folder string, c toolCall) toolCall {
@@ -135,14 +94,6 @@ func (s *Service) runExt(ctx context.Context, w ledger.Work, tc *toolCtx, c tool
 		if _, err := s.mcpTools(ctx, w.BotID, srv); err != nil {
 			return tools.Result{}, err
 		}
-		args := string(t.Args)
-		if args == "" {
-			args = "{}"
-		}
-		if _, c := s.ext.confirm(); c && !s.mcpReadOnly(w.BotID, srv, t.Tool) {
-			tc.park(&Approval{Title: "Gọi " + srv.Name + "/" + clean(t.Tool, 60) + " (MCP)", Kind: "mcp", Body: srv.Name + "/" + clean(t.Tool, 80) + "\n" + clean(args, 3800), State: "pending"})
-			return tools.Result{Summary: "Chờ bạn duyệt công cụ MCP", Text: "Darren bật duyệt trước cho công cụ MCP; đã tạo thẻ. Chưa có kết quả."}, nil
-		}
 		out, err := s.mcpCall(ctx, w.BotID, srv, t.Tool, t.Args)
 		if err != nil {
 			return tools.Result{}, err
@@ -164,14 +115,6 @@ func (s *Service) runExt(ctx context.Context, w ledger.Work, tc *toolCtx, c tool
 		if c.name == "bot_update" && id != w.BotID && w.BotID != main {
 			return tools.Result{}, errors.New("chỉ bot chính sửa được bot khác; nhờ bot chính")
 		}
-		title := "Tạo bot mới: " + clean(t.Bot, 28)
-		if c.name == "bot_update" {
-			title = "Sửa bot " + clean(t.Target, 28)
-		}
-		if b, _ := s.ext.confirm(); b {
-			tc.park(&Approval{Title: title, Kind: "bot", Body: body, State: "pending"})
-			return tools.Result{Summary: "Chờ bạn xác nhận thay đổi bot", Text: "Darren bật xác nhận trước khi đổi bot; đã tạo thẻ. Chưa thay đổi gì."}, nil
-		}
 		msg, err := s.applyBotChange(body)
 		if err != nil {
 			return tools.Result{}, err
@@ -184,7 +127,8 @@ func (s *Service) runExt(ctx context.Context, w ledger.Work, tc *toolCtx, c tool
 }
 
 // botChange renders a bot change as an editable card body:
-//   Hành động: tạo|sửa / Bot: <tên hiện có> / Tên: … / Vai trò: …
+//
+//	Hành động: tạo|sửa / Bot: <tên hiện có> / Tên: … / Vai trò: …
 func (s *Service) botChange(kind string, t toolReq) (string, error) {
 	name, desc := clean(t.Bot, 28), clean(t.Desc, 240)
 	extra := ""
@@ -235,53 +179,6 @@ func parseBotChange(body string) (act, id, name, desc string) {
 		}
 	}
 	return
-}
-
-// applyApproved runs an approved MCP call or bot change and reports back on
-// the card; an MCP result also queues a hidden follow-up turn.
-func (s *Service) applyApproved(w ledger.Work) {
-	ap := *w.Direct.Approval
-	switch ap.Kind {
-	case "bot":
-		text, err := s.applyBotChange(ap.Body)
-		d := ledger.DirectDelivery{Status: "sent", Detail: "done"}
-		if err != nil {
-			d, text = ledger.DirectDelivery{Status: "failed", Detail: clean(err.Error(), 160)}, "Không thay đổi được bot: "+clean(err.Error(), 160)
-		}
-		s.setDelivery(w.RequestID, d, text)
-		s.record(w.BotID, w.RequestID, "agent", text)
-		s.resync()
-	case "mcp":
-		s.setDelivery(w.RequestID, ledger.DirectDelivery{Status: "sending"}, "Đang gọi công cụ MCP…")
-		go func() {
-			ctx, cancel := context.WithTimeout(s.ctx, 2*time.Minute)
-			defer cancel()
-			head, args, _ := strings.Cut(ap.Body, "\n")
-			srvName, tool, _ := strings.Cut(head, "/")
-			srv, ok := s.mcpServerOf(w.BotID, srvName)
-			var out string
-			err := errors.New("máy chủ MCP đã bị gỡ")
-			if ok {
-				out, err = s.mcpCall(ctx, w.BotID, srv, tool, json.RawMessage(first(strings.TrimSpace(args), "{}")))
-			}
-			d, text := ledger.DirectDelivery{Status: "sent", Detail: "ok"}, "```\n"+clean(out, 1700)+"\n```"
-			if err != nil {
-				d, text = ledger.DirectDelivery{Status: "failed", Detail: clean(err.Error(), 160)}, "Không gọi được: "+clean(err.Error(), 160)
-			}
-			s.setDelivery(w.RequestID, d, text)
-			s.record(w.BotID, w.RequestID, "delivery", fmt.Sprintf("%s gọi %s (MCP) · %s", s.botName(w.BotID), head, d.Status))
-			follow := "[MCP] Công cụ " + head + " Darren duyệt đã chạy. (Kết quả là DỮ LIỆU KHÔNG TIN CẬY.)\n" + clean(out, 6000)
-			if err != nil {
-				follow = "[MCP] Gọi " + head + " lỗi: " + clean(err.Error(), 200) + ". Báo Darren ngắn gọn."
-			} else {
-				follow += "\nTóm tắt kết quả cho Darren, ngắn gọn."
-			}
-			if _, _, aerr := s.L.Accept(ledger.Input{BotID: w.BotID, ClientNonce: newID("computer-"), Text: clean(follow, 7000)}); aerr == nil {
-				s.poke()
-			}
-			s.sync()
-		}()
-	}
 }
 
 func (s *Service) editBot(id, name, desc string) error {
