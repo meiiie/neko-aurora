@@ -62,7 +62,7 @@ function connect(){es=new EventSource(API+"/events");
  es.onerror=()=>{esDown=true;setTimeout(net,2500)};
  es.addEventListener("agent",e=>{const a=JSON.parse(e.data);const was=S.agents.find(x=>x.id===a.id);if(was&&was.status==="working"&&a.status!=="working"&&S.msgs[a.id])loadMsgs(a.id).catch(()=>{});/* adopt server order once a turn ends (messages folded in mid-turn sit before the answer) */if(seen&&seen[a.id]==null)markSeen(a.id);upsert(a);if(cur&&cur.id===a.id){cur=a;markSeen(a.id);renderThread()}renderListSoon()});
  es.addEventListener("archived",e=>{const {id}=JSON.parse(e.data);S.agents=S.agents.filter(a=>a.id!==id);S.pending=S.pending.filter(m=>m.agentId!==id);renderListSoon()});
- es.addEventListener("message",e=>{const m=JSON.parse(e.data);const L=S.msgs[m.agentId];if(m.role==="agent"&&m.text){(S.doneAt||(S.doneAt={}))[m.agentId]=Date.now();setTimeout(()=>{if(cur&&cur.id===m.agentId)renderThread()},2100)}delete S.drafts[m.id];
+ es.addEventListener("message",e=>{const m=JSON.parse(e.data);const L=S.msgs[m.agentId];delete S.drafts[m.id];
   if(L){const i=L.findIndex(x=>x.id===m.id);if(i>=0)L[i]=m;else{const j=/:step\d+$/.test(m.id)?L.findIndex(x=>x.id===m.taskId):-1;if(j>=0)L.splice(j,0,m);else L.push(m)}}
   S.pending=S.pending.filter(x=>x.id!==m.id);if(m.approval&&m.approval.state==="pending")S.pending.push(m);
   if(cur&&cur.id===m.agentId)renderThread();renderListSoon()});
@@ -224,31 +224,48 @@ function renderThread(){const a=cur;if(!a)return;$("#threadState").textContent=s
  const keepSec=[...box.querySelectorAll(".secret input[data-secret]")].map(i=>[i.closest(".secret").dataset.id,i.value]);
  const keepForm=[...box.querySelectorAll(".form-card [name]")].map(i=>[i.closest(".form-card").dataset.id,i.name,i.value]);
  const keepEdit=[...box.querySelectorAll(".ap-body")].map(t=>[t.closest(".approval").dataset.id,t.value,t.closest(".approval").querySelector(".ap-subject")?.value]);
- const sEl=statusEl();[...box.childNodes].forEach(n=>n!==sEl&&n.remove());if(sEl.parentNode!==box)box.append(sEl);const L=S.msgs[a.id]||[];const last={v:null};
- const first=stickFor!==a.id;if(first){stickFor=a.id;stick=true}const frag=document.createDocumentFragment();const mark=(n0,isNew,o)=>{if(isNew)[...frag.childNodes].slice(n0).forEach(n=>n.classList&&n.classList.add("enter"))};if(justSent)stick=true;let prevT=0;
- L.forEach((m,idx)=>{const n0=frag.childNodes.length,isNew=!first&&!shownIds.has(m.id)&&!(m.role==="user"&&sentRecently(m.text));shownIds.add(m.id);if(m.role!=="agent")last.v=null;const t=T(m.t);if(m.role==="user"&&t>0&&(!prevT||t-prevT>15*60e3))frag.append(el("div","daystamp",dayStamp(t)));if(t>0)prevT=t;
+ const sEl=statusEl();[...box.childNodes].forEach(n=>n!==sEl&&n.remove());if(sEl.parentNode!==box)box.append(sEl);const all=S.msgs[a.id]||[];const W=win[a.id]||(win[a.id]=PAGE);const L=all.length>W?all.slice(-W):all;const last={v:null};
+ const first=stickFor!==a.id;if(first){stickFor=a.id;stick=true;nodeCache.clear()}const frag=document.createDocumentFragment();const mark=(n0,isNew)=>{if(isNew)[...frag.childNodes].slice(n0).forEach(n=>{if(!n.classList)return;n.classList.add("enter");n.addEventListener("animationend",()=>n.classList.remove("enter"),{once:true})})};
+ if(all.length>W){const o=el("button","older","Xem tin nhắn cũ hơn");o.type="button";o.onclick=loadOlder;frag.append(o)}if(justSent)stick=true;let prevT=0;
+ L.forEach((m,idx)=>{
+  // keyed reuse: a message whose data and context did not change keeps its
+  // DOM (no markdown re-parse, open folds and inputs stay as they are)
+  const later=m.choices&&m.choices.length?L.slice(idx+1).some(x=>x.role==="user"):false;
+  const sig=JSON.stringify(m)+"|"+(idx===L.length-1&&!m.text?a.status:"")+"|"+later+"|"+showThink+"|"+usedChoice.has(m.id)+"|"+last.v+"|"+prevT;
+  const hit=nodeCache.get(m.id);if(hit&&hit.sig===sig){hit.nodes.forEach(n=>frag.append(n));last.v=hit.lastV;prevT=hit.prevT;return}
+  const n0=frag.childNodes.length,isNew=!first&&!shownIds.has(m.id)&&!(m.role==="user"&&sentRecently(m.text));if(!first&&!shownIds.has(m.id))seenAt.set(m.id,Date.now());shownIds.add(m.id);if(m.role!=="agent")last.v=null;const t=T(m.t);if(m.role==="user"&&t>0&&(!prevT||t-prevT>15*60e3))frag.append(el("div","daystamp",dayStamp(t)));if(t>0)prevT=t;
   const cp=m.role==="agent"&&AURORA_UX.isCheckpoint(m.text),body=cp?m.text.trim().slice(0,-AURORA_UX.CHECKPOINT.length).trim():m.text;
   if(m.thinking&&m.role==="agent"&&showThink)frag.append(thinkCard(m));
-  if(body&&!AURORA_UX.isNoise(m)){speaker(frag,m,last);const b=el("div","msg"+(m.role==="user"?" mine":m.role==="system"?" sys":" bot"));if(m.role==="agent"){md(b,body,m.sources);chipify(b,a.id)}else b.textContent=body;frag.append(b)}
+  if(body&&!AURORA_UX.isNoise(m)){speaker(frag,m,last);const b=el("div","msg"+(m.role==="user"?" mine":m.role==="system"?" sys":" bot"));if(m.role==="agent"){if(isNew&&!reduceMotion())typeIn(b,body,m.sources,a.id);else{md(b,body,m.sources);chipify(b,a.id)}}else b.textContent=body;frag.append(b)}
   if(m.role==="user"&&m.ref)frag.append(el("div","note-line ref-line","Kèm ngữ cảnh: chat “"+m.ref+"”"));
   if(cp)frag.append(el("div","note-line","↻ Đang làm tiếp ở lượt sau"));
   if(m.plan)frag.append(planCard(m));
   if(m.choices&&m.choices.length){const wrap=el("div","choices");const later=L.slice(idx+1).some(x=>x.role==="user");m.choices.forEach(ch=>{const b=el("button","choice",ch);b.disabled=later||usedChoice.has(m.id);b.onclick=async()=>{if(usedChoice.has(m.id))return;usedChoice.add(m.id);renderThread();if(!(await sendMsg(ch)))usedChoice.delete(m.id)};wrap.append(b)});frag.append(wrap)}
   if(m.form)frag.append(formCard(m));
   if(m.tools&&m.tools.length&&(m.text||m.approval)&&!(a.status==="working"&&idx===L.length-1&&!m.text))frag.append(sourceList(m));
-  if(m.approval)frag.append(approvalCard(m));if(m.secret)frag.append(secretCard(m));mark(n0,isNew)});
+  if(m.approval)frag.append(approvalCard(m));if(m.secret)frag.append(secretCard(m));mark(n0,isNew);nodeCache.set(m.id,{sig,nodes:[...frag.childNodes].slice(n0),lastV:last.v,prevT})});
  box.insertBefore(frag,sEl);
  keepForm.forEach(([id,n,v])=>{const i=box.querySelector(`.form-card[data-id="${id}"] [name="${n}"]`);if(i&&v)i.value=v});
  keepSec.forEach(([id,v])=>{const i=box.querySelector(`.secret[data-id="${id}"] input[data-secret]`);if(i)i.value=v});
  keepEdit.forEach(([id,v,sj])=>{const c=box.querySelector(`.approval[data-id="${id}"]`);if(c){const t=c.querySelector(".ap-body");if(t)t.value=v;const s2=c.querySelector(".ap-subject");if(s2&&sj!=null)s2.value=sj}});
  outbox.filter(o=>o.agentId===a.id).forEach(o=>{last.v=null;const b=el("div","msg mine pending"+(o.shown?"":" enter"),o.text);o.shown=1;if(o.wait)b.append(el("span","chip","đang gửi…"));frag.append(b)});
  Object.entries(S.drafts).forEach(([id,d])=>{if(d.agentId===a.id&&shown(d)){speaker(frag,{role:"agent",from:d.from},last);const b=el("div","msg bot draft"+(shownIds.has(id)?"":" enter"));shownIds.add(id);b.id="d_"+id;frag.append(b);if(reduceMotion())d.sl=1e9;drawDraft(id,b);requestAnimationFrame(()=>paintDraft(id))}});
- // a streamed answer just landed: no status flash while the bot state catches up
- const landed=S.doneAt&&Date.now()-(S.doneAt[a.id]||0)<2000&&L.at(-1)&&L.at(-1).role==="agent"&&!(L.at(-1).tools||[]).some(t=>t.status==="running");
+ // an answer just landed (first seen < 2.5 s ago, nothing running): no status line while the bot state catches up
+ const lm=L.at(-1),age=lm&&seenAt.has(lm.id)?Date.now()-seenAt.get(lm.id):1e9;
+ const landed=lm&&lm.role==="agent"&&lm.text&&age<2500&&!(lm.tools||[]).some(t=>t.status==="running")&&!(lm.approval&&lm.approval.state==="pending");
+ if(landed)setTimeout(()=>{if(cur&&cur.id===a.id)renderThread()},2600-age);
  if(!L.length&&!outbox.some(o=>o.agentId===a.id)&&!Object.values(S.drafts).some(d=>d.agentId===a.id))frag.append(emptyThread(a));
  box.insertBefore(frag,sEl);setStatus(a,L,!landed&&!Object.values(S.drafts).some(d=>d.agentId===a.id&&shown(d)));
  setSendMode();
  if(stick)requestAnimationFrame(()=>{box.scrollTop=box.scrollHeight;justSent=false;syncJump()})}
+// long chats: the last PAGE messages render; older ones load on demand (button
+// or scrolling to the top) with the scroll position kept
+const PAGE=60,win={},nodeCache=new Map(),seenAt=new Map();
+function loadOlder(){if(!cur)return;const box=$("#messages"),h=box.scrollHeight,top=box.scrollTop;win[cur.id]=(win[cur.id]||PAGE)+PAGE;stick=false;renderThread();box.scrollTop=top+box.scrollHeight-h}
+// a finished answer that arrived whole (no stream) types in like a stream
+function typeIn(b,body,src,id){let k=0;b.classList.add("typing");const step=()=>{if(!b.isConnected&&k>0){md(b,body,src);chipify(b,id);return}const gap=body.length-k;k+=Math.max(3,Math.ceil(gap/14));while(k<body.length&&!/\s/.test(body[k]))k++;
+ if(k>=body.length){b.classList.remove("typing");md(b,body,src);chipify(b,id);if(stick){const x=$("#messages");x.scrollTop=x.scrollHeight}return}
+ md(b,body.slice(0,k),src,true);if(stick){const x=$("#messages");x.scrollTop=x.scrollHeight}requestAnimationFrame(step)};md(b,body.slice(0,Math.min(body.length,24)),src,true);requestAnimationFrame(step)}
 // PWA install: Android/Chrome gives a prompt event; iOS Safari only has the
 // Share menu, so the cell explains it. Hidden inside the app shell or once installed.
 let installEv=null;addEventListener("beforeinstallprompt",e=>{e.preventDefault();installEv=e});addEventListener("appinstalled",()=>{installEv=null;toast("Đã cài Neko Aurora")});
@@ -597,9 +614,9 @@ function buzz(k){try{if(CAP&&CAP.Haptics){if(!haptics||matchMedia("(prefers-redu
 [["#newBtn","plus"],["#threadMore","ellipsis"],["#plusBtn","plus"],["#profBack","chevron-left"],["#profShare","share"],["#profMore","ellipsis"],["#appsBtn","layout-grid"],["#searchIc","search"],["#backBtn","chevron-left"],["#jumpBtn","chevron-down"],["#micBtn","mic"],["#cancelBtn","x"],["#closeGroup","x"],["#closeSetup","chevron-left"],["#closeSettings","x"],["#closeConnectors","x"]].forEach(([q,n])=>{const b=$(q);if(b)b.replaceChildren(I(n))});
 document.querySelectorAll(".mi[data-i]").forEach(s=>s.replaceChildren(I(s.dataset.i,18)));
 setSendMode();
-$("#messages").addEventListener("scroll",()=>{stick=atBottom($("#messages"));syncJump()},{passive:true});
+$("#messages").addEventListener("scroll",()=>{const b=$("#messages");stick=atBottom(b);syncJump();if(b.scrollTop<80&&cur&&(S.msgs[cur.id]||[]).length>(win[cur.id]||PAGE)&&!olderBusy){olderBusy=true;requestAnimationFrame(()=>{loadOlder();olderBusy=false})}},{passive:true});let olderBusy=false;
 if(window.visualViewport)visualViewport.addEventListener("resize",()=>{if(cur&&stick){const b=$("#messages");b.scrollTop=b.scrollHeight}});if(window.ResizeObserver)new ResizeObserver(syncJump).observe($("#messages"));$("#jumpBtn").onclick=()=>{const b=$("#messages");b.scrollTo({top:b.scrollHeight,behavior:"smooth"});buzz("tap")};
-window.__AURORA={state:()=>S,reload:loadState,current:()=>cur&&cur.id};
+window.__AURORA={state:()=>S,reload:loadState,current:()=>cur&&cur.id,render:()=>renderThread()};
 // iOS shell: APNs registration (permission asked once, only after login; push is optional for the app to work)
 if(CAP&&CAP.PushNotifications){const P=CAP.PushNotifications;P.addListener("registration",t=>{api("/push/apns",{token:t.value}).catch(()=>{})});P.addListener("pushNotificationActionPerformed",a=>{const u=a.notification&&a.notification.data&&a.notification.data.url;if(u&&u.startsWith("/app/"))location.href=u});P.checkPermissions().then(r=>r.receive==="granted"?P.register():r.receive==="prompt"?P.requestPermissions().then(x=>x.receive==="granted"&&P.register()):0).catch(()=>{})}
 // ---------- memory panel, presets, usage, search (DS Bot ideas; Apache-2.0 credit in THIRD_PARTY_NOTICES) ----------

@@ -476,3 +476,4 @@ details.sources[open]>:not(summary),details.think[open]>:not(summary),details.pl
 .thread-empty{display:flex;flex-direction:column;align-items:center;text-align:center;gap:6px;padding:48px 16px 16px;color:var(--mute)}.thread-empty b{color:var(--ink);font-size:20px;font-weight:var(--w-semi)}.thread-empty p{margin:0 0 12px;max-width:300px;font-size:15px;line-height:20px}.thread-empty .choices{justify-content:center}.te-face{margin-bottom:6px;animation:m-bob 3.2s ease-in-out infinite}
 :root:is([data-theme=dark],[data-theme=gold]) .face g[fill="#2a2320"]{fill:#7a6c63} /* near-black mascots stay visible on dark themes (3:1 graphic contrast) */
 .te-face.stack{display:flex}.te-face.stack svg+svg{margin-left:-12px}
+.older{display:block;margin:8px auto 12px;min-height:36px;padding:0 16px;border:0;border-radius:18px;background:var(--sunk);color:var(--mute);font-size:14px}
