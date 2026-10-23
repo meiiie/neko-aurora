@@ -49,3 +49,33 @@ func TestRailwayCheckpointSetup(t *testing.T) {
 	t.Logf("checkpoint %v %v", err, out)
 	r.destroyID(ctx, id)
 }
+
+// RAILWAY_IDLE=1: one command, then no destroy; the VM must go on its own.
+func TestRailwayIdleStop(t *testing.T) {
+	if os.Getenv("RAILWAY_IDLE") != "1" {
+		t.Skip("set RAILWAY_IDLE=1")
+	}
+	r := NewRailwayFromEnv()
+	home := t.TempDir()
+	ctx := context.Background()
+	if _, err := r.Exec(ctx, Spec{Home: home, Cmd: "true", Limits: DefaultLimits()}); err != nil {
+		t.Fatal(err)
+	}
+	reg.Lock()
+	id := reg.ids[home]
+	reg.Unlock()
+	t0 := time.Now()
+	for time.Since(t0) < 9*time.Minute {
+		var g struct {
+			Sandbox struct{ Status string } `json:"sandbox"`
+		}
+		err := r.gql(ctx, qGet, map[string]any{"environmentId": r.EnvironmentID, "id": id}, &g)
+		if err != nil || g.Sandbox.Status != "RUNNING" {
+			t.Logf("gone after %v: %v %s", time.Since(t0).Round(time.Second), err, g.Sandbox.Status)
+			return
+		}
+		time.Sleep(15 * time.Second)
+	}
+	r.destroyID(ctx, id)
+	t.Fatal("still running after 9 min")
+}

@@ -46,13 +46,28 @@ try{
  const steps=ms.filter(m=>/:step\d+$/.test(m.id)).length;const fin=ms.filter(m=>m.role==='agent').at(-1);
  ok('plan: 3 milestone updates + final with SJC price',steps===3&&/14\d|SJC/.test(fin?.text||''),{steps,doing:[...doing],fin:(fin?.text||'').slice(0,160)});
  }
- n0=(await msgs()).length;await postj(`agents/${bot}/messages`,{text:'Trên máy tính của bạn, chạy lệnh: echo xin-chao > /home/bot/hi.txt && cat /home/bot/hi.txt && uname -s',clientNonce:'live-cmd-'+Date.now()});
+ if(ONLY==='sandbox'){
+ const shot=async f=>{await open();await p.evaluate(()=>{const m=document.querySelector('#messages');m.scrollTop=m.scrollHeight});await sl(400);await p.screenshot({path:O+f})};
+ const cmdTurn=async(text,re,tag)=>{const s0=(await msgs()).length;await postj(`agents/${bot}/messages`,{text,clientNonce:'live-sb-'+tag+Date.now()});
+  let ap=null;for(let i=0;i<150&&!ap;i++){await sl(1000);ap=(await msgs()).slice(s0).find(m=>m.approval&&m.approval.state==='pending')}
+  ok(tag+': bot asks approval',!!ap,ap?undefined:(await msgs()).slice(s0).map(m=>m.role+':'+(m.text||'').slice(0,160)));if(!ap)return;
+  await shot('sb-'+tag+'-approval.png');const r=await postj(`approvals/${ap.taskId||ap.id}`,{decision:'approved'});ok(tag+': approved via API',r.status<300,r.status);
+  const t0=Date.now();let hit=false;for(let i=0;i<180&&!hit;i++){await sl(1000);hit=re.test(JSON.stringify((await msgs()).slice(s0)))}
+  ok(tag+': command ran, output back',hit,{secs:Math.round((Date.now()-t0)/1000)});await idle(120);await sl(2000);await shot('sb-'+tag+'-done.png');
+  const L=(await msgs()).slice(s0);const ag=L.filter(m=>m.role==='agent'&&(m.text||'').trim());
+  ok(tag+': output shown once (no duplicate bubble)',ag.filter(m=>re.test(m.text)).length<=1&&ag.filter(m=>/cần bạn duyệt/.test(m.text)).length<=1,L.map(m=>m.role+':'+(m.text||'').slice(0,140)+(m.approval?' AP:'+m.approval.state+' '+(m.approval.outcome||'').slice(0,140):'')))};
+ await cmdTurn('Trên máy tính của bạn: tạo /home/bot/sales.csv gồm cột item,qty,price với 3 dòng (tao,3,10000 / cam,5,8000 / le,2,15000), viết /home/bot/stats.py đọc CSV bằng module csv và in "TONG=" + tổng qty*price, rồi chạy python3 /home/bot/stats.py. Báo kết quả.',/TONG=100000/,'csv');
+ await cmdTurn('Chạy lại python3 /home/bot/stats.py (đừng tạo lại file) và cho mình biết nó in gì.',/TONG=100000/,'persist');
+ const files=await get(`agents/${bot}/computer`).catch(()=>null);console.log('home listing',JSON.stringify(files).slice(0,300));
+}
+ if(ONLY!=='sandbox'){n0=(await msgs()).length;await postj(`agents/${bot}/messages`,{text:'Trên máy tính của bạn, chạy lệnh: echo xin-chao > /home/bot/hi.txt && cat /home/bot/hi.txt && uname -s',clientNonce:'live-cmd-'+Date.now()});
  let ap=null;for(let i=0;i<120&&!ap;i++){await sl(1000);ap=(await msgs()).slice(n0).find(m=>m.approval&&m.approval.state==='pending')}
  ok('computer: approval card appeared',!!ap,ap?undefined:(await msgs()).slice(n0).map(m=>m.role+':'+(m.text||'').slice(0,120)+' tools='+JSON.stringify(m.tools||[]).slice(0,200)));
  if(ap){await open();await p.evaluate(()=>{const m=document.querySelector('#messages');m.scrollTop=m.scrollHeight});await p.screenshot({path:O+'4-approval.png'});const r=await postj(`approvals/${ap.taskId||ap.id}`,{decision:'approved'});ok('computer: approved via API',r.status<300,r.status);
   let out='';for(let i=0;i<90&&!out;i++){await sl(1000);const L=(await msgs()).slice(n0);const t=L.map(m=>(m.text||'')+JSON.stringify(m.approval||{})).join('\n');if(/xin-chao/.test(t)&&/Linux/.test(t))out=t}
   await idle(60);await sl(1500);await open();await p.evaluate(()=>{const m=document.querySelector('#messages');m.scrollTop=m.scrollHeight});await sl(400);await p.screenshot({path:O+'5-computer-done.png'});
   const L=(await msgs()).slice(n0);ok('computer: one reply after the result (no repeated approval text)',L.filter(m=>m.role==='agent'&&/cần bạn duyệt/.test(m.text||'')).length<=1);ok('computer: real output (xin-chao, Linux) came back',!!out,L.map(m=>m.role+':'+(m.text||'').slice(0,80)+(m.approval?' AP:'+JSON.stringify(m.approval.delivery)+(m.approval.outcome||'').slice(0,100):'')))}
+ }
  ok('no page errors',errs.length===0,errs);
 }finally{
  const d=await p.request.post(U+'/app/api/account/delete',{headers:H,data:{confirm:'DELETE'}});await sl(1500);const me=await p.request.get(U+'/app/auth/me');ok('test account deleted',d.ok()&&me.status()===401);
