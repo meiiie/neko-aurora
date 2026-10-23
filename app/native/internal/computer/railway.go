@@ -33,6 +33,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -119,7 +120,8 @@ func (r *Railway) gql(ctx context.Context, query string, vars map[string]any, ou
 	}
 	if len(env.Errors) > 0 {
 		m := env.Errors[0].Message
-		if strings.Contains(strings.ToLower(m), "not found") {
+		if l := strings.ToLower(m); strings.Contains(l, "not found") || strings.Contains(l, "destroyed") || strings.Contains(l, "not running") {
+			// idle timeout already took the VM ("Sandbox is destroyed, cannot exec")
 			return errSandboxGone
 		}
 		return fmt.Errorf("railway: %s", m) // never echoes the token
@@ -178,6 +180,14 @@ func (r *Railway) create(ctx context.Context) (string, error) {
 func (r *Railway) sandbox(ctx context.Context, home string, fresh bool) (string, error) {
 	reg.Lock()
 	id := reg.ids[home]
+	if id == "" && !fresh { // after a restart: reattach to the VM we recorded
+		if b, err := os.ReadFile(idFile(home)); err == nil {
+			id = strings.TrimSpace(string(b))
+			if id != "" {
+				reg.ids[home] = id
+			}
+		}
+	}
 	reg.used[home] = time.Now()
 	var evict []string
 	if id == "" || fresh {
@@ -195,6 +205,7 @@ func (r *Railway) sandbox(ctx context.Context, home string, fresh bool) (string,
 			}
 			evict = append(evict, reg.ids[lru])
 			delete(reg.ids, lru)
+			_ = os.Remove(idFile(lru))
 		}
 	}
 	reg.Unlock()
@@ -209,9 +220,14 @@ func (r *Railway) sandbox(ctx context.Context, home string, fresh bool) (string,
 		reg.Lock()
 		reg.ids[home] = id
 		reg.Unlock()
+		_ = os.WriteFile(idFile(home), []byte(id), 0o600)
 	}
 	return id, err
 }
+
+// idFile records a home's VM id next to (never inside) the home, so a
+// restarted server reattaches instead of leaking the VM.
+func idFile(home string) string { return filepath.Clean(home) + ".sandbox-id" }
 
 func (r *Railway) destroyID(ctx context.Context, id string) {
 	var out map[string]any
@@ -234,6 +250,15 @@ func (r *Railway) DestroyUnder(ctx context.Context, dir string) {
 		}
 	}
 	reg.Unlock()
+	// VMs recorded before a restart are only on disk
+	_ = filepath.WalkDir(dir, func(p string, d fs.DirEntry, err error) error {
+		if err == nil && !d.IsDir() && strings.HasSuffix(p, ".sandbox-id") {
+			if b, err := os.ReadFile(p); err == nil && len(b) > 0 && !slices.Contains(ids, strings.TrimSpace(string(b))) {
+				ids = append(ids, strings.TrimSpace(string(b)))
+			}
+		}
+		return nil
+	})
 	for _, id := range ids {
 		r.destroyID(ctx, id)
 	}
@@ -254,6 +279,10 @@ func (r *Railway) Destroy(ctx context.Context, home string) error {
 	delete(reg.ids, home)
 	delete(reg.used, home)
 	reg.Unlock()
+	if b, err := os.ReadFile(idFile(home)); err == nil && id == "" {
+		id = strings.TrimSpace(string(b))
+	}
+	_ = os.Remove(idFile(home))
 	if id != "" {
 		r.destroyID(ctx, id)
 	}

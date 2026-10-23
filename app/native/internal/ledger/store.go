@@ -109,6 +109,7 @@ type Work struct {
 	TaskRevision               uint64                      `json:"taskRevision,omitempty"`
 	TaskLink                   *TaskLink                   `json:"taskLink,omitempty"`
 	Direct                     *DirectRun                  `json:"direct,omitempty"`
+	ResumeFrom                 *DirectRun                  `json:"resumeFrom,omitempty"` // checkpoint kept by DirectResume
 }
 type Event struct {
 	CoreProfile                    *CoreProfileEvent           `json:"coreProfile,omitempty"`

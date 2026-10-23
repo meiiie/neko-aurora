@@ -557,7 +557,18 @@ func (s *Service) runTurn(ctx context.Context, w ledger.Work) (*Approval, []stri
 	var d directives
 	var err error
 	followUp := strings.HasPrefix(w.ClientNonce, "computer-") // tool output must never trigger planning
-	if steps := userSteps(w.Text); !followUp && len(steps) >= 3 && threadOf(w) == w.BotID {
+	var resumed []ledger.DirectStep
+	if cp := w.ResumeFrom; cp != nil && !followUp && len(cp.Plan) >= 2 {
+		// Restarted mid-plan: keep the finished steps (and their sources)
+		// and continue from the next one instead of starting over.
+		resumed = cp.Plan
+		tc.sources = append(tc.sources, cp.Sources...)
+		titles := make([]string, len(cp.Plan))
+		for i, st := range cp.Plan {
+			titles[i] = st.Title
+		}
+		d = directives{Text: cp.PlanIntro, Plan: titles}
+	} else if steps := userSteps(w.Text); !followUp && len(steps) >= 3 && threadOf(w) == w.BotID {
 		// The owner already listed the steps: run them as a server-driven plan
 		// (one milestone update per step, then a final result) without asking
 		// the model to re-plan.
@@ -590,7 +601,7 @@ func (s *Service) runTurn(ctx context.Context, w ledger.Work) (*Approval, []stri
 		s.runTools(ctx, w, tc, calls)
 		if tc.pendingCmd != "" {
 			// a command needs the owner: end the turn on its approval card
-			d = directives{Text: "Mình cần bạn duyệt lệnh này trước khi chạy trên máy tính của mình.", Approval: computerApproval(tc.pendingCmd)}
+			d = directives{Text: computerAskText, Approval: computerApproval(tc.pendingCmd)}
 			break
 		}
 		d, err = s.ask(ctx, w, tc, func() []ChatMsg { return tc.inject(s.history(w.BotID, w.RequestID)) })
@@ -632,8 +643,16 @@ func (s *Service) runTurn(ctx context.Context, w ledger.Work) (*Approval, []stri
 	steps := make([]Step, len(d.Plan))
 	for i, t := range d.Plan {
 		steps[i] = Step{Title: t, Status: "pending"}
+		if i < len(resumed) && resumed[i].Status == "done" {
+			steps[i] = resumed[i]
+		}
 	}
-	s.update(w.RequestID, func(r *ledger.DirectRun) { r.PlanIntro, r.Plan = clean(d.Text, 600), steps })
+	s.update(w.RequestID, func(r *ledger.DirectRun) {
+		r.PlanIntro, r.Plan = clean(d.Text, 600), steps
+		if len(resumed) > 0 {
+			r.Sources = append([]ledger.DirectSource(nil), tc.sources...)
+		}
+	})
 	s.endDraft(w)
 	setStep := func(i int, st string) {
 		s.update(w.RequestID, func(r *ledger.DirectRun) {
@@ -646,6 +665,10 @@ func (s *Service) runTurn(ctx context.Context, w ledger.Work) (*Approval, []stri
 		})
 	}
 	for i, title := range d.Plan {
+		if steps[i].Status == "done" { // finished before the restart
+			tc.note(fmt.Sprintf("KẾT QUẢ BƯỚC %d (%s): %s", i+1, title, steps[i].Note))
+			continue
+		}
 		if ctx.Err() != nil {
 			setStep(i, "cancelled")
 			return nil, nil, ctx.Err()
@@ -889,3 +912,5 @@ func (s *Service) remember(w ledger.Work, text string) {
 		s.record(w.BotID, w.RequestID, "step", "Đã ghi nhớ: "+clean(text, 120))
 	}
 }
+
+const computerAskText = "Mình cần bạn duyệt lệnh này trước khi chạy trên máy tính của mình."

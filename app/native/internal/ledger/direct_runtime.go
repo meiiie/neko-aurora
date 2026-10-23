@@ -257,6 +257,7 @@ func (s *Store) DirectResume(id string) (Work, error) {
 		if w.Status != "running" || w.Direct == nil || w.Direct.FinishedAt != "" || w.DesiredState != "running" || w.DirectResumes >= MaxDirectResumes {
 			return ErrConflict
 		}
+		w.ResumeFrom = ResumeCheckpoint(w.Direct, w.ResumeFrom)
 		w.Status, w.Direct, w.Reply, w.AttemptID, w.Failure = "waiting_host", nil, "", "", ""
 		w.DirectResumes++
 		return nil
@@ -362,3 +363,29 @@ func (s *Store) DirectDecide(id string, change func(*DirectApproval, *DirectRun)
 }
 
 func ValidDirectSecret(x *DirectSecret) bool { return x != nil && validDirectSecret(x) }
+
+// ResumeCheckpoint keeps what an interrupted run already finished (plan
+// steps marked done with their notes, and the sources they cite) so the
+// resumed run continues from the next step instead of starting over. Runs
+// without a finished plan step keep the previous checkpoint (or none).
+// Deterministic: replay recomputes it from the journaled run.
+func ResumeCheckpoint(d, prev *DirectRun) *DirectRun {
+	if d == nil || len(d.Plan) < 2 {
+		return prev
+	}
+	cp := DirectRun{PlanIntro: d.PlanIntro, Plan: make([]DirectStep, len(d.Plan))}
+	done := 0
+	for i, st := range d.Plan {
+		cp.Plan[i] = DirectStep{Title: st.Title, Status: "pending"}
+		if st.Status == "done" && done == i { // only the finished prefix
+			cp.Plan[i] = st
+			done++
+		}
+	}
+	if done == 0 {
+		return prev
+	}
+	cp.Sources = append([]DirectSource(nil), d.Sources...)
+	cp = copyDirectRun(cp)
+	return &cp
+}

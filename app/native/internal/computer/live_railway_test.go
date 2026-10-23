@@ -79,3 +79,13 @@ func TestRailwayIdleStop(t *testing.T) {
 	r.destroyID(ctx, id)
 	t.Fatal("still running after 9 min")
 }
+
+// RAILWAY_GONE=<destroyed id>: what does exec on a destroyed VM return?
+func TestRailwayGoneError(t *testing.T) {
+	id := os.Getenv("RAILWAY_GONE")
+	if id == "" {
+		t.Skip("set RAILWAY_GONE")
+	}
+	_, err := NewRailwayFromEnv().exec(context.Background(), id, "true", 10)
+	t.Logf("err=%v gone=%v", err, err == errSandboxGone)
+}

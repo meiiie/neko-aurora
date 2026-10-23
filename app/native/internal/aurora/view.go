@@ -370,6 +370,15 @@ func workMessages(w ledger.Work, botRunning bool) []*Message {
 		if d.Approval != nil {
 			a := *d.Approval
 			m.Approval = &a
+			if a.Kind == "computer" && strings.HasPrefix(m.Text, computerAskText) {
+				// once decided, the bubble says what happened, not "please approve"
+				switch a.State {
+				case "approved", "done":
+					m.Text = "Đã chạy lệnh trên máy tính của mình."
+				case "declined", "rejected", "cancelled":
+					m.Text = "Bạn đã từ chối lệnh này, mình không chạy."
+				}
+			}
 		}
 		if d.Secret != nil {
 			x := *d.Secret

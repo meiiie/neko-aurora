@@ -19,8 +19,8 @@ import (
 
 	"nekoaurora.local/native/internal/api"
 	"nekoaurora.local/native/internal/connections"
-	"nekoaurora.local/native/internal/hub"
 	"nekoaurora.local/native/internal/documentworker"
+	"nekoaurora.local/native/internal/hub"
 	"nekoaurora.local/native/internal/identity"
 	"nekoaurora.local/native/internal/ledger"
 	"nekoaurora.local/native/internal/runtime"

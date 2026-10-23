@@ -11,6 +11,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 )
 
 // fakeRailway speaks the subset of backboard GraphQL the backend uses and
@@ -53,7 +54,8 @@ func (f *fakeRailway) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	case strings.Contains(in.Query, "sandboxExec("):
 		dir, ok := f.vms[in.Variables["id"].(string)]
 		if !ok {
-			json.NewEncoder(w).Encode(map[string]any{"errors": []map[string]string{{"message": "Sandbox not found"}}})
+			// what backboard really says for an idle-destroyed VM (checked live)
+			json.NewEncoder(w).Encode(map[string]any{"errors": []map[string]string{{"message": "Sandbox is destroyed, cannot exec"}}})
 			return
 		}
 		c := in.Variables["command"].(string)
@@ -112,6 +114,13 @@ func TestRailwayBackend(t *testing.T) {
 	if r, err := m.Run(context.Background(), "b", "cat sum.txt"); err != nil || strings.TrimSpace(r.Output) != "6" || f.creates != 2 {
 		t.Fatalf("%+v %v creates=%d", r, err, f.creates)
 	}
+	// server restart: the registry is empty, the recorded VM is reattached
+	reg.Lock()
+	reg.ids, reg.used = map[string]string{}, map[string]time.Time{}
+	reg.Unlock()
+	if r, err := m.Run(context.Background(), "b", "cat sum.txt"); err != nil || strings.TrimSpace(r.Output) != "6" || f.creates != 2 {
+		t.Fatalf("restart: %+v %v creates=%d", r, err, f.creates)
+	}
 	if err := m.Reset("b"); err != nil || len(f.vms) != 0 {
 		t.Fatal("reset did not destroy VM", err)
 	}
@@ -129,5 +138,27 @@ func TestUnpackRejectsEscape(t *testing.T) {
 	}
 	if err := unpackHome(tgz, t.TempDir(), 0); err != ErrQuota {
 		t.Fatal("quota", err)
+	}
+}
+
+func TestDestroyUnderAfterRestart(t *testing.T) {
+	f := &fakeRailway{t: t, vms: map[string]string{}}
+	srv := httptest.NewServer(f)
+	defer srv.Close()
+	t.Setenv("RAILWAY_TOKEN", "x")
+	t.Setenv("RAILWAY_ENVIRONMENT_ID", "env1")
+	rw := NewRailwayFromEnv()
+	rw.Endpoint = srv.URL
+	user := t.TempDir()
+	m, _ := New(filepath.Join(user, "bots"), rw)
+	if _, err := m.Run(context.Background(), "b", "true"); err != nil {
+		t.Fatal(err)
+	}
+	reg.Lock()
+	reg.ids, reg.used = map[string]string{}, map[string]time.Time{}
+	reg.Unlock()
+	rw.DestroyUnder(context.Background(), user)
+	if len(f.vms) != 0 {
+		t.Fatal("VM recorded before restart not destroyed on account delete")
 	}
 }

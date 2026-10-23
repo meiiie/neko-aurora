@@ -51,6 +51,10 @@ func copyWork(w Work) Work {
 		d := copyDirectRun(*w.Direct)
 		w.Direct = &d
 	}
+	if w.ResumeFrom != nil {
+		d := copyDirectRun(*w.ResumeFrom)
+		w.ResumeFrom = &d
+	}
 	if w.CoreProfileGroupBinding != nil {
 		p := *w.CoreProfileGroupBinding
 		w.CoreProfileGroupBinding = &p
@@ -723,6 +727,7 @@ func validRuntimeReplay(s *Store, e Event) bool {
 			return false
 		}
 		expected.Status, expected.Failure, expected.Direct, expected.Reply, expected.AttemptID, expected.DirectResumes = w.Status, w.Failure, nil, "", "", w.DirectResumes
+		expected.ResumeFrom = ResumeCheckpoint(old.Direct, old.ResumeFrom)
 	case "work.direct_started", "work.direct_updated", "work.direct_finished", "work.direct_decided":
 		if !validDirectReplay(old, w, e.Type) {
 			return false
