@@ -70,6 +70,10 @@ func (s *Service) runComputer(ctx context.Context, bot string, tc *toolCtx, c to
 	}
 	switch c.name {
 	case "computer_run":
+		if err := s.PC.CanRun(); err != nil {
+			// never ask for approval of a command this host cannot run
+			return tools.Result{}, errors.New("máy chủ này chưa cho chạy lệnh (chỉ xem/đọc/ghi file được)")
+		}
 		if s.PC.NeedsApproval(bot, c.arg) {
 			tc.mu.Lock()
 			if tc.pendingCmd == "" {
@@ -210,4 +214,14 @@ func (s *Service) computerRoutes() {
 			writeJSON(w, 200, p)
 		}
 	})
+}
+
+// computerNote tells the model when commands cannot run on this host, so
+// it offers what does work (listing, reading, writing files) instead of
+// promising output it cannot produce.
+func (s *Service) computerNote() string {
+	if s.PC == nil || s.PC.CanRun() == nil {
+		return ""
+	}
+	return "\nLƯU Ý: trên máy chủ này máy tính của bạn tạm KHÔNG chạy được lệnh (computer_run); vẫn liệt kê, đọc, ghi file được. Nói rõ điều đó và đưa phương án cụ thể làm được ngay."
 }

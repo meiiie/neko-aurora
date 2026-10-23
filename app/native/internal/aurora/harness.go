@@ -8,15 +8,15 @@ package aurora
 
 import (
 	"context"
-	"errors"
-	"sync/atomic"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"os"
 	"path/filepath"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"nekoaurora.local/native/internal/ledger"

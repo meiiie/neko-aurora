@@ -216,7 +216,9 @@ func cut(s string, n int) string {
 	return s[:n] + "…"
 }
 
-func (k *Kit) Fetch(ctx context.Context, raw string) (Result, error) { return k.FetchFound(ctx, raw, nil) }
+func (k *Kit) Fetch(ctx context.Context, raw string) (Result, error) {
+	return k.FetchFound(ctx, raw, nil)
+}
 
 // FetchFound also reads a page that a web_search in the same turn returned
 // (exact URL match), so research isn't stuck on the static allowlist. The

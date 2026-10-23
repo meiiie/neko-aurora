@@ -7,6 +7,8 @@ import (
 	"fmt"
 	"os/exec"
 	"strconv"
+	"strings"
+	"sync"
 	"syscall"
 	"time"
 )
@@ -19,6 +21,9 @@ import (
 type Bwrap struct {
 	Path    string // bwrap binary
 	Prlimit string
+
+	once     sync.Once
+	probeErr error
 }
 
 func NewBwrap() *Bwrap {
@@ -41,7 +46,23 @@ func (b *Bwrap) Available() error {
 	if _, err := exec.LookPath(b.Prlimit); err != nil {
 		return fmt.Errorf("%w: prlimit not installed", ErrUnavailable)
 	}
-	return nil
+	return b.probe()
+}
+
+// probe checks once that this host lets bwrap create namespaces. Some
+// container hosts (Railway's default runtime) forbid it: every command
+// would fail with "Creating new namespace failed", so report the computer
+// as unavailable up front instead (field report 2026-10-23).
+func (b *Bwrap) probe() error {
+	b.once.Do(func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		out, err := exec.CommandContext(ctx, b.Path, "--unshare-user", "--unshare-pid", "--ro-bind", "/", "/", "--proc", "/proc", "--dev", "/dev", "/bin/true").CombinedOutput()
+		if err != nil {
+			b.probeErr = fmt.Errorf("%w: host does not allow sandbox namespaces (%s)", ErrUnavailable, strings.TrimSpace(string(out)))
+		}
+	})
+	return b.probeErr
 }
 
 // sandboxEnv is the complete environment inside the sandbox. It is built

@@ -314,7 +314,7 @@ func (s *Service) sweepLeases() {
 func (s *Service) history(botID, current string) []ChatMsg {
 	v := newView(s.L.Snapshot())
 	b, _ := v.bot(botID)
-	msgs := []ChatMsg{{Role: "system", Content: fmt.Sprintf(systemPrompt, b.Name, v.desc(b)) + memoryPrompt(s.Mem.List(botID))}}
+	msgs := []ChatMsg{{Role: "system", Content: fmt.Sprintf(systemPrompt, b.Name, v.desc(b)) + memoryPrompt(s.Mem.List(botID)) + s.computerNote()}}
 	l := v.byBot[botID]
 	if cw, err := s.L.Get(current); err == nil && isGroupID(cw.ConversationID) {
 		return s.groupHistory(v, b, cw, msgs)
@@ -565,7 +565,9 @@ func (s *Service) runTurn(ctx context.Context, w ledger.Work) (*Approval, []stri
 	} else if !followUp && multiPart(w.Text) && threadOf(w) == w.BotID {
 		// Long multi-part request without numbered steps: ask the model to
 		// propose the plan first, so it runs with milestones.
-		d, err = s.ask(ctx, w, tc, func() []ChatMsg { return append(tc.inject(s.history(w.BotID, w.RequestID)), ChatMsg{Role: "system", Content: planNudge}) })
+		d, err = s.ask(ctx, w, tc, func() []ChatMsg {
+			return append(tc.inject(s.history(w.BotID, w.RequestID)), ChatMsg{Role: "system", Content: planNudge})
+		})
 	} else {
 		d, err = s.ask(ctx, w, tc, func() []ChatMsg { return tc.inject(s.history(w.BotID, w.RequestID)) })
 	}
@@ -575,7 +577,9 @@ func (s *Service) runTurn(ctx context.Context, w ledger.Work) (*Approval, []stri
 		if cur, _ := s.L.Get(w.RequestID); cur.Direct != nil && cur.Direct.Ack == "" {
 			s.ack(w, firstLine(d.Text))
 		}
-		d, err = s.ask(ctx, w, tc, func() []ChatMsg { return append(tc.inject(s.history(w.BotID, w.RequestID)), ChatMsg{Role: "system", Content: actNudge}) })
+		d, err = s.ask(ctx, w, tc, func() []ChatMsg {
+			return append(tc.inject(s.history(w.BotID, w.RequestID)), ChatMsg{Role: "system", Content: actNudge})
+		})
 	}
 	for round := 0; err == nil && len(d.Tools) > 0 && round < maxToolRounds && s.Tools != nil; round++ {
 		s.publish("draft_end", map[string]string{"id": w.RequestID, "agentId": threadOf(w)})

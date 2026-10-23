@@ -48,9 +48,9 @@ type Config struct {
 	// (AURORA_DEV_SHOW_CODE=1 + AURORA_DEV_EMAILS=a@x,b@y). Only for bootstrapping
 	// a deploy before SMTP exists; never applies to any other address.
 	DevShow map[string]bool
-	Google     *OAuth
-	Apple      *OAuth
-	Now        func() time.Time
+	Google  *OAuth
+	Apple   *OAuth
+	Now     func() time.Time
 }
 
 // ConfigFromEnv reads hosted-mode settings; it fails closed without a secret.

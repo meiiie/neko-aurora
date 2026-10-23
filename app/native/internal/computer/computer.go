@@ -440,3 +440,7 @@ func ReadOnly(cmd string) bool {
 	}
 	return true
 }
+
+// CanRun reports whether commands can execute on this host (the sandbox
+// backend is installed and usable); file listing/reading works regardless.
+func (m *Manager) CanRun() error { return m.sb.Available() }
