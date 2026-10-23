@@ -82,6 +82,9 @@ func (s *Service) runComputer(ctx context.Context, bot string, tc *toolCtx, c to
 			// network, use web/price tools instead (live: "tra tỷ giá" → curl)
 			return tools.Result{}, errors.New("bước này là tra cứu: dùng công cụ web/giá, máy tính không có mạng")
 		}
+		if s.buildExhausted(bot) {
+			return tools.Result{}, fmt.Errorf("đã chạy %d lệnh / lỗi liên tiếp %d lần cho yêu cầu này: dừng chạy lệnh, báo trung thực phần đã xong và phần còn lỗi", maxBuildRuns, maxFixes)
+		}
 		if s.PC.NeedsApproval(bot, c.arg) {
 			tc.mu.Lock()
 			if tc.pendingCmd == "" {
@@ -94,6 +97,7 @@ func (s *Service) runComputer(ctx context.Context, bot string, tc *toolCtx, c to
 		if err != nil {
 			return tools.Result{}, err
 		}
+		s.noteRun(bot, c.arg, r.ExitCode)
 		return tools.Result{Summary: fmt.Sprintf("Chạy lệnh · mã thoát %d", r.ExitCode), Text: untrustedOut + fmtRun(r)}, nil
 	case "computer_read_file":
 		txt, cut, err := s.PC.ReadFile(bot, c.arg)
@@ -112,6 +116,7 @@ func (s *Service) runComputer(ctx context.Context, bot string, tc *toolCtx, c to
 		if err := s.PC.WriteFile(bot, x.Path, x.Content); err != nil {
 			return tools.Result{}, err
 		}
+		s.noteWrite(bot, x.Path)
 		return tools.Result{Summary: "Ghi " + clean(x.Path, 80), Text: fmt.Sprintf("Đã ghi %s (%d byte) vào thư mục nhà /home/bot.", x.Path, len(x.Content))}, nil
 	case "computer_list":
 		l, err := s.PC.List(bot, c.arg)
@@ -148,7 +153,7 @@ func computerApproval(cmd string) *Approval {
 func (s *Service) runApprovedCommand(w ledger.Work) {
 	ap := *w.Direct.Approval
 	s.setDelivery(w.RequestID, ledger.DirectDelivery{Status: "sending"}, "Đang chạy lệnh…")
-	go func() {
+	s.enqueueCmd(w.BotID, func() {
 		ctx, cancel := context.WithTimeout(s.ctx, 12*time.Minute) // includes waiting for an earlier command
 		defer cancel()
 		r, err := s.PC.Run(ctx, w.BotID, ap.Body)
@@ -159,17 +164,37 @@ func (s *Service) runApprovedCommand(w ledger.Work) {
 		s.setDelivery(w.RequestID, d, text)
 		s.record(w.BotID, w.RequestID, "delivery", fmt.Sprintf("Máy tính của %s chạy lệnh · %s", s.botName(w.BotID), d.Detail))
 		if err == nil {
-			follow := "[Máy tính] Lệnh bạn duyệt đã chạy xong.\n" + untrustedOut + fmtRun(r) + "\nTiếp tục việc đang làm: đọc kết quả, báo lại cho bạn ngắn gọn (dùng bảng nếu hợp). Nếu lệnh lỗi thì sửa và đề xuất lệnh mới."
+			s.noteRun(w.BotID, ap.Body, r.ExitCode)
+			follow := buildFollowUp(r, s.pcSnap(w.BotID))
 			if _, _, aerr := s.L.Accept(ledger.Input{BotID: w.BotID, ClientNonce: newID("computer-"), Text: clean(follow, 7000)}); aerr == nil {
 				s.poke()
 			}
 		}
 		s.sync()
-	}()
+	})
+}
+
+// buildFollowUp is the hidden turn after an approved command: exit code and
+// output, then what the bot must do next (fix and rerun, verify, or stop).
+func buildFollowUp(r computer.Result, st pcState) string {
+	head := fmt.Sprintf("[Máy tính] Lệnh bạn duyệt đã chạy xong · mã thoát %d.\n", r.ExitCode) + untrustedOut + fmtRun(r) + "\n"
+	switch {
+	case r.ExitCode != 0 && (st.fixes >= maxFixes || st.runs >= maxBuildRuns):
+		return head + fmt.Sprintf("Lệnh vẫn lỗi sau %d lần sửa. DỪNG: không đề xuất lệnh nữa. Báo trung thực cho bạn: đã làm được gì, lỗi còn lại (trích dòng lỗi), file nào đã có thật. Không báo xong, không đưa link cho file chưa có.", st.fixes)
+	case r.ExitCode != 0:
+		return head + fmt.Sprintf("Lệnh LỖI (lần %d/%d). Đọc dòng lỗi, tìm nguyên nhân (file/thư mục thiếu? thư viện chưa cài? sai đường dẫn?), sửa bằng computer_write_file nếu cần, rồi in NGAY một dòng TOOL computer_run để chạy lại. Không báo xong, không đưa link.", st.fixes, maxFixes)
+	case st.runs >= maxBuildRuns:
+		return head + "Đã hết số lệnh cho yêu cầu này. Kiểm tra file bằng computer_list rồi báo kết quả thật: chỉ đưa link cho file có thật, nói rõ phần nào chưa xong."
+	default:
+		return head + "Lệnh chạy thành công. Nếu việc được giao còn bước nào (vd. tạo file khác, render, kiểm tra) thì làm tiếp NGAY bằng TOOL. Chỉ khi mọi thứ đã xong: kiểm tra bằng computer_list rồi báo ngắn gọn, đưa link tải cho đúng các file có thật."
+	}
 }
 
 func (s *Service) computerRoutes() {
 	m := s.mux
+	if rl := computer.DefaultRelay(); rl != nil && s.PC != nil && s.PC.Backend() == "railway-sandbox" {
+		m.Handle(computer.RelayPath, rl) // single-use token URLs for VM home syncs
+	}
 	bot := func(w http.ResponseWriter, r *http.Request) (string, bool) {
 		id := r.PathValue("id")
 		if s.PC == nil {
@@ -248,12 +273,16 @@ func (s *Service) computerNote(botID string) string {
 	if s.PC == nil {
 		return ""
 	}
+	ctxNote := s.computerContext(botID)
 	dl := fmt.Sprintf("\nFILE CHO NGƯỜI DÙNG: file trên máy tính tải được qua link markdown [tên file](/app/api/agents/%s/computer/download?path=<đường dẫn trong /home/bot, bỏ /home/bot/>). Làm xong file (pptx, mp4, csv…) luôn đưa link này.", botID)
 	if s.PC.CanRun() == nil {
 		if s.PC.Backend() == "railway-sandbox" {
-			dl += " Máy tính này CÓ mạng: cài thư viện vào /tmp (không vào thư mục nhà): pip install -q --target /tmp/py python-pptx rồi chạy PYTHONPATH=/tmp/py python3 …; /tmp mất khi máy nghỉ, cài lại khi cần. Mỗi lệnh tối đa 8 phút."
+			if pre := os.Getenv("AURORA_SANDBOX_PRELOADED"); pre != "" {
+				dl += " Đã cài sẵn (dùng luôn, KHÔNG pip install): " + pre + ". Video: dựng khung hình bằng Pillow rồi ghép mp4 bằng imageio (imageio-ffmpeg có ffmpeg riêng, không cần ffmpeg hệ thống)."
+			}
+			dl += " Máy tính này CÓ mạng: thiếu thư viện khác thì cài vào /tmp (không vào thư mục nhà): pip install -q --target /tmp/py <gói> rồi chạy PYTHONPATH=/tmp/py python3 …; /tmp mất khi máy nghỉ. Mỗi lệnh tối đa 8 phút. Gộp tạo thư mục + chạy script + kiểm tra vào MỘT lệnh (vd. mkdir -p out && python3 build.py && ls -la out)."
 		}
-		return dl
+		return dl + ctxNote
 	}
 	return "\nLƯU Ý: trên máy chủ này máy tính của bạn tạm KHÔNG chạy được lệnh (computer_run); vẫn liệt kê, đọc, ghi file được. Nói rõ điều đó và đưa phương án cụ thể làm được ngay."
 }

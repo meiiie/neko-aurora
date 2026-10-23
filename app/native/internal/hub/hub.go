@@ -247,6 +247,10 @@ func (h *Hub) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	case p == "/healthz":
 		writeJSON(w, 200, map[string]any{"ok": true, "mode": "hosted"})
 		return
+	case strings.HasPrefix(p, computer.RelayPath) && computer.DefaultRelay() != nil:
+		// bot VM home sync: single-use token URLs, no session (see computer/relay.go)
+		computer.DefaultRelay().ServeHTTP(w, r)
+		return
 	case p == "/":
 		http.Redirect(w, r, "/app/", http.StatusFound)
 		return

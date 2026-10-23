@@ -42,6 +42,7 @@ type Service struct {
 	Mem      *memStore
 	PC       *computer.Manager // per-bot sandboxed computers (nil = off)
 	mux      *http.ServeMux
+	pcb      pcBook // bot computer build state (build.go)
 	mu       sync.Mutex
 	subs     map[chan Event]struct{}
 	ctx      context.Context

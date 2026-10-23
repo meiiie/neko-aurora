@@ -23,6 +23,7 @@ import (
 	"bytes"
 	"compress/gzip"
 	"context"
+	"crypto/sha256"
 	"encoding/base64"
 	"encoding/json"
 	"errors"
@@ -50,6 +51,7 @@ type Railway struct {
 	Max           int    // live VMs across all users (0 = 3)
 	Checkpoint    string // named checkpoint to boot from ("" = stock image)
 	HTTP          *http.Client
+	Relay         *Relay // HTTPS home sync (nil = base64 chunks through exec)
 }
 
 // One registry for the whole process (every tenant's Railway value shares
@@ -58,9 +60,10 @@ type Railway struct {
 // its home is safe on our volume, so the bot just boots a fresh one later.
 var reg = struct {
 	sync.Mutex
-	ids  map[string]string    // home path → sandbox id
-	used map[string]time.Time // home path → last exec
-}{ids: map[string]string{}, used: map[string]time.Time{}}
+	ids    map[string]string    // home path → sandbox id
+	used   map[string]time.Time // home path → last exec
+	synced map[string]string    // home path → "<sandbox id>:<sha of home>" after the last pull
+}{ids: map[string]string{}, used: map[string]time.Time{}, synced: map[string]string{}}
 
 func NewRailwayFromEnv() *Railway {
 	tok := os.Getenv("RAILWAY_TOKEN")
@@ -70,7 +73,27 @@ func NewRailwayFromEnv() *Railway {
 	return &Railway{Endpoint: railwayEndpoint, Token: tok, EnvironmentID: os.Getenv("RAILWAY_ENVIRONMENT_ID"),
 		CPU: envFloat("AURORA_SANDBOX_CPU", 0.5), MemoryGB: envFloat("AURORA_SANDBOX_MEMORY_GB", 0.5),
 		IdleMinutes: int(envFloat("AURORA_SANDBOX_IDLE_MIN", 3)), Max: int(envFloat("AURORA_SANDBOX_MAX", 3)),
-		Checkpoint: os.Getenv("AURORA_SANDBOX_CHECKPOINT")}
+		Checkpoint: os.Getenv("AURORA_SANDBOX_CHECKPOINT"), Relay: DefaultRelay()}
+}
+
+var (
+	relayOnce sync.Once
+	relay     *Relay
+)
+
+// DefaultRelay is the process relay for home syncs, set when the server
+// knows its public URL (AURORA_PUBLIC_URL, or Railway's own domain).
+func DefaultRelay() *Relay {
+	relayOnce.Do(func() {
+		base := os.Getenv("AURORA_PUBLIC_URL")
+		if base == "" && os.Getenv("RAILWAY_PUBLIC_DOMAIN") != "" {
+			base = "https://" + os.Getenv("RAILWAY_PUBLIC_DOMAIN")
+		}
+		if base != "" && os.Getenv("AURORA_SANDBOX_RELAY") != "off" {
+			relay = NewRelay(base)
+		}
+	})
+	return relay
 }
 
 func envFloat(k string, d float64) float64 {
@@ -94,19 +117,32 @@ var errSandboxGone = errors.New("railway sandbox not found")
 
 func (r *Railway) gql(ctx context.Context, query string, vars map[string]any, out any) error {
 	b, _ := json.Marshal(map[string]any{"query": query, "variables": vars})
-	req, err := http.NewRequestWithContext(ctx, "POST", r.Endpoint, bytes.NewReader(b))
-	if err != nil {
-		return err
-	}
-	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("Authorization", "Bearer "+r.Token)
 	c := r.HTTP
 	if c == nil {
 		c = &http.Client{Timeout: 11 * time.Minute}
 	}
-	res, err := c.Do(req)
-	if err != nil {
-		return fmt.Errorf("%w: railway: %v", ErrUnavailable, err)
+	var res *http.Response
+	for try := 0; ; try++ {
+		req, err := http.NewRequestWithContext(ctx, "POST", r.Endpoint, bytes.NewReader(b))
+		if err != nil {
+			return err
+		}
+		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set("Authorization", "Bearer "+r.Token)
+		res, err = c.Do(req)
+		if err != nil {
+			return fmt.Errorf("%w: railway: %v", ErrUnavailable, err)
+		}
+		if res.StatusCode != http.StatusTooManyRequests || try >= 4 {
+			break
+		}
+		// rate limited (live pptx task: pull failed with http 429): back off
+		res.Body.Close()
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-time.After(retryWait(try)):
+		}
 	}
 	defer res.Body.Close()
 	var env struct {
@@ -289,6 +325,8 @@ func (r *Railway) Destroy(ctx context.Context, home string) error {
 	return nil
 }
 
+var retryWait = func(try int) time.Duration { return time.Duration(2<<try) * time.Second }
+
 const chunk = 12000 // base64 bytes per exec (stdout limit is 16 000)
 
 func shq(s string) string { return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'" }
@@ -307,19 +345,8 @@ func (r *Railway) Exec(ctx context.Context, s Spec) (Result, error) {
 		return Result{}, err
 	}
 	run := func(id string) (execOut, error) {
-		b64 := base64.StdEncoding.EncodeToString(tgz)
-		if _, err := r.exec(ctx, id, "rm -rf /home/bot /tmp/h.b64 && mkdir -p /home/bot", 30); err != nil {
+		if err := r.push(ctx, id, s.Home, tgz); err != nil {
 			return execOut{}, err
-		}
-		for i := 0; i < len(b64); i += 48000 {
-			if _, err := r.exec(ctx, id, "printf %s "+shq(b64[i:min(i+48000, len(b64))])+" >> /tmp/h.b64", 30); err != nil {
-				return execOut{}, err
-			}
-		}
-		if len(b64) > 0 {
-			if _, err := r.exec(ctx, id, "base64 -d /tmp/h.b64 | tar xzf - -C /home/bot", 60); err != nil {
-				return execOut{}, err
-			}
 		}
 		// fresh env: only what the bwrap sandbox gets, never host variables
 		envs := strings.Join(sandboxEnv, " ")
@@ -353,26 +380,54 @@ func (r *Railway) Exec(ctx context.Context, s Spec) (Result, error) {
 	return res, nil
 }
 
+func homeSum(tgz []byte) string { return fmt.Sprintf("%x", sha256.Sum256(tgz)) }
+
+// push replaces the VM's /home/bot with our copy, unless the VM already
+// holds exactly that home (same VM, nothing changed since the last pull).
+func (r *Railway) push(ctx context.Context, id, home string, tgz []byte) error {
+	reg.Lock()
+	same := reg.synced[home] == id+":"+homeSum(tgz)
+	reg.Unlock()
+	if same {
+		return nil
+	}
+	if r.Relay != nil && len(tgz) > 0 {
+		u := r.Relay.Offer(tgz)
+		o, err := r.exec(ctx, id, "rm -rf /home/bot /tmp/h.tgz && mkdir -p /home/bot && python3 -c "+shq(pyGet)+" "+shq(u)+" && tar xzf /tmp/h.tgz -C /home/bot && rm -f /tmp/h.tgz", 120)
+		if err == nil && o.ExitCode != nil && *o.ExitCode == 0 {
+			return nil
+		}
+		if errors.Is(err, errSandboxGone) {
+			return err
+		}
+		log.Printf("railway relay push failed, using chunks: %v %s", err, strings.TrimSpace(o.Stderr))
+	}
+	b64 := base64.StdEncoding.EncodeToString(tgz)
+	if _, err := r.exec(ctx, id, "rm -rf /home/bot /tmp/h.b64 && mkdir -p /home/bot", 30); err != nil {
+		return err
+	}
+	for i := 0; i < len(b64); i += 48000 {
+		if _, err := r.exec(ctx, id, "printf %s "+shq(b64[i:min(i+48000, len(b64))])+" >> /tmp/h.b64", 30); err != nil {
+			return err
+		}
+	}
+	if len(b64) > 0 {
+		if _, err := r.exec(ctx, id, "base64 -d /tmp/h.b64 | tar xzf - -C /home/bot", 60); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+const (
+	pyGet = "import sys,urllib.request as u;open('/tmp/h.tgz','wb').write(u.urlopen(sys.argv[1],timeout=120).read())"
+	pyPut = "import sys,urllib.request as u;u.urlopen(u.Request(sys.argv[1],data=open('/tmp/o.tgz','rb').read(),method='PUT'),timeout=120)"
+)
+
 // pull copies /home/bot back (tar.gz, base64 in chunks) and replaces the
 // local home atomically-ish: extract to a temp dir, then swap.
 func (r *Railway) pull(ctx context.Context, id string, s Spec) error {
-	sz, err := r.exec(ctx, id, "cd /home/bot && tar czf /tmp/o.tgz . && base64 -w0 /tmp/o.tgz > /tmp/o.b64 && wc -c < /tmp/o.b64", 60)
-	if err != nil {
-		return err
-	}
-	var n int
-	if _, err := fmt.Sscan(strings.TrimSpace(sz.Stdout), &n); err != nil || int64(n) > s.Limits.HomeBytes*2 {
-		return errors.New("home too large")
-	}
-	var b strings.Builder
-	for off := 0; off < n; off += chunk {
-		o, err := r.exec(ctx, id, fmt.Sprintf("tail -c +%d /tmp/o.b64 | head -c %d", off+1, chunk), 30)
-		if err != nil {
-			return err
-		}
-		b.WriteString(o.Stdout)
-	}
-	raw, err := base64.StdEncoding.DecodeString(b.String())
+	raw, err := r.fetchHome(ctx, id, s)
 	if err != nil {
 		return err
 	}
@@ -391,7 +446,54 @@ func (r *Railway) pull(ctx context.Context, id string, s Spec) error {
 		_ = os.Rename(old, s.Home)
 		return err
 	}
-	return os.RemoveAll(old)
+	if err := os.RemoveAll(old); err != nil {
+		return err
+	}
+	if tgz, err := packHome(s.Home); err == nil {
+		reg.Lock()
+		reg.synced[s.Home] = id + ":" + homeSum(tgz)
+		reg.Unlock()
+	}
+	return nil
+}
+
+func (r *Railway) fetchHome(ctx context.Context, id string, s Spec) ([]byte, error) {
+	if r.Relay != nil {
+		u, wait := r.Relay.Expect(s.Limits.HomeBytes * 2)
+		o, err := r.exec(ctx, id, "cd /home/bot && tar czf /tmp/o.tgz . && python3 -c "+shq(pyPut)+" "+shq(u)+" && rm -f /tmp/o.tgz", 180)
+		if err == nil && o.ExitCode != nil && *o.ExitCode == 0 {
+			if b, werr := wait(ctx); werr == nil && b != nil {
+				return b, nil
+			} else {
+				err = werr
+			}
+		}
+		if errors.Is(err, errSandboxGone) {
+			return nil, err
+		}
+		log.Printf("railway relay pull failed, using chunks: %v %s", err, strings.TrimSpace(o.Stderr))
+	}
+	return r.fetchChunks(ctx, id, s)
+}
+
+func (r *Railway) fetchChunks(ctx context.Context, id string, s Spec) ([]byte, error) {
+	sz, err := r.exec(ctx, id, "cd /home/bot && tar czf /tmp/o.tgz . && base64 -w0 /tmp/o.tgz > /tmp/o.b64 && wc -c < /tmp/o.b64", 60)
+	if err != nil {
+		return nil, err
+	}
+	var n int
+	if _, err := fmt.Sscan(strings.TrimSpace(sz.Stdout), &n); err != nil || int64(n) > s.Limits.HomeBytes*2 {
+		return nil, errors.New("home too large")
+	}
+	var b strings.Builder
+	for off := 0; off < n; off += chunk {
+		o, err := r.exec(ctx, id, fmt.Sprintf("tail -c +%d /tmp/o.b64 | head -c %d", off+1, chunk), 30)
+		if err != nil {
+			return nil, err
+		}
+		b.WriteString(o.Stdout)
+	}
+	return base64.StdEncoding.DecodeString(b.String())
 }
 
 func packHome(home string) ([]byte, error) {

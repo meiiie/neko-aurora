@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 )
@@ -88,4 +89,34 @@ func TestRailwayGoneError(t *testing.T) {
 	}
 	_, err := NewRailwayFromEnv().exec(context.Background(), id, "true", 10)
 	t.Logf("err=%v gone=%v", err, err == errSandboxGone)
+}
+
+// RAILWAY_BAKE=<checkpoint name>: boot from the current base, preinstall the
+// document/video stack (python-pptx, Pillow, imageio + its bundled ffmpeg)
+// and save it as a new checkpoint, so bots stop pip-installing per task.
+func TestRailwayBakeCheckpoint(t *testing.T) {
+	name := os.Getenv("RAILWAY_BAKE")
+	if name == "" {
+		t.Skip("set RAILWAY_BAKE")
+	}
+	r := NewRailwayFromEnv()
+	r.CPU, r.MemoryGB = 1, 1
+	ctx := context.Background()
+	id, err := r.create(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer r.destroyID(ctx, id)
+	o, err := r.exec(ctx, id, "pip install -q --break-system-packages python-pptx Pillow imageio imageio-ffmpeg 2>&1 | tail -3 || pip install -q python-pptx Pillow imageio imageio-ffmpeg 2>&1 | tail -3; python3 -c 'import pptx,PIL,imageio,imageio_ffmpeg;print(pptx.__version__,PIL.__version__,imageio.__version__,imageio_ffmpeg.get_ffmpeg_exe())'; pip cache purge >/dev/null 2>&1; df -h / | tail -1", 600)
+	t.Logf("%v exit=%v out=%s err=%s", err, o.ExitCode, o.Stdout, o.Stderr)
+	if err != nil || o.ExitCode == nil || *o.ExitCode != 0 || !strings.Contains(o.Stdout, "ffmpeg") {
+		t.Fatal("install failed")
+	}
+	var out map[string]any
+	err = r.gql(ctx, `mutation C($environmentId: String!, $name: String!, $sandboxId: String!) { sandboxCheckpointCreate(environmentId: $environmentId, name: $name, sandboxId: $sandboxId) { id key } }`,
+		map[string]any{"environmentId": r.EnvironmentID, "name": name, "sandboxId": id}, &out)
+	t.Logf("checkpoint %v %v", err, out)
+	if err != nil {
+		t.Fatal(err)
+	}
 }

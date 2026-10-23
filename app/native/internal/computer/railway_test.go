@@ -162,3 +162,94 @@ func TestDestroyUnderAfterRestart(t *testing.T) {
 		t.Fatal("VM recorded before restart not destroyed on account delete")
 	}
 }
+
+// Home syncs go over the HTTPS relay (one exec each way, no base64 chunks:
+// live pptx task hit Railway's rate limit with ~220 chunk execs), an
+// unchanged home is not pushed again, and 429s are retried.
+func TestRailwayRelaySync(t *testing.T) {
+	f := &fakeRailway{t: t, vms: map[string]string{}}
+	var limited int
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		f.mu.Lock()
+		if limited < 2 {
+			limited++
+			f.mu.Unlock()
+			w.WriteHeader(http.StatusTooManyRequests)
+			w.Write([]byte("rate limited"))
+			return
+		}
+		f.mu.Unlock()
+		f.ServeHTTP(w, r)
+	}))
+	defer srv.Close()
+	rl := NewRelay("")
+	rsrv := httptest.NewServer(rl)
+	defer rsrv.Close()
+	rl.Base = rsrv.URL
+	defer func(w func(int) time.Duration) { retryWait = w }(retryWait)
+	retryWait = func(int) time.Duration { return time.Millisecond }
+	t.Setenv("RAILWAY_TOKEN", "tok")
+	t.Setenv("RAILWAY_ENVIRONMENT_ID", "env1")
+	rw := NewRailwayFromEnv()
+	rw.Endpoint, rw.Relay = srv.URL, rl
+	m, _ := New(t.TempDir(), rw)
+	big := strings.Repeat("0123456789abcdef", 1<<16) // 1 MB: ~120 chunk execs without the relay
+	if err := m.WriteFile("b", "deck/in.txt", big); err != nil {
+		t.Fatal(err)
+	}
+	r, err := m.Run(context.Background(), "b", "head -c 2000000 /dev/urandom > deck/out.bin && wc -c < deck/in.txt")
+	if err != nil || strings.TrimSpace(strings.Split(r.Output, "\n")[0]) != "1048576" {
+		t.Fatalf("%+v %v", r, err)
+	}
+	if fi, err := os.Stat(filepath.Join(m.dir, "b", "home", "deck", "out.bin")); err != nil || fi.Size() != 2000000 {
+		if _, _, e2 := m.ReadFile("b", "deck/out.bin"); e2 != nil {
+			t.Fatalf("binary not pulled back: %v %v", err, e2)
+		}
+	}
+	f.mu.Lock()
+	n := len(f.cmds)
+	for _, c := range f.cmds {
+		if strings.Contains(c, "base64") {
+			t.Fatalf("chunk sync used despite relay: %.80s", c)
+		}
+	}
+	f.mu.Unlock()
+	if n > 5 {
+		t.Fatalf("%d execs for one command", n)
+	}
+	// nothing changed since the pull: the next command skips the push
+	if _, err := m.Run(context.Background(), "b", "true"); err != nil {
+		t.Fatal(err)
+	}
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	for _, c := range f.cmds[n:] {
+		if strings.Contains(c, "h.tgz") {
+			t.Fatal("unchanged home pushed again")
+		}
+	}
+}
+
+func TestRelaySingleUse(t *testing.T) {
+	rl := NewRelay("http://x")
+	u := rl.Offer([]byte("hi"))
+	tok := strings.TrimPrefix(u, "http://x")
+	for i, want := range []int{200, 404} {
+		rec := httptest.NewRecorder()
+		rl.ServeHTTP(rec, httptest.NewRequest("GET", tok, nil))
+		if rec.Code != want {
+			t.Fatalf("get %d: %d", i, rec.Code)
+		}
+	}
+	up, wait := rl.Expect(4)
+	rec := httptest.NewRecorder()
+	rl.ServeHTTP(rec, httptest.NewRequest("PUT", strings.TrimPrefix(up, "http://x"), strings.NewReader("toolarge")))
+	if b, _ := wait(context.Background()); rec.Code != 413 || b != nil {
+		t.Fatal("oversize upload accepted", rec.Code)
+	}
+	rec = httptest.NewRecorder()
+	rl.ServeHTTP(rec, httptest.NewRequest("GET", RelayPath+"nope", nil))
+	if rec.Code != 404 {
+		t.Fatal("unknown token served")
+	}
+}

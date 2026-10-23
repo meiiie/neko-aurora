@@ -477,6 +477,9 @@ func (s *Service) runWork(w ledger.Work) {
 		}
 		d.Choices = choices
 	})
+	if appr != nil && appr.Kind == "computer" {
+		s.supersedeCommands(w.BotID, w.RequestID)
+	}
 	s.endDraft(w)
 	s.agui(AGUIEvent{Type: RUN_FINISHED, ThreadID: w.BotID, RunID: w.RequestID})
 	if s.absorbed(w.RequestID) {
@@ -526,6 +529,12 @@ func (s *Service) appendText(id, text string) error {
 		return nil
 	}
 	text = scrubInternal(text)
+	if s.PC != nil {
+		var bad []string
+		if text, bad = s.verifyClaims(cur.BotID, text, computerTask(cur)); len(bad) > 0 && computerTask(cur) && !strings.Contains(text, unverifiedFooter) {
+			text += "\n\n" + unverifiedFooter
+		}
+	}
 	if cur.Reply != "" {
 		text = "\n\n" + text
 	}
@@ -590,6 +599,9 @@ func (s *Service) runTurn(ctx context.Context, w ledger.Work) (*Approval, []stri
 	var err error
 	followUp := strings.HasPrefix(w.ClientNonce, "computer-") // tool output must never trigger planning
 	var resumed []ledger.DirectStep
+	if !followUp {
+		s.newRequest(w.BotID)
+	}
 	if cp := w.ResumeFrom; cp != nil && !followUp && len(cp.Plan) >= 2 {
 		// Restarted mid-plan: keep the finished steps (and their sources)
 		// and continue from the next one instead of starting over.
@@ -624,7 +636,11 @@ func (s *Service) runTurn(ctx context.Context, w ledger.Work) (*Approval, []stri
 			return append(tc.inject(s.history(w.BotID, w.RequestID)), ChatMsg{Role: "system", Content: actNudge})
 		})
 	}
-	for round := 0; err == nil && len(d.Tools) > 0 && round < maxToolRounds && s.Tools != nil; round++ {
+	rounds := maxToolRounds
+	if followUp {
+		rounds = 8 // build loop: write file, list, run, verify
+	}
+	for round := 0; err == nil && len(d.Tools) > 0 && round < rounds && s.Tools != nil; round++ {
 		s.publish("draft_end", map[string]string{"id": w.RequestID, "agentId": threadOf(w)})
 		calls := callsOf(d.Tools)
 		if cur, _ := s.L.Get(w.RequestID); cur.Direct != nil && cur.Direct.Ack == "" {
@@ -670,6 +686,9 @@ func (s *Service) runTurn(ctx context.Context, w ledger.Work) (*Approval, []stri
 		s.record(w.BotID, w.RequestID, "secret", "Xin bí mật "+sec.Name)
 	}
 	if len(d.Plan) < 2 || d.Approval != nil {
+		if d.Approval == nil {
+			s.verifyFinal(ctx, w, tc, &d)
+		}
 		return d.Approval, d.Choices, s.appendText(w.RequestID, normalizeCites(d.Text, len(tc.sources)))
 	}
 	steps := make([]Step, len(d.Plan))
@@ -680,7 +699,7 @@ func (s *Service) runTurn(ctx context.Context, w ledger.Work) (*Approval, []stri
 		}
 	}
 	s.update(w.RequestID, func(r *ledger.DirectRun) {
-		r.PlanIntro, r.Plan = clean(d.Text, 600), steps
+		r.PlanIntro, r.Plan = clean(planIntro(d.Text), 600), steps
 		if len(resumed) > 0 {
 			r.Sources = append([]ledger.DirectSource(nil), tc.sources...)
 		}
@@ -744,11 +763,46 @@ func (s *Service) runTurn(ctx context.Context, w ledger.Work) (*Approval, []stri
 		return nil, nil, err
 	}
 	s.fixScript(ctx, w, &fd)
+	if fd.Approval == nil {
+		s.verifyFinal(ctx, w, tc, &fd)
+	}
 	if err := s.appendText(w.RequestID, normalizeCites(fd.Text, len(tc.sources))); err != nil {
 		return nil, nil, err
 	}
 	s.endDraft(w)
 	return fd.Approval, fd.Choices, nil
+}
+
+// verifyFinal: a final reply of a computer task that claims files which do
+// not exist is asked once more (with the real file list), then rewritten.
+func (s *Service) verifyFinal(ctx context.Context, w ledger.Work, tc *toolCtx, d *directives) {
+	if s.PC == nil || !computerTask(w) {
+		return
+	}
+	_, bad := s.verifyClaims(w.BotID, d.Text, true)
+	if len(bad) == 0 {
+		return
+	}
+	s.publish("draft_end", map[string]string{"id": w.RequestID, "agentId": threadOf(w)})
+	nd, err := s.ask(ctx, w, tc, func() []ChatMsg {
+		return append(tc.inject(s.history(w.BotID, w.RequestID)), ChatMsg{Role: "system", Content: verifyNudge(bad, s.computerContext(w.BotID))})
+	})
+	if err != nil {
+		return
+	}
+	for r := 0; len(nd.Tools) > 0 && r < 4 && s.Tools != nil; r++ { // it may go back to work (file writes, a command card)
+		s.publish("draft_end", map[string]string{"id": w.RequestID, "agentId": threadOf(w)})
+		s.runTools(ctx, w, tc, callsOf(nd.Tools))
+		if tc.pendingCmd != "" {
+			*d = directives{Text: computerAskText, Approval: computerApproval(tc.pendingCmd)}
+			return
+		}
+		if nd, err = s.ask(ctx, w, tc, func() []ChatMsg { return tc.inject(s.history(w.BotID, w.RequestID)) }); err != nil {
+			return
+		}
+	}
+	nd.Tools = nil
+	*d = nd
 }
 
 // stepCall runs one model call with its own small tool loop and always ends
