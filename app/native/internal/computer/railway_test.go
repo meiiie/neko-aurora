@@ -121,6 +121,31 @@ func TestRailwayBackend(t *testing.T) {
 	if r, err := m.Run(context.Background(), "b", "cat sum.txt"); err != nil || strings.TrimSpace(r.Output) != "6" || f.creates != 2 {
 		t.Fatalf("restart: %+v %v creates=%d", r, err, f.creates)
 	}
+	// a read-only command on a synced VM is one round trip: no push, no pull
+	f.mu.Lock()
+	f.cmds = nil
+	f.mu.Unlock()
+	if r, err := m.Run(context.Background(), "b", "cat sum.txt"); err != nil || strings.TrimSpace(r.Output) != "6" || strings.Contains(r.Output, changedMark) {
+		t.Fatalf("ro: %+v %v", r, err)
+	}
+	if len(f.cmds) != 1 {
+		t.Fatalf("read-only run took %d execs: %q", len(f.cmds), f.cmds)
+	}
+	// warm boots a fresh VM ahead of the command and pushes the home once
+	f.mu.Lock()
+	f.vms = map[string]string{}
+	f.mu.Unlock()
+	h, _ := m.home("b")
+	ensureFonts(h)
+	if err := rw.Warm(context.Background(), h); err != nil {
+		t.Fatal(err)
+	}
+	f.mu.Lock()
+	f.cmds = nil
+	f.mu.Unlock()
+	if r, err := m.Run(context.Background(), "b", "cat sum.txt"); err != nil || strings.TrimSpace(r.Output) != "6" || len(f.cmds) != 1 {
+		t.Fatalf("after warm: %+v %v execs=%d %.300q", r, err, len(f.cmds), f.cmds)
+	}
 	if err := m.Reset("b"); err != nil || len(f.vms) != 0 {
 		t.Fatal("reset did not destroy VM", err)
 	}

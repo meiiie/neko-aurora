@@ -467,6 +467,9 @@ func (s *Service) runWork(w ledger.Work) {
 		s.runBrief(w)
 		return
 	}
+	if s.PC != nil && wantsComputer.MatchString(stripRef(w.Text)) {
+		s.PC.Warm(w.BotID) // boot the bot's VM while the model plans (cold start ~10-30 s on Railway)
+	}
 	run := ledger.DirectRun{Runtime: s.AI.Runtime(), Model: s.AI.ModelName(), LeaseUntil: s.leaseUntil()}
 	if strings.HasPrefix(w.ClientNonce, "computer-") {
 		run.Kind = "computer" // hidden follow-up after an approved command

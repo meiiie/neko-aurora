@@ -340,10 +340,13 @@ func (r *Railway) Exec(ctx context.Context, s Spec) (Result, error) {
 	if err != nil {
 		return Result{}, err
 	}
+	t1 := time.Now()
 	id, err := r.sandbox(ctx, s.Home, false)
 	if err != nil {
 		return Result{}, err
 	}
+	tBoot := time.Since(t1)
+	var tp time.Time
 	run := func(id string) (execOut, error) {
 		if err := r.push(ctx, id, s.Home, tgz); err != nil {
 			return execOut{}, err
@@ -351,8 +354,14 @@ func (r *Railway) Exec(ctx context.Context, s Spec) (Result, error) {
 		// fresh env: only what the bwrap sandbox gets, never host variables
 		envs := strings.Join(sandboxEnv, " ")
 		secs := max(1, min(600, int(s.Limits.Timeout/time.Second)))
-		return r.exec(ctx, id, "cd /home/bot && env -i "+envs+" timeout -k 5 "+fmt.Sprint(secs)+" /bin/sh -c "+shq(strictShell+s.Cmd)+" 2>&1", secs+15)
+		tp = time.Now()
+		// one round trip: run, then report whether /home/bot changed (a
+		// listing of every path with size and mtime, hashed before and
+		// after), so an unchanged home skips the pull
+		const snap = "find /home/bot -printf '%P %s %T@ %i\\n' 2>/dev/null | sort | cksum"
+		return r.exec(ctx, id, "cd /home/bot && b=$("+snap+") && env -i "+envs+" timeout -k 5 "+fmt.Sprint(secs)+" /bin/sh -c "+shq(strictShell+s.Cmd)+" 2>&1; rc=$?; [ \"$("+snap+")\" != \"$b\" ] && printf '\\n"+changedMark+"'; exit $rc", secs+15)
 	}
+	tsb := time.Now()
 	o, err := run(id)
 	if errors.Is(err, errSandboxGone) { // idle-destroyed: boot a fresh VM, home comes from our copy
 		if id, err = r.sandbox(ctx, s.Home, true); err == nil {
@@ -362,6 +371,8 @@ func (r *Railway) Exec(ctx context.Context, s Spec) (Result, error) {
 	if err != nil {
 		return Result{}, err
 	}
+	changed := strings.HasSuffix(o.Stdout, changedMark)
+	o.Stdout = strings.TrimSuffix(strings.TrimSuffix(o.Stdout, changedMark), "\n")
 	res := Result{Cmd: s.Cmd, Output: o.Stdout + o.Stderr, Truncated: o.Truncated, TimedOut: o.TimedOut, Ms: int(time.Since(t0) / time.Millisecond), At: time.Now().UTC().Format(time.RFC3339)}
 	if len(res.Output) > s.Limits.OutputBytes {
 		res.Output, res.Truncated = res.Output[:s.Limits.OutputBytes], true
@@ -374,10 +385,52 @@ func (r *Railway) Exec(ctx context.Context, s Spec) (Result, error) {
 	if res.ExitCode == 124 {
 		res.TimedOut = true
 	}
-	if err := r.pull(ctx, id, s); err != nil {
-		res.Output += "\n[không đồng bộ được file về: " + err.Error() + "]"
+	tr := time.Now()
+	if !changed { // the VM still holds exactly the home we pushed or pulled last
+		reg.Lock()
+		reg.synced[s.Home] = id + ":" + homeSum(tgz)
+		reg.Unlock()
+	}
+	if changed {
+		if err := r.pull(ctx, id, s); err != nil {
+			res.Output += "\n[không đồng bộ được file về: " + err.Error() + "]"
+		}
+	}
+	if !tp.IsZero() {
+		log.Printf("railway exec boot_ms=%d push_ms=%d run_ms=%d pull_ms=%d changed=%v total_ms=%d", tBoot.Milliseconds(), tp.Sub(tsb).Milliseconds(), tr.Sub(tp).Milliseconds(), time.Since(tr).Milliseconds(), changed, time.Since(t0).Milliseconds())
 	}
 	return res, nil
+}
+
+// changedMark ends the command output when /home/bot changed during it.
+const changedMark = "__NEKO_HOME_CHANGED__"
+
+// Warm boots (or reattaches to) the home's VM and pushes the home, so the
+// first command of a turn starts on a ready, synced machine.
+func (r *Railway) Warm(ctx context.Context, home string) error {
+	tgz, err := packHome(home)
+	if err != nil {
+		return err
+	}
+	t0 := time.Now()
+	id, err := r.sandbox(ctx, home, false)
+	if err != nil {
+		return err
+	}
+	// a recorded VM may have idled out: probe it, boot a fresh one if gone
+	if _, err = r.exec(ctx, id, "true", 10); errors.Is(err, errSandboxGone) {
+		id, err = r.sandbox(ctx, home, true)
+	}
+	if err == nil {
+		err = r.push(ctx, id, home, tgz)
+	}
+	if err == nil {
+		reg.Lock()
+		reg.synced[home] = id + ":" + homeSum(tgz)
+		reg.Unlock()
+	}
+	log.Printf("railway warm ms=%d err=%v", time.Since(t0).Milliseconds(), err != nil)
+	return err
 }
 
 func homeSum(tgz []byte) string { return fmt.Sprintf("%x", sha256.Sum256(tgz)) }

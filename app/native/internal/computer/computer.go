@@ -70,6 +70,12 @@ type Sandbox interface {
 	Exec(ctx context.Context, s Spec) (Result, error)
 }
 
+// Warmer is a sandbox that can boot and sync a bot's machine ahead of the
+// first command (remote VMs: a cold create is the slow part).
+type Warmer interface {
+	Warm(ctx context.Context, home string) error
+}
+
 // Policy is the per-bot setting.
 type Policy struct {
 	Network bool `json:"network"` // sandbox may reach the internet
@@ -210,6 +216,28 @@ func (m *Manager) SetPolicy(bot string, p Policy) error {
 
 // Run executes cmd in the bot's sandbox and appends it to the command log.
 // Callers decide approval first (NeedsApproval).
+// Warm boots the bot's machine in the background when the sandbox supports
+// it, so a command later in the turn does not pay the cold start. It holds
+// the bot's lock, so a command that arrives meanwhile simply waits for it.
+func (m *Manager) Warm(bot string) {
+	w, ok := m.sb.(Warmer)
+	if !ok || m.sb.Available() != nil {
+		return
+	}
+	h, err := m.home(bot)
+	if err != nil {
+		return
+	}
+	go func() {
+		unlock := m.lock(bot)
+		defer unlock()
+		ensureFonts(h)
+		ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
+		defer cancel()
+		_ = w.Warm(ctx, h)
+	}()
+}
+
 func (m *Manager) Run(ctx context.Context, bot, cmd string) (Result, error) {
 	return m.run(ctx, bot, cmd, true)
 }
