@@ -62,11 +62,11 @@ function connect(){es=new EventSource(API+"/events");
  es.onerror=()=>{esDown=true;setTimeout(net,2500)};
  es.addEventListener("agent",e=>{const a=JSON.parse(e.data);const was=S.agents.find(x=>x.id===a.id);if(was&&was.status==="working"&&a.status!=="working"&&S.msgs[a.id])loadMsgs(a.id).catch(()=>{});/* adopt server order once a turn ends (messages folded in mid-turn sit before the answer) */if(seen&&seen[a.id]==null)markSeen(a.id);upsert(a);if(cur&&cur.id===a.id){cur=a;markSeen(a.id);renderThread()}renderListSoon()});
  es.addEventListener("archived",e=>{const {id}=JSON.parse(e.data);S.agents=S.agents.filter(a=>a.id!==id);S.pending=S.pending.filter(m=>m.agentId!==id);renderListSoon()});
- es.addEventListener("message",e=>{const m=JSON.parse(e.data);const L=S.msgs[m.agentId];if(m.role==="agent"&&S.drafts[m.id]){(S.doneAt||(S.doneAt={}))[m.agentId]=Date.now();setTimeout(()=>{if(cur&&cur.id===m.agentId)renderThread()},1600)}delete S.drafts[m.id];
+ es.addEventListener("message",e=>{const m=JSON.parse(e.data);const L=S.msgs[m.agentId];if(m.role==="agent"&&m.text){(S.doneAt||(S.doneAt={}))[m.agentId]=Date.now();setTimeout(()=>{if(cur&&cur.id===m.agentId)renderThread()},2100)}delete S.drafts[m.id];
   if(L){const i=L.findIndex(x=>x.id===m.id);if(i>=0)L[i]=m;else{const j=/:step\d+$/.test(m.id)?L.findIndex(x=>x.id===m.taskId):-1;if(j>=0)L.splice(j,0,m);else L.push(m)}}
   S.pending=S.pending.filter(x=>x.id!==m.id);if(m.approval&&m.approval.state==="pending")S.pending.push(m);
   if(cur&&cur.id===m.agentId)renderThread();renderListSoon()});
- es.addEventListener("delta",e=>{const d=JSON.parse(e.data);S.deltaCount=(S.deltaCount||0)+1;const x=S.drafts[d.id]||(S.drafts[d.id]={agentId:d.agentId,from:d.from,text:""});x.text=typeof d.text==="string"?d.text:x.text+d.delta;if(cur&&cur.id===d.agentId)paintDraft(d.id)});
+ es.addEventListener("delta",e=>{const d=JSON.parse(e.data);S.deltaCount=(S.deltaCount||0)+1;if(!S.drafts[d.id])setTimeout(()=>{if(S.drafts[d.id]&&cur&&cur.id===d.agentId&&!document.getElementById("d_"+d.id))paintDraft(d.id)},470);const x=S.drafts[d.id]||(S.drafts[d.id]={agentId:d.agentId,from:d.from,text:"",t0:Date.now()});x.text=typeof d.text==="string"?d.text:x.text+d.delta;if(cur&&cur.id===d.agentId)paintDraft(d.id)});
  es.addEventListener("draft_end",e=>{const d=JSON.parse(e.data);if(S.drafts[d.id]){delete S.drafts[d.id];if(cur&&cur.id===d.agentId)renderThread()}});
  es.addEventListener("activity",e=>{if(sheetOpen===$("#activity"))renderLog([JSON.parse(e.data)],true)});
  es.addEventListener("brief",e=>{S.brief=JSON.parse(e.data);renderListSoon()});
@@ -224,37 +224,42 @@ function renderThread(){const a=cur;if(!a)return;$("#threadState").textContent=s
  const keepSec=[...box.querySelectorAll(".secret input[data-secret]")].map(i=>[i.closest(".secret").dataset.id,i.value]);
  const keepForm=[...box.querySelectorAll(".form-card [name]")].map(i=>[i.closest(".form-card").dataset.id,i.name,i.value]);
  const keepEdit=[...box.querySelectorAll(".ap-body")].map(t=>[t.closest(".approval").dataset.id,t.value,t.closest(".approval").querySelector(".ap-subject")?.value]);
- box.innerHTML="";const L=S.msgs[a.id]||[];const last={v:null};
- if(stickFor!==a.id){stickFor=a.id;stick=true}if(justSent)stick=true;let prevT=0;
- L.forEach((m,idx)=>{if(m.role!=="agent")last.v=null;const t=T(m.t);if(m.role==="user"&&t>0&&(!prevT||t-prevT>15*60e3))box.append(el("div","daystamp",dayStamp(t)));if(t>0)prevT=t;
+ const sEl=statusEl();[...box.childNodes].forEach(n=>n!==sEl&&n.remove());if(sEl.parentNode!==box)box.append(sEl);const L=S.msgs[a.id]||[];const last={v:null};
+ const first=stickFor!==a.id;if(first){stickFor=a.id;stick=true}const frag=document.createDocumentFragment();const mark=(n0,isNew,o)=>{if(isNew)[...frag.childNodes].slice(n0).forEach(n=>n.classList&&n.classList.add("enter"))};if(justSent)stick=true;let prevT=0;
+ L.forEach((m,idx)=>{const n0=frag.childNodes.length,isNew=!first&&!shownIds.has(m.id)&&!(m.role==="user"&&sentRecently(m.text));shownIds.add(m.id);if(m.role!=="agent")last.v=null;const t=T(m.t);if(m.role==="user"&&t>0&&(!prevT||t-prevT>15*60e3))frag.append(el("div","daystamp",dayStamp(t)));if(t>0)prevT=t;
   const cp=m.role==="agent"&&AURORA_UX.isCheckpoint(m.text),body=cp?m.text.trim().slice(0,-AURORA_UX.CHECKPOINT.length).trim():m.text;
-  if(m.thinking&&m.role==="agent"&&showThink)box.append(thinkCard(m));
-  if(body&&!AURORA_UX.isNoise(m)){speaker(box,m,last);const b=el("div","msg"+(m.role==="user"?" mine":m.role==="system"?" sys":" bot"));if(m.role==="agent"){md(b,body,m.sources);chipify(b,a.id)}else b.textContent=body;box.append(b)}
-  if(m.role==="user"&&m.ref)box.append(el("div","note-line ref-line","Kèm ngữ cảnh: chat “"+m.ref+"”"));
-  if(cp)box.append(el("div","note-line","↻ Đang làm tiếp ở lượt sau"));
-  if(m.plan)box.append(planCard(m));
-  if(m.choices&&m.choices.length){const wrap=el("div","choices");const later=L.slice(idx+1).some(x=>x.role==="user");m.choices.forEach(ch=>{const b=el("button","choice",ch);b.disabled=later||usedChoice.has(m.id);b.onclick=async()=>{if(usedChoice.has(m.id))return;usedChoice.add(m.id);renderThread();if(!(await sendMsg(ch)))usedChoice.delete(m.id)};wrap.append(b)});box.append(wrap)}
-  if(m.form)box.append(formCard(m));
-  if(m.tools&&m.tools.length&&(m.text||m.approval)&&!(a.status==="working"&&idx===L.length-1&&!m.text))box.append(sourceList(m));
-  if(m.approval)box.append(approvalCard(m));if(m.secret)box.append(secretCard(m))});
+  if(m.thinking&&m.role==="agent"&&showThink)frag.append(thinkCard(m));
+  if(body&&!AURORA_UX.isNoise(m)){speaker(frag,m,last);const b=el("div","msg"+(m.role==="user"?" mine":m.role==="system"?" sys":" bot"));if(m.role==="agent"){md(b,body,m.sources);chipify(b,a.id)}else b.textContent=body;frag.append(b)}
+  if(m.role==="user"&&m.ref)frag.append(el("div","note-line ref-line","Kèm ngữ cảnh: chat “"+m.ref+"”"));
+  if(cp)frag.append(el("div","note-line","↻ Đang làm tiếp ở lượt sau"));
+  if(m.plan)frag.append(planCard(m));
+  if(m.choices&&m.choices.length){const wrap=el("div","choices");const later=L.slice(idx+1).some(x=>x.role==="user");m.choices.forEach(ch=>{const b=el("button","choice",ch);b.disabled=later||usedChoice.has(m.id);b.onclick=async()=>{if(usedChoice.has(m.id))return;usedChoice.add(m.id);renderThread();if(!(await sendMsg(ch)))usedChoice.delete(m.id)};wrap.append(b)});frag.append(wrap)}
+  if(m.form)frag.append(formCard(m));
+  if(m.tools&&m.tools.length&&(m.text||m.approval)&&!(a.status==="working"&&idx===L.length-1&&!m.text))frag.append(sourceList(m));
+  if(m.approval)frag.append(approvalCard(m));if(m.secret)frag.append(secretCard(m));mark(n0,isNew)});
+ box.insertBefore(frag,sEl);
  keepForm.forEach(([id,n,v])=>{const i=box.querySelector(`.form-card[data-id="${id}"] [name="${n}"]`);if(i&&v)i.value=v});
  keepSec.forEach(([id,v])=>{const i=box.querySelector(`.secret[data-id="${id}"] input[data-secret]`);if(i)i.value=v});
  keepEdit.forEach(([id,v,sj])=>{const c=box.querySelector(`.approval[data-id="${id}"]`);if(c){const t=c.querySelector(".ap-body");if(t)t.value=v;const s2=c.querySelector(".ap-subject");if(s2&&sj!=null)s2.value=sj}});
- outbox.filter(o=>o.agentId===a.id).forEach(o=>{last.v=null;const b=el("div","msg mine pending",o.text);if(o.wait)b.append(el("span","chip","đang gửi…"));box.append(b)});
- Object.entries(S.drafts).forEach(([id,d])=>{if(d.agentId===a.id&&shown(d)){speaker(box,{role:"agent",from:d.from},last);const b=el("div","msg bot draft");b.id="d_"+id;box.append(b);if(reduceMotion())d.sl=1e9;drawDraft(id,b);requestAnimationFrame(()=>paintDraft(id))}});
+ outbox.filter(o=>o.agentId===a.id).forEach(o=>{last.v=null;const b=el("div","msg mine pending"+(o.shown?"":" enter"),o.text);o.shown=1;if(o.wait)b.append(el("span","chip","đang gửi…"));frag.append(b)});
+ Object.entries(S.drafts).forEach(([id,d])=>{if(d.agentId===a.id&&shown(d)){speaker(frag,{role:"agent",from:d.from},last);const b=el("div","msg bot draft"+(shownIds.has(id)?"":" enter"));shownIds.add(id);b.id="d_"+id;frag.append(b);if(reduceMotion())d.sl=1e9;drawDraft(id,b);requestAnimationFrame(()=>paintDraft(id))}});
  // a streamed answer just landed: no status flash while the bot state catches up
- const landed=S.doneAt&&Date.now()-(S.doneAt[a.id]||0)<1500&&L.at(-1)&&L.at(-1).role==="agent";
- if(!landed&&AURORA_UX.statusText(a,L)&&!Object.values(S.drafts).some(d=>d.agentId===a.id&&shown(d)))box.append(turnStatus(a,L));
+ const landed=S.doneAt&&Date.now()-(S.doneAt[a.id]||0)<2000&&L.at(-1)&&L.at(-1).role==="agent"&&!(L.at(-1).tools||[]).some(t=>t.status==="running");
+ box.insertBefore(frag,sEl);setStatus(a,L,!landed&&!Object.values(S.drafts).some(d=>d.agentId===a.id&&shown(d)));
  setSendMode();
  if(stick)requestAnimationFrame(()=>{box.scrollTop=box.scrollHeight;justSent=false;syncJump()})}
-// single status line (bot face + milestone text), replaced by the streamed answer
-// (Grok-style: small spinner, the line breathes; "Đang suy nghĩ" moves on to
-// later phases while the model is still quiet; a stop button sits on the line
-// so the composer itself never turns into a stop button)
-function turnStatus(a,L){const d=el("div","status");d.setAttribute("role","status");d.append(el("span","st-spin"),el("span","st-t",phaseText(a,L)));
- if(a.status==="working"){const x=el("button","st-stop");x.type="button";x.setAttribute("aria-label","Dừng");x.append(I("square",12));x.onclick=()=>stopAgent();d.append(x)}return d}
-function phaseText(a,L){const t=AURORA_UX.statusText(a,L)||"Đang suy nghĩ";if(t!=="Đang suy nghĩ")return t;const u=[...L].reverse().find(m=>m.role==="user");const s=u?(Date.now()-T(u.t))/1e3:0;return s>20?"Đang hoàn thiện câu trả lời":s>8?"Đang sắp xếp ý":"Đang suy nghĩ"}
-setInterval(()=>{const n=document.querySelector("#messages .status .st-t");if(!n||!cur)return;const v=phaseText(cur,S.msgs[cur.id]||[]);if(n.textContent!==v)n.textContent=v},1000);
+// Working status (one persistent node, so the mascot and shine never restart
+// on a re-render): the bot's own mascot moves per phase (bob/scan/hop…, eyes
+// blink), the phase text shines and crossfades when it changes, the stop
+// button sits on the line. Hidden at once when the answer starts.
+let stEl=null;const shownIds=new Set();const sent=new Map();const sentRecently=t=>{const x=sent.get(t);return x&&Date.now()-x<120e3};
+function statusEl(){if(!stEl){stEl=el("div","status off");stEl.setAttribute("role","status");stEl.setAttribute("aria-live","polite");const x=el("button","st-stop");x.type="button";x.setAttribute("aria-label","Dừng");x.append(I("square",12));x.onclick=()=>stopAgent();stEl.append(el("span","st-mascot"),el("span","st-t"),x)}return stEl}
+function phaseOf(a,L){const p=AURORA_UX.phase(a,L);if(!p)return null;if(p.k==="think"){const u=[...L].reverse().find(m=>m.role==="user");const s=u?(Date.now()-T(u.t))/1e3:0;p.t=s>20?"Đang hoàn thiện câu trả lời":s>8?"Đang sắp xếp ý":"Đang suy nghĩ"}return p}
+function setStatus(a,L,on){const st=statusEl(),p=on&&phaseOf(a,L);st.classList.toggle("off",!p);if(!p)return;
+ const key=a.id+JSON.stringify(a.av||{});if(st.dataset.av!==key){st.dataset.av=key;st.firstChild.replaceChildren(face(a.av||{},28))}
+ st.dataset.k=p.k;st.lastChild.hidden=a.status!=="working";const t=st.children[1],old=t.querySelector("span:not(.out)");if(old&&old.textContent===p.t)return;
+ if(old){old.classList.add("out");setTimeout(()=>old.remove(),260)}t.append(el("span",old?"in":"",p.t))}
+setInterval(()=>{if(cur&&stEl&&!stEl.classList.contains("off"))setStatus(cur,S.msgs[cur.id]||[],true)},1000);
 // download links in a reply become file chips (type, name, size; 48px tap target)
 const pcSizes={};
 function chipify(b,id){const links=[...b.querySelectorAll("a[href]")].filter(x=>AURORA_UX.isDownload(x.getAttribute("href")));if(!links.length)return;
@@ -269,7 +274,7 @@ function syncJump(){const b=$("#messages");$("#jumpBtn").classList.toggle("hidde
 const visible=t=>{const i=t.search(/(^|\n)\s*(APPROVAL|PLAN|CHOICES|TOOL|SECRET):|(APPROVAL|PLAN|CHOICES|TOOL|SECRET):\s*[\[{]/);return(i>=0?t.slice(0,i):t).trim()||"…"};
 // A draft is painted only once it has a letter or digit: a lone "-" or "**"
 // at the start of a streamed step must not flash as its own bubble.
-function shown(d){const t=visible(d.text||"");return/[\p{L}\p{N}]/u.test(t)&&/\s/.test(t.trim())} // a whole first word, never a lone "Đ"
+function shown(d){const t=visible(d.text||"");return Date.now()-(d.t0||0)>=450&&/[\p{L}\p{N}]/u.test(t)&&/\s/.test(t.trim())} // a whole first word, never a lone "Đ"
 // Streaming reveal: the draft shows words up to d.sl, which a frame loop
 // walks toward the received text (faster the further behind), so a chunked
 // stream reads as a steady typewriter. Reduced motion shows text as it lands.
@@ -295,7 +300,7 @@ const MAX_MSG=10000;
 function sendMsg(text){const a=cur;text=text.trim();if(!a||!text)return false;
  if([...text].length>MAX_MSG){toast(`Tin quá dài (tối đa ${MAX_MSG.toLocaleString("vi-VN")} ký tự). Chia nhỏ hoặc gửi dạng file nhé.`);return false}
  const ref=pendingRef&&pendingRef.for===a.id?pendingRef.id:undefined;setRef(null);
- outbox.push({agentId:a.id,text,ref,n:"c"+Date.now().toString(36)+Math.random().toString(36).slice(2,10),t:Date.now()});buzz("tap");renderThread();pump();return true}
+ sent.set(text,Date.now());outbox.push({agentId:a.id,text,ref,n:"c"+Date.now().toString(36)+Math.random().toString(36).slice(2,10),t:Date.now()});buzz("tap");renderThread();pump();return true}
 async function pump(){if(pumping)return;pumping=true;try{while(outbox.length){const it=outbox[0];
   try{const m=await api(`/agents/${it.agentId}/messages`,{text:it.text,clientNonce:it.n,ref:it.ref});outbox.shift();
    if(m&&m.id){const L=S.msgs[it.agentId]||(S.msgs[it.agentId]=[]);if(!L.some(x=>x.id===m.id))L.push(m)}if(cur&&cur.id===it.agentId)renderThread()}

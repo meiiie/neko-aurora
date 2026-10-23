@@ -329,16 +329,48 @@ button.cell:active{background:var(--sunk)}
 .md th,.md td{text-align:left;padding:8px 12px 8px 0;border-bottom:.5px solid var(--line-2);white-space:nowrap;vertical-align:top}.md th{font-weight:var(--w-semi);color:var(--mute);font-size:13px;line-height:18px}.md tr:last-child td{border-bottom:0}.md td:first-child,.md th:first-child{padding-left:0}
 .daystamp{text-align:center;color:var(--mute);font-size:13px;letter-spacing:var(--t13);margin:16px 0 8px}
 .status{display:flex;align-items:center;gap:10px;min-height:36px;margin:8px 0;color:var(--mute);font-size:16px;letter-spacing:var(--t15)}
-.status{animation:breathe 2.2s ease-in-out infinite}
-@keyframes breathe{50%{opacity:.5}}
-.st-spin{flex:none;width:14px;height:14px;margin:0 3px;border-radius:50%;border:2px solid color-mix(in srgb,var(--ink) 16%,transparent);border-top-color:var(--ink);animation:spin .8s linear infinite}
-.st-stop{margin-left:auto;flex:none;width:32px;height:32px;border:0;border-radius:16px;display:grid;place-items:center;background:var(--sunk);color:var(--ink);animation:none}
+.status.off{display:none}
+.st-mascot{flex:none;width:28px;height:28px;display:grid;place-items:center;will-change:transform}
+.st-mascot svg{display:block;overflow:visible}
+.st-mascot rect{transform-box:fill-box;transform-origin:center;animation:m-blink 3.8s infinite}
+.status[data-k=think] .st-mascot,.status[data-k=step] .st-mascot{animation:m-bob 1.8s ease-in-out infinite}
+.status[data-k=search] .st-mascot{animation:m-seek 1.6s ease-in-out infinite}.status[data-k=search] .st-mascot rect{animation:m-look 1.6s ease-in-out infinite}
+.status[data-k=read] .st-mascot,.status[data-k=memory] .st-mascot,.status[data-k=image] .st-mascot{animation:m-ponder 2.2s ease-in-out infinite}
+.status[data-k=run] .st-mascot,.status[data-k=slides] .st-mascot,.status[data-k=video] .st-mascot{animation:m-hop 1.1s cubic-bezier(.3,.7,.4,1) infinite}
+.status[data-k=write] .st-mascot{animation:m-sway 1.4s ease-in-out infinite}
+.status[data-k=mcp] .st-mascot,.status[data-k=bot] .st-mascot{animation:m-wiggle 1.3s ease-in-out infinite}
+.status[data-k=wait] .st-mascot{animation:m-breathe 2.6s ease-in-out infinite}
+@keyframes m-bob{0%,100%{transform:translate3d(0,0,0) rotate(0)}30%{transform:translate3d(0,-2px,0) rotate(-5deg)}65%{transform:translate3d(0,0,0) rotate(4deg)}}
+@keyframes m-seek{0%,100%{transform:translate3d(-1px,0,0) rotate(-4deg)}50%{transform:translate3d(1px,-2px,0) rotate(-1deg)}}
+@keyframes m-look{0%,100%{transform:translate3d(-14%,0,0)}50%{transform:translate3d(14%,0,0)}}
+@keyframes m-ponder{0%,100%{transform:translate3d(0,0,0) rotate(4deg)}50%{transform:translate3d(0,-1px,0) rotate(8deg)}}
+@keyframes m-hop{0%,60%,100%{transform:translate3d(0,0,0) scale(1,1)}22%{transform:translate3d(0,-4px,0) scale(.96,1.05)}42%{transform:translate3d(0,0,0) scale(1.06,.94)}}
+@keyframes m-sway{0%,100%{transform:rotate(-7deg)}50%{transform:rotate(7deg)}}
+@keyframes m-wiggle{0%,100%{transform:rotate(0) scale(1)}25%{transform:rotate(-10deg) scale(1.04)}75%{transform:rotate(10deg) scale(1.04)}}
+@keyframes m-breathe{50%{transform:scale(1.06)}}
+@keyframes m-blink{0%,44%,50%,100%{transform:scaleY(1)}47%{transform:scaleY(.08)}}
+.st-t{display:inline-grid;min-width:0}
+.st-t>span{grid-area:1/1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;background:linear-gradient(100deg,var(--mute) 0 38%,var(--ink) 50%,var(--mute) 62% 100%);background-size:260% 100%;-webkit-background-clip:text;background-clip:text;color:transparent;animation:shine 1.9s linear infinite}
+.st-t>span.in{animation:shine 1.9s linear infinite,t-in .3s cubic-bezier(.2,.8,.2,1) both}
+.st-t>span.out{animation:t-out .24s ease forwards}
+@keyframes shine{from{background-position:130% 0}to{background-position:-130% 0}}
+@keyframes t-in{from{opacity:0;transform:translate3d(0,6px,0)}}
+@keyframes t-out{to{opacity:0;transform:translate3d(0,-6px,0)}}
+.st-stop{margin-left:auto;flex:none;width:32px;height:32px;border:0;border-radius:16px;display:grid;place-items:center;background:var(--sunk);color:var(--ink)}
+.enter{animation:rise .32s cubic-bezier(.2,.8,.2,1) both}
+@keyframes rise{from{opacity:0;transform:translate3d(0,8px,0) scale(.985)}}
+.msg.mine.enter{transform-origin:100% 100%}
+:is(.approval,.plan,.form-card,.secret,.choices,.think,.sources).enter{animation:card .36s cubic-bezier(.2,.9,.25,1.08) both}
+@keyframes card{from{opacity:0;transform:translate3d(0,10px,0) scale(.97)}}
+details.sources[open]>:not(summary),details.think[open]>:not(summary),details.plan[open]>:not(summary){animation:rise .24s cubic-bezier(.2,.8,.2,1) both}
+:is(button,.choice):not(:disabled){transition:transform .14s cubic-bezier(.2,.8,.2,1),opacity .14s}
+:is(.send,.choice,.st-stop,.cell,.ap-btns button,#plusBtn):not(:disabled):active{transform:scale(.95);opacity:.85}
 .msg.mine+.msg.mine{margin-top:4px}
 .st-t{background:linear-gradient(90deg,var(--mute) 0%,var(--ink) 50%,var(--mute) 100%);background-size:200% 100%;-webkit-background-clip:text;background-clip:text;color:transparent;animation:shimmer 2s linear infinite}
 @keyframes shimmer{to{background-position:-200% 0}}
 .tool-line{margin:0 0 4px;color:var(--mute);font-size:13px}.tool-line.bad{color:var(--danger)}
 .jump{position:absolute;right:calc(var(--sr) + 16px);bottom:calc(var(--sb) + 84px);z-index:3;width:44px;height:44px;border-radius:22px;border:0;display:grid;place-items:center;background:var(--glass);box-shadow:0 0 0 .5px var(--glass-line),0 4px 14px rgba(0,0,0,.08);-webkit-backdrop-filter:blur(18px);backdrop-filter:blur(18px);color:var(--ink)}
-@media (prefers-reduced-motion:reduce){.status,.st-spin,.st-t{animation:none}.st-t{color:var(--mute);background:none}}
+@media (prefers-reduced-motion:reduce){.st-mascot,.st-mascot rect,.st-t>span{animation:none!important}.st-t>span{color:var(--mute);background:none}.st-t>span.out{display:none}.st-t{color:var(--mute);background:none}}
 /* thread header: centered frosted pill (avatar + name), status lives in the chat */
 #thread .who{flex:none;margin:0 auto;padding:0 16px 0 6px;border-radius:24px;background:var(--glass);box-shadow:0 0 0 .5px var(--glass-line);-webkit-backdrop-filter:blur(18px) saturate(1.6);backdrop-filter:blur(18px) saturate(1.6)}
 #thread .who small{display:none}
