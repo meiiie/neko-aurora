@@ -172,9 +172,10 @@ for(const w of (process.env.WIDTHS||'360,390,430').split(',').map(Number)){let p
  if(hasChoice){for(let i=0;i<4;i++){try{await tap('.choice')}catch{}await sleep(10)}await sleep(600);const n=(await srv('/agents/'+(await p.evaluate(()=>__AURORA.current()))+'/messages')).filter(m=>m.role==='user'&&(m.text==='Thân mật'||m.text==='Trang trọng')).length;if(!REAL)ok(w,'4 fast taps on a choice send it once',n===1,'n='+n)}
  if(!REAL){for(let i=0;i<60;i++){if(await p.evaluate(()=>{const a=__AURORA.state().agents.find(x=>x.id===__AURORA.current());return a&&a.status!=='working'}))break;await sleep(100)}
   await tap('#input');await p.keyboard.type('Viết thật chậm');await p.keyboard.press('Enter');await sleep(600);
-  const isStop=await p.$eval('#composer .send',e=>e.classList.contains('stop'));ok(w,'send turns into stop while working',isStop);
-  await tap('#composer .send');await sleep(900);const ag=await p.evaluate(()=>__AURORA.state().agents.find(x=>x.id===__AURORA.current()));ok(w,'stop halts the running turn',ag&&ag.status==='idle',ag&&ag.status);
-  ok(w,'send button back after stop',await p.$eval('#composer .send',e=>!e.classList.contains('stop')))}
+  ok(w,'composer stays idle while working (voice button, not stop)',await p.$eval('#composer .send',e=>e.classList.contains('voice')));
+  ok(w,'status line shows spinner + stop',!!(await p.$('#messages .status .st-spin'))&&!!(await p.$('#messages .status .st-stop')));
+  await tap('#messages .status .st-stop');await sleep(900);const ag=await p.evaluate(()=>__AURORA.state().agents.find(x=>x.id===__AURORA.current()));ok(w,'stop halts the running turn',ag&&ag.status==='idle',ag&&ag.status);
+  ok(w,'status line gone after stop',!(await p.$('#messages .status .st-stop')))}
  // activity sheet
  await tap('#plusBtn');await sleep(300);await tap('#activityBtn');await sleep(900);const logN=await p.$$eval('#log li',l=>l.length);ok(w,'activity log loads from server',logN>3,'items='+logN);
  await p.screenshot({path:`${O}${w}-7-activity.png`});await tap('#closeActivity');await sleep(450);

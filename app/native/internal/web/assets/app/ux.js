@@ -30,8 +30,5 @@ function statusText(a,L){L=L||[];if(L.some(m=>m.approval&&m.approval.state==="pe
  return lastW&&T(lastW)>=T(lastU)?"Đang tổng hợp":"Đang suy nghĩ"}
 // foldCmd: a long command (inline heredoc) shows its first n lines; the rest folds
 function foldCmd(cmd,n=6){const l=String(cmd||"").split("\n");return l.length<=n+2?{head:l.join("\n"),rest:"",more:0}:{head:l.slice(0,n).join("\n"),rest:l.slice(n).join("\n"),more:l.length-n}}
-// mergeStacked: owner messages sent back to back with no reply between (a tapped
-// choice, then a nudge) render as one bubble instead of a stack
-function mergeStacked(L){const out=[];for(const m of L||[]){const p=out.at(-1);if(m.role==="user"&&p&&p.role==="user"&&!p.approval&&!m.approval){out[out.length-1]={...p,text:(p.text||"")+"\n"+(m.text||""),merged:(p.merged||1)+1,id:m.id,t:m.t}}else out.push(m)}return out}
-const X={CHECKPOINT,cmdShown,foldCmd,mergeStacked,outSummary,fileInfo,kb,isDownload,isCheckpoint,isNoise,statusText};
+const X={CHECKPOINT,cmdShown,foldCmd,outSummary,fileInfo,kb,isDownload,isCheckpoint,isNoise,statusText};
 g.AURORA_UX=X;if(typeof module!=="undefined")module.exports=X})(typeof window!=="undefined"?window:globalThis);

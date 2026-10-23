@@ -224,8 +224,8 @@ function renderThread(){const a=cur;if(!a)return;$("#threadState").textContent=s
  const keepSec=[...box.querySelectorAll(".secret input[data-secret]")].map(i=>[i.closest(".secret").dataset.id,i.value]);
  const keepForm=[...box.querySelectorAll(".form-card [name]")].map(i=>[i.closest(".form-card").dataset.id,i.name,i.value]);
  const keepEdit=[...box.querySelectorAll(".ap-body")].map(t=>[t.closest(".approval").dataset.id,t.value,t.closest(".approval").querySelector(".ap-subject")?.value]);
- box.innerHTML="";const L=AURORA_UX.mergeStacked(S.msgs[a.id]||[]);const last={v:null};
- const pin=atBottom(box);let prevT=0;
+ box.innerHTML="";const L=S.msgs[a.id]||[];const last={v:null};
+ if(stickFor!==a.id){stickFor=a.id;stick=true}if(justSent)stick=true;let prevT=0;
  L.forEach((m,idx)=>{if(m.role!=="agent")last.v=null;const t=T(m.t);if(m.role==="user"&&t>0&&(!prevT||t-prevT>15*60e3))box.append(el("div","daystamp",dayStamp(t)));if(t>0)prevT=t;
   const cp=m.role==="agent"&&AURORA_UX.isCheckpoint(m.text),body=cp?m.text.trim().slice(0,-AURORA_UX.CHECKPOINT.length).trim():m.text;
   if(m.thinking&&m.role==="agent"&&showThink)box.append(thinkCard(m));
@@ -241,13 +241,18 @@ function renderThread(){const a=cur;if(!a)return;$("#threadState").textContent=s
  keepSec.forEach(([id,v])=>{const i=box.querySelector(`.secret[data-id="${id}"] input[data-secret]`);if(i)i.value=v});
  keepEdit.forEach(([id,v,sj])=>{const c=box.querySelector(`.approval[data-id="${id}"]`);if(c){const t=c.querySelector(".ap-body");if(t)t.value=v;const s2=c.querySelector(".ap-subject");if(s2&&sj!=null)s2.value=sj}});
  outbox.filter(o=>o.agentId===a.id).forEach(o=>{last.v=null;const b=el("div","msg mine pending",o.text);if(o.wait)b.append(el("span","chip","đang gửi…"));box.append(b)});
- Object.entries(S.drafts).forEach(([id,d])=>{if(d.agentId===a.id&&shown(d)){speaker(box,{role:"agent",from:d.from},last);const b=el("div","msg bot draft");md(b,visible(d.text),srcOf(id),true);b.id="d_"+id;box.append(b)}});
+ Object.entries(S.drafts).forEach(([id,d])=>{if(d.agentId===a.id&&shown(d)){speaker(box,{role:"agent",from:d.from},last);const b=el("div","msg bot draft");b.id="d_"+id;box.append(b);if(reduceMotion())d.sl=1e9;drawDraft(id,b);requestAnimationFrame(()=>paintDraft(id))}});
  if(AURORA_UX.statusText(a,L)&&!Object.values(S.drafts).some(d=>d.agentId===a.id&&shown(d)))box.append(turnStatus(a,L));
  setSendMode();
- if(pin||justSent)requestAnimationFrame(()=>{box.scrollTop=box.scrollHeight;justSent=false;syncJump()})}
+ if(stick)requestAnimationFrame(()=>{box.scrollTop=box.scrollHeight;justSent=false;syncJump()})}
 // single status line (bot face + milestone text), replaced by the streamed answer
-function turnStatus(a,L){const txt=AURORA_UX.statusText(a,L)||"Đang suy nghĩ";
- const d=el("div","status");d.setAttribute("role","status");const f=el("span","st-face");f.append(face(a.av||{},22));d.append(f,el("span","st-t",txt));return d}
+// (Grok-style: small spinner, the line breathes; "Đang suy nghĩ" moves on to
+// later phases while the model is still quiet; a stop button sits on the line
+// so the composer itself never turns into a stop button)
+function turnStatus(a,L){const d=el("div","status");d.setAttribute("role","status");d.append(el("span","st-spin"),el("span","st-t",phaseText(a,L)));
+ if(a.status==="working"){const x=el("button","st-stop");x.type="button";x.setAttribute("aria-label","Dừng");x.append(I("square",12));x.onclick=()=>stopAgent();d.append(x)}return d}
+function phaseText(a,L){const t=AURORA_UX.statusText(a,L)||"Đang suy nghĩ";if(t!=="Đang suy nghĩ")return t;const u=[...L].reverse().find(m=>m.role==="user");const s=u?(Date.now()-T(u.t))/1e3:0;return s>20?"Đang hoàn thiện câu trả lời":s>8?"Đang sắp xếp ý":"Đang suy nghĩ"}
+setInterval(()=>{const n=document.querySelector("#messages .status .st-t");if(!n||!cur)return;const v=phaseText(cur,S.msgs[cur.id]||[]);if(n.textContent!==v)n.textContent=v},1000);
 // download links in a reply become file chips (type, name, size; 48px tap target)
 const pcSizes={};
 function chipify(b,id){const links=[...b.querySelectorAll("a[href]")].filter(x=>AURORA_UX.isDownload(x.getAttribute("href")));if(!links.length)return;
@@ -255,17 +260,28 @@ function chipify(b,id){const links=[...b.querySelectorAll("a[href]")].filter(x=>
  paint();if(!pcSizes[id]){pcSizes[id]={};api(`/agents/${id}/computer`).then(st=>{(st.files||[]).forEach(f=>{if(!f.dir)pcSizes[id][f.path]=f.size});paint()}).catch(()=>{})}}
 const srcOf=id=>{const m=(S.msgs[cur&&cur.id]||[]).find(x=>x.id===id);return m&&m.sources};
 const atBottom=b=>b.scrollHeight-b.scrollTop-b.clientHeight<120;let justSent=false;
+// stick: follow new text; a user scroll up releases it, scrolling back down or sending re-arms it
+let stick=true,stickFor=null;
 const dayStamp=t=>{const d=new Date(t),n=new Date(),y=new Date(n-864e5);const hm=d.toLocaleTimeString("vi-VN",{hour:"2-digit",minute:"2-digit"});return(d.toDateString()===n.toDateString()?"Hôm nay ":d.toDateString()===y.toDateString()?"Hôm qua ":d.toLocaleDateString("vi-VN",{day:"numeric",month:"numeric"})+" ")+hm};
 function syncJump(){const b=$("#messages");$("#jumpBtn").classList.toggle("hidden",atBottom(b))}
 const visible=t=>{const i=t.search(/(^|\n)\s*(APPROVAL|PLAN|CHOICES|TOOL|SECRET):|(APPROVAL|PLAN|CHOICES|TOOL|SECRET):\s*[\[{]/);return(i>=0?t.slice(0,i):t).trim()||"…"};
 // A draft is painted only once it has a letter or digit: a lone "-" or "**"
 // at the start of a streamed step must not flash as its own bubble.
 function shown(d){return/[\p{L}\p{N}]/u.test(visible(d.text||""))}
-function paintDraft(id){const n=document.getElementById("d_"+id);if(!n){if(shown(S.drafts[id]))renderThread();return}const box=$("#messages"),pin=atBottom(box);n.replaceChildren();md(n,visible(S.drafts[id].text),srcOf(id),true);if(pin)box.scrollTop=box.scrollHeight;syncJump()}
+// Streaming reveal: the draft shows words up to d.sl, which a frame loop
+// walks toward the received text (faster the further behind), so a chunked
+// stream reads as a steady typewriter. Reduced motion shows text as it lands.
+const reveal={};
+function paintDraft(id){const d=S.drafts[id];if(!d)return;const n=document.getElementById("d_"+id);if(!n){if(shown(d))renderThread();return}
+ if(reduceMotion()){d.sl=1e9;drawDraft(id,n);return}
+ if(reveal[id])return;reveal[id]=requestAnimationFrame(function step(){const d=S.drafts[id],n=document.getElementById("d_"+id);if(!d||!n){delete reveal[id];return}
+  const full=visible(d.text).length,gap=full-(d.sl||0);if(gap<=0){delete reveal[id];return}d.sl=(d.sl||0)+Math.max(2,Math.ceil(gap/12));drawDraft(id,n);reveal[id]=requestAnimationFrame(step)})}
+function drawDraft(id,n){const d=S.drafts[id],t=visible(d.text);let k=Math.min(t.length,d.sl||0);while(k<t.length&&!/\s/.test(t[k]))k++;
+ n.replaceChildren();md(n,t.slice(0,k),srcOf(id),true);const box=$("#messages");if(stick)box.scrollTop=box.scrollHeight;syncJump()}
 async function decide(m,v,bs,extra){if(deciding.has(m.id))return;deciding.add(m.id);bs.querySelectorAll("button").forEach(b=>b.disabled=true);
  try{await api(`/approvals/${m.id}`,{decision:v,...(extra||{})});buzz(v==="approved"?"confirm":"soft");editing.delete(m.id)}catch(e){if(e.status!==409){deciding.delete(m.id);toast("Không ghi nhận được, thử lại");bs.querySelectorAll("button").forEach(b=>b.disabled=false)}}}
-// send ↔ stop in the same spot while the agent works (stopping holds queued follow-ups)
-function setSendMode(){const b=$("#composer .send");const empty=!$("#input").value.trim(),run=!!(cur&&cur.status==="working")&&empty,voice=empty&&!run;b.classList.toggle("stop",run);b.classList.toggle("voice",voice);b.replaceChildren(I(run?"square":voice?"audio-lines":"arrow-up"));b.setAttribute("aria-label",run?"Dừng":voice?"Nói":"Gửi")}
+// the composer never locks or turns into stop: voice when empty, send with text (stop lives on the status line)
+function setSendMode(){const b=$("#composer .send");const voice=!$("#input").value.trim();b.classList.toggle("voice",voice);b.replaceChildren(I(voice?"audio-lines":"arrow-up"));b.setAttribute("aria-label",voice?"Nói":"Gửi")}
 let stopping=false;async function stopAgent(){if(!cur||stopping)return;stopping=true;try{await api(`/agents/${cur.id}/stop`,{});buzz("soft");toast("Đã dừng")}catch{toast("Không dừng được")}finally{stopping=false}}
 
 // Outbox: the composer never blocks. Every message gets a client nonce, shows
@@ -542,7 +558,7 @@ $("#search").oninput=e=>{filter=e.target.value;renderList()};
 $("#search").onkeydown=e=>{if(e.key==="Enter")e.target.blur()};
 // Grok-style composer: one line inline with mic/send; once text wraps, the field takes the full width and the buttons drop to a row below.
 const inp=$("#input"),ask=inp.parentElement;inp.oninput=()=>{const was=ask.classList.contains("multi");if(!inp.value)ask.classList.remove("multi");inp.style.height="auto";if(!was&&inp.value&&inp.scrollHeight>52)ask.classList.add("multi");inp.style.height="auto";inp.style.height=Math.min(160,inp.scrollHeight)+"px";setSendMode()};
-$("#composer").onsubmit=async e=>{e.preventDefault();stopVoice();const v=inp.value;if(!v.trim()){if(cur&&cur.status==="working")stopAgent();else if(SR)$("#micBtn").click();else inp.focus();return}inp.value="";inp.style.height="";ask.classList.remove("multi");justSent=true;setSendMode();if(!sendMsg(v)){inp.value=v;inp.oninput()}};
+$("#composer").onsubmit=async e=>{e.preventDefault();stopVoice();const v=inp.value;if(!v.trim()){if(SR)$("#micBtn").click();else inp.focus();return}inp.value="";inp.style.height="";ask.classList.remove("multi");justSent=true;setSendMode();if(!sendMsg(v)){inp.value=v;inp.oninput()}};
 inp.onkeydown=e=>{if(e.key==="Enter"&&!e.shiftKey&&!e.isComposing){e.preventDefault();$("#composer").requestSubmit()}};
 document.addEventListener("visibilitychange",()=>{if(!document.hidden&&es)loadState().catch(()=>{})});
 if("serviceWorker"in navigator)navigator.serviceWorker.register("/app/sw.js",{scope:"/app/"}).then(r=>r.pushManager?.getSubscription()).then(s=>{if(s)pushOn=true}).catch(()=>{});
@@ -558,7 +574,8 @@ function buzz(k){try{if(CAP&&CAP.Haptics){if(!haptics||matchMedia("(prefers-redu
 [["#newBtn","plus"],["#threadMore","ellipsis"],["#plusBtn","plus"],["#profBack","chevron-left"],["#profShare","share"],["#profMore","ellipsis"],["#appsBtn","layout-grid"],["#searchIc","search"],["#backBtn","chevron-left"],["#jumpBtn","chevron-down"],["#micBtn","mic"],["#cancelBtn","x"],["#closeGroup","x"],["#closeSetup","chevron-left"],["#closeSettings","x"],["#closeConnectors","x"]].forEach(([q,n])=>{const b=$(q);if(b)b.replaceChildren(I(n))});
 document.querySelectorAll(".mi[data-i]").forEach(s=>s.replaceChildren(I(s.dataset.i,18)));
 setSendMode();
-$("#messages").addEventListener("scroll",syncJump,{passive:true});if(window.ResizeObserver)new ResizeObserver(syncJump).observe($("#messages"));$("#jumpBtn").onclick=()=>{const b=$("#messages");b.scrollTo({top:b.scrollHeight,behavior:"smooth"});buzz("tap")};
+$("#messages").addEventListener("scroll",()=>{stick=atBottom($("#messages"));syncJump()},{passive:true});
+if(window.visualViewport)visualViewport.addEventListener("resize",()=>{if(cur&&stick){const b=$("#messages");b.scrollTop=b.scrollHeight}});if(window.ResizeObserver)new ResizeObserver(syncJump).observe($("#messages"));$("#jumpBtn").onclick=()=>{const b=$("#messages");b.scrollTo({top:b.scrollHeight,behavior:"smooth"});buzz("tap")};
 window.__AURORA={state:()=>S,reload:loadState,current:()=>cur&&cur.id};
 // iOS shell: APNs registration (permission asked once, only after login; push is optional for the app to work)
 if(CAP&&CAP.PushNotifications){const P=CAP.PushNotifications;P.addListener("registration",t=>{api("/push/apns",{token:t.value}).catch(()=>{})});P.addListener("pushNotificationActionPerformed",a=>{const u=a.notification&&a.notification.data&&a.notification.data.url;if(u&&u.startsWith("/app/"))location.href=u});P.checkPermissions().then(r=>r.receive==="granted"?P.register():r.receive==="prompt"?P.requestPermissions().then(x=>x.receive==="granted"&&P.register()):0).catch(()=>{})}

@@ -329,12 +329,16 @@ button.cell:active{background:var(--sunk)}
 .md th,.md td{text-align:left;padding:8px 12px 8px 0;border-bottom:.5px solid var(--line-2);white-space:nowrap;vertical-align:top}.md th{font-weight:var(--w-semi);color:var(--mute);font-size:13px;line-height:18px}.md tr:last-child td{border-bottom:0}.md td:first-child,.md th:first-child{padding-left:0}
 .daystamp{text-align:center;color:var(--mute);font-size:13px;letter-spacing:var(--t13);margin:16px 0 8px}
 .status{display:flex;align-items:center;gap:10px;min-height:36px;margin:8px 0;color:var(--mute);font-size:16px;letter-spacing:var(--t15)}
-.st-face{display:grid;place-items:center;animation:pulse 1.6s ease-in-out infinite}
+.status{animation:breathe 2.2s ease-in-out infinite}
+@keyframes breathe{50%{opacity:.5}}
+.st-spin{flex:none;width:14px;height:14px;margin:0 3px;border-radius:50%;border:2px solid color-mix(in srgb,var(--ink) 16%,transparent);border-top-color:var(--ink);animation:spin .8s linear infinite}
+.st-stop{margin-left:auto;flex:none;width:32px;height:32px;border:0;border-radius:16px;display:grid;place-items:center;background:var(--sunk);color:var(--ink);animation:none}
+.msg.mine+.msg.mine{margin-top:4px}
 .st-t{background:linear-gradient(90deg,var(--mute) 0%,var(--ink) 50%,var(--mute) 100%);background-size:200% 100%;-webkit-background-clip:text;background-clip:text;color:transparent;animation:shimmer 2s linear infinite}
 @keyframes shimmer{to{background-position:-200% 0}}
 .tool-line{margin:0 0 4px;color:var(--mute);font-size:13px}.tool-line.bad{color:var(--danger)}
 .jump{position:absolute;right:calc(var(--sr) + 16px);bottom:calc(var(--sb) + 84px);z-index:3;width:44px;height:44px;border-radius:22px;border:0;display:grid;place-items:center;background:var(--glass);box-shadow:0 0 0 .5px var(--glass-line),0 4px 14px rgba(0,0,0,.08);-webkit-backdrop-filter:blur(18px);backdrop-filter:blur(18px);color:var(--ink)}
-@media (prefers-reduced-motion:reduce){.st-face,.st-t{animation:none}.st-t{color:var(--mute);background:none}}
+@media (prefers-reduced-motion:reduce){.status,.st-spin,.st-t{animation:none}.st-t{color:var(--mute);background:none}}
 /* thread header: centered frosted pill (avatar + name), status lives in the chat */
 #thread .who{flex:none;margin:0 auto;padding:0 16px 0 6px;border-radius:24px;background:var(--glass);box-shadow:0 0 0 .5px var(--glass-line);-webkit-backdrop-filter:blur(18px) saturate(1.6);backdrop-filter:blur(18px) saturate(1.6)}
 #thread .who small{display:none}

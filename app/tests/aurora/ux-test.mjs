@@ -26,5 +26,4 @@ ok(U.statusText(w,[{role:"user",t},{role:"agent",approval:{kind:"email",state:"p
 ok(U.statusText({status:"idle"},[{role:"agent",approval:{kind:"computer",state:"pending"}},ap("approved",{status:"sending"})])==="Chờ bạn duyệt",'waiting beats running');
 {const long=Array.from({length:30},(_, i)=>"line"+i).join("\n");const f=U.foldCmd(long);ok(f.head.split("\n").length===6&&f.more===24&&f.rest.startsWith("line6"),'long command folds after 6 lines',f);
  ok(U.foldCmd("a\nb\nc").more===0,'short command whole');}
-{const m=U.mergeStacked([{role:"user",text:"Làm tiếp",id:1},{role:"user",text:"nhanh nhé",id:2},{role:"agent",text:"ok"},{role:"user",text:"x"}]);ok(m.length===3&&m[0].text==="Làm tiếp\nnhanh nhé"&&m[0].merged===2&&m[0].id===2,'stacked owner bubbles merge',m)}
 process.exit(fail?1:0);
