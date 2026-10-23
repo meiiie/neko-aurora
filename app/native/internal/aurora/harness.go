@@ -257,7 +257,9 @@ func (s *Service) steer(w ledger.Work, tc *toolCtx) bool {
 // that no run has absorbed yet (per-bot single runner + inbox: the runner
 // drains it at every step boundary instead of making messages wait).
 func (s *Service) inbox(w ledger.Work) []ledger.Work {
-	if threadOf(w) != w.BotID {
+	if threadOf(w) != w.BotID || strings.HasPrefix(w.ClientNonce, "onboard-") {
+		// the scripted welcome never swallows the owner's first real request
+		// (live 2026-10-23: a command sent during onboarding got only the greeting)
 		return nil
 	}
 	v := newView(s.L.Snapshot())

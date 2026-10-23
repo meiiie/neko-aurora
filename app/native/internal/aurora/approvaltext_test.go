@@ -29,3 +29,13 @@ func TestIsEnglishAndPromise(t *testing.T) {
 		t.Fatal("promise not caught")
 	}
 }
+
+func TestWelcomeTurnDoesNotAbsorbFirstRequest(t *testing.T) {
+	svc, st := newSvc(t)
+	bot := firstBot(svc)
+	w, _, _ := st.Accept(ledger.Input{BotID: bot, ClientNonce: "onboard-u1", Text: "Chào Aurora!"})
+	st.Accept(ledger.Input{BotID: bot, ClientNonce: "user-req-1", Text: "chạy lệnh echo hi"})
+	if n := len(svc.inbox(w)); n != 0 {
+		t.Fatalf("welcome absorbed %d messages", n)
+	}
+}
