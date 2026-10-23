@@ -27,7 +27,7 @@ try{
  bot=(await get('state')).agents.find(a=>a.name==='Aurora').id;await idle(120);
  let seen=(await msgs()).length;const t0=Date.now();
  await post(`agents/${bot}/messages`,{text:PROMPT,clientNonce:'pptx-'+Date.now()});log('USER:',PROMPT.slice(0,80));
- const nudges=['Thêm kịch bản nói vào phần ghi chú (speaker notes) của từng slide nhé, tổng khoảng 6 phút, rồi tạo lại file pptx.','Tiếp tục làm file .pptx trên máy tính của bạn nhé (cài python-pptx nếu cần), xong gửi link tải.','Giờ dựng video xem trước (vd. render slide ra ảnh rồi ghép mp4 bằng ffmpeg nếu có) và gửi link tải.','Gửi mình link tải file pptx, kịch bản và video nhé.'];let ni=0;
+ const nudges=['Thêm kịch bản nói vào phần ghi chú (speaker notes) của từng slide nhé, tổng khoảng 6 phút, rồi tạo lại file pptx.','Tiếp tục làm file .pptx trên máy tính của bạn nhé (cài python-pptx nếu cần), xong gửi link tải.','Giờ dựng video xem trước (vd. render slide ra ảnh rồi ghép mp4 bằng ffmpeg nếu có) và gửi link tải.','Gửi mình link tải file pptx, kịch bản và video nhé.'];let ni=0,notesAsked=false;const used={};
  for(let round=0;round<(+process.env.ROUNDS||8);round++){
   if(credit()<1.2){log('STOP: credit < $1.2');break}
   await idle(600);const L=await msgs();const nw=L.slice(seen);seen=L.length;
@@ -39,9 +39,10 @@ try{
   if(ch){log('USER choice:',ch.choices[0]);await post(`agents/${bot}/messages`,{text:ch.choices[0],clientNonce:'pc-'+Date.now()});continue}
   const pc=await get(`agents/${bot}/computer`);const files=(pc?.files||[]).map(f=>f.path);log('files:',files);
   const havePptx=files.some(f=>/\.pptx$/.test(f)),haveVid=files.some(f=>/\.(mp4|webm|gif)$/.test(f));
-  if(havePptx&&haveVid)break;
-  if(ni>=nudges.length)break;
-  const haveMp4=(files||[]).some(f=>/\.(mp4|gif|webm)$/i.test(f.path||f));const n=havePptx?(ni===0?nudges[0]:haveMp4?nudges[3]:nudges[2]):nudges[1];ni++;log('USER nudge:',n);await post(`agents/${bot}/messages`,{text:n,clientNonce:'pn-'+Date.now()});
+  if(havePptx&&haveVid&&notesAsked)break;
+  // pick by state: build the deck, then notes once, then the video, then links; each at most twice
+  const want=!havePptx?1:!notesAsked?0:!haveVid?2:3;if(want===0)notesAsked=true;
+  if((used[want]=(used[want]||0)+1)>2||ni>=6)break;const n=nudges[want];ni++;log('USER nudge:',n);await post(`agents/${bot}/messages`,{text:n,clientNonce:'pn-'+Date.now()});
  }
  log('elapsed min',((Date.now()-t0)/60000).toFixed(1));
  const pc=await get(`agents/${bot}/computer`);log('final files:',(pc?.files||[]).map(f=>f.path+':'+f.size));log('cmd log:',(pc?.log||[]).map(x=>x.cmd.slice(0,120)+' → '+x.exitCode));

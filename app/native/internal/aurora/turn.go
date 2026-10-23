@@ -587,6 +587,7 @@ func promiseOnly(d directives) bool {
 
 func (s *Service) runTurn(ctx context.Context, w ledger.Work) (*Approval, []string, error) {
 	tc := &toolCtx{}
+	defer s.saveResearch(w.BotID, tc)
 	if s.absorbed(w.RequestID) {
 		// Already folded into the previous run (shown above its answer):
 		// finish silently instead of a second, redundant reply.
@@ -645,19 +646,34 @@ func (s *Service) runTurn(ctx context.Context, w ledger.Work) (*Approval, []stri
 	if followUp {
 		rounds = 8 // build loop: write file, list, run, verify
 	}
-	for round := 0; err == nil && len(d.Tools) > 0 && round < rounds && s.Tools != nil; round++ {
-		s.publish("draft_end", map[string]string{"id": w.RequestID, "agentId": threadOf(w)})
-		calls := callsOf(d.Tools)
-		if cur, _ := s.L.Get(w.RequestID); cur.Direct != nil && cur.Direct.Ack == "" {
-			s.ack(w, ackText(d.Text, threadOf(w) != w.BotID, calls))
+	for attempt := 0; ; attempt++ {
+		for round := 0; err == nil && len(d.Tools) > 0 && round < rounds && s.Tools != nil; round++ {
+			s.publish("draft_end", map[string]string{"id": w.RequestID, "agentId": threadOf(w)})
+			calls := callsOf(d.Tools)
+			if cur, _ := s.L.Get(w.RequestID); cur.Direct != nil && cur.Direct.Ack == "" {
+				s.ack(w, ackText(d.Text, threadOf(w) != w.BotID, calls))
+			}
+			s.runTools(ctx, w, tc, calls)
+			if tc.pendingCmd != "" {
+				// a command needs the owner: end the turn on its approval card
+				d = directives{Text: computerAskText, Approval: computerApproval(tc.pendingCmd)}
+				break
+			}
+			d, err = s.ask(ctx, w, tc, func() []ChatMsg { return tc.inject(s.history(w.BotID, w.RequestID)) })
 		}
-		s.runTools(ctx, w, tc, calls)
-		if tc.pendingCmd != "" {
-			// a command needs the owner: end the turn on its approval card
-			d = directives{Text: computerAskText, Approval: computerApproval(tc.pendingCmd)}
+		// A reply that narrates tool work ("[đã ghi render_video.py]") with no
+		// tool call behind it: strip the claim and ask for directives only.
+		if err != nil || attempt >= 2 || !s.narratedOnly(w, d) {
 			break
 		}
-		d, err = s.ask(ctx, w, tc, func() []ChatMsg { return tc.inject(s.history(w.BotID, w.RequestID)) })
+		d.Text = stripNarration(d.Text)
+		s.publish("draft_end", map[string]string{"id": w.RequestID, "agentId": threadOf(w)})
+		d, err = s.ask(ctx, w, tc, func() []ChatMsg {
+			return append(tc.inject(s.history(w.BotID, w.RequestID)), ChatMsg{Role: "system", Content: directivesOnly})
+		})
+	}
+	if err == nil && len(d.Tools) == 0 && d.Approval == nil {
+		d.Text = stripNarration(d.Text) // never show a claimed action that did not happen
 	}
 	if err == nil && len(d.Tools) > 0 && len(tc.blocks) > 0 {
 		// Out of lookups but holding real results: write the answer from them
@@ -825,9 +841,24 @@ func (s *Service) stepCall(ctx context.Context, w ledger.Work, tc *toolCtx, prom
 		}
 		d, err = s.ask(ctx, w, tc, func() []ChatMsg { return mk() })
 	}
+	if err == nil && s.narratedOnly(w, d) {
+		s.publish("draft_end", map[string]string{"id": w.RequestID, "agentId": threadOf(w)})
+		d, err = s.ask(ctx, w, tc, func() []ChatMsg { return mk(ChatMsg{Role: "system", Content: directivesOnly}) })
+		for r := 0; err == nil && len(d.Tools) > 0 && r < 4 && s.Tools != nil; r++ {
+			s.publish("draft_end", map[string]string{"id": w.RequestID, "agentId": threadOf(w)})
+			s.runTools(ctx, w, tc, callsOf(d.Tools))
+			if tc.pendingCmd != "" {
+				return directives{Text: "Bước này cần chạy lệnh trên máy tính của mình, bạn duyệt giúp nhé.", Approval: computerApproval(tc.pendingCmd)}, nil
+			}
+			d, err = s.ask(ctx, w, tc, func() []ChatMsg { return mk() })
+		}
+	}
 	if err == nil && len(d.Tools) > 0 {
 		s.publish("draft_end", map[string]string{"id": w.RequestID, "agentId": threadOf(w)})
 		d, err = s.call(ctx, w, mk(ChatMsg{Role: "system", Content: finalNudge}))
+	}
+	if len(d.Tools) == 0 && d.Approval == nil {
+		d.Text = stripNarration(d.Text)
 	}
 	s.remember(w, d.Memory)
 	d.Tools, d.Plan, d.Memory = nil, nil, ""

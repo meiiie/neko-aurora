@@ -113,11 +113,16 @@ func (s *Service) runComputer(ctx context.Context, bot string, tc *toolCtx, c to
 		if json.Unmarshal([]byte(c.arg), &x) != nil {
 			return tools.Result{}, computer.ErrPath
 		}
-		if err := s.PC.WriteFile(bot, x.Path, x.Content); err != nil {
+		content, fixes := s.reviewDeliverable(ctx, bot, tc, x.Path, x.Content)
+		if err := s.PC.WriteFile(bot, x.Path, content); err != nil {
 			return tools.Result{}, err
 		}
 		s.noteWrite(bot, x.Path)
-		return tools.Result{Summary: "Ghi " + clean(x.Path, 80), Text: fmt.Sprintf("Đã ghi %s (%d byte) vào thư mục nhà /home/bot.", x.Path, len(x.Content))}, nil
+		txt := fmt.Sprintf("Đã ghi %s (%d byte) vào thư mục nhà /home/bot.", x.Path, len(content))
+		if fixes != "" {
+			txt += " Trước khi ghi, hệ thống đã đối chiếu với ghi chú nghiên cứu và sửa: " + fixes + ". Dùng bản đã sửa (đọc lại bằng computer_read_file nếu cần sửa tiếp)."
+		}
+		return tools.Result{Summary: "Ghi " + clean(x.Path, 80), Text: txt}, nil
 	case "computer_list":
 		l, err := s.PC.List(bot, c.arg)
 		if err != nil {
@@ -266,6 +271,10 @@ func (s *Service) computerRoutes() {
 	})
 }
 
+// deckGuide: what a real presentation deliverable needs (live runs 3-4
+// shipped decks with no notes, no animation and 10-12pt text).
+const deckGuide = "\nBÀI TRÌNH CHIẾU (.pptx bằng python-pptx): mỗi slide PHẢI có speaker notes chứa kịch bản nói của slide đó (slide.notes_slide.notes_text_frame.text), tổng thời lượng đúng yêu cầu (~130 từ/phút); sơ đồ/quy trình dựng bằng shape và có animation xuất hiện lần lượt (chèn p:timing vào XML slide); cỡ chữ: tiêu đề ≥ 32pt, nội dung ≥ 18pt, chú thích ≥ 14pt, tối đa 5 ý mỗi slide; chữ trên slide khớp ghi chú nghiên cứu. Sau khi tạo, kiểm tra bằng script: số slide, slide nào thiếu notes, cỡ chữ nhỏ nhất."
+
 // computerNote tells the model when commands cannot run on this host, so
 // it offers what does work (listing, reading, writing files) instead of
 // promising output it cannot produce.
@@ -273,7 +282,7 @@ func (s *Service) computerNote(botID string) string {
 	if s.PC == nil {
 		return ""
 	}
-	ctxNote := s.computerContext(botID)
+	ctxNote := s.computerContext(botID) + deckGuide
 	dl := fmt.Sprintf("\nFILE CHO NGƯỜI DÙNG: file trên máy tính tải được qua link markdown [tên file](/app/api/agents/%s/computer/download?path=<đường dẫn trong /home/bot, bỏ /home/bot/>). Làm xong file (pptx, mp4, csv…) luôn đưa link này.", botID)
 	if s.PC.CanRun() == nil {
 		if s.PC.Backend() == "railway-sandbox" {

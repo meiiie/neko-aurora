@@ -34,6 +34,7 @@ type pcState struct {
 	ran      bool
 	fixes    int
 	runs     int
+	research string // sources + step results of the last researched turn
 }
 
 type pcBook struct {
