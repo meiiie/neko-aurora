@@ -21,6 +21,9 @@ import (
 type toolCtx struct {
 	blocks  []string
 	sources []ledger.DirectSource
+
+	mu         sync.Mutex
+	pendingCmd string // computer_run waiting for the owner's approval
 }
 
 func (c *toolCtx) inject(msgs []ChatMsg) []ChatMsg {
@@ -103,7 +106,8 @@ func toolsFromEnv() *tools.Kit {
 	return tools.New()
 }
 
-var toolLabel = map[string]string{"gold_price": "Tra giá vàng trực tuyến", "web_search": "Tìm trên web", "web_fetch": "Đọc trang"}
+var toolLabel = map[string]string{"gold_price": "Tra giá vàng trực tuyến", "web_search": "Tìm trên web", "web_fetch": "Đọc trang",
+	"computer_run": "Chạy lệnh trên máy tính", "computer_read_file": "Đọc file trên máy tính", "computer_write_file": "Ghi file trên máy tính", "computer_list": "Xem file trên máy tính"}
 
 // runTool runs one lookup (kept for the auto-prefetch path).
 func (s *Service) runTool(ctx context.Context, w ledger.Work, tc *toolCtx, name, arg string) {
@@ -134,7 +138,7 @@ func (s *Service) runTools(ctx context.Context, w ledger.Work, tc *toolCtx, call
 	var runs []*toolRun
 	seen := map[string]bool{}
 	for _, c := range calls {
-		key := c.name + "\x00" + clean(c.arg, 200)
+		key := c.name + "\x00" + c.arg
 		if seen[key] {
 			continue
 		}
@@ -142,7 +146,7 @@ func (s *Service) runTools(ctx context.Context, w ledger.Work, tc *toolCtx, call
 		dup := false
 		if cur.Direct != nil { // same tool+arg already ran this turn: reuse its result, don't refetch
 			for _, t := range cur.Direct.Tools {
-				if t.Name == c.name && t.Arg == clean(c.arg, 200) && t.Status == "done" {
+				if t.Name == c.name && t.Arg == displayArg(c) && t.Status == "done" && !isComputerTool(c.name) {
 					dup = true
 				}
 			}
@@ -162,7 +166,7 @@ func (s *Service) runTools(ctx context.Context, w ledger.Work, tc *toolCtx, call
 	s.update(w.RequestID, func(r *ledger.DirectRun) {
 		for _, x := range runs {
 			x.idx = len(r.Tools)
-			r.Tools = append(r.Tools, ledger.DirectTool{Name: x.call.name, Arg: clean(x.call.arg, 200), Status: "running", Summary: toolLabel[x.call.name]})
+			r.Tools = append(r.Tools, ledger.DirectTool{Name: x.call.name, Arg: displayArg(x.call), Status: "running", Summary: toolLabel[x.call.name]})
 		}
 	})
 	found := tc.found()
@@ -175,7 +179,11 @@ func (s *Service) runTools(ctx context.Context, w ledger.Work, tc *toolCtx, call
 			t0 := time.Now()
 			tctx, cancel := context.WithTimeout(ctx, 25*time.Second)
 			defer cancel()
-			if x.call.name == "web_fetch" {
+			if isComputerTool(x.call.name) {
+				tctx2, c2 := context.WithTimeout(ctx, 3*time.Minute)
+				defer c2()
+				x.res, x.err = s.runComputer(tctx2, w.BotID, tc, x.call)
+			} else if x.call.name == "web_fetch" {
 				x.res, x.err = s.Tools.FetchFound(tctx, x.call.arg, found)
 			} else {
 				x.res, x.err = s.Tools.Run(tctx, x.call.name, x.call.arg)
@@ -213,7 +221,7 @@ func (s *Service) commitTool(w ledger.Work, tc *toolCtx, x *toolRun) {
 			}
 			return "[?]"
 		})
-		tc.blocks = append(tc.blocks, fmt.Sprintf("Công cụ %s%s (nguồn %s):\n%s", name, map[bool]string{true: " “" + arg + "”"}[arg != ""], strings.Join(refs, " "), truncateResult(text, maxResultChars)))
+		tc.blocks = append(tc.blocks, fmt.Sprintf("Công cụ %s%s (nguồn %s):\n%s", name, map[bool]string{true: " “" + displayArg(x.call) + "”"}[arg != ""], strings.Join(refs, " "), truncateResult(text, maxResultChars)))
 	} else if err != nil {
 		tc.blocks = append(tc.blocks, fmt.Sprintf("Công cụ %s thất bại (%s): KHÔNG có dữ liệu, không được đoán số.", name, tools.Short(err)))
 	}
@@ -234,6 +242,9 @@ var ackLabel = map[string]string{"gold_price": "giá vàng trong nước và th�
 func ackFor(calls []toolCall) string {
 	seen, parts := map[string]bool{}, []string{}
 	for _, c := range calls {
+		if isComputerTool(c.name) {
+			return "Được, mình làm việc này trên máy tính riêng của mình rồi báo bạn."
+		}
 		if l := ackLabel[c.name]; l != "" && !seen[l] {
 			seen[l] = true
 			parts = append(parts, l)

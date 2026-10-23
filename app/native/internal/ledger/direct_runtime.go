@@ -50,7 +50,7 @@ type DirectRun struct {
 	Version    int             `json:"version"`
 	Runtime    string          `json:"runtime"` // neko-core-cli|direct-http|imported
 	Model      string          `json:"model,omitempty"`
-	Kind       string          `json:"kind,omitempty"` // ""|brief|note
+	Kind       string          `json:"kind,omitempty"` // ""|brief|note|computer
 	StartedAt  string          `json:"startedAt"`
 	FinishedAt string          `json:"finishedAt,omitempty"`
 	ImportedAt string          `json:"importedAt,omitempty"`
@@ -160,7 +160,7 @@ func validDirectApproval(a *DirectApproval) bool {
 }
 
 func validDirectRun(d *DirectRun) bool {
-	if d == nil || d.Version != 1 || (d.Runtime != "neko-core-cli" && d.Runtime != "direct-http" && d.Runtime != "imported") || (d.Kind != "" && d.Kind != "brief" && d.Kind != "note") {
+	if d == nil || d.Version != 1 || (d.Runtime != "neko-core-cli" && d.Runtime != "direct-http" && d.Runtime != "imported") || (d.Kind != "" && d.Kind != "brief" && d.Kind != "note" && d.Kind != "computer") {
 		return false
 	}
 	if !directText(d.Model, 128) || d.StartedAt == "" || !directText(d.PlanIntro, 2000) || !directText(d.Ack, 600) || len(d.Plan) > 8 || len(d.Steered) > 4 || len(d.Choices) > 4 || len(d.Items) > 8 {

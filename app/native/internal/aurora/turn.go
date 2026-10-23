@@ -33,6 +33,7 @@ CHOICES: ["lựa chọn A","lựa chọn B"]   ← khi cần Darren chọn nhanh
 APPROVAL: {"title":"<việc cần duyệt>","kind":"email|send|post|pay|other","to":"<email nếu là email>","subject":"<tiêu đề nếu là email>","body":"<toàn bộ nội dung đã soạn>"}   ← bắt buộc cho mọi hành động ra bên ngoài.
 SECRET: {"name":"TEN_IN_HOA","label":"<tên hiển thị>","desc":"<vì sao cần, lấy ở đâu>"}   ← khi cần Darren cung cấp mật khẩu/khoá API. Darren nhập vào thẻ ẩn, giá trị vào kho bí mật, bạn không bao giờ thấy. Không bao giờ xin Darren dán bí mật vào chat. Khi việc cần một mật khẩu/khoá chưa có, LUÔN thêm dòng SECRET (không chỉ mô tả bằng lời). Mật khẩu ứng dụng Gmail dùng tên GMAIL_APP_PASSWORD.
 TOOL: {"name":"web_search","q":"<truy vấn>"} | {"name":"web_fetch","url":"https://..."} | {"name":"gold_price"}   ← công cụ đọc dữ liệu thật trên máy chủ. Khi cần số liệu/tin tức hiện tại mà chưa có trong KẾT QUẢ CÔNG CỤ, in dòng TOOL rồi dừng; nhiều tra cứu độc lập (vd. giá từng mặt hàng) thì in tối đa 3 dòng TOOL cùng lúc, hệ thống chạy song song rồi gọi lại bạn.
+TOOL: {"name":"computer_write_file","path":"<đường dẫn trong /home/bot>","content":"<nội dung>"} | {"name":"computer_run","cmd":"<lệnh shell>"} | {"name":"computer_read_file","path":"..."} | {"name":"computer_list","path":""}   ← máy tính Linux riêng của bạn (thư mục nhà /home/bot giữ lại giữa các lượt; có python3; mặc định không có mạng). Dùng để viết và chạy script, phân tích file CSV/dữ liệu. Ghi file trước rồi mới chạy lệnh; lệnh có thể thay đổi máy sẽ chờ Darren duyệt (hệ thống tự tạo thẻ duyệt, bạn không cần viết APPROVAL cho lệnh). Mỗi lượt in tối đa 1 dòng computer_run.
 MEMORY: {"text":"<một sở thích/bối cảnh lâu dài Darren vừa nói rõ hoặc xác nhận>"}   ← chỉ khi Darren nói rõ muốn bạn nhớ hoặc nêu sở thích lâu dài; không bao giờ ghi bí mật, mật khẩu.
 - Số liệu (giá, tỷ giá, ngày, phần trăm) chỉ được lấy từ KẾT QUẢ CÔNG CỤ, ghi nguồn dạng [1], [2]. Tuyệt đối không bịa hay ước đoán số; thiếu dữ liệu thì nói rõ thiếu. Khi đã có KẾT QUẢ CÔNG CỤ thì trả lời thẳng, không dùng PLAN.
 - Không bao giờ nhắc tên kỹ thuật của công cụ hay chỉ thị (web_search, web_fetch, gold_price, TOOL…) trong câu trả lời; nói bằng lời thường như "tìm trên web", "đọc trang".
@@ -56,6 +57,28 @@ type toolReq struct {
 	Name string `json:"name"`
 	Q    string `json:"q,omitempty"`
 	URL  string `json:"url,omitempty"`
+	// computer tools
+	Cmd     string `json:"cmd,omitempty"`
+	Path    string `json:"path,omitempty"`
+	Content string `json:"content,omitempty"`
+}
+
+func validTool(t toolReq) bool {
+	switch t.Name {
+	case "gold_price", "computer_list":
+		return true
+	case "web_search":
+		return t.Q != ""
+	case "web_fetch":
+		return t.URL != ""
+	case "computer_run":
+		return strings.TrimSpace(t.Cmd) != ""
+	case "computer_read_file":
+		return t.Path != ""
+	case "computer_write_file":
+		return t.Path != "" && len(t.Content) <= 1<<20
+	}
+	return false
 }
 
 // ParseDirectives strips trailing PLAN/CHOICES/APPROVAL lines from model text.
@@ -69,7 +92,7 @@ func ParseDirectives(text string) directives {
 	for _, m := range directiveRe.FindAllStringSubmatch(text, -1) {
 		if m[1] == "TOOL" {
 			var t toolReq
-			if json.Unmarshal([]byte(m[2]), &t) == nil && (t.Name == "gold_price" || t.Name == "web_search" && t.Q != "" || t.Name == "web_fetch" && t.URL != "") && len(d.Tools) < 3 {
+			if json.Unmarshal([]byte(m[2]), &t) == nil && validTool(t) && len(d.Tools) < 3 {
 				d.Tools = append(d.Tools, t)
 			}
 			continue
@@ -300,7 +323,7 @@ func (s *Service) history(botID, current string) []ChatMsg {
 		l = l[len(l)-maxHistoryTurns:]
 	}
 	for _, w := range l {
-		if w.Direct == nil || w.Direct.Kind == "" {
+		if w.Direct == nil || w.Direct.Kind == "" || w.Direct.Kind == "computer" {
 			msgs = append(msgs, ChatMsg{"user", w.Text})
 		}
 		if w.RequestID == current {
@@ -369,6 +392,9 @@ func (s *Service) runWork(w ledger.Work) {
 		return
 	}
 	run := ledger.DirectRun{Runtime: s.AI.Runtime(), Model: s.AI.ModelName(), LeaseUntil: s.leaseUntil()}
+	if strings.HasPrefix(w.ClientNonce, "computer-") {
+		run.Kind = "computer" // hidden follow-up after an approved command
+	}
 	if !s.AI.Configured() {
 		run.Model = ""
 	}
@@ -526,12 +552,13 @@ func (s *Service) runTurn(ctx context.Context, w ledger.Work) (*Approval, []stri
 	}
 	var d directives
 	var err error
-	if steps := userSteps(w.Text); len(steps) >= 3 && threadOf(w) == w.BotID {
+	followUp := strings.HasPrefix(w.ClientNonce, "computer-") // tool output must never trigger planning
+	if steps := userSteps(w.Text); !followUp && len(steps) >= 3 && threadOf(w) == w.BotID {
 		// The owner already listed the steps: run them as a server-driven plan
 		// (one milestone update per step, then a final result) without asking
 		// the model to re-plan.
 		d = directives{Text: fmt.Sprintf("Mình sẽ làm %d bước và báo sau mỗi bước.", len(steps)), Plan: steps}
-	} else if multiPart(w.Text) && threadOf(w) == w.BotID {
+	} else if !followUp && multiPart(w.Text) && threadOf(w) == w.BotID {
 		// Long multi-part request without numbered steps: ask the model to
 		// propose the plan first, so it runs with milestones.
 		d, err = s.call(ctx, w, append(tc.inject(s.history(w.BotID, w.RequestID)), ChatMsg{Role: "system", Content: planNudge}))
@@ -553,6 +580,11 @@ func (s *Service) runTurn(ctx context.Context, w ledger.Work) (*Approval, []stri
 			s.ack(w, ackText(d.Text, threadOf(w) != w.BotID, calls))
 		}
 		s.runTools(ctx, w, tc, calls)
+		if tc.pendingCmd != "" {
+			// a command needs the owner: end the turn on its approval card
+			d = directives{Text: "Mình cần bạn duyệt lệnh này trước khi chạy trên máy tính của mình.", Approval: computerApproval(tc.pendingCmd)}
+			break
+		}
 		s.steer(w, tc)
 		d, err = s.call(ctx, w, tc.inject(s.history(w.BotID, w.RequestID)))
 	}
@@ -667,6 +699,9 @@ func (s *Service) stepCall(ctx context.Context, w ledger.Work, tc *toolCtx, prom
 	for r := 0; err == nil && len(d.Tools) > 0 && r < 4 && s.Tools != nil; r++ {
 		s.publish("draft_end", map[string]string{"id": w.RequestID, "agentId": threadOf(w)})
 		s.runTools(ctx, w, tc, callsOf(d.Tools))
+		if tc.pendingCmd != "" {
+			return directives{Text: "Bước này cần chạy lệnh trên máy tính của mình, bạn duyệt giúp nhé.", Approval: computerApproval(tc.pendingCmd)}, nil
+		}
 		s.steer(w, tc)
 		d, err = s.call(ctx, w, mk())
 	}
@@ -835,6 +870,10 @@ func hasStrayEnglish(t string) bool {
 func callsOf(ts []toolReq) []toolCall {
 	out := make([]toolCall, 0, len(ts))
 	for _, t := range ts {
+		if isComputerTool(t.Name) {
+			out = append(out, toolCall{t.Name, computerArg(t)})
+			continue
+		}
 		out = append(out, toolCall{t.Name, t.Q + t.URL})
 	}
 	return out

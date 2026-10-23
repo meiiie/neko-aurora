@@ -14,6 +14,7 @@ import (
 	"time"
 	"unicode"
 
+	"nekoaurora.local/native/internal/computer"
 	"nekoaurora.local/native/internal/ledger"
 	"nekoaurora.local/native/internal/outbound"
 	"nekoaurora.local/native/internal/tools"
@@ -38,6 +39,7 @@ type Service struct {
 	V        *vault.Vault
 	Tools    *tools.Kit
 	Mem      *memStore
+	PC       *computer.Manager // per-bot sandboxed computers (nil = off)
 	mux      *http.ServeMux
 	mu       sync.Mutex
 	subs     map[chan Event]struct{}
@@ -91,11 +93,12 @@ func New(ctx context.Context, store *ledger.Store, stateDir string, opt Options)
 		return nil, err
 	}
 	log.SetOutput(v.Writer(os.Stderr))
-	s := &Service{L: store, AI: model, Push: p, V: v, Tools: toolsFromEnv(), Mem: openMemory(stateDir), Prefs: prefs, subs: map[chan Event]struct{}{}, ctx: ctx, wake: make(chan struct{}, 1), running: map[string]bool{}, seen: map[string]string{}, Now: time.Now}
+	s := &Service{L: store, AI: model, Push: p, V: v, Tools: toolsFromEnv(), Mem: openMemory(stateDir), PC: openComputers(stateDir), Prefs: prefs, subs: map[chan Event]struct{}{}, ctx: ctx, wake: make(chan struct{}, 1), running: map[string]bool{}, seen: map[string]string{}, Now: time.Now}
 	s.Out = outbound.NewRouter(outbound.Switch{Resolve: s.mailer})
 	s.routes()
 	s.connectorRoutes()
 	s.memoryRoutes()
+	s.computerRoutes()
 	s.sync()
 	go s.watch()
 	if opt.RunTurns && !store.ReadOnly() {
@@ -701,6 +704,10 @@ func (s *Service) routes() {
 			switch {
 			case in.Decision == "declined":
 				a.Outcome = "Ok, mình giữ lại “" + a.Title + "” và không làm gì thêm."
+			case a.Kind == "computer":
+				if s.PC == nil {
+					a.Outcome = "Máy tính của bot đang tắt trên máy chủ nên lệnh chưa chạy."
+				}
 			case !s.hasChannel(a.Kind) || a.To == "":
 				a.Outcome = "Đã ghi nhận bạn duyệt “" + a.Title + "”. Kênh gửi ra ngoài chưa được kết nối nên mình chưa gửi gì; bản đã duyệt được lưu để gửi khi kênh sẵn sàng."
 			}
@@ -718,7 +725,10 @@ func (s *Service) routes() {
 			verb := map[string]string{"approved": "Bạn duyệt", "declined": "Bạn hoãn"}[ap.State]
 			s.record(work.BotID, work.RequestID, "decision", verb+" “"+ap.Title+"” của "+s.botName(work.BotID))
 		}
-		if ap := work.Direct.Approval; in.Decision == "approved" && s.hasChannel(ap.Kind) && ap.To != "" {
+		if ap := work.Direct.Approval; in.Decision == "approved" && ap.Kind == "computer" && s.PC != nil {
+			s.runApprovedCommand(work)
+			work, _ = s.L.Get(work.RequestID)
+		} else if in.Decision == "approved" && s.hasChannel(ap.Kind) && ap.To != "" {
 			work = s.deliver(work)
 		}
 		s.sync()
