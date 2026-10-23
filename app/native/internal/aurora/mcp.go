@@ -386,7 +386,7 @@ func (s *Service) mcpNote(bot string, be botExt) string {
 		}
 		for _, t := range ts {
 			mark := ""
-			if !t.Annotations.ReadOnly {
+			if _, c := s.ext.confirm(); c && !t.Annotations.ReadOnly {
 				mark = " [cần duyệt]"
 			}
 			b.WriteString("\n- " + srv.Name + "/" + t.Name + mark + ": " + clean(t.Description, 160) + " args=" + clean(string(t.Schema), 300))

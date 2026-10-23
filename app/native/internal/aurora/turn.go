@@ -78,6 +78,9 @@ type toolReq struct {
 	Bot    string          `json:"bot,omitempty"`
 	Desc   string          `json:"desc,omitempty"`
 	Target string          `json:"target,omitempty"`
+	Model  string          `json:"model,omitempty"`
+	Think  *bool           `json:"thinking,omitempty"`
+	Folder *string         `json:"folder,omitempty"`
 }
 
 func validTool(t toolReq) bool {
@@ -95,7 +98,7 @@ func validTool(t toolReq) bool {
 	case "bot_create":
 		return strings.TrimSpace(t.Bot) != ""
 	case "bot_update":
-		return strings.TrimSpace(t.Target) != "" && (t.Bot != "" || t.Desc != "")
+		return t.Bot != "" || t.Desc != "" || t.Model != "" || t.Think != nil || t.Folder != nil
 	case "web_search", "chat_search":
 		return t.Q != ""
 	case "web_fetch":
@@ -196,6 +199,9 @@ func ParseDirectives(text string) directives {
 		}
 	}
 	d.Text = strings.TrimSpace(directiveRe.ReplaceAllString(text, ""))
+	if d.Form != nil && d.Text == "" {
+		d.Text = "Bạn điền giúp mình mấy thông tin này nhé."
+	}
 	return d
 }
 

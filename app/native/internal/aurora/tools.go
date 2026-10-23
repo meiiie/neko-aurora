@@ -90,6 +90,9 @@ type toolCall struct{ name, arg string }
 // allowlisted URLs, saving a model round trip.
 func (s *Service) autoTools(w ledger.Work) []toolCall {
 	out := imageAuto(w.Text)
+	if s.ext.on(w.BotID, "browser") {
+		out = append(out, browserAuto(stripRef(w.Text))...)
+	}
 	if s.Tools == nil {
 		return out
 	}

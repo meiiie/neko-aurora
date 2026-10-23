@@ -3,7 +3,7 @@ package aurora
 import (
 	"context"
 	"encoding/json"
-	"io"
+	"encoding/base64"
 	"regexp"
 	"net/http"
 	"strings"
@@ -64,7 +64,28 @@ func (s *Service) providersView() []map[string]any {
 func (s *Service) extRoutes() {
 	m := s.mux
 	m.HandleFunc("GET /app/api/models", func(w http.ResponseWriter, r *http.Request) {
-		writeJSON(w, 200, map[string]any{"models": s.modelMenu(), "providers": s.providersView(), "vision": s.visionModel(), "browser": browserBin() != ""})
+		cb, cm := s.ext.confirm()
+		writeJSON(w, 200, map[string]any{"models": s.modelMenu(), "providers": s.providersView(), "vision": s.visionModel(), "browser": browserBin() != "", "confirmBots": cb, "confirmMcp": cm})
+	})
+	m.HandleFunc("POST /app/api/confirm", func(w http.ResponseWriter, r *http.Request) {
+		var in struct {
+			Bots *bool `json:"bots"`
+			MCP  *bool `json:"mcp"`
+		}
+		if decodeStrict(r, &in) != nil {
+			fail(w, ErrInvalid)
+			return
+		}
+		s.ext.mu.Lock()
+		if in.Bots != nil {
+			s.ext.d.ConfirmBots = *in.Bots
+		}
+		if in.MCP != nil {
+			s.ext.d.ConfirmMCP = *in.MCP
+		}
+		s.ext.saveLocked()
+		s.ext.mu.Unlock()
+		writeJSON(w, 200, map[string]bool{"ok": true})
 	})
 	m.HandleFunc("POST /app/api/providers", func(w http.ResponseWriter, r *http.Request) {
 		var in struct {
@@ -424,14 +445,24 @@ func (s *Service) uploadRoutes() {
 			fail(w, ErrNotFound)
 			return
 		}
-		name := strings.Trim(uploadName.ReplaceAllString(r.URL.Query().Get("name"), "-"), "-.")
-		if name == "" || len(name) > 80 {
-			name = "anh-" + time.Now().Format("150405") + ".jpg"
+		// JSON body (the host's CSRF gate accepts only same-origin JSON):
+		// {"name":"…","data":"<base64>"}
+		var in struct {
+			Name string `json:"name"`
+			Data string `json:"data"`
 		}
-		b, err := io.ReadAll(http.MaxBytesReader(w, r.Body, 1<<20))
-		if err != nil || len(b) == 0 {
+		if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 1500<<10)).Decode(&in); err != nil {
 			writeJSON(w, 413, map[string]string{"error": "too_large"})
 			return
+		}
+		b, err := base64.StdEncoding.DecodeString(in.Data)
+		if err != nil || len(b) == 0 || len(b) > 1<<20 {
+			writeJSON(w, 400, map[string]string{"error": "bad_image"})
+			return
+		}
+		name := strings.Trim(uploadName.ReplaceAllString(in.Name, "-"), "-.")
+		if name == "" || len(name) > 80 {
+			name = "anh-" + time.Now().Format("150405") + ".jpg"
 		}
 		p := "uploads/" + name
 		if err := s.PC.WriteFile(id, p, string(b)); err != nil {
@@ -450,6 +481,23 @@ func imageAuto(text string) []toolCall {
 	for _, m := range imgRef.FindAllStringSubmatch(text, 3) {
 		b, _ := json.Marshal(toolReq{Name: "image_describe", Path: m[1]})
 		out = append(out, toolCall{"image_describe", string(b)})
+	}
+	return out
+}
+
+var browserAsk = regexp.MustCompile(`(?i)trình duyệt|browser`)
+
+// browserAuto: the owner explicitly asked to open a URL in the browser.
+func browserAuto(text string) []toolCall {
+	if !browserAsk.MatchString(text) {
+		return nil
+	}
+	var out []toolCall
+	for _, u := range tools.RequestedURLs(text) {
+		if len(out) < 2 {
+			b, _ := json.Marshal(toolReq{Name: "browser_open", URL: u})
+			out = append(out, toolCall{"browser_open", string(b)})
+		}
 	}
 	return out
 }

@@ -162,6 +162,7 @@ func TestMCPReadOnlyRunsWriteNeedsApproval(t *testing.T) {
 		"Đã tra xong.",
 		tool(map[string]any{"name": "mcp", "server": "kb", "tool": "post_note", "args": map[string]any{"t": "hi"}}),
 		"Tóm tắt: đã đăng.")
+	post(t, u+"/app/api/confirm", `{"mcp":true}`) // owner switched confirmation on
 	if r := post(t, u+"/app/api/agents/"+bot+"/ext", `{"mcp":[{"name":"kb","url":"`+m.URL+`"}]}`); r.StatusCode != 200 {
 		t.Fatal(r.StatusCode)
 	}
@@ -198,6 +199,7 @@ func TestMCPReadOnlyRunsWriteNeedsApproval(t *testing.T) {
 
 func TestBotCreateNeedsConfirmation(t *testing.T) {
 	svc, u, bot := liveSvc(t, tool(map[string]any{"name": "bot_create", "bot": "Kế toán", "desc": "ghi sổ chi tiêu"}), "Ok.")
+	post(t, u+"/app/api/confirm", `{"bots":true}`)
 	n0 := len(svc.L.Snapshot().Bots)
 	post(t, u+"/app/api/agents/"+bot+"/messages", `{"text":"tạo giúp bot kế toán","clientNonce":"bc-1"}`)
 	waitTask(t, svc, bot)
@@ -281,5 +283,56 @@ func TestImageFallbackAndBrowserGuard(t *testing.T) {
 	}
 	if _, err := svc.browserOpen(context.Background(), "http://127.0.0.1:8765/"); err == nil {
 		t.Fatal("browser opened a loopback URL")
+	}
+}
+
+func TestAutoImageAndBrowser(t *testing.T) {
+	if c := imageAuto("xem giúp [Ảnh: uploads/doanh-thu.jpg]"); len(c) != 1 || !strings.Contains(c[0].arg, `"path":"uploads/doanh-thu.jpg"`) {
+		t.Fatal(c)
+	}
+	if c := browserAuto("Mở bằng trình duyệt trang https://example.com rồi cho biết tiêu đề"); len(c) != 1 || !strings.Contains(c[0].arg, "https://example.com") {
+		t.Fatal(c)
+	}
+	if browserAuto("đọc https://example.com") != nil {
+		t.Fatal("no browser intent")
+	}
+}
+
+// DS Bot defaults: bot changes and MCP calls run directly; only the main bot
+// creates bots; a bot may update itself (model, thinking, folder).
+func TestDefaultsDirectLikeDSBot(t *testing.T) {
+	var calls atomic.Int32
+	m := fakeMCP(t, &calls)
+	svc, u, bot := liveSvc(t,
+		tool(map[string]any{"name": "mcp", "server": "kb", "tool": "post_note", "args": map[string]any{}}), "Đã đăng.",
+		tool(map[string]any{"name": "bot_create", "bot": "Kế toán", "desc": "ghi sổ", "folder": "so-sach"}), "Đã tạo.",
+		tool(map[string]any{"name": "bot_update", "thinking": true}), "Đã bật.")
+	post(t, u+"/app/api/agents/"+bot+"/ext", `{"mcp":[{"name":"kb","url":"`+m.URL+`"}]}`)
+	post(t, u+"/app/api/agents/"+bot+"/messages", `{"text":"đăng ghi chú","clientNonce":"d-1"}`)
+	waitTask(t, svc, bot)
+	if calls.Load() != 1 {
+		t.Fatal("mcp not called directly")
+	}
+	post(t, u+"/app/api/agents/"+bot+"/messages", `{"text":"tạo bot kế toán","clientNonce":"d-2"}`)
+	waitTask(t, svc, bot)
+	var nb string
+	for _, b := range svc.L.Snapshot().Bots {
+		if b.Name == "Kế toán" {
+			nb = b.ID
+		}
+	}
+	if nb == "" || svc.ext.bot(nb).Folder != "so-sach" {
+		t.Fatal("bot not created directly", nb)
+	}
+	post(t, u+"/app/api/agents/"+bot+"/messages", `{"text":"bật suy nghĩ cho bạn","clientNonce":"d-3"}`)
+	waitTask(t, svc, bot)
+	if !svc.ext.bot(bot).Thinking {
+		t.Fatal("self update")
+	}
+	// a non-main bot cannot create bots
+	tc := &toolCtx{}
+	b, _ := json.Marshal(toolReq{Name: "bot_create", Bot: "X"})
+	if _, err := svc.runExt(context.Background(), ledger.Work{BotID: nb}, tc, toolCall{"bot_create", string(b)}); err == nil {
+		t.Fatal("non-main bot created a bot")
 	}
 }

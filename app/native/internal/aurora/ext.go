@@ -77,6 +77,10 @@ type extData struct {
 	Bots      map[string]*botExt   `json:"bots"`
 	Skills    []skill              `json:"skills"`
 	Vision    string               `json:"vision,omitempty"`
+	// DS Bot defaults: bot changes and remote MCP calls run directly; the
+	// owner can switch confirmation cards on.
+	ConfirmBots bool `json:"confirmBots,omitempty"`
+	ConfirmMCP  bool `json:"confirmMcp,omitempty"`
 	Thoughts  map[string]string    `json:"thoughts"`
 	Forms     map[string]*form     `json:"forms"`
 	Order     []string             `json:"order"` // thoughts/forms eviction order
@@ -458,17 +462,17 @@ func (s *Service) extNote(bot string) string {
 	}
 	be := s.ext.bot(bot)
 	var b strings.Builder
-	b.WriteString("\nCÔNG CỤ THÊM: TOOL {\"name\":\"memory_recall\",\"q\":\"<từ khoá>\"} (tra trí nhớ đã lưu)")
+	b.WriteString("\nCÔNG CỤ THÊM (chạy ngay): TOOL {\"name\":\"memory_recall\",\"q\":\"<từ khoá>\"} (tra trí nhớ đã lưu)")
 	if s.PC != nil {
 		b.WriteString(" | {\"name\":\"image_describe\",\"path\":\"<ảnh trong /home/bot>\",\"q\":\"<cần biết gì>\"} (bạn không nhìn được ảnh: công cụ này nhờ mô hình đọc ảnh mô tả lại)")
 	}
 	if !be.Off["browser"] {
-		b.WriteString(" | {\"name\":\"browser_open\",\"url\":\"https://...\"} (mở trang bằng trình duyệt không giao diện, chạy JavaScript, lấy chữ hiển thị; chỉ đọc, không đăng nhập, không bấm gửi)")
+		b.WriteString(" | {\"name\":\"browser_open\",\"url\":\"https://...\"} (mở trang bằng trình duyệt không giao diện, chạy JavaScript, lấy chữ hiển thị; chỉ đọc nên chạy NGAY, không cần duyệt, không viết APPROVAL cho nó)")
 	}
 	if !be.Off["bots"] {
-		b.WriteString(" | {\"name\":\"bot_create\",\"bot\":\"<tên>\",\"desc\":\"<vai trò>\"} | {\"name\":\"bot_update\",\"target\":\"<tên bot hiện có>\",\"bot\":\"<tên mới hoặc bỏ trống>\",\"desc\":\"<vai trò mới hoặc bỏ trống>\"} (chỉ khi Darren nhờ tạo/sửa bot; hệ thống hiện thẻ để Darren xác nhận)")
+		b.WriteString(" | {\"name\":\"bot_create\",\"bot\":\"<tên>\",\"desc\":\"<vai trò>\"} | {\"name\":\"bot_update\",\"target\":\"<tên bot hiện có>\",\"bot\":\"<tên mới hoặc bỏ trống>\",\"desc\":\"<vai trò mới hoặc bỏ trống>\"} (khi Darren nhờ tạo bot chuyên trách hoặc đổi cách bot được thiết lập; bot_update bỏ \"target\" để sửa chính mình, thêm \"model\":\"<mã trong menu>\",\"thinking\":true|false,\"folder\":\"<thư mục>\" khi Darren nêu; chỉ bot chính tạo bot hoặc sửa bot khác)")
 	}
-	b.WriteString("\nFORM: {\"title\":\"<tiêu đề>\",\"fields\":[{\"name\":\"x\",\"label\":\"<nhãn>\",\"type\":\"text|number|date|select|textarea\",\"options\":[\"..\"],\"required\":true}]}   ← khi cần Darren điền nhiều thông tin một lúc (3+ mục); Darren điền vào thẻ, câu trả lời về như một tin nhắn.")
+	b.WriteString("\nFORM: {\"title\":\"<tiêu đề>\",\"fields\":[{\"name\":\"x\",\"label\":\"<nhãn>\",\"type\":\"text|number|date|select|textarea\",\"options\":[\"..\"],\"required\":true}]}   ← khi Darren xin form hoặc cần Darren điền nhiều thông tin một lúc (3+ mục): in đúng một dòng FORM (JSON trên một dòng) kèm một câu ngắn, KHÔNG liệt kê câu hỏi bằng chữ; Darren điền vào thẻ, câu trả lời về như một tin nhắn.")
 	if be.Folder != "" && s.PC != nil {
 		b.WriteString("\nTHƯ MỤC LÀM VIỆC: /home/bot/" + be.Folder + " — mọi lệnh chạy trong thư mục này, đường dẫn tương đối tính từ đây; lưu kết quả ở đây.")
 	}
@@ -539,4 +543,10 @@ func ownerURL(raw string) bool {
 	}
 	u, err := url.Parse(raw)
 	return err == nil && (u.Scheme == "https" || u.Scheme == "http") && u.Host != "" && u.User == nil
+}
+
+func (e *extStore) confirm() (bots, mcp bool) {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	return e.d.ConfirmBots, e.d.ConfirmMCP
 }
