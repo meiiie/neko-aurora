@@ -427,6 +427,29 @@ func (s *Service) runWork(w ledger.Work) {
 		if errors.Is(err, ErrNoAI) {
 			code = "ai_not_configured"
 		}
+		if s.ctx.Err() != nil {
+			// Root cause of "ai_unreachable after restart" (live 2026-10-23):
+			// SIGTERM cancels the in-flight model call and the dying process
+			// recorded that as a failure. Leave the run open; the next process
+			// resumes it from its checkpoint.
+			log.Printf("aurora: shutting down, %s left for resume", w.RequestID)
+			return
+		}
+		if gerr == nil && cur.Status == "running" && (code == "ai_unreachable" || code == "ai_stream_broken") && cur.DirectResumes < ledger.MaxDirectResumes {
+			// transient provider/network loss: requeue (from the checkpoint)
+			// after a pause instead of failing the owner's task
+			s.endDraft(w)
+			go func() {
+				select {
+				case <-s.ctx.Done():
+				case <-time.After(requeueDelay):
+					if c, err := s.L.Get(w.RequestID); err == nil && c.Status == "running" {
+						s.resumeOrFail(c)
+					}
+				}
+			}()
+			return
+		}
 		if gerr == nil && cur.Status == "running" {
 			_, _ = s.L.DirectFinish(w.RequestID, cur.Epoch, "failed", code, nil)
 		}
@@ -932,3 +955,6 @@ func isEnglish(t string) bool {
 
 // wantsComputer: the owner asked for something run or computed on files.
 var wantsComputer = regexp.MustCompile(`(?i)máy tính|chạy|lệnh|script|python|csv|file|tệp|\brun\b|command|terminal|shell`)
+
+// requeueDelay is the pause before a run that lost the model is retried.
+var requeueDelay = 15 * time.Second

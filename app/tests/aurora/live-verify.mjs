@@ -21,10 +21,10 @@ try{
  const idle=async(max=300)=>{let w=false;for(let i=0;i<max*2;i++){await sl(500);const a=await status();if(a.status==='working')w=true;if(w&&a.status!=='working'||!w&&i>24)return a}};
  const open=async()=>{await p.evaluate(id=>location.hash=id,bot);await p.reload();await p.waitForFunction(()=>window.__AURORA&&__AURORA.current(),null,{timeout:30000});await sl(600)};
  const type=async t=>{await p.tap('#input');await p.keyboard.type(t,{delay:4});await p.keyboard.press('Enter')};
- const msgs=()=>get(`agents/${bot}/messages`);
+ const msgs=async()=>{const r=await get(`agents/${bot}/messages`).catch(()=>null);return Array.isArray(r)?r:[]};
  const ONLY=process.env.ONLY;let n0=0,ms=[];
  if(!ONLY||ONLY==='burst'){
- await open();n0=(await msgs()).length;
+ await open();await idle(90);await sl(1500);n0=(await msgs()).length; // welcome greeting is its own bubble
  await type('Bạn có máy tính không?');await sl(900);
  for(const m of ['máy đó chạy hệ điều hành gì','có python không','liệt kê giúp mình thư mục nhà','trả lời ngắn gọn','cảm ơn nhé']){await type(m);await sl(200)}
  ok('composer keeps focus after send',await p.evaluate(()=>document.activeElement?.id==='input'));
@@ -46,6 +46,13 @@ try{
  const steps=ms.filter(m=>/:step\d+$/.test(m.id)).length;const fin=ms.filter(m=>m.role==='agent').at(-1);
  ok('plan: 3 milestone updates + final with SJC price',steps===3&&/14\d|SJC/.test(fin?.text||''),{steps,doing:[...doing],fin:(fin?.text||'').slice(0,160)});
  }
+ if(ONLY==='quota'){
+ await open();await idle(90);let toast='',codes=[];
+ for(let i=0;i<6&&!/Hết lượt/.test(toast);i++){const rp=p.waitForResponse(r=>/\/messages$/.test(r.url())&&r.request().method()==='POST',{timeout:15000}).catch(()=>null);await type('câu hỏi '+i+': 2+'+i+'=?');const r=await rp;codes.push(r?r.status():0);await sl(1200);toast=await p.evaluate(()=>document.querySelector('#toast')?.textContent||'');await idle(60)}
+ await sl(4000);const pend=await p.evaluate(()=>document.querySelectorAll('#messages .msg.pending').length);const kept=await p.inputValue('#input');await p.screenshot({path:O+'quota.png'});
+ const after=await p.evaluate(()=>performance.getEntriesByType('resource').filter(e=>/\/messages$/.test(e.name)).length);await sl(9000);const after2=await p.evaluate(()=>performance.getEntriesByType('resource').filter(e=>/\/messages$/.test(e.name)).length);
+ ok('quota: clear toast, text restored, no endless retry',/Hết lượt/.test(toast)&&kept.length>0&&pend===0&&after2-after<=1,{codes,toast,kept,pend,retries:after2-after});
+}
  if(ONLY==='restart'){
  const {execSync}=await import('node:child_process');
  const sbs=()=>execSync('railway sandbox list --all 2>/dev/null',{cwd:'/workspace/neko-computer'}).toString().split('\n').filter(l=>/RUNNING|DESTROYED/.test(l)).length;
@@ -79,7 +86,7 @@ try{
  await cmdTurn('Chạy lại python3 /home/bot/stats.py (đừng tạo lại file) và cho mình biết nó in gì.',/TONG=100000/,'persist');
  const files=await get(`agents/${bot}/computer`).catch(()=>null);console.log('home listing',JSON.stringify(files).slice(0,300));
 }
- if(ONLY!=='sandbox'&&ONLY!=='restart'){n0=(await msgs()).length;await postj(`agents/${bot}/messages`,{text:'Trên máy tính của bạn, chạy lệnh: echo xin-chao > /home/bot/hi.txt && cat /home/bot/hi.txt && uname -s',clientNonce:'live-cmd-'+Date.now()});
+ if(ONLY!=='sandbox'&&ONLY!=='restart'&&ONLY!=='quota'){n0=(await msgs()).length;await postj(`agents/${bot}/messages`,{text:'Trên máy tính của bạn, chạy lệnh: echo xin-chao > /home/bot/hi.txt && cat /home/bot/hi.txt && uname -s',clientNonce:'live-cmd-'+Date.now()});
  let ap=null;for(let i=0;i<120&&!ap;i++){await sl(1000);ap=(await msgs()).slice(n0).find(m=>m.approval&&m.approval.state==='pending')}
  ok('computer: approval card appeared',!!ap,ap?undefined:(await msgs()).slice(n0).map(m=>m.role+':'+(m.text||'').slice(0,120)+' tools='+JSON.stringify(m.tools||[]).slice(0,200)));
  if(ap){await open();await p.evaluate(()=>{const m=document.querySelector('#messages');m.scrollTop=m.scrollHeight});await p.screenshot({path:O+'4-approval.png'});const r=await postj(`approvals/${ap.taskId||ap.id}`,{decision:'approved'});ok('computer: approved via API',r.status<300,r.status);

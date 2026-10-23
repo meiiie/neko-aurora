@@ -120,6 +120,9 @@ func (a *AI) streamOnce(ctx context.Context, msgs []ChatMsg, onDelta func(string
 	req.Header.Set("Authorization", "Bearer "+a.key)
 	res, err := a.http.Do(req)
 	if err != nil {
+		if ctx.Err() == nil { // the real cause, without the key
+			log.Printf("aurora ai unreachable: %s", scrub(err.Error(), a.key))
+		}
 		return "", errors.New("ai_unreachable")
 	}
 	defer res.Body.Close()
