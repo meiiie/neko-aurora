@@ -343,7 +343,12 @@ func (s *Service) history(botID, current string) []ChatMsg {
 		if r := visibleText(w.Reply); r != "" {
 			c += "\n" + r
 		}
-		if w.Direct != nil && w.Direct.Approval != nil {
+		if w.Direct != nil && w.Direct.Approval != nil && w.Direct.Approval.Kind == "computer" {
+			// never show the model its own approval boilerplate: it learns to
+			// type it instead of printing a TOOL line (live 2026-10-23)
+			c = strings.Replace(c, computerAskText, "", 1)
+			c += fmt.Sprintf("\n(đã gọi công cụ computer_run, trạng thái duyệt: %s)", w.Direct.Approval.State)
+		} else if w.Direct != nil && w.Direct.Approval != nil {
 			c += fmt.Sprintf("\n[Đề xuất cần duyệt: %s — trạng thái: %s]", w.Direct.Approval.Title, w.Direct.Approval.State)
 		}
 		if w.Status == "failed" || w.Status == "cancelled" {
