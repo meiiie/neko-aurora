@@ -194,14 +194,16 @@ function approvalCard(m){const ap=m.approval,c=el("div","approval"+(ap.state!=="
  if(ap.to){const meta=el("div","ap-meta");meta.append(el("span",0,"Tới: "),el("b",0,ap.to));c.append(meta)}
  const ed=ap.state==="pending"&&editing.has(m.id);
  if(ap.subject||(ed&&ap.kind==="email")){if(ed){const i=el("input","ap-subject");i.value=ap.subject||"";i.setAttribute("aria-label","Tiêu đề");c.append(i)}else{const meta=el("div","ap-meta");meta.append(el("span",0,"Tiêu đề: "),el("b",0,ap.subject));c.append(meta)}}
- if(ed){const t=el("textarea","ap-body");t.value=ap.body;t.rows=8;t.setAttribute("aria-label","Nội dung");c.append(t)}else c.append(el("pre",0,ap.body));
- if(ap.kind==="computer"&&ap.outcome){const o=el("pre","ap-out",ap.outcome.replace(/^```\n?|\n?```$/g,""));o.dataset.noi18n="";c.append(o)}
+ if(ed){const t=el("textarea","ap-body");t.value=ap.body;t.rows=8;t.setAttribute("aria-label","Nội dung");c.append(t)}else if(ap.kind==="computer"){const cs=AURORA_UX.cmdShown(ap.body),pre=el("pre","ap-cmd",cs.cmd);pre.title=ap.body;pre.dataset.noi18n="";c.append(pre)}else c.append(el("pre",0,ap.body));
+ const os=ap.kind==="computer"&&ap.outcome?AURORA_UX.outSummary(ap.outcome):null;
+ if(os&&os.count){if(os.long){const d=el("details","ap-outd"),sm=el("summary",0,`Xem toàn bộ đầu ra · ${os.count} dòng`);const tail=el("pre","ap-out ap-tail",os.tail),full=el("pre","ap-out",os.full);tail.dataset.noi18n=full.dataset.noi18n="";d.append(sm,full);c.append(tail,d)}else{const o=el("pre","ap-out",os.full);o.dataset.noi18n="";c.append(o)}}
  if(ap.state==="pending"){const bs=el("div","btns"),no=el("button",0,"Để sau"),e=el("button",0,ed?"Huỷ sửa":"Sửa"),go=el("button","go",ed?"Lưu & duyệt":"Duyệt");
   no.onclick=()=>decide(m,"declined",bs);e.onclick=()=>{ed?editing.delete(m.id):editing.add(m.id);renderThread()};
   go.onclick=()=>{const ex={};if(ed){ex.body=c.querySelector(".ap-body").value;const sj=c.querySelector(".ap-subject");if(sj)ex.subject=sj.value;if(!ex.body.trim()){toast("Nội dung trống");return}}decide(m,"approved",bs,ex)};
   if(deciding.has(m.id))no.disabled=e.disabled=go.disabled=true;bs.append(no,e,go);c.append(bs);
   c.append(el("small","hint","Muốn đổi hướng? Nhắn yêu cầu mới, bản nháp này sẽ được thay."))}
- else if(ap.state!=="superseded"){const dv=ap.delivery,DS={queued:"đang chờ kênh email",sending:"đang gửi…",sent:"đã gửi"+(dv&&dv.from?" từ "+dv.from:""),failed:"gửi thất bại"+(dv&&dv.detail?": "+dv.detail:"")};c.append(el("small",0,ap.state==="approved"?(dv?"✓ Bạn đã duyệt · "+DS[dv.status]:"✓ Bạn đã duyệt · chưa gửi ra ngoài (kênh gửi chưa kết nối)"):"Đã hoãn"))}
+ else if(ap.state!=="superseded"){const dv=ap.delivery,DS={queued:"đang chờ kênh email",sending:"đang gửi…",sent:"đã gửi"+(dv&&dv.from?" từ "+dv.from:""),failed:"gửi thất bại"+(dv&&dv.detail?": "+dv.detail:"")};if(ap.kind==="computer"&&ap.state==="approved"){const sec=os&&os.secs!=null?" · "+String(os.secs).replace(".",",")+"s":"";c.append(el("small","ap-line"+(os&&os.exit?" bad":""),!dv||dv.status==="sending"||dv.status==="queued"?"✓ Đã duyệt · đang chạy…":dv.status==="failed"?"✓ Đã duyệt · không chạy được"+(dv.detail?": "+dv.detail:""):os&&os.exit?`✓ Đã duyệt · lỗi (mã thoát ${os.exit})${os.err?" · "+os.err:""}${sec}`:`✓ Đã duyệt · chạy xong${os&&os.exit===0?" · mã thoát 0":""}${sec}`));return c}
+ c.append(el("small",0,ap.state==="approved"?(dv?"✓ Bạn đã duyệt · "+DS[dv.status]:"✓ Bạn đã duyệt · chưa gửi ra ngoài (kênh gửi chưa kết nối)"):"Đã hoãn"))}
  return c}
 // tool activity stays unobtrusive: a status line while running, folded into the
 // "Nguồn" footer afterwards (states/dedup after CopilotKit/openmuse search-tool-card.tsx, MIT)
@@ -220,22 +222,28 @@ function renderThread(){const a=cur;if(!a)return;$("#threadState").textContent=s
  box.innerHTML="";const L=S.msgs[a.id]||[];const last={v:null};
  const pin=atBottom(box);let prevT=0;
  L.forEach((m,idx)=>{if(m.role!=="agent")last.v=null;const t=T(m.t);if(m.role==="user"&&t>0&&(!prevT||t-prevT>15*60e3))box.append(el("div","daystamp",dayStamp(t)));if(t>0)prevT=t;
-  if(m.text){speaker(box,m,last);const b=el("div","msg"+(m.role==="user"?" mine":m.role==="system"?" sys":" bot"));if(m.role==="agent")md(b,m.text,m.sources);else b.textContent=m.text;box.append(b)}
+  const cp=m.role==="agent"&&AURORA_UX.isCheckpoint(m.text),body=cp?m.text.trim().slice(0,-AURORA_UX.CHECKPOINT.length).trim():m.text;
+  if(body&&!AURORA_UX.isNoise(m)){speaker(box,m,last);const b=el("div","msg"+(m.role==="user"?" mine":m.role==="system"?" sys":" bot"));if(m.role==="agent"){md(b,body,m.sources);chipify(b,a.id)}else b.textContent=body;box.append(b)}
+  if(cp)box.append(el("div","note-line","↻ Đang làm tiếp ở lượt sau"));
   if(m.plan)box.append(planCard(m));
   if(m.choices&&m.choices.length){const wrap=el("div","choices");const later=L.slice(idx+1).some(x=>x.role==="user");m.choices.forEach(ch=>{const b=el("button","choice",ch);b.disabled=later||usedChoice.has(m.id);b.onclick=async()=>{if(usedChoice.has(m.id))return;usedChoice.add(m.id);renderThread();if(!(await sendMsg(ch)))usedChoice.delete(m.id)};wrap.append(b)});box.append(wrap)}
-  if(m.tools&&m.tools.length&&m.text&&!(a.status==="working"&&idx===L.length-1&&!m.text))box.append(sourceList(m));
+  if(m.tools&&m.tools.length&&(m.text||m.approval)&&!(a.status==="working"&&idx===L.length-1&&!m.text))box.append(sourceList(m));
   if(m.approval)box.append(approvalCard(m));if(m.secret)box.append(secretCard(m))});
  keepSec.forEach(([id,v])=>{const i=box.querySelector(`.secret[data-id="${id}"] input[data-secret]`);if(i)i.value=v});
  keepEdit.forEach(([id,v,sj])=>{const c=box.querySelector(`.approval[data-id="${id}"]`);if(c){const t=c.querySelector(".ap-body");if(t)t.value=v;const s2=c.querySelector(".ap-subject");if(s2&&sj!=null)s2.value=sj}});
  outbox.filter(o=>o.agentId===a.id).forEach(o=>{last.v=null;const b=el("div","msg mine pending",o.text);if(o.wait)b.append(el("span","chip","đang gửi…"));box.append(b)});
  Object.entries(S.drafts).forEach(([id,d])=>{if(d.agentId===a.id&&shown(d)){speaker(box,{role:"agent",from:d.from},last);const b=el("div","msg bot draft");md(b,visible(d.text),srcOf(id),true);b.id="d_"+id;box.append(b)}});
- if(a.status==="working"&&!Object.values(S.drafts).some(d=>d.agentId===a.id&&shown(d)))box.append(turnStatus(a,L));
+ if(AURORA_UX.statusText(a,L)&&!Object.values(S.drafts).some(d=>d.agentId===a.id&&shown(d)))box.append(turnStatus(a,L));
  setSendMode();
  if(pin||justSent)requestAnimationFrame(()=>{box.scrollTop=box.scrollHeight;justSent=false;syncJump()})}
 // single status line (bot face + milestone text), replaced by the streamed answer
-function turnStatus(a,L){const lastW=[...L].reverse().find(m=>m.role==="agent"&&m.tools&&m.tools.length);const run=lastW&&lastW.tools.find(t=>t.status==="running");
- const txt=run?(run.summary||"Đang tra cứu"):lastW&&T(lastW.t)>=T((L.filter(m=>m.role==="user").at(-1)||{}).t)?"Đang tổng hợp":"Đang suy nghĩ";
- const d=el("div","status");d.setAttribute("role","status");const f=el("span","st-face");f.append(face(a.av||{},22));d.append(f,el("span","st-t",txt));return d}
+function turnStatus(a,L){const txt=AURORA_UX.statusText(a,L)||"Đang suy nghĩ";
+ const d=el("div","status");d.setAttribute("role","status");const f=el("span","st-face");f.append(face(a.av||{},22));d.append(f,el("span","st-dot"),el("span","st-t",txt));return d}
+// download links in a reply become file chips (type, name, size; 48px tap target)
+const pcSizes={};
+function chipify(b,id){const links=[...b.querySelectorAll("a[href]")].filter(x=>AURORA_UX.isDownload(x.getAttribute("href")));if(!links.length)return;
+ const paint=()=>links.forEach(x=>{const f=AURORA_UX.fileInfo(x.getAttribute("href"),pcSizes[id]);x.className="file-chip";x.removeAttribute("target");x.setAttribute("download",f.name);x.setAttribute("aria-label",`Tải ${f.name}`);x.replaceChildren(el("span","fc-ext",(f.ext||"file").toUpperCase().slice(0,4)),Object.assign(el("span","fc-txt"),{}));const t=x.lastChild;t.append(el("b",0,f.name),el("small",0,f.label+(f.size?" · "+f.size:"")))});
+ paint();if(!pcSizes[id]){pcSizes[id]={};api(`/agents/${id}/computer`).then(st=>{(st.files||[]).forEach(f=>{if(!f.dir)pcSizes[id][f.path]=f.size});paint()}).catch(()=>{})}}
 const srcOf=id=>{const m=(S.msgs[cur&&cur.id]||[]).find(x=>x.id===id);return m&&m.sources};
 const atBottom=b=>b.scrollHeight-b.scrollTop-b.clientHeight<120;let justSent=false;
 const dayStamp=t=>{const d=new Date(t),n=new Date(),y=new Date(n-864e5);const hm=d.toLocaleTimeString("vi-VN",{hour:"2-digit",minute:"2-digit"});return(d.toDateString()===n.toDateString()?"Hôm nay ":d.toDateString()===y.toDateString()?"Hôm qua ":d.toLocaleDateString("vi-VN",{day:"numeric",month:"numeric"})+" ")+hm};

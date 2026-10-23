@@ -6,7 +6,7 @@ const sl=ms=>new Promise(r=>setTimeout(r,ms));const log=(...a)=>{const s=a.map(x
 const credit=()=>{const m=execSync('railway usage 2>/dev/null',{cwd:'/workspace/neko-computer'}).toString().match(/Current usage:\s+\$([\d.]+)/);return m?2.44-+m[1]:9};
 const b=await chromium.launch({executablePath:'/usr/bin/google-chrome',args:['--no-sandbox']});
 const ctx=await b.newContext({viewport:{width:390,height:844},deviceScaleFactor:2,isMobile:true,hasTouch:true,locale:'vi-VN',acceptDownloads:true,recordVideo:{dir:(process.env.O||'./')+'screen/',size:{width:390,height:844}}});
-const p=await ctx.newPage();const H={'content-type':'application/json',origin:U};
+const p=await ctx.newPage();p.on('pageerror',e=>console.log('PAGEERROR',String(e)));const H={'content-type':'application/json',origin:U};
 const get=async x=>{const r=await p.request.get(U+'/app/api/'+x);return r.ok()?r.json():null};
 const post=async(x,d)=>(await p.request.post(U+'/app/api/'+x,{headers:H,data:d})).status();
 let bot,shot=0;const msgs=async()=>{const r=await get(`agents/${bot}/messages`);return Array.isArray(r)?r:[]};

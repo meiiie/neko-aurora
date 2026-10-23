@@ -385,3 +385,15 @@ button.cell:active{background:var(--sunk)}
 .pc-view{margin-top:12px;padding:12px 16px;background:var(--card);border-radius:16px}
 .ap-out{margin-top:8px;padding:10px 12px;border-radius:12px;background:var(--sunk);font:12px/1.5 ui-monospace,SFMono-Regular,Menlo,monospace;white-space:pre-wrap;word-break:break-word;max-height:260px;overflow:auto}
 .msg.pending{opacity:.72}
+
+/* computer work: command, output tail, single post-approval line, file chips, progress */
+.approval pre.ap-cmd{font:13px/1.45 ui-monospace,SFMono-Regular,Menlo,monospace;white-space:pre-wrap;word-break:break-word}
+.approval pre.ap-out{font:12px/1.4 ui-monospace,SFMono-Regular,Menlo,monospace;max-height:40vh;overflow:auto;white-space:pre-wrap;word-break:break-word}
+.approval .ap-outd summary{min-height:44px;display:flex;align-items:center;color:var(--mute);font-size:14px;cursor:pointer}
+.approval .ap-outd[open]+*,.approval .ap-outd[open]{display:block}
+.approval .ap-line{display:block;margin-top:6px}.approval .ap-line.bad{color:#c0392b}
+.note-line{font-size:13px;color:var(--mute);margin:4px 0 8px 4px}
+.st-dot{width:8px;height:8px;border-radius:50%;background:#22c55e;box-shadow:0 0 0 3px rgba(34,197,94,.18);flex:none;animation:pulse 1.6s ease-in-out infinite}
+.file-chip{display:flex;align-items:center;gap:10px;min-height:48px;padding:6px 12px 6px 6px;margin:6px 0;border-radius:14px;background:var(--card);box-shadow:0 0 0 .5px var(--line);text-decoration:none;color:inherit;max-width:100%}
+.file-chip .fc-ext{display:grid;place-items:center;min-width:40px;height:36px;border-radius:10px;background:#1f4e79;color:#fff;font:600 11px/1 system-ui;letter-spacing:.5px}
+.file-chip .fc-txt{display:flex;flex-direction:column;min-width:0}.file-chip b{font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.file-chip small{color:var(--mute);font-size:12px}
