@@ -249,9 +249,17 @@ function renderThread(){const a=cur;if(!a)return;$("#threadState").textContent=s
  box.insertBefore(frag,sEl);setStatus(a,L,!landed&&!Object.values(S.drafts).some(d=>d.agentId===a.id&&shown(d)));
  setSendMode();
  if(stick)requestAnimationFrame(()=>{box.scrollTop=box.scrollHeight;justSent=false;syncJump()})}
+// PWA install: Android/Chrome gives a prompt event; iOS Safari only has the
+// Share menu, so the cell explains it. Hidden inside the app shell or once installed.
+let installEv=null;addEventListener("beforeinstallprompt",e=>{e.preventDefault();installEv=e});addEventListener("appinstalled",()=>{installEv=null;toast("Đã cài Neko Aurora")});
+const installable=()=>!(CAP||matchMedia("(display-mode: standalone)").matches||navigator.standalone);
+async function installApp(){if(installEv){installEv.prompt();try{await installEv.userChoice}catch{}installEv=null;return}toast("Trên iPhone: bấm nút Chia sẻ ở Safari, chọn “Thêm vào MH chính”")}
 // first open of a bot with no messages: who it is and three starters
-function emptyThread(a){const w=el("div","thread-empty enter");const f=el("div","te-face");f.append(face(a.av||{},64));w.append(f,el("b",0,a.name),el("p",0,a.desc||"Sẵn sàng nhận việc."));
- const c=el("div","choices");["Bạn giúp được mình những gì?","Gợi ý 3 việc mình nên giao cho bạn","Bắt đầu với một việc nhỏ hôm nay nhé"].forEach(t=>{const b=el("button","choice",t);b.type="button";b.onclick=()=>sendMsg(t);c.append(b)});w.append(c);return w}
+function emptyThread(a){const w=el("div","thread-empty enter");const f=el("div","te-face"),g=isGroup(a);
+ const mem=g?(a.members||[]).map(byId).filter(Boolean):[];if(g&&mem.length){f.classList.add("stack");mem.slice(0,3).forEach(b=>f.append(face(b.av||{},48)))}else f.append(face(a.av||{},64));
+ const names=mem.map(b=>b.name);const who=names.length>1?names.slice(0,-1).join(", ")+" và "+names.at(-1):names[0]||"";
+ w.append(f,el("b",0,a.name),el("p",0,g?(who?"Nhóm gồm "+who+". Nhắn một lần, các bot cùng làm.":"Nhóm chat"):a.desc||"Sẵn sàng nhận việc."));
+ const c=el("div","choices");(g?["Mỗi bạn giới thiệu ngắn một câu nhé","Chia việc giúp mình: lên kế hoạch tuần này","Cả nhóm cùng góp ý một ý tưởng"]:["Bạn giúp được mình những gì?","Gợi ý 3 việc mình nên giao cho bạn","Bắt đầu với một việc nhỏ hôm nay nhé"]).forEach(t=>{const b=el("button","choice",t);b.type="button";b.onclick=()=>sendMsg(t);c.append(b)});w.append(c);return w}
 // Working status (one persistent node, so the mascot and shine never restart
 // on a re-render): the bot's own mascot moves per phase (bob/scan/hop…, eyes
 // blink), the phase text shines and crossfades when it changes, the stop
@@ -389,6 +397,7 @@ function renderSettings(){const B=$("#settingsBody");B.innerHTML="";
  B.append(card("Ứng dụng",cell("layout-grid","Kết nối ứng dụng",{id:"openConnectors",value:connectedCount()+" đã kết nối",onClick:()=>{renderConnectors();swapSheet($("#connectors"))}})));
  B.append(card("Bot",cell("check","Luôn duyệt trước khi gửi",{toggle:true,locked:true,sub:"Không gì rời máy chủ khi bạn chưa bấm Duyệt"}),
   cell("bell","Thông báo",{id:"notifyCell",toggle:pushOn||notifOn,sub:pushOn?"Thông báo đẩy đang bật":notifOn?"Khi app đang mở":"Báo khi bot cần bạn",onToggle:sw=>{if(sw.getAttribute("aria-checked")==="true"){toast("Tắt trong Cài đặt của máy");return}enableNotify().then(renderSettings).catch(()=>toast("Không bật được thông báo"))}}),
+  ...(installable()?[cell("smartphone","Cài app lên màn hình chính",{id:"installCell",sub:installEv?"Mở nhanh như ứng dụng, toàn màn hình":"Safari: bấm Chia sẻ rồi “Thêm vào MH chính”",onClick:installApp})]:[]),
   cell("smartphone","Phản hồi rung",{id:"hapticsCell",toggle:haptics,sub:CAP?"Rung nhẹ khi chạm":"Rung nhẹ khi chạm (Android)",onToggle:sw=>{haptics=!haptics;store.set("neko-aurora-haptics",haptics);sw.setAttribute("aria-checked",haptics);buzz("tap")}}),
   cell("message-circle","Ngôn ngữ",{id:"langCell",value:{auto:"Theo thiết bị",vi:"Tiếng Việt",en:"English"}[window.__I18N?__I18N.pref():"auto"],onClick:()=>{if(!window.__I18N)return;const order=["auto","vi","en"],p=__I18N.pref();__I18N.set(order[(order.indexOf(p)+1)%3])}}),
   cell("sun-moon","Giao diện",{id:"openThemes",value:(THEMES.find(t=>t.id===curTheme())||THEMES[0]).name,onClick:()=>{renderThemes();swapSheet($("#themes"))}})));

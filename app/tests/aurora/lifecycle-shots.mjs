@@ -25,9 +25,10 @@ await tap('#whoBtn');await sl(800);await shot('profile');await tap('#profBack');
 await tap('#backBtn');await sl(700);
 await tap('#meBtn');await sl(900);await shot('settings');
 const sb=await p.$('#settingsBody');if(sb){await sb.evaluate(e=>e.scrollTop=e.scrollHeight);await shot('settings-bottom')}
-await tap('#closeSettings');await sl(500);
+await p.getByText('Mức dùng AI').first().tap().catch(()=>errs.push('usage'));await sl(1200);await shot('usage');await tap('#closeUsage');await sl(500);await tap('#closeSettings').catch(()=>{});await sl(500);
+{const rr=await p.$$('#rows .row[data-id] .rowin');if(rr[1]){await rr[1].tap();await sl(1500);await tap('#whoBtn');await sl(800);await p.getByText('Bộ nhớ').first().tap().catch(()=>errs.push('mem'));await sl(1000);await shot('memory');await tap('#closeMem');await sl(400);await tap('#profBack');await sl(400);await tap('#backBtn');await sl(600)}}
 await tap('#search');await p.fill('#search','vàng').catch(()=>{});await sl(900);await shot('search');await p.fill('#search','').catch(()=>{});
-await tap('#newBtn');await tap('#menuGroup');await sl(700);await shot('group-new');await tap('#closeGroup');await sl(400);
+await tap('#newBtn');await tap('#menuGroup');await sl(700);await shot('group-new');{for(const nm of ['Phân tích','Thư ký']){await p.locator('#groupList').getByText(nm,{exact:true}).first().tap().catch(()=>errs.push('pick '+nm));await sl(350)}await sl(300);await shot('group-picked');await tap('#groupNext');await sl(1200);await shot('group-after-next');await p.fill('#groupName','Nhóm thử').catch(()=>{});await tap('#groupNext');await sl(2000);await shot('group-thread');if(await p.$('#thread:not(.hidden) #input')){await p.fill('#input','Hai bạn chào mình một câu ngắn nhé');await tap('#composer .send');await sl(25000);await shot('group-reply')}await p.keyboard.press('Escape').catch(()=>{})}await tap('#closeGroup').catch(()=>{});await sl(400);
 await ctx.setOffline(true);await sl(1500);await shot('offline');await ctx.setOffline(false);await sl(3000);await shot('reconnected');
 await p.addStyleTag({content:'html{font-size:130%!important}'}).catch(()=>{});
 fs.writeFileSync(O+'errs.json',JSON.stringify(errs,null,1));
