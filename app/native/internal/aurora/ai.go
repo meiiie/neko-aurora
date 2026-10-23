@@ -69,9 +69,15 @@ func (a *AI) Stream(ctx context.Context, msgs []ChatMsg, onDelta func(string)) (
 	}
 	var out string
 	var err error
-	for try := 0; try < maxAttempts; try++ {
+	for try := 0; try < maxAttempts+2; try++ {
 		out, err = a.streamOnce(ctx, msgs, wrap)
-		if err == nil || first > 0 || ctx.Err() != nil || !retryable(err) || try == maxAttempts-1 {
+		limit := maxAttempts
+		if err != nil && err.Error() == "ai_unreachable" {
+			// a fresh container's egress can take ~10-20s (live restart
+			// test: resumed run failed ai_unreachable right after boot)
+			limit = maxAttempts + 2
+		}
+		if err == nil || first > 0 || ctx.Err() != nil || !retryable(err) || try >= limit-1 {
 			break
 		}
 		select {
