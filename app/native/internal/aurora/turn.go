@@ -607,7 +607,7 @@ func (s *Service) runTurn(ctx context.Context, w ledger.Work) (*Approval, []stri
 	followUp := strings.HasPrefix(w.ClientNonce, "computer-") // tool output must never trigger planning
 	var resumed []ledger.DirectStep
 	if !followUp {
-		s.newRequest(w.BotID)
+		s.newRequest(w.BotID, w.Text, computerTask(w))
 	}
 	if cp := w.ResumeFrom; cp != nil && !followUp && len(cp.Plan) >= 2 {
 		// Restarted mid-plan: keep the finished steps (and their sources)
@@ -664,13 +664,23 @@ func (s *Service) runTurn(ctx context.Context, w ledger.Work) (*Approval, []stri
 		}
 		// A reply that narrates tool work ("[đã ghi render_video.py]") with no
 		// tool call behind it: strip the claim and ask for directives only.
-		if err != nil || attempt >= 2 || !s.narratedOnly(w, d) {
+		if err != nil || attempt >= 3 {
 			break
 		}
-		d.Text = stripNarration(d.Text)
+		nudge := ""
+		if s.narratedOnly(w, d) {
+			d.Text, nudge = stripNarration(d.Text), directivesOnly
+		} else if n := s.continueNudge(w, d); n != "" {
+			// the task is not finished (open checklist items, or a reply that
+			// announces the next work and stops): keep working in this turn
+			nudge = n
+		}
+		if nudge == "" {
+			break
+		}
 		s.publish("draft_end", map[string]string{"id": w.RequestID, "agentId": threadOf(w)})
 		d, err = s.ask(ctx, w, tc, func() []ChatMsg {
-			return append(tc.inject(s.history(w.BotID, w.RequestID)), ChatMsg{Role: "system", Content: directivesOnly})
+			return append(tc.inject(s.history(w.BotID, w.RequestID)), ChatMsg{Role: "system", Content: nudge})
 		})
 	}
 	if err == nil && len(d.Tools) == 0 && d.Approval == nil {

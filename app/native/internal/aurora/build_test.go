@@ -130,7 +130,7 @@ func TestBuildFollowUpAndBounds(t *testing.T) {
 	if !svc.buildExhausted("b") {
 		t.Fatal("no bound")
 	}
-	svc.newRequest("b")
+	svc.newRequest("b", "", true)
 	svc.noteRun("b", "x", 0)
 	if svc.buildExhausted("b") || svc.pcSnap("b").fixes != 0 {
 		t.Fatal("success must reset the fix count")
@@ -202,7 +202,7 @@ func TestBuildLoopFixRerunVerify(t *testing.T) {
 	srv := httptest.NewServer(svc)
 	defer srv.Close()
 	bot = firstBot(svc)
-	post(t, srv.URL+"/app/api/agents/"+bot+"/messages", `{"text":"viết script python tạo file pptx trên máy tính rồi chạy"}`)
+	post(t, srv.URL+"/app/api/agents/"+bot+"/messages", `{"text":"viết script python tạo file kết quả trên máy tính rồi chạy"}`)
 	waitTask(t, svc, bot)
 	approve := func() {
 		t.Helper()

@@ -93,12 +93,13 @@ func (s *Service) runComputer(ctx context.Context, bot string, tc *toolCtx, c to
 			tc.mu.Unlock()
 			return tools.Result{Summary: "Chờ bạn duyệt lệnh", Text: "Lệnh `" + clean(c.arg, 300) + "` cần Darren duyệt trước khi chạy; hệ thống đã tạo thẻ duyệt. Chưa có kết quả."}, nil
 		}
+		t0 := time.Now()
 		r, err := s.PC.Run(ctx, bot, c.arg)
 		if err != nil {
 			return tools.Result{}, err
 		}
 		s.noteRun(bot, c.arg, r.ExitCode)
-		return tools.Result{Summary: fmt.Sprintf("Chạy lệnh · mã thoát %d", r.ExitCode), Text: untrustedOut + fmtRun(r)}, nil
+		return tools.Result{Summary: fmt.Sprintf("Chạy lệnh · mã thoát %d", r.ExitCode), Text: untrustedOut + fmtRun(r) + s.validateNew(bot, t0)}, nil
 	case "computer_read_file":
 		txt, cut, err := s.PC.ReadFile(bot, c.arg)
 		if err != nil {
@@ -168,6 +169,7 @@ func (s *Service) runApprovedCommand(w ledger.Work) {
 	s.enqueueCmd(w.BotID, func() {
 		ctx, cancel := context.WithTimeout(s.ctx, 12*time.Minute) // includes waiting for an earlier command
 		defer cancel()
+		t0 := time.Now()
 		r, err := s.PC.Run(ctx, w.BotID, ap.Body)
 		d, text := ledger.DirectDelivery{Status: "sent", Detail: fmt.Sprintf("exit %d", r.ExitCode)}, "```\n"+clean(fmtRun(r), 1700)+"\n```"
 		if err != nil {
@@ -177,7 +179,7 @@ func (s *Service) runApprovedCommand(w ledger.Work) {
 		s.record(w.BotID, w.RequestID, "delivery", fmt.Sprintf("Máy tính của %s chạy lệnh · %s", s.botName(w.BotID), d.Detail))
 		if err == nil {
 			s.noteRun(w.BotID, ap.Body, r.ExitCode)
-			follow := buildFollowUp(r, s.pcSnap(w.BotID))
+			follow := buildFollowUp(r, s.pcSnap(w.BotID)) + s.validateNew(w.BotID, t0) + checklistText(s.pcSnap(w.BotID).checklist)
 			if _, _, aerr := s.L.Accept(ledger.Input{BotID: w.BotID, ClientNonce: newID("computer-"), Text: clean(follow, 7000)}); aerr == nil {
 				s.poke()
 			}

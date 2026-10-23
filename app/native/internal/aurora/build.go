@@ -28,13 +28,15 @@ const (
 )
 
 type pcState struct {
-	written  []string // recent computer_write_file paths, newest last
-	lastCmd  string
-	lastExit int
-	ran      bool
-	fixes    int
-	runs     int
-	research string // sources + step results of the last researched turn
+	written   []string // recent computer_write_file paths, newest last
+	lastCmd   string
+	lastExit  int
+	ran       bool
+	fixes     int
+	runs      int
+	research  string // sources + step results of the last researched turn
+	checklist []checkItem
+	targetMin float64
 }
 
 type pcBook struct {
@@ -91,8 +93,18 @@ func (s *Service) noteRun(bot, cmd string, exit int) {
 }
 
 // newRequest resets the bounds when the owner asks for something new.
-func (s *Service) newRequest(bot string) {
-	s.pcDo(bot, func(st *pcState) { st.fixes, st.runs = 0, 0 })
+func (s *Service) newRequest(bot, text string, computer bool) {
+	s.pcDo(bot, func(st *pcState) {
+		st.fixes, st.runs = 0, 0
+		if !computer { // a new, unrelated request: the old checklist is done with
+			st.checklist, st.targetMin = nil, 0
+			return
+		}
+		st.checklist = mergeChecklist(st.checklist, text)
+		if m := targetMinutes(text); m > 0 {
+			st.targetMin = m
+		}
+	})
 }
 
 // buildExhausted reports whether the bot must stop running commands.
@@ -137,6 +149,10 @@ func (s *Service) computerContext(bot string) string {
 	}
 	if c.fixes > 0 {
 		fmt.Fprintf(&sb, " Đã lỗi liên tiếp %d/%d lần.", c.fixes, maxFixes)
+	}
+	if len(c.checklist) > 0 {
+		s.refreshChecklist(bot)
+		sb.WriteString(checklistText(s.pcSnap(bot).checklist))
 	}
 	return sb.String()
 }
