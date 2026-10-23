@@ -265,3 +265,16 @@ func TestDefaultsDirectLikeDSBot(t *testing.T) {
 		t.Fatal("non-main bot created a bot")
 	}
 }
+
+func TestImageUploadRoute(t *testing.T) {
+	svc, u, bot := liveSvc(t, "x")
+	big := strings.Repeat("\xff", 300<<10)
+	r := post(t, u+"/app/api/agents/"+bot+"/computer/upload", `{"name":"Doanh thu Q3.jpg","data":"`+std64([]byte(big))+`"}`)
+	b, _ := io.ReadAll(r.Body)
+	if r.StatusCode != 200 || !strings.Contains(string(b), `"uploads/Doanh-thu-Q3.jpg"`) {
+		t.Fatalf("%d %s", r.StatusCode, b)
+	}
+	if _, size, err := svc.PC.OpenFile(bot, "uploads/Doanh-thu-Q3.jpg"); err != nil || size != int64(len(big)) {
+		t.Fatal(err, size)
+	}
+}
