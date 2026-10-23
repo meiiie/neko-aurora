@@ -149,7 +149,7 @@ func (s *Service) runApprovedCommand(w ledger.Work) {
 	ap := *w.Direct.Approval
 	s.setDelivery(w.RequestID, ledger.DirectDelivery{Status: "sending"}, "Đang chạy lệnh…")
 	go func() {
-		ctx, cancel := context.WithTimeout(s.ctx, 3*time.Minute)
+		ctx, cancel := context.WithTimeout(s.ctx, 12*time.Minute) // includes waiting for an earlier command
 		defer cancel()
 		r, err := s.PC.Run(ctx, w.BotID, ap.Body)
 		d, text := ledger.DirectDelivery{Status: "sent", Detail: fmt.Sprintf("exit %d", r.ExitCode)}, "```\n"+clean(fmtRun(r), 1700)+"\n```"
@@ -251,7 +251,7 @@ func (s *Service) computerNote(botID string) string {
 	dl := fmt.Sprintf("\nFILE CHO NGƯỜI DÙNG: file trên máy tính tải được qua link markdown [tên file](/app/api/agents/%s/computer/download?path=<đường dẫn trong /home/bot, bỏ /home/bot/>). Làm xong file (pptx, mp4, csv…) luôn đưa link này.", botID)
 	if s.PC.CanRun() == nil {
 		if s.PC.Backend() == "railway-sandbox" {
-			dl += " Máy tính này CÓ mạng: cài thư viện vào /tmp (không vào thư mục nhà): pip install -q --target /tmp/py python-pptx rồi chạy PYTHONPATH=/tmp/py python3 …; /tmp mất khi máy nghỉ, cài lại khi cần. Mỗi lệnh tối đa 10 phút."
+			dl += " Máy tính này CÓ mạng: cài thư viện vào /tmp (không vào thư mục nhà): pip install -q --target /tmp/py python-pptx rồi chạy PYTHONPATH=/tmp/py python3 …; /tmp mất khi máy nghỉ, cài lại khi cần. Mỗi lệnh tối đa 8 phút."
 		}
 		return dl
 	}

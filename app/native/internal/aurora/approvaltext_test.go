@@ -45,3 +45,12 @@ func TestLookupPlanNeverRunsCommands(t *testing.T) {
 		t.Fatal("wantsComputer")
 	}
 }
+
+func TestRequirementListIsNotThePlan(t *testing.T) {
+	if userSteps("Làm slide. Yêu cầu:\n1. File pptx\n2. Màu xanh\n3. Có nguồn") != nil {
+		t.Fatal("requirements became plan steps")
+	}
+	if len(userSteps("Làm giúp: (1) tra A (2) tra B (3) tóm tắt")) != 3 {
+		t.Fatal("real steps lost")
+	}
+}

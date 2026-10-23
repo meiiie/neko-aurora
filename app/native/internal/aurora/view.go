@@ -219,6 +219,10 @@ func (v *view) agent(b ledger.Bot, prefs botPrefs) *Agent {
 		}
 	}
 	for _, w := range l {
+		if w.Direct != nil && w.Direct.Approval != nil && w.Direct.Approval.Kind == "computer" && w.Direct.Approval.Delivery != nil && w.Direct.Approval.Delivery.Status == "sending" {
+			// an approved command is still running: the bot is busy, not done
+			a.Status, a.Snip = "working", "Đang chạy lệnh trên máy tính…"
+		}
 		if active(w) {
 			a.Status, a.Snip = "working", "Đang làm việc"
 			if w.Status == "waiting_host" {

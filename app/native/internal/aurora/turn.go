@@ -783,6 +783,11 @@ var (
 // userSteps extracts an explicit numbered task list ("(1) … (2) …" or
 // "1. …\n2. …") from the owner's message; numbers must run 1,2,3….
 func userSteps(text string) []string {
+	if requirementsRe.MatchString(text) {
+		// a numbered list of requirements describes the deliverable; it is not
+		// the work plan (live pptx task: "1. File .pptx thật…" became step 1)
+		return nil
+	}
 	idx := stepMarkRe.FindAllStringSubmatchIndex(text, -1)
 	var out []string
 	for k, m := range idx {
@@ -963,3 +968,5 @@ var wantsComputer = regexp.MustCompile(`(?i)máy tính|chạy|lệnh|script|pyth
 
 // requeueDelay is the pause before a run that lost the model is retried.
 var requeueDelay = 15 * time.Second
+
+var requirementsRe = regexp.MustCompile(`(?i)(yêu cầu|tiêu chí|requirements?)\s*:`)

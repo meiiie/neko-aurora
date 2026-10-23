@@ -104,7 +104,12 @@ func New(dir string, sb Sandbox) (*Manager, error) {
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return nil, err
 	}
-	return &Manager{dir: dir, sb: sb, Limits: DefaultLimits(), busy: map[string]*sync.Mutex{}}, nil
+	l := DefaultLimits()
+	if sb != nil && sb.Name() == "railway-sandbox" {
+		// a VM, billed per use: room for pip installs and renders
+		l.Timeout, l.CPUSeconds = 8*time.Minute, 480
+	}
+	return &Manager{dir: dir, sb: sb, Limits: l, busy: map[string]*sync.Mutex{}}, nil
 }
 
 func (m *Manager) Backend() string { return m.sb.Name() }
