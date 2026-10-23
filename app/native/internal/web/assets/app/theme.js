@@ -1,3 +1,4 @@
 // Applies the saved theme before first paint (CSP forbids inline scripts).
 (function(){var T={gold:"#0d0c0a",blue:"#f5f8fc",cream:"#f4efe4",dark:"#000000"};var t=null;try{t=localStorage.getItem("neko-aurora-theme")}catch(e){}
+if(!t&&window.matchMedia&&matchMedia("(prefers-color-scheme: dark)").matches)t="dark";
 if(T[t]){document.documentElement.dataset.theme=t;document.querySelectorAll('meta[name="theme-color"]').forEach(function(m){m.content=T[t]});var c=document.querySelector('meta[name="color-scheme"]');if(c)c.content=t==="gold"||t==="dark"?"dark":"light"}})();

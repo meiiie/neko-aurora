@@ -245,9 +245,13 @@ function renderThread(){const a=cur;if(!a)return;$("#threadState").textContent=s
  Object.entries(S.drafts).forEach(([id,d])=>{if(d.agentId===a.id&&shown(d)){speaker(frag,{role:"agent",from:d.from},last);const b=el("div","msg bot draft"+(shownIds.has(id)?"":" enter"));shownIds.add(id);b.id="d_"+id;frag.append(b);if(reduceMotion())d.sl=1e9;drawDraft(id,b);requestAnimationFrame(()=>paintDraft(id))}});
  // a streamed answer just landed: no status flash while the bot state catches up
  const landed=S.doneAt&&Date.now()-(S.doneAt[a.id]||0)<2000&&L.at(-1)&&L.at(-1).role==="agent"&&!(L.at(-1).tools||[]).some(t=>t.status==="running");
+ if(!L.length&&!outbox.some(o=>o.agentId===a.id)&&!Object.values(S.drafts).some(d=>d.agentId===a.id))frag.append(emptyThread(a));
  box.insertBefore(frag,sEl);setStatus(a,L,!landed&&!Object.values(S.drafts).some(d=>d.agentId===a.id&&shown(d)));
  setSendMode();
  if(stick)requestAnimationFrame(()=>{box.scrollTop=box.scrollHeight;justSent=false;syncJump()})}
+// first open of a bot with no messages: who it is and three starters
+function emptyThread(a){const w=el("div","thread-empty enter");const f=el("div","te-face");f.append(face(a.av||{},64));w.append(f,el("b",0,a.name),el("p",0,a.desc||"Sẵn sàng nhận việc."));
+ const c=el("div","choices");["Bạn giúp được mình những gì?","Gợi ý 3 việc mình nên giao cho bạn","Bắt đầu với một việc nhỏ hôm nay nhé"].forEach(t=>{const b=el("button","choice",t);b.type="button";b.onclick=()=>sendMsg(t);c.append(b)});w.append(c);return w}
 // Working status (one persistent node, so the mascot and shine never restart
 // on a re-render): the bot's own mascot moves per phase (bob/scan/hop…, eyes
 // blink), the phase text shines and crossfades when it changes, the stop
@@ -380,6 +384,7 @@ function cell(icon,label,opt={}){const b=el(opt.toggle!=null||opt.static?"div":"
 const card=(title,...cells)=>{const w=el("section","card-group");if(title)w.append(el("h3",0,title));const c=el("div","card");cells.forEach(x=>c.append(x));w.append(c);return w};
 function renderSettings(){const B=$("#settingsBody");B.innerHTML="";
  const acc=el("div","account");const m=el("img");m.src="/app/icon.svg";m.alt="";m.width=m.height=52;const at=el("div");at.append(el("b",0,"Chủ sở hữu"),el("small",0,location.host));acc.append(m,at);B.append(card(null,acc));
+ fetch("/app/auth/me").then(r=>r.ok?r.json():null).then(me=>{if(!me)return;const q=me.quota||{};at.replaceChildren(el("b",0,me.name||"Bạn"),el("small",0,[me.email,q.daily?`Gói ${me.plan||"free"} · ${q.used||0}/${q.daily} tin hôm nay`:""].filter(Boolean).join(" · ")))}).catch(()=>{});
  B.append(card("Mức dùng",cell("sparkles","Mô hình AI",{static:1,value:S.ai.configured?(S.ai.model||"đã cấu hình"):"chưa cấu hình"}),cell("activity","Lõi chạy",{static:1,value:S.ai.runtime||"Neko Core"}),cell("users","Bot & nhóm",{static:1,value:`${bots().length} bot · ${S.agents.length-bots().length} nhóm`})));
  B.append(card("Ứng dụng",cell("layout-grid","Kết nối ứng dụng",{id:"openConnectors",value:connectedCount()+" đã kết nối",onClick:()=>{renderConnectors();swapSheet($("#connectors"))}})));
  B.append(card("Bot",cell("check","Luôn duyệt trước khi gửi",{toggle:true,locked:true,sub:"Không gì rời máy chủ khi bạn chưa bấm Duyệt"}),
@@ -500,9 +505,11 @@ $("#micBtn").onclick=()=>{if(rec){stopVoice();return}rec=new SR();rec.lang="vi-V
  rec.onresult=e=>{let t="";for(const r of e.results)t+=r[0].transcript;inp.value=base+t;inp.oninput()};rec.onend=()=>{rec=null;$("#micBtn").classList.remove("on")};rec.onerror=e=>{toast(e.error==="not-allowed"?"Chưa cho phép micro":"Không nghe được, thử lại")};
  try{rec.start();$("#micBtn").classList.add("on")}catch{rec=null}};
 // ---------- themes ----------
-const THEMES=[{id:"light",name:"Sáng",sub:"Xám trung tính, nút đen · mặc định",sw:["#f7f7f7","#ffffff","#0d0d0d"],tc:"#f7f7f7"},{id:"dark",name:"Tối",sub:"Nền đen, chữ trắng",sw:["#000000","#1c1c1e","#f5f5f5"],tc:"#000000"},{id:"cream",name:"Kem Aurora",sub:"Kem sáng, khăn đỏ",sw:["#f4efe4","#e0261f","#17130e"],tc:"#f4efe4"},{id:"gold",name:"Đen vàng",sub:"Nền đen, điểm vàng · tối",sw:["#0d0c0a","#d4a72c","#f5ecd7"],tc:"#0d0c0a"},{id:"blue",name:"Trắng xanh",sub:"Nền trắng, điểm xanh · sáng",sw:["#f5f8fc","#1d5fd1","#0f1b2d"],tc:"#f5f8fc"}];
-const curTheme=()=>{try{const t=localStorage.getItem("neko-aurora-theme");return THEMES.some(x=>x.id===t)?t:"light"}catch{return"light"}};
-function applyTheme(id){const t=THEMES.find(x=>x.id===id)||THEMES[0];try{t.id==="light"?localStorage.removeItem("neko-aurora-theme"):localStorage.setItem("neko-aurora-theme",t.id)}catch{}
+const THEMES=[{id:"auto",name:"Theo thiết bị",sub:"Sáng hoặc tối theo cài đặt máy · mặc định",sw:["#f7f7f7","#000000","#f5f5f5"],tc:""},{id:"light",name:"Sáng",sub:"Xám trung tính, nút đen",sw:["#f7f7f7","#ffffff","#0d0d0d"],tc:"#f7f7f7"},{id:"dark",name:"Tối",sub:"Nền đen, chữ trắng",sw:["#000000","#1c1c1e","#f5f5f5"],tc:"#000000"},{id:"cream",name:"Kem Aurora",sub:"Kem sáng, khăn đỏ",sw:["#f4efe4","#e0261f","#17130e"],tc:"#f4efe4"},{id:"gold",name:"Đen vàng",sub:"Nền đen, điểm vàng · tối",sw:["#0d0c0a","#d4a72c","#f5ecd7"],tc:"#0d0c0a"},{id:"blue",name:"Trắng xanh",sub:"Nền trắng, điểm xanh · sáng",sw:["#f5f8fc","#1d5fd1","#0f1b2d"],tc:"#f5f8fc"}];
+const curTheme=()=>{try{const t=localStorage.getItem("neko-aurora-theme");return THEMES.some(x=>x.id===t)?t:"auto"}catch{return"auto"}};
+const sysDark=matchMedia("(prefers-color-scheme: dark)");sysDark.addEventListener?.("change",()=>{if(curTheme()==="auto")applyTheme("auto")});
+function applyTheme(id){const pick=THEMES.find(x=>x.id===id)||THEMES[0];try{pick.id==="auto"?localStorage.removeItem("neko-aurora-theme"):localStorage.setItem("neko-aurora-theme",pick.id)}catch{}
+ const t=pick.id==="auto"?THEMES.find(x=>x.id===(sysDark.matches?"dark":"light")):pick;
  if(t.id==="light")delete document.documentElement.dataset.theme;else document.documentElement.dataset.theme=t.id;
  document.querySelectorAll('meta[name="theme-color"]').forEach(m=>m.content=t.tc);
  const cs=document.querySelector('meta[name="color-scheme"]');if(cs)cs.content=t.id==="gold"||t.id==="dark"?"dark":"light";renderThemes()}
