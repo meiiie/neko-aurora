@@ -62,7 +62,7 @@ Ideas only; no code copied (Apache-2.0, credited in THIRD_PARTY_NOTICES). Railwa
 | recall tool | done: memory_recall over own + team + group memory (36cd11c) |
 | Budget-hit decision call | done (bec50ee) |
 | Group chats, @mention, main-bot router, HANDOFF, [PASS] | done (d7d3e38) |
-| Per-bot permission presets | done (d7d3e38, 801c2bb) |
+| Per-bot permission presets | done (d7d3e38, 801c2bb); the separate "Hỏi trước khi chạy lệnh" toggle was removed (e671923): cards only for the read-only preset or outward commands with network |
 | Usage page | done (3698dc0) |
 | Chat search + chat_search tool, reference a chat | done (0a29783, e4144fe) |
 | Schedules | done (e4144fe) |
@@ -73,8 +73,8 @@ Ideas only; no code copied (Apache-2.0, credited in THIRD_PARTY_NOTICES). Railwa
 | Vision / image fallback | done: photo upload from the + menu (downscaled on the phone), vision model (default glm-4.5v, configurable) describes it for the text model (image_describe) |
 | Working folders | done: per-bot folder inside the bot computer; commands cd into it, relative paths resolve there; bots can set it via bot_update |
 | Skills / capabilities | done: built-in + owner skills (name/desc in prompt, skill_load for the body), per-bot skill choice, capability switches web/computer/browser/mcp/bots/skills |
-| MCP | done: remote Streamable HTTP and legacy SSE servers per bot, header auth from a vault secret; like DS Bot, remote calls run directly; owner toggle "Duyệt trước khi gọi MCP" turns on approval cards (stdio servers not offered in hosted mode) |
-| create_bot / update_bot by bots | done, DS Bot behaviour: Main Bot creates bots and edits others, any bot edits itself (name, role, model, thinking, folder); owner toggle "Xác nhận trước khi tạo/sửa bot" turns on confirmation cards |
+| MCP | done: remote Streamable HTTP and legacy SSE servers per bot, header auth from a vault secret; like DS Bot, remote calls run directly (stdio servers not offered in hosted mode) |
+| create_bot / update_bot by bots | done, DS Bot behaviour: Main Bot creates bots and edits others, any bot edits itself (name, role, model, thinking, folder); applied directly |
 | ask_user non-blocking | done (CHOICES) |
 | show_view cards incl. forms | done: FORM directive → form card (text/number/date/select/textarea), answers come back as a message |
 | Bot browser | done: headless Chrome/Chromium per call (fresh profile, read-only, public URLs only); hosts without a browser binary (the slim Railway image) fall back to the page reader and say so |
