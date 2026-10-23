@@ -20,3 +20,12 @@ func TestComputerApprovalTextAfterDecision(t *testing.T) {
 		}
 	}
 }
+
+func TestIsEnglishAndPromise(t *testing.T) {
+	if !isEnglish("What is the latest stable Python release and when was it released?") || isEnglish("Python bản mới nhất là gì?") || isEnglish("ok") {
+		t.Fatal("isEnglish")
+	}
+	if !promiseOnly(directives{Text: "Mình kiểm tra lại file trước khi báo nhé."}) {
+		t.Fatal("promise not caught")
+	}
+}

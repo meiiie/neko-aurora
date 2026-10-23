@@ -23,9 +23,9 @@ try{
  await p.goto(U+'/app/');await p.waitForURL(/signin\.html/);await p.fill('#email',EMAIL);
  const rp=p.waitForResponse(r=>r.url().endsWith('/app/auth/email'));await p.tap('#sendBtn');const sent=await (await rp).json();
  await p.waitForSelector('#codeStep:not(.hidden)');await p.fill('#code',sent.devCode);await p.waitForURL(/welcome\.html/);await p.screenshot({path:O+'0-welcome-en.png'});
- await p.fill('#name','Sam');await p.tap('[data-goal=finance]');await p.tap('#startBtn');await p.waitForURL(/\/app\/#bot-/,{timeout:30000});await sl(2500);
+ await p.fill('#name','Sam');await p.tap('[data-goal=money]');await p.tap('#startBtn');await p.waitForURL(/\/app\/#bot-/,{timeout:30000});await sl(2500);
  const st=await get('state');bot=st.agents.find(a=>a.name==='Aurora')?.id||st.agents[0].id;ok('onboarding (finance, English UI)',!!bot,st.agents.map(a=>a.name));
- await open();
+ await open();await idle(90);await sl(1500);
  // 1 English research with sources
  let L=await turn('What is the latest stable Python release and when was it released? Cite sources.','1-research-en.png');
  let A=agents(L);ok('research: one reply',A.length===1,A.map(m=>m.text.slice(0,100)));

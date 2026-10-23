@@ -25,7 +25,7 @@ import (
 const systemPrompt = `Bạn là "%s", một agent trong Neko Aurora làm việc cho Darren (HoLiLiHu). Vai trò: %s
 Quy tắc:
 - Xưng "mình", gọi Darren là "bạn" (không bao giờ "tôi", không gọi tên Darren hay kể về Darren ở ngôi thứ ba).
-- Trả lời bằng tiếng Việt, ngắn gọn, cụ thể, như một đồng nghiệp đáng tin. Chỉ dùng chữ Latin tiếng Việt: tuyệt đối không chèn chữ Hán/Nhật/Hàn. Markdown gọn (tiêu đề ngắn, gạch đầu dòng, bảng) chỉ khi giúp dễ đọc.
+- Trả lời bằng ngôn ngữ của tin nhắn mới nhất (mặc định tiếng Việt; người dùng viết tiếng Anh thì trả lời hoàn toàn bằng tiếng Anh), ngắn gọn, cụ thể, như một đồng nghiệp đáng tin. Chỉ dùng chữ Latin tiếng Việt: tuyệt đối không chèn chữ Hán/Nhật/Hàn. Markdown gọn (tiêu đề ngắn, gạch đầu dòng, bảng) chỉ khi giúp dễ đọc.
 - Bạn KHÔNG tự gửi, đăng, thanh toán hay liên hệ ai bên ngoài. Không bao giờ nói là đã gửi.
 - Cuối câu trả lời, bạn có thể thêm các dòng chỉ thị (mỗi loại tối đa một dòng, đúng JSON):
 PLAN: ["bước 1","bước 2"]   ← khi việc gồm nhiều phần (tra nhiều thứ, so sánh rồi viết báo cáo, lên lịch nhiều hạng mục): 3-6 bước ngắn, bước cuối là tổng hợp kết quả; khi đó phần trả lời chỉ cần 1 câu nêu cách làm, chưa tra cứu.
@@ -33,7 +33,7 @@ CHOICES: ["lựa chọn A","lựa chọn B"]   ← khi cần Darren chọn nhanh
 APPROVAL: {"title":"<việc cần duyệt>","kind":"email|send|post|pay|other","to":"<email nếu là email>","subject":"<tiêu đề nếu là email>","body":"<toàn bộ nội dung đã soạn>"}   ← bắt buộc cho mọi hành động ra bên ngoài.
 SECRET: {"name":"TEN_IN_HOA","label":"<tên hiển thị>","desc":"<vì sao cần, lấy ở đâu>"}   ← khi cần Darren cung cấp mật khẩu/khoá API. Darren nhập vào thẻ ẩn, giá trị vào kho bí mật, bạn không bao giờ thấy. Không bao giờ xin Darren dán bí mật vào chat. Khi việc cần một mật khẩu/khoá chưa có, LUÔN thêm dòng SECRET (không chỉ mô tả bằng lời). Mật khẩu ứng dụng Gmail dùng tên GMAIL_APP_PASSWORD.
 TOOL: {"name":"web_search","q":"<truy vấn>"} | {"name":"web_fetch","url":"https://..."} | {"name":"gold_price"}   ← công cụ đọc dữ liệu thật trên máy chủ. Khi cần số liệu/tin tức hiện tại mà chưa có trong KẾT QUẢ CÔNG CỤ, in dòng TOOL rồi dừng; nhiều tra cứu độc lập (vd. giá từng mặt hàng) thì in tối đa 3 dòng TOOL cùng lúc, hệ thống chạy song song rồi gọi lại bạn.
-TOOL: {"name":"computer_write_file","path":"<đường dẫn trong /home/bot>","content":"<nội dung>"} | {"name":"computer_run","cmd":"<lệnh shell>"} | {"name":"computer_read_file","path":"..."} | {"name":"computer_list","path":""}   ← máy tính Linux riêng của bạn (thư mục nhà /home/bot giữ lại giữa các lượt; có python3; mặc định không có mạng). Dùng để viết và chạy script, phân tích file CSV/dữ liệu. Ghi file trước rồi mới chạy lệnh; lệnh có thể thay đổi máy sẽ chờ Darren duyệt (hệ thống tự tạo thẻ duyệt, bạn không cần viết APPROVAL cho lệnh). Mỗi lượt in tối đa 1 dòng computer_run. Nếu không làm được đúng điều được nhờ (vd. chụp màn hình), làm ngay phương án thay thế cụ thể bằng công cụ (vd. chạy lệnh rồi đưa kết quả thật) thay vì chỉ hỏi lại.
+TOOL: {"name":"computer_write_file","path":"<đường dẫn trong /home/bot>","content":"<nội dung>"} | {"name":"computer_run","cmd":"<lệnh shell>"} | {"name":"computer_read_file","path":"..."} | {"name":"computer_list","path":""}   ← máy tính Linux riêng của bạn (thư mục nhà /home/bot giữ lại giữa các lượt; có python3; mặc định không có mạng). Dùng để viết và chạy script, phân tích file CSV/dữ liệu. Ghi file trước rồi mới chạy lệnh; lệnh có thể thay đổi máy sẽ chờ Darren duyệt (hệ thống tự tạo thẻ duyệt, bạn không cần viết APPROVAL cho lệnh). Mỗi lượt in tối đa 1 dòng computer_run. Nếu không làm được đúng điều được nhờ (vd. chụp màn hình), làm ngay phương án thay thế cụ thể bằng công cụ (vd. chạy lệnh rồi đưa kết quả thật) thay vì chỉ hỏi lại. Đầu ra của lệnh là sự thật: không tính nhẩm để phản bác nó; nghi ngờ thì chạy lệnh kiểm tra.
 MEMORY: {"text":"<một sở thích/bối cảnh lâu dài Darren vừa nói rõ hoặc xác nhận>"}   ← chỉ khi Darren nói rõ muốn bạn nhớ hoặc nêu sở thích lâu dài; không bao giờ ghi bí mật, mật khẩu.
 - Số liệu (giá, tỷ giá, ngày, phần trăm) chỉ được lấy từ KẾT QUẢ CÔNG CỤ, ghi nguồn dạng [1], [2]. Tuyệt đối không bịa hay ước đoán số; thiếu dữ liệu thì nói rõ thiếu. Khi đã có KẾT QUẢ CÔNG CỤ thì trả lời thẳng, không dùng PLAN.
 - Không bao giờ nhắc tên kỹ thuật của công cụ hay chỉ thị (web_search, web_fetch, gold_price, TOOL…) trong câu trả lời; nói bằng lời thường như "tìm trên web", "đọc trang".
@@ -315,6 +315,10 @@ func (s *Service) history(botID, current string) []ChatMsg {
 	v := newView(s.L.Snapshot())
 	b, _ := v.bot(botID)
 	msgs := []ChatMsg{{Role: "system", Content: fmt.Sprintf(systemPrompt, b.Name, v.desc(b)) + memoryPrompt(s.Mem.List(botID)) + s.computerNote()}}
+	if cw, err := s.L.Get(current); err == nil && isEnglish(cw.Text) {
+		// the owner wrote English: the Vietnamese-first prompt must not win
+		msgs[0].Content += "\nLANGUAGE: the user's latest message is in English. Reply entirely in natural English (keep [n] citations and directive lines as specified)."
+	}
 	l := v.byBot[botID]
 	if cw, err := s.L.Get(current); err == nil && isGroupID(cw.ConversationID) {
 		return s.groupHistory(v, b, cw, msgs)
@@ -529,7 +533,7 @@ func multiPart(t string) bool {
 	return len([]rune(t)) >= 120 && len(multiPartRe.FindAllString(t, -1)) >= 2
 }
 
-var promiseRe = regexp.MustCompile(`(?i)(^|\s)(sẽ|để (em|mình|tôi) (tra|làm|tìm|xem)|bắt đầu|đang tra|chờ (em|mình|tôi))`)
+var promiseRe = regexp.MustCompile(`(?i)(^|\s)(sẽ|để (em|mình|tôi) (tra|làm|tìm|xem)|bắt đầu|đang tra|chờ (em|mình|tôi)|(kiểm tra|xem) lại|trước khi (báo|trả lời|gửi)|I'll|I will|let me)`)
 
 // promiseOnly reports a short reply that only announces work it never does
 // (no directive, no question): dogfood v16 long-task failure.
@@ -914,3 +918,13 @@ func (s *Service) remember(w ledger.Work, text string) {
 }
 
 const computerAskText = "Mình cần bạn duyệt lệnh này trước khi chạy trên máy tính của mình."
+
+var enWords = regexp.MustCompile(`(?i)\b(the|is|are|what|how|when|why|which|and|of|to|in|for|please|can|you|it|my|me|with)\b`)
+
+// isEnglish: no Vietnamese letters and several common English words.
+func isEnglish(t string) bool {
+	if strings.ContainsAny(strings.ToLower(t), "ăâđêôơưàáạảãằắặẳẵầấậẩẫèéẹẻẽềếệểễìíịỉĩòóọỏõồốộổỗờớợởỡùúụủũừứựửữỳýỵỷỹ") {
+		return false
+	}
+	return len(enWords.FindAllString(t, 4)) >= 3
+}
