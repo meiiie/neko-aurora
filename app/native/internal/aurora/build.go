@@ -215,7 +215,7 @@ const unverifiedFooter = "⚠️ Mình chưa xác minh được file kết quả
 
 // computerTask: replies whose claims must be backed by the computer.
 func computerTask(w ledger.Work) bool {
-	return strings.HasPrefix(w.ClientNonce, "computer-") || wantsComputer.MatchString(w.Text)
+	return strings.HasPrefix(w.ClientNonce, "computer-") || wantsComputer.MatchString(stripRef(w.Text))
 }
 
 func verifyNudge(bad []string, ctx string) string {

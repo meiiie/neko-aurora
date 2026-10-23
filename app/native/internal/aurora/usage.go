@@ -139,6 +139,14 @@ func msgChars(msgs []ChatMsg) int {
 
 // stream is s.AI.Stream with usage accounting.
 func (s *Service) stream(ctx context.Context, bot, kind string, msgs []ChatMsg, on func(string)) (string, error) {
+	if s.V != nil { // DS Bot: mask every secret value before a request leaves
+		masked := make([]ChatMsg, len(msgs))
+		for i, m := range msgs {
+			m.Content = s.V.Redact(m.Content)
+			masked[i] = m
+		}
+		msgs = masked
+	}
 	out, err := s.AI.Stream(ctx, msgs, on)
 	s.usage.add(bot, kind, msgChars(msgs), len([]rune(out)))
 	return out, err

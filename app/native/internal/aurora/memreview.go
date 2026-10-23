@@ -24,7 +24,7 @@ var reviewed sync.Map // request ids already reviewed
 
 // reviewMemory runs after a turn that saved nothing itself.
 func (s *Service) reviewMemory(w ledger.Work, saved string) {
-	if saved != "" || s.AI == nil || !s.AI.Configured() || s.Mem == nil || !lasting.MatchString(w.Text) || len([]rune(w.Text)) > 1500 {
+	if saved != "" || isGroupID(w.ConversationID) || s.AI == nil || !s.AI.Configured() || s.Mem == nil || !lasting.MatchString(w.Text) || len([]rune(w.Text)) > 1500 {
 		return
 	}
 	if _, dup := reviewed.LoadOrStore(w.RequestID, true); dup {

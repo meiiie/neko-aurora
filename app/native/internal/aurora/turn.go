@@ -32,29 +32,31 @@ PLAN: ["bước 1","bước 2"]   ← khi việc gồm nhiều phần (tra nhi�
 CHOICES: ["lựa chọn A","lựa chọn B"]   ← khi cần Darren chọn nhanh (2-4 lựa chọn ngắn).
 APPROVAL: {"title":"<việc cần duyệt>","kind":"email|send|post|pay|other","to":"<email nếu là email>","subject":"<tiêu đề nếu là email>","body":"<toàn bộ nội dung đã soạn>"}   ← bắt buộc cho mọi hành động ra bên ngoài.
 SECRET: {"name":"TEN_IN_HOA","label":"<tên hiển thị>","desc":"<vì sao cần, lấy ở đâu>"}   ← khi cần Darren cung cấp mật khẩu/khoá API. Darren nhập vào thẻ ẩn, giá trị vào kho bí mật, bạn không bao giờ thấy. Không bao giờ xin Darren dán bí mật vào chat. Khi việc cần một mật khẩu/khoá chưa có, LUÔN thêm dòng SECRET (không chỉ mô tả bằng lời). Mật khẩu ứng dụng Gmail dùng tên GMAIL_APP_PASSWORD.
-TOOL: {"name":"web_search","q":"<truy vấn>"} | {"name":"web_fetch","url":"https://..."} | {"name":"gold_price"}   ← công cụ đọc dữ liệu thật trên máy chủ. Khi cần số liệu/tin tức hiện tại mà chưa có trong KẾT QUẢ CÔNG CỤ, in dòng TOOL rồi dừng; nhiều tra cứu độc lập (vd. giá từng mặt hàng) thì in tối đa 3 dòng TOOL cùng lúc, hệ thống chạy song song rồi gọi lại bạn.
+TOOL: {"name":"web_search","q":"<truy vấn>"} | {"name":"web_fetch","url":"https://..."} | {"name":"gold_price"} | {"name":"chat_search","q":"<từ khoá>"} (tìm lại điều Darren/bạn đã nói trong các chat cũ, kể cả phần đã bị rút gọn)   ← công cụ đọc dữ liệu thật trên máy chủ. Khi cần số liệu/tin tức hiện tại mà chưa có trong KẾT QUẢ CÔNG CỤ, in dòng TOOL rồi dừng; nhiều tra cứu độc lập (vd. giá từng mặt hàng) thì in tối đa 3 dòng TOOL cùng lúc, hệ thống chạy song song rồi gọi lại bạn.
 TOOL: {"name":"computer_write_file","path":"<đường dẫn trong /home/bot>","content":"<nội dung>"} | {"name":"computer_edit_file","path":"...","old":"<đoạn cũ, đúng nguyên văn, duy nhất>","new":"<đoạn mới>"} (sửa một chỗ, không ghi lại cả file) | {"name":"computer_write_file","path":"...","content":"<phần tiếp>","append":true} (ghi file dài thành nhiều phần) | {"name":"computer_run","cmd":"<lệnh shell>"} | {"name":"computer_read_file","path":"..."} | {"name":"computer_list","path":""}   ← máy tính Linux riêng của bạn (thư mục nhà /home/bot giữ lại giữa các lượt; có python3; mặc định không có mạng). Dùng để viết và chạy script, phân tích file CSV/dữ liệu khi được nhờ chạy/tính thật. Người dùng chỉ xin đoạn code, bảng hay ví dụ thì viết thẳng vào câu trả lời (khối code markdown hoặc bảng markdown), không lưu file hay chạy lệnh. Ghi file trước rồi chạy NGAY bằng computer_run: đây là máy riêng, cách ly của bạn nên lệnh (ghi file, pip install, chạy python) chạy luôn, không cần Darren duyệt; chỉ việc gửi ra ngoài thì hệ thống tự tạo thẻ duyệt (bạn không cần viết APPROVAL cho lệnh). Không ghi lại cùng một file nhiều lần: ghi xong thì chạy. Mỗi lượt in tối đa 1 dòng computer_run. Nếu không làm được đúng điều được nhờ (vd. chụp màn hình), làm ngay phương án thay thế cụ thể bằng công cụ (vd. chạy lệnh rồi đưa kết quả thật) thay vì chỉ hỏi lại. Đầu ra của lệnh là sự thật: không tính nhẩm để phản bác nó; nghi ngờ thì chạy lệnh kiểm tra.
+SCHEDULE: {"at":"HH:MM","repeat":"daily"|"weekdays"|"once","date":"YYYY-MM-DD","text":"<việc cần làm lúc đó, đủ ngữ cảnh>"}   ← CHỈ khi tin nhắn hiện tại của Darren nhờ rõ làm/nhắc việc vào một giờ (giờ Việt Nam); không tự đặt lịch; hệ thống tự chạy đúng giờ, bạn chỉ xác nhận ngắn.
 MEMORY: {"text":"<một sở thích/bối cảnh lâu dài Darren vừa nói rõ hoặc xác nhận>"}   ← chỉ khi Darren nói rõ muốn bạn nhớ hoặc nêu sở thích lâu dài; thêm "scope":"team" nếu điều đó áp dụng cho mọi bot (tên, cách xưng hô, ngôn ngữ); không bao giờ ghi bí mật, mật khẩu.
 - Số liệu (giá, tỷ giá, ngày, phần trăm) chỉ được lấy từ KẾT QUẢ CÔNG CỤ, ghi nguồn dạng [1], [2]. Tuyệt đối không bịa hay ước đoán số; thiếu dữ liệu thì nói rõ thiếu. Khi đã có KẾT QUẢ CÔNG CỤ thì trả lời thẳng, không dùng PLAN.
 - Không bao giờ nhắc tên kỹ thuật của công cụ hay chỉ thị (web_search, web_fetch, gold_price, TOOL…) trong câu trả lời; nói bằng lời thường như "tìm trên web", "đọc trang".
 - Với email: kind là "email", dùng đúng địa chỉ Darren đưa; không lặp lại toàn văn thư ở phần trả lời.`
 
-var gluedDirective = regexp.MustCompile(`([^\s\n])[ \t]*((?:PLAN|CHOICES|APPROVAL|SECRET|TOOL|MEMORY|HANDOFF):\s*[\[{])`)
+var gluedDirective = regexp.MustCompile(`([^\s\n])[ \t]*((?:PLAN|CHOICES|APPROVAL|SECRET|TOOL|MEMORY|HANDOFF|SCHEDULE):\s*[\[{])`)
 
-var directiveRe = regexp.MustCompile(`(?m)^\s*(PLAN|CHOICES|APPROVAL|SECRET|TOOL|MEMORY|HANDOFF):\s*(.+?)\s*$`)
+var directiveRe = regexp.MustCompile(`(?m)^\s*(PLAN|CHOICES|APPROVAL|SECRET|TOOL|MEMORY|HANDOFF|SCHEDULE):\s*(.+?)\s*$`)
 
 type directives struct {
-	Text       string
-	Plan       []string
-	Choices    []string
-	Approval   *Approval
-	Secret     *ledger.DirectSecret
-	Tools      []toolReq // independent lookups, run in parallel (max 3)
-	Memory     string
-	Handoffs   []handoff // group chats: pass work to another member
-	MemoryTeam bool      // MEMORY scope "team": shared by every bot of the owner
-	Cut        bool      // the reply hit the output cap or the stream broke
-	Stop       bool      // a checkpoint ended this turn: no more nudges
+	Text        string
+	Plan        []string
+	Choices     []string
+	Approval    *Approval
+	Secret      *ledger.DirectSecret
+	Tools       []toolReq // independent lookups, run in parallel (max 3)
+	Memory      string
+	Schedules   []schedule // SCHEDULE lines: run a request later
+	Handoffs    []handoff  // group chats: pass work to another member
+	MemoryScope string     // MEMORY scope: "" own, "team" every bot, "group" this group chat
+	Cut         bool       // the reply hit the output cap or the stream broke
+	Stop        bool       // a checkpoint ended this turn: no more nudges
 }
 
 type toolReq struct {
@@ -74,7 +76,7 @@ func validTool(t toolReq) bool {
 	switch t.Name {
 	case "gold_price", "computer_list":
 		return true
-	case "web_search":
+	case "web_search", "chat_search":
 		return t.Q != ""
 	case "web_fetch":
 		return t.URL != ""
@@ -107,6 +109,13 @@ func ParseDirectives(text string) directives {
 			}
 			continue
 		}
+		if m[1] == "SCHEDULE" {
+			var x schedule
+			if json.Unmarshal([]byte(m[2]), &x) == nil && len(d.Schedules) < 3 {
+				d.Schedules = append(d.Schedules, x)
+			}
+			continue
+		}
 		if m[1] == "HANDOFF" {
 			var h handoff
 			if json.Unmarshal([]byte(m[2]), &h) == nil && h.To != "" && strings.TrimSpace(h.Text) != "" && len(d.Handoffs) < 3 {
@@ -122,7 +131,7 @@ func ParseDirectives(text string) directives {
 			}
 			if json.Unmarshal([]byte(m[2]), &x) == nil {
 				d.Memory = clean(x.Text, 300)
-				d.MemoryTeam = x.Scope == "team"
+				d.MemoryScope = x.Scope
 			}
 			continue
 		}
@@ -633,7 +642,7 @@ func (s *Service) runTurn(ctx context.Context, w ledger.Work) (*Approval, []stri
 	followUp := strings.HasPrefix(w.ClientNonce, "computer-") // tool output must never trigger planning
 	var resumed []ledger.DirectStep
 	if !followUp {
-		s.newRequest(w.BotID, w.Text, computerTask(w))
+		s.newRequest(w.BotID, stripRef(w.Text), computerTask(w))
 	}
 	if cp := w.ResumeFrom; cp != nil && !followUp && len(cp.Plan) >= 2 {
 		// Restarted mid-plan: keep the finished steps (and their sources)
@@ -752,6 +761,7 @@ func (s *Service) runTurn(ctx context.Context, w ledger.Work) (*Approval, []stri
 	s.fixScript(ctx, w, &d)
 	s.rememberD(w, d)
 	s.handOff(w, d.Handoffs)
+	s.addSchedules(w, d.Schedules)
 	s.reviewMemory(w, d.Memory)
 	if len(d.Tools) > 0 { // tools exhausted or disabled: never leave a bare TOOL line
 		d.Text = strings.TrimSpace(d.Text + "\n(Mình chưa lấy thêm được dữ liệu, nên không đưa số liệu chưa kiểm chứng.)")
@@ -791,7 +801,7 @@ func (s *Service) runTurn(ctx context.Context, w ledger.Work) (*Approval, []stri
 			}
 		})
 	}
-	tc.lookupOnly = !wantsComputer.MatchString(w.Text)
+	tc.lookupOnly = !wantsComputer.MatchString(stripRef(w.Text))
 	for i, title := range d.Plan {
 		if steps[i].Status == "done" { // finished before the restart
 			tc.note(fmt.Sprintf("KẾT QUẢ BƯỚC %d (%s): %s", i+1, title, steps[i].Note))
@@ -917,6 +927,7 @@ func (s *Service) stepCall(ctx context.Context, w ledger.Work, tc *toolCtx, prom
 	}
 	s.rememberD(w, d)
 	s.handOff(w, d.Handoffs)
+	s.addSchedules(w, d.Schedules)
 	s.reviewMemory(w, d.Memory)
 	d.Tools, d.Plan, d.Memory = nil, nil, ""
 	return d, err
@@ -1097,9 +1108,16 @@ func callsOf(ts []toolReq) []toolCall {
 }
 
 func (s *Service) rememberD(w ledger.Work, d directives) {
-	if d.MemoryTeam && d.Memory != "" {
+	if d.Memory != "" && d.MemoryScope == "team" {
 		if s.Mem.Remember(teamKey, d.Memory) {
 			s.record(w.BotID, w.RequestID, "step", "Đã ghi vào bộ nhớ chung: "+clean(d.Memory, 120))
+		}
+		return
+	}
+	if d.Memory != "" && (d.MemoryScope == "group" || d.MemoryScope == "") && isGroupID(w.ConversationID) {
+		// in a group chat, what the bot learns stays with the group
+		if s.Mem.Remember(w.ConversationID, d.Memory) {
+			s.record(w.BotID, w.RequestID, "step", "Đã ghi vào bộ nhớ nhóm: "+clean(d.Memory, 120))
 		}
 		return
 	}

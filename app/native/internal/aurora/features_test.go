@@ -1,9 +1,14 @@
 package aurora
 
 import (
+	"context"
 	"encoding/json"
+	"fmt"
 	"io"
+	"nekoaurora.local/native/internal/ledger"
+	"nekoaurora.local/native/internal/vault"
 	"net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
 	"time"
@@ -120,5 +125,35 @@ func TestGroupRoutingAndHandoff(t *testing.T) {
 	}
 	if ids := svc.view().recipients(c, "@mọi người ơi"); len(ids) != 2 {
 		t.Fatal(ids)
+	}
+}
+
+func TestStreamMasksSecretsAndGroupMemory(t *testing.T) {
+	var body string
+	fa := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		b, _ := io.ReadAll(r.Body)
+		body = string(b)
+		w.Header().Set("Content-Type", "text/event-stream")
+		fmt.Fprint(w, "data: {\"choices\":[{\"delta\":{\"content\":\"ok\"}}]}\n\ndata: [DONE]\n\n")
+	}))
+	defer fa.Close()
+	t.Setenv("ZAI_API_KEY", "k")
+	t.Setenv("AURORA_AI_BASE_URL", fa.URL)
+	svc, _ := newSvc(t)
+	if _, err := svc.V.Set(vault.Meta{Name: "SMTP_PASSWORD", Kind: "password"}, "hunter2-very-secret"); err != nil {
+		t.Fatal(err)
+	}
+	svc.stream(context.Background(), "b", "chat", []ChatMsg{{"user", "mật khẩu là hunter2-very-secret nhé"}}, func(string) {})
+	if strings.Contains(body, "hunter2") || !strings.Contains(body, "SMTP_PASSWORD") {
+		t.Fatal(body)
+	}
+	// group memory: MEMORY in a group chat lands in the group's memory
+	w := ledger.Work{BotID: "bot-meiiie", ConversationID: "channel-x", RequestID: "r"}
+	svc.rememberD(w, directives{Memory: "Nhóm chốt ra mắt ngày 1/11"})
+	if l := svc.Mem.List("channel-x"); len(l) != 1 || len(svc.Mem.List("bot-meiiie")) != 0 {
+		t.Fatal(l)
+	}
+	if !strings.Contains(groupMemPrompt(svc.Mem.List("channel-x")), "1/11") {
+		t.Fatal("group memory prompt")
 	}
 }

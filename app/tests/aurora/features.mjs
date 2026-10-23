@@ -42,7 +42,11 @@ try{
  await openT(g.id);await shot('07-group-handoff');await p.evaluate(()=>{const m=document.getElementById('messages');m.scrollTop=0});await sl(500);await shot('08-group-top');
  // 6) search
  await p.goto(U+'/app/');await sl(2500);await p.fill('#search','thu do');await sl(2500);await shot('09-search');out.search=(await get('search?q=thu%20do')).hits.length;
+ // 8) schedule + reference a chat
+ await post(`agents/${aur}/messages`,{text:'Mỗi sáng 7h30 nhắc mình uống nước nhé.',clientNonce:'f4-'+Date.now()});await idle(aur);out.schedules=(await get('schedules')).schedules;
+ await openT(aur);await p.tap('#whoBtn');await sl(2500);await p.evaluate(()=>document.querySelector('#schedBox')?.scrollIntoView({block:'center'}));await sl(400);await shot('11-schedules');await p.tap('#profBack').catch(()=>{});await sl(800);
+ if(ana){await openT(ana);await p.tap('#plusBtn');await sl(400);await p.tap('#pmRef');await sl(1000);await shot('12-ref-picker');const c=await p.$('#refBody .cell');if(c){await c.tap();await sl(800)}await p.fill('#input','Theo chat kia, mình muốn được gọi thế nào?').catch(e=>out.refFill=String(e));await sl(300);await shot('13-ref-chip');await p.tap('#composer .send').catch(()=>{});await sl(1500);await idle(ana);await sl(1500);await shot('14-ref-sent');const ms=await get(`agents/${ana}/messages`);const L=(ms.messages||ms);out.refUser=L.filter(m=>m.role==='user').at(-1);out.refReply=(L.filter(m=>m.role==='agent').at(-1)||{}).text}
  // 7) usage page
- await p.fill('#search','');await p.tap('#meBtn');await sl(1200);await p.tap('#openUsage');await sl(2000);await shot('10-usage');out.usage=await get('usage?range=1');
+ await p.goto(U+'/app/');await sl(2500);await p.tap('#meBtn');await sl(1200);await p.tap('#openUsage');await sl(2000);await shot('10-usage');out.usage=await get('usage?range=1');
 }catch(e){out.error=String(e);await shot('zz-error').catch(()=>{})}
 finally{out.errs=errs;out.deleted=(await post('account/delete',{confirm:'DELETE'})).s;console.log(JSON.stringify(out,null,1));fs.writeFileSync(O+'result.json',JSON.stringify(out,null,1));await b.close()}

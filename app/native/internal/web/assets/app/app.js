@@ -228,6 +228,7 @@ function renderThread(){const a=cur;if(!a)return;$("#threadState").textContent=s
  L.forEach((m,idx)=>{if(m.role!=="agent")last.v=null;const t=T(m.t);if(m.role==="user"&&t>0&&(!prevT||t-prevT>15*60e3))box.append(el("div","daystamp",dayStamp(t)));if(t>0)prevT=t;
   const cp=m.role==="agent"&&AURORA_UX.isCheckpoint(m.text),body=cp?m.text.trim().slice(0,-AURORA_UX.CHECKPOINT.length).trim():m.text;
   if(body&&!AURORA_UX.isNoise(m)){speaker(box,m,last);const b=el("div","msg"+(m.role==="user"?" mine":m.role==="system"?" sys":" bot"));if(m.role==="agent"){md(b,body,m.sources);chipify(b,a.id)}else b.textContent=body;box.append(b)}
+  if(m.role==="user"&&m.ref)box.append(el("div","note-line ref-line","Kèm ngữ cảnh: chat “"+m.ref+"”"));
   if(cp)box.append(el("div","note-line","↻ Đang làm tiếp ở lượt sau"));
   if(m.plan)box.append(planCard(m));
   if(m.choices&&m.choices.length){const wrap=el("div","choices");const later=L.slice(idx+1).some(x=>x.role==="user");m.choices.forEach(ch=>{const b=el("button","choice",ch);b.disabled=later||usedChoice.has(m.id);b.onclick=async()=>{if(usedChoice.has(m.id))return;usedChoice.add(m.id);renderThread();if(!(await sendMsg(ch)))usedChoice.delete(m.id)};wrap.append(b)});box.append(wrap)}
@@ -271,9 +272,10 @@ const outbox=[];let pumping=false;const sleep=ms=>new Promise(r=>setTimeout(r,ms
 const MAX_MSG=10000;
 function sendMsg(text){const a=cur;text=text.trim();if(!a||!text)return false;
  if([...text].length>MAX_MSG){toast(`Tin quá dài (tối đa ${MAX_MSG.toLocaleString("vi-VN")} ký tự). Chia nhỏ hoặc gửi dạng file nhé.`);return false}
- outbox.push({agentId:a.id,text,n:"c"+Date.now().toString(36)+Math.random().toString(36).slice(2,10),t:Date.now()});buzz("tap");renderThread();pump();return true}
+ const ref=pendingRef&&pendingRef.for===a.id?pendingRef.id:undefined;setRef(null);
+ outbox.push({agentId:a.id,text,ref,n:"c"+Date.now().toString(36)+Math.random().toString(36).slice(2,10),t:Date.now()});buzz("tap");renderThread();pump();return true}
 async function pump(){if(pumping)return;pumping=true;try{while(outbox.length){const it=outbox[0];
-  try{const m=await api(`/agents/${it.agentId}/messages`,{text:it.text,clientNonce:it.n});outbox.shift();
+  try{const m=await api(`/agents/${it.agentId}/messages`,{text:it.text,clientNonce:it.n,ref:it.ref});outbox.shift();
    if(m&&m.id){const L=S.msgs[it.agentId]||(S.msgs[it.agentId]=[]);if(!L.some(x=>x.id===m.id))L.push(m)}if(cur&&cur.id===it.agentId)renderThread()}
   catch(e){const quota=e.status===429&&e.body&&e.body.error==="quota_exceeded";
    if(quota||e.status&&e.status>=400&&e.status<500&&e.status!==429){
@@ -587,7 +589,7 @@ function presetCard(id,box){api(`/agents/${id}/computer`).then(st=>{const p=st.p
  PRESETS.forEach(([k,n])=>{const b=el("button","seg-b",n);b.dataset.preset=k;b.setAttribute("role","radio");b.setAttribute("aria-checked",k===cur);b.onclick=()=>api(`/agents/${id}/computer/policy`,{preset:k,askFirst:k==="readonly"||(p.preset!=="readonly"&&!!p.askFirst)}).then(np=>{buzz("tap");toast("Quyền: "+n);presetCard(id,box)}).catch(()=>toast("Không lưu được"));seg.append(b)});
  w.append(seg,el("p","caption",PRESETS.find(x=>x[0]===cur)[2]));const old=box.querySelector("#presetBox");old?old.replaceWith(w):box.prepend(w)}).catch(()=>{})}
 // ---------- profile hooks ----------
-const _rp=renderProfile;renderProfile=function(){_rp();const a=byId(profId);if(!a||isGroup(a))return;const B=$("#profBody");
+const _rp=renderProfile;renderProfile=function(){_rp();const a=byId(profId);if(!a)return;const B=$("#profBody");if(isGroup(a)){B.append(card("Ghi nhớ",cell("sparkles","Bộ nhớ nhóm",{id:"prMem",sub:"Điều cả nhóm nhớ, chỉ dùng trong nhóm này",onClick:()=>openMemory(a.id)})));return}schedCard(a.id,B);
  const c=card("Ghi nhớ",cell("sparkles","Bộ nhớ",{id:"prMem",value:"",sub:"Xem, sửa, xoá điều bot nhớ về bạn",onClick:()=>openMemory(a.id)}));const pc=$("#pcBox");pc?B.insertBefore(c,pc):B.append(c);
  api(`/agents/${a.id}/memory`).then(m=>{const v=c.querySelector(".cell-v")||el("span","cell-v");v.textContent=((m.items||[]).length+(m.team||[]).length)+" mục";const ch=c.querySelector(".chev");ch?ch.before(v):c.querySelector(".cell").append(v)}).catch(()=>{});
  if(pc)presetCard(a.id,pc)};
@@ -610,5 +612,15 @@ let hits=[],hitQ="",tmr=0;
 const _rl=renderList;renderList=function(){_rl();const q=filter.trim();if(q.length<2||hitQ!==q||!hits.length)return;$("#empty").classList.add("hidden");const ul=$("#rows");const h=el("li","sec-h");h.setAttribute("role","heading");h.append(el("span",0,"Tin nhắn"));ul.append(h);
  hits.forEach(x=>{const li=el("li","hit-row");const b=el("button","hit-b");const a=byId(x.agentId);const av=el("span","row-av");if(a)av.append(avatarOf(a,36));const t=el("span","hit-t");t.append(el("b",0,x.name+(x.role==="user"?" · bạn":"")),el("span",0,x.snippet));b.append(av,t);b.onclick=()=>{openThread(x.agentId);setTimeout(()=>{const f=$("#findInput");if(f){$("#findBar").classList.remove("hidden");f.value=q;runFind()}},700)};li.append(b);ul.append(li)})};
 $("#search").addEventListener("input",()=>{clearTimeout(tmr);const q=filter.trim();if(q.length<2){hits=[];hitQ="";return}tmr=setTimeout(()=>api("/search?q="+encodeURIComponent(q)).then(r=>{if(filter.trim()!==q)return;hits=r.hits||[];hitQ=q;renderList()}).catch(()=>{}),250)});
+// ---------- reference a chat (DS Bot "Reference a chat") ----------
+let pendingRef=null;
+function setRef(r){pendingRef=r;const box=$("#refChip");if(box)box.remove();if(!r)return;const c=el("div","ref-chip");c.id="refChip";c.append(el("span",0,"Kèm chat: "+r.name));const x=el("button","text-btn","Bỏ");x.onclick=()=>setRef(null);c.append(x);const comp=$("#composer")||$("#msgInput")?.closest("form")||$("#msgInput")?.parentElement;comp&&comp.parentElement.insertBefore(c,comp)}
+$("#pmRef").onclick=()=>{closeMenu();if(!cur)return;const B=$("#refBody");B.innerHTML="";const L=S.agents.filter(x=>x.id!==cur.id);
+ B.append(card(null,...L.map(x=>cell(isGroup(x)?"users":"message-circle",x.name,{sub:x.snip||"",onClick:()=>{setRef({id:x.id,name:x.name,for:cur.id});closeSheet(true);toast("Sẽ kèm chat “"+x.name+"”")}}))),el("p","caption","Tin nhắn gần nhất của chat đó được gửi kèm làm ngữ cảnh cho tin tiếp theo của bạn."));openSheet($("#refSheet"))};
+$("#closeRef").onclick=()=>closeSheet(true);
+// ---------- schedules on the profile ----------
+const RPT={daily:"Mỗi ngày",weekdays:"Thứ 2–6",once:"Một lần"};
+function schedCard(id,B){api("/schedules?bot="+encodeURIComponent(id)).then(r=>{const L=r.schedules||[];const old=B.querySelector("#schedBox");if(old)old.remove();if(!L.length&&!old)return;
+ const w=card("Lịch hẹn",...(L.length?L.map(x=>cell("clock",x.at+" · "+(RPT[x.repeat]||x.repeat)+(x.date?" "+x.date.split("-").reverse().join("/"):""),{sub:x.text,value:"Xoá",onClick:()=>api(`/schedules/${x.id}/delete`,{}).then(()=>{toast("Đã xoá lịch");schedCard(id,B)}).catch(()=>toast("Không xoá được"))})):[cell("clock","Chưa có lịch hẹn",{static:1})]));w.id="schedBox";const pc=$("#pcBox");pc?B.insertBefore(w,pc):B.append(w)}).catch(()=>{})}
 })();
 

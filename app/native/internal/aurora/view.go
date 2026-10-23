@@ -86,6 +86,7 @@ type Message struct {
 	Tools    []ledger.DirectTool   `json:"tools,omitempty"`
 	Sources  []ledger.DirectSource `json:"sources,omitempty"`
 	Queued   bool                  `json:"queued,omitempty"`
+	Ref      string                `json:"ref,omitempty"`  // name of a chat attached as context
 	From     string                `json:"from,omitempty"` // speaking bot, in group threads
 	Created  time.Time             `json:"t"`
 }
@@ -352,7 +353,7 @@ func workMessages(w ledger.Work, botRunning bool) []*Message {
 		kind = "handoff"
 	}
 	if kind == "" {
-		out = append(out, &Message{ID: w.RequestID + ":u", TaskID: w.RequestID, AgentID: w.BotID, Role: "user", Text: w.Text, Queued: w.Status == "waiting_host" && botRunning, Created: at})
+		out = append(out, &Message{ID: w.RequestID + ":u", TaskID: w.RequestID, AgentID: w.BotID, Role: "user", Text: stripRef(w.Text), Ref: refName(w.Text), Queued: w.Status == "waiting_host" && botRunning, Created: at})
 	}
 	if d == nil {
 		if w.Status == "cancelled" {

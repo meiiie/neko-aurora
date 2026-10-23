@@ -427,3 +427,5 @@ button.cell:active{background:var(--sunk)}
 .hit-t span{color:var(--mute);font-size:14px;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
 .ap-more summary{color:var(--mute);font-size:14px;min-height:40px;display:flex;align-items:center;cursor:pointer}
 .ap-more .ap-cmd{margin-top:0}
+.ref-chip{display:flex;align-items:center;justify-content:space-between;gap:8px;margin:0 12px 6px;padding:6px 12px;border-radius:12px;background:var(--sunk);font-size:14px}
+.ref-line{text-align:right;margin-right:16px}

@@ -55,7 +55,7 @@ func TestMemoryJournalEditTeam(t *testing.T) {
 
 func TestMemoryDirectiveTeam(t *testing.T) {
 	d := ParseDirectives("ok\nMEMORY: {\"text\":\"Darren dùng tiếng Việt\",\"scope\":\"team\"}")
-	if !d.MemoryTeam || d.Memory == "" {
+	if d.MemoryScope != "team" || d.Memory == "" {
 		t.Fatal(d)
 	}
 }

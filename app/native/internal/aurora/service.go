@@ -42,6 +42,7 @@ type Service struct {
 	Mem      *memStore
 	steward  *steward
 	usage    *usageLog
+	sched    *schedStore
 	PC       *computer.Manager // per-bot sandboxed computers (nil = off)
 	mux      *http.ServeMux
 	pcb      pcBook // bot computer build state (build.go)
@@ -111,7 +112,7 @@ func New(ctx context.Context, store *ledger.Store, stateDir string, opt Options)
 		return nil, err
 	}
 	log.SetOutput(v.Writer(os.Stderr))
-	s := &Service{L: store, AI: model, Push: p, V: v, Tools: toolsFromEnv(), Mem: openMemory(stateDir), steward: openSteward(stateDir), usage: openUsage(stateDir), PC: openComputers(stateDir), Prefs: prefs, subs: map[chan Event]struct{}{}, ctx: ctx, wake: make(chan struct{}, 1), running: map[string]bool{}, seen: map[string]string{}, Now: time.Now}
+	s := &Service{L: store, AI: model, Push: p, V: v, Tools: toolsFromEnv(), Mem: openMemory(stateDir), steward: openSteward(stateDir), usage: openUsage(stateDir), sched: openSchedules(stateDir), PC: openComputers(stateDir), Prefs: prefs, subs: map[chan Event]struct{}{}, ctx: ctx, wake: make(chan struct{}, 1), running: map[string]bool{}, seen: map[string]string{}, Now: time.Now}
 	s.owner = opt.OwnerName
 	s.Out = outbound.NewRouter(outbound.Switch{Resolve: s.mailer})
 	s.routes()
@@ -119,12 +120,14 @@ func New(ctx context.Context, store *ledger.Store, stateDir string, opt Options)
 	s.memoryRoutes()
 	s.usageRoutes()
 	s.searchRoutes()
+	s.scheduleRoutes()
 	s.computerRoutes()
 	s.sync()
 	go s.watch()
 	if opt.RunTurns && !store.ReadOnly() {
 		s.recoverInterrupted()
 		go s.runLoop()
+		go s.scheduleLoop()
 		if Env("BRIEF_LOOP") != "off" && !opt.NoBriefLoop {
 			go s.briefLoop()
 		}
@@ -638,6 +641,7 @@ func (s *Service) routes() {
 		var in struct {
 			Text  string `json:"text"`
 			Nonce string `json:"clientNonce"`
+			Ref   string `json:"ref"` // another chat to add as context (DS Bot "Reference a chat")
 		}
 		if err := decode(r, &in); err != nil {
 			fail(w, err)
@@ -662,6 +666,9 @@ func (s *Service) routes() {
 		nonce := in.Nonce
 		if len(nonce) < 8 || len(nonce) > 100 {
 			nonce = newID("aurora-")
+		}
+		if in.Ref != "" && in.Ref != r.PathValue("id") {
+			text += s.view().refBlock(in.Ref)
 		}
 		if isGroupID(id) {
 			msg, err := s.sendGroup(id, text, nonce)
