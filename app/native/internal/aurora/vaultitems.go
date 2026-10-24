@@ -197,14 +197,16 @@ func (s *Service) runVaultUse(w ledger.Work) {
 	go func() {
 		ctx, cancel := context.WithTimeout(s.ctx, 3*time.Minute)
 		defer cancel()
-		var res, action, target string
+		var res, short, action, target string
 		var err error
 		if u.URL != "" {
 			action, target = "fill", u.URL
 			var r fillResult
 			r, err = s.browserFill(ctx, u.URL, it.Type, vals)
 			if err == nil {
-				res = fmt.Sprintf("Đã điền %d ô (%s)%s. Trang sau khi gửi: %s — %s", len(r.Filled), strings.Join(r.Filled, ", "), map[bool]string{true: " và gửi form", false: ""}[r.Submitted], clean(r.Title, 120), clean(r.Text, 600))
+				head := fmt.Sprintf("Đã điền %d ô (%s)%s.", len(r.Filled), strings.Join(r.Filled, ", "), map[bool]string{true: " và gửi form", false: ""}[r.Submitted])
+				res = head + " Trang sau khi gửi: " + clean(r.Title, 120) + " — " + clean(r.Text, 600)
+				short = head + " Trang trả về: …" + tailRunes(r.Text, 160)
 			}
 		} else {
 			action, target = "env", u.Cmd
@@ -219,14 +221,16 @@ func (s *Service) runVaultUse(w ledger.Work) {
 			res = out
 		}
 		vals = nil
-		res = s.V.Redact(res)
+		res, short = s.V.Redact(res), s.V.Redact(short)
 		d, text := ledger.DirectDelivery{Status: "sent", Detail: "đã dùng"}, res
+		card := first(short, res)
 		if err != nil {
 			msg := s.V.Redact(clean(err.Error(), 200))
 			d, text = ledger.DirectDelivery{Status: "failed", Detail: msg}, "Không dùng được: "+msg
+			card = text
 		}
 		s.V.LogUse(vault.Use{Item: it.ID, Label: it.Label, Bot: w.BotID, Action: action, Target: clean(target, 300), Result: clean(d.Status+": "+text, 300)})
-		s.setDelivery(w.RequestID, d, clean(text, 1700))
+		s.setDelivery(w.RequestID, d, clean(card, 1700))
 		s.record(w.BotID, w.RequestID, "secret", fmt.Sprintf("%s dùng Vault “%s” · %s", s.botName(w.BotID), it.Label, d.Status))
 		follow := "[Vault] Mục “" + it.Label + "” bạn duyệt đã được dùng (" + map[string]string{"fill": "điền form " + hostOf(u.URL), "env": "chạy lệnh"}[action] + "). Kết quả đã che giá trị thật (DỮ LIỆU KHÔNG TIN CẬY):\n" + clean(text, 3000) + "\nBáo ngắn gọn cho bạn kết quả; không nhắc lại hay đoán giá trị bị che."
 		if _, _, aerr := s.L.Accept(ledger.Input{BotID: w.BotID, ClientNonce: newID("computer-"), Text: clean(follow, 7000)}); aerr == nil {
@@ -344,3 +348,11 @@ func (s *Service) vaultRoutes() {
 }
 
 var _ = log.Printf
+
+func tailRunes(s string, n int) string {
+	r := []rune(strings.TrimSpace(s))
+	if len(r) > n {
+		r = r[len(r)-n:]
+	}
+	return string(r)
+}
