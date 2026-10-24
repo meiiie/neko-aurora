@@ -113,12 +113,14 @@ func New(ctx context.Context, store *ledger.Store, stateDir string, opt Options)
 	if err != nil {
 		return nil, err
 	}
-	log.SetOutput(v.Writer(os.Stderr))
+	log.SetOutput(vault.LogWriter(os.Stderr)) // redacts with every open vault (hosted: one per user)
 	s := &Service{L: store, AI: model, Push: p, V: v, Tools: toolsFromEnv(), Mem: openMemory(stateDir), steward: openSteward(stateDir), usage: openUsage(stateDir), sched: openSchedules(stateDir), ext: openExt(stateDir), PC: openComputers(stateDir), Prefs: prefs, subs: map[chan Event]struct{}{}, ctx: ctx, wake: make(chan struct{}, 1), running: map[string]bool{}, seen: map[string]string{}, Now: time.Now}
 	s.owner = opt.OwnerName
+	s.Mem.mask = v.Redact
 	s.Out = outbound.NewRouter(outbound.Switch{Resolve: s.mailer})
 	s.routes()
 	s.connectorRoutes()
+	s.vaultRoutes()
 	s.memoryRoutes()
 	s.usageRoutes()
 	s.extRoutes()
@@ -727,6 +729,9 @@ func (s *Service) routes() {
 				return ErrConflict
 			}
 			// edit-before-approve: the owner's edits replace the draft atomically
+			if in.Body != nil && a.Kind == "vault" {
+				return ErrInvalid // a Vault use is approved as shown, never edited
+			}
 			if in.Body != nil {
 				b := clean(*in.Body, 4000)
 				if b == "" {
@@ -741,6 +746,7 @@ func (s *Service) routes() {
 			switch {
 			case in.Decision == "declined":
 				a.Outcome = "Ok, mình giữ lại “" + a.Title + "” và không làm gì thêm."
+			case a.Kind == "vault":
 			case a.Kind == "computer":
 				if s.PC == nil {
 					a.Outcome = "Máy tính của bot đang tắt trên máy chủ nên lệnh chưa chạy."
@@ -762,7 +768,10 @@ func (s *Service) routes() {
 			verb := map[string]string{"approved": "Bạn duyệt", "declined": "Bạn hoãn"}[ap.State]
 			s.record(work.BotID, work.RequestID, "decision", verb+" “"+ap.Title+"” của "+s.botName(work.BotID))
 		}
-		if ap := work.Direct.Approval; in.Decision == "approved" && ap.Kind == "computer" && s.PC != nil {
+		if ap := work.Direct.Approval; in.Decision == "approved" && ap.Kind == "vault" {
+			s.runVaultUse(work)
+			work, _ = s.L.Get(work.RequestID)
+		} else if in.Decision == "approved" && ap.Kind == "computer" && s.PC != nil {
 			s.runApprovedCommand(work)
 			work, _ = s.L.Get(work.RequestID)
 		} else if in.Decision == "approved" && s.hasChannel(ap.Kind) && ap.To != "" {
@@ -813,6 +822,7 @@ func (s *Service) routes() {
 			writeJSON(w, 500, map[string]string{"error": "delete_failed"})
 			return
 		}
+		s.V.Close()
 		writeJSON(w, 202, map[string]bool{"deleting": true})
 	})
 	m.HandleFunc("POST /app/api/agents/{id}/stop", func(w http.ResponseWriter, r *http.Request) {

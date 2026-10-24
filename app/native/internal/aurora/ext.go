@@ -476,6 +476,9 @@ func (s *Service) extNote(bot string) string {
 		b.WriteString(" | {\"name\":\"bot_create\",\"bot\":\"<tên>\",\"desc\":\"<vai trò>\"} | {\"name\":\"bot_update\",\"target\":\"<tên bot hiện có>\",\"bot\":\"<tên mới hoặc bỏ trống>\",\"desc\":\"<vai trò mới hoặc bỏ trống>\"} (khi Darren nhờ tạo bot chuyên trách hoặc đổi cách bot được thiết lập; bot_update bỏ \"target\" để sửa chính mình, thêm \"model\":\"<mã trong menu>\",\"thinking\":true|false,\"folder\":\"<thư mục>\" khi Darren nêu; chỉ bot chính tạo bot hoặc sửa bot khác)")
 	}
 	b.WriteString("\nFORM: {\"title\":\"<tiêu đề>\",\"fields\":[{\"name\":\"x\",\"label\":\"<nhãn>\",\"type\":\"text|number|date|select|textarea\",\"options\":[\"..\"],\"required\":true}]}   ← khi Darren xin form hoặc cần Darren điền nhiều thông tin một lúc (3+ mục): in đúng một dòng FORM (JSON trên một dòng) kèm một câu ngắn, KHÔNG liệt kê câu hỏi bằng chữ; Darren điền vào thẻ, câu trả lời về như một tin nhắn.")
+	if s.V != nil {
+		b.WriteString(vaultPrompt)
+	}
 	if be.Folder != "" && s.PC != nil {
 		b.WriteString("\nTHƯ MỤC LÀM VIỆC: /home/bot/" + be.Folder + " — mọi lệnh chạy trong thư mục này, đường dẫn tương đối tính từ đây; lưu kết quả ở đây.")
 	}

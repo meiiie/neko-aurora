@@ -81,6 +81,7 @@ type toolReq struct {
 	Model  string          `json:"model,omitempty"`
 	Think  *bool           `json:"thinking,omitempty"`
 	Folder *string         `json:"folder,omitempty"`
+	Item   string          `json:"item,omitempty"` // vault_use: Vault item id
 }
 
 func validTool(t toolReq) bool {
@@ -103,6 +104,10 @@ func validTool(t toolReq) bool {
 		return t.Q != ""
 	case "web_fetch":
 		return t.URL != ""
+	case "vault_list":
+		return true
+	case "vault_use":
+		return t.Item != "" && (t.URL != "") != (strings.TrimSpace(t.Cmd) != "")
 	case "computer_run":
 		return strings.TrimSpace(t.Cmd) != ""
 	case "computer_read_file":
@@ -168,6 +173,9 @@ func ParseDirectives(text string) directives {
 			var x ledger.DirectSecret
 			if json.Unmarshal([]byte(m[2]), &x) == nil {
 				x.Name, x.Label, x.Desc = strings.ToUpper(strings.TrimSpace(x.Name)), clean(x.Label, 80), clean(x.Desc, 300)
+				if x.Vault = strings.ToLower(strings.TrimSpace(x.Vault)); x.Vault != "" {
+					x.Name, x.Site = "VAULT_"+strings.ToUpper(x.Vault), clean(x.Site, 120) // a typed Vault form card
+				}
 				if x.Label == "" {
 					x.Label = x.Name
 				}
@@ -729,7 +737,7 @@ func (s *Service) runTurn(ctx context.Context, w ledger.Work) (*Approval, []stri
 			s.runTools(ctx, w, tc, calls)
 			if tc.pendingCmd != "" {
 				// a command needs the owner: end the turn on its approval card
-				d = directives{Text: computerAskText, Approval: computerApproval(tc.pendingCmd)}
+				d = s.parked(tc, computerAskText)
 				break
 			}
 			if cp, ok := s.checkpoint(w, start); ok {
@@ -743,7 +751,7 @@ func (s *Service) runTurn(ctx context.Context, w ledger.Work) (*Approval, []stri
 		if err != nil || attempt >= 3 {
 			break
 		}
-		if d.Approval != nil && d.Approval.Kind == "computer" || d.Text == checkpointText || d.Stop {
+		if d.Approval != nil && (d.Approval.Kind == "computer" || d.Approval.Kind == "vault") || d.Text == checkpointText || d.Stop {
 			break
 		}
 		nudge := ""
@@ -917,7 +925,7 @@ func (s *Service) verifyFinal(ctx context.Context, w ledger.Work, tc *toolCtx, d
 		s.publish("draft_end", map[string]string{"id": w.RequestID, "agentId": threadOf(w)})
 		s.runTools(ctx, w, tc, callsOf(nd.Tools))
 		if tc.pendingCmd != "" {
-			*d = directives{Text: computerAskText, Approval: computerApproval(tc.pendingCmd)}
+			*d = s.parked(tc, computerAskText)
 			return
 		}
 		if nd, err = s.ask(ctx, w, tc, func() []ChatMsg { return tc.inject(s.history(w.BotID, w.RequestID)) }); err != nil {
@@ -939,7 +947,7 @@ func (s *Service) stepCall(ctx context.Context, w ledger.Work, tc *toolCtx, prom
 		s.publish("draft_end", map[string]string{"id": w.RequestID, "agentId": threadOf(w)})
 		s.runTools(ctx, w, tc, callsOf(d.Tools))
 		if tc.pendingCmd != "" {
-			return directives{Text: "Bước này cần chạy lệnh trên máy tính của mình, bạn duyệt giúp nhé.", Approval: computerApproval(tc.pendingCmd)}, nil
+			return s.parked(tc, "Bước này cần chạy lệnh trên máy tính của mình, bạn duyệt giúp nhé."), nil
 		}
 		d, err = s.ask(ctx, w, tc, func() []ChatMsg { return mk() })
 	}
@@ -950,7 +958,7 @@ func (s *Service) stepCall(ctx context.Context, w ledger.Work, tc *toolCtx, prom
 			s.publish("draft_end", map[string]string{"id": w.RequestID, "agentId": threadOf(w)})
 			s.runTools(ctx, w, tc, callsOf(d.Tools))
 			if tc.pendingCmd != "" {
-				return directives{Text: "Bước này cần chạy lệnh trên máy tính của mình, bạn duyệt giúp nhé.", Approval: computerApproval(tc.pendingCmd)}, nil
+				return s.parked(tc, "Bước này cần chạy lệnh trên máy tính của mình, bạn duyệt giúp nhé."), nil
 			}
 			d, err = s.ask(ctx, w, tc, func() []ChatMsg { return mk() })
 		}
@@ -1139,7 +1147,7 @@ func callsOf(ts []toolReq) []toolCall {
 			out = append(out, toolCall{t.Name, computerArg(t)})
 			continue
 		}
-		if extArg(t.Name) {
+		if extArg(t.Name) || strings.HasPrefix(t.Name, "vault_") {
 			b, _ := json.Marshal(t)
 			out = append(out, toolCall{t.Name, string(b)})
 			continue

@@ -44,6 +44,9 @@ type DirectApproval struct {
 	DecidedAt string          `json:"decidedAt,omitempty"`
 	Delivery  *DirectDelivery `json:"delivery,omitempty"`
 	Outcome   string          `json:"outcome,omitempty"`
+	// Use is the server-side Vault action (JSON: item, url or cmd) run after
+	// approval; it names an item, never a value.
+	Use string `json:"use,omitempty"`
 }
 
 type DirectRun struct {
@@ -111,12 +114,16 @@ type DirectSecret struct {
 	Name  string `json:"name"`
 	Label string `json:"label,omitempty"`
 	Desc  string `json:"desc,omitempty"`
+	// Vault asks for a typed Vault item (card|login|identity) instead of one
+	// named secret; Site pre-fills a login's site.
+	Vault string `json:"vault,omitempty"`
+	Site  string `json:"site,omitempty"`
 }
 
 var directSecretName = regexp.MustCompile(`^[A-Z][A-Z0-9_]{1,63}$`)
 
 func validDirectSecret(x *DirectSecret) bool {
-	return x == nil || directSecretName.MatchString(x.Name) && directText(x.Label, 160) && directText(x.Desc, 640)
+	return x == nil || directSecretName.MatchString(x.Name) && directText(x.Label, 160) && directText(x.Desc, 640) && (x.Vault == "" || x.Vault == "card" || x.Vault == "login" || x.Vault == "identity") && directText(x.Site, 200)
 }
 
 func copyDirectRun(d DirectRun) DirectRun {
@@ -150,7 +157,7 @@ func validDirectApproval(a *DirectApproval) bool {
 	if a == nil {
 		return true
 	}
-	if !directApprovalState[a.State] || strings.TrimSpace(a.Body) == "" || !directText(a.Title, 400) || !directText(a.Kind, 48) || !directText(a.Body, 16384) || !directText(a.To, 320) || !directText(a.Subject, 640) || !directText(a.Outcome, 2000) {
+	if !directApprovalState[a.State] || strings.TrimSpace(a.Body) == "" || !directText(a.Title, 400) || !directText(a.Kind, 48) || !directText(a.Body, 16384) || !directText(a.To, 320) || !directText(a.Subject, 640) || !directText(a.Outcome, 2000) || !directText(a.Use, 4000) {
 		return false
 	}
 	if a.Delivery != nil && (a.State != "approved" || !directDeliveryStatus[a.Delivery.Status] || !directText(a.Delivery.Detail, 640) || !directText(a.Delivery.From, 320)) {

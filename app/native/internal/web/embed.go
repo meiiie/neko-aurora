@@ -41,6 +41,8 @@ var contentTypes = map[string]string{
 	"/app/welcome.html":          "text/html; charset=utf-8",
 	"/app/hosted.css":            "text/css; charset=utf-8",
 	"/app/hosted.js":             "text/javascript; charset=utf-8",
+	"/app/vault-demo.html":       "text/html; charset=utf-8",
+	"/app/vault-demo.js":         "text/javascript; charset=utf-8",
 }
 
 // The Neko Aurora design system (tokens, fonts, icons) is shared by the

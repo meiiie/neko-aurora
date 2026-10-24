@@ -194,19 +194,19 @@ function planCard(m){const c=el("div","plan");const st=m.plan.steps,done=st.filt
  const bar=el("div","bar");const f=el("i");f.style.width=(100*done/st.length)+"%";bar.append(f);c.append(bar);
  const ol=el("ol");st.forEach((x,i)=>{const li=el("li","step "+x.status);li.append(stepIcon(x.status),el("span",0,x.title));ol.append(li)});c.append(ol);return c}
 function approvalCard(m){const ap=m.approval,c=el("div","approval"+(ap.state!=="pending"?" done":""));c.dataset.id=m.id;
- c.append(el("small",0,ap.state==="superseded"?"Đã thay bằng yêu cầu mới":ap.kind==="computer"?"Lệnh trên máy tính của bot · chỉ chạy khi bạn duyệt":"Cần bạn duyệt · không gửi khi chưa có OK"),el("div","ap-title",ap.title));
+ c.append(el("small",0,ap.state==="superseded"?"Đã thay bằng yêu cầu mới":ap.kind==="computer"?"Lệnh trên máy tính của bot · chỉ chạy khi bạn duyệt":ap.kind==="vault"?"Dùng Vault · giá trị thật chỉ chèn trên máy chủ khi bạn duyệt":"Cần bạn duyệt · không gửi khi chưa có OK"),el("div","ap-title",ap.title));
  if(ap.to){const meta=el("div","ap-meta");meta.append(el("span",0,"Tới: "),el("b",0,ap.to));c.append(meta)}
  const ed=ap.state==="pending"&&editing.has(m.id);
  if(ap.subject||(ed&&ap.kind==="email")){if(ed){const i=el("input","ap-subject");i.value=ap.subject||"";i.setAttribute("aria-label","Tiêu đề");c.append(i)}else{const meta=el("div","ap-meta");meta.append(el("span",0,"Tiêu đề: "),el("b",0,ap.subject));c.append(meta)}}
- if(ed){const t=el("textarea","ap-body");t.value=ap.body;t.rows=8;t.setAttribute("aria-label","Nội dung");c.append(t)}else if(ap.kind==="computer"){const cs=AURORA_UX.cmdShown(ap.body),fc=AURORA_UX.foldCmd(cs.cmd),pre=el("pre","ap-cmd",fc.head);pre.title=ap.body;pre.dataset.noi18n="";c.append(pre);if(fc.more){const d=el("details","ap-more"),sm=el("summary",0,"Xem cả lệnh · thêm "+fc.more+" dòng"),rp=el("pre","ap-cmd",fc.rest);rp.dataset.noi18n="";d.append(sm,rp);c.append(d)}}else c.append(el("pre",0,ap.body));
+ if(ed){const t=el("textarea","ap-body");t.value=ap.body;t.rows=8;t.setAttribute("aria-label","Nội dung");c.append(t)}else if(ap.kind==="computer"){const cs=AURORA_UX.cmdShown(ap.body),fc=AURORA_UX.foldCmd(cs.cmd),pre=el("pre","ap-cmd",fc.head);pre.title=ap.body;pre.dataset.noi18n="";c.append(pre);if(fc.more){const d=el("details","ap-more"),sm=el("summary",0,"Xem cả lệnh · thêm "+fc.more+" dòng"),rp=el("pre","ap-cmd",fc.rest);rp.dataset.noi18n="";d.append(sm,rp);c.append(d)}}else if(ap.kind==="vault"){c.classList.add("ap-vault");const hd=el("div","ap-vhd");hd.append(I("shield-check",18),el("span",0,"Bot không thấy số thẻ, mật khẩu hay mã"));c.append(hd,el("pre",0,ap.body))}else c.append(el("pre",0,ap.body));
  const os=ap.kind==="computer"&&ap.outcome?AURORA_UX.outSummary(ap.outcome):null;
  if(os&&os.count){if(os.long){const d=el("details","ap-outd"),sm=el("summary",0,`Xem toàn bộ đầu ra · ${os.count} dòng`);const tail=el("pre","ap-out ap-tail",os.tail),full=el("pre","ap-out",os.full);tail.dataset.noi18n=full.dataset.noi18n="";d.append(sm,full);c.append(tail,d)}else{const o=el("pre","ap-out",os.full);o.dataset.noi18n="";c.append(o)}}
- if(ap.state==="pending"){const bs=el("div","btns"),no=el("button",0,"Để sau"),e=el("button",0,ed?"Huỷ sửa":"Sửa"),go=el("button","go",ed?"Lưu & duyệt":"Duyệt");
+ if(ap.state==="pending"){const bs=el("div","btns"),no=el("button",0,"Để sau"),e=el("button",0,ed?"Huỷ sửa":"Sửa"),vk=ap.kind==="vault",go=el("button","go",ed?"Lưu & duyệt":"Duyệt");
   no.onclick=()=>decide(m,"declined",bs);e.onclick=()=>{ed?editing.delete(m.id):editing.add(m.id);renderThread()};
   go.onclick=()=>{const ex={};if(ed){ex.body=c.querySelector(".ap-body").value;const sj=c.querySelector(".ap-subject");if(sj)ex.subject=sj.value;if(!ex.body.trim()){toast("Nội dung trống");return}}decide(m,"approved",bs,ex)};
-  if(deciding.has(m.id))no.disabled=e.disabled=go.disabled=true;bs.append(no,e,go);c.append(bs);
+  if(deciding.has(m.id))no.disabled=e.disabled=go.disabled=true;vk?bs.append(no,go):bs.append(no,e,go);c.append(bs);
   c.append(el("small","hint","Muốn đổi hướng? Nhắn yêu cầu mới, bản nháp này sẽ được thay."))}
- else if(ap.state!=="superseded"){const dv=ap.delivery,DS={queued:"đang chờ kênh email",sending:"đang gửi…",sent:"đã gửi"+(dv&&dv.from?" từ "+dv.from:""),failed:"gửi thất bại"+(dv&&dv.detail?": "+dv.detail:"")};if(ap.kind==="computer"&&ap.state==="approved"){const sec=os&&os.secs!=null?" · "+String(os.secs).replace(".",",")+"s":"";c.append(el("small","ap-line"+(os&&os.exit?" bad":""),!dv||dv.status==="sending"||dv.status==="queued"?"✓ Đã duyệt · đang chạy…":dv.status==="failed"?"✓ Đã duyệt · không chạy được"+(dv.detail?": "+dv.detail:""):os&&os.exit?`✓ Đã duyệt · lỗi (mã thoát ${os.exit})${os.err?" · "+os.err:""}${sec}`:`✓ Đã duyệt · chạy xong${os&&os.exit===0?" · mã thoát 0":""}${sec}`));return c}
+ else if(ap.state!=="superseded"){const dv=ap.delivery;if(ap.kind==="vault"&&ap.state==="approved"){c.append(el("small","ap-line"+(dv&&dv.status==="failed"?" bad":""),!dv||dv.status==="sending"?"✓ Đã duyệt · đang dùng Vault…":dv.status==="failed"?"✓ Đã duyệt · không dùng được"+(dv.detail?": "+dv.detail:""):"✓ Đã duyệt · đã dùng, giá trị đã che"));if(ap.outcome&&dv&&dv.status==="sent")c.append(el("p","ap-vout",ap.outcome));return c}const DS={queued:"đang chờ kênh email",sending:"đang gửi…",sent:"đã gửi"+(dv&&dv.from?" từ "+dv.from:""),failed:"gửi thất bại"+(dv&&dv.detail?": "+dv.detail:"")};if(ap.kind==="computer"&&ap.state==="approved"){const sec=os&&os.secs!=null?" · "+String(os.secs).replace(".",",")+"s":"";c.append(el("small","ap-line"+(os&&os.exit?" bad":""),!dv||dv.status==="sending"||dv.status==="queued"?"✓ Đã duyệt · đang chạy…":dv.status==="failed"?"✓ Đã duyệt · không chạy được"+(dv.detail?": "+dv.detail:""):os&&os.exit?`✓ Đã duyệt · lỗi (mã thoát ${os.exit})${os.err?" · "+os.err:""}${sec}`:`✓ Đã duyệt · chạy xong${os&&os.exit===0?" · mã thoát 0":""}${sec}`));return c}
  c.append(el("small",0,ap.state==="approved"?(dv?"✓ Bạn đã duyệt · "+DS[dv.status]:"✓ Bạn đã duyệt · chưa gửi ra ngoài (kênh gửi chưa kết nối)"):"Đã hoãn"))}
  return c}
 // tool activity stays unobtrusive: a status line while running, folded into the
@@ -221,7 +221,7 @@ function sourceList(m){const w=el("details","sources");const sm=el("summary");co
  u.forEach(x=>{const li=el("li");const l=el("a");l.href=x.url;l.target="_blank";l.rel="noopener noreferrer";l.append(el("b",0,"["+x.n+"] "+(x.title||srcHost(x.url))),el("small",0,srcHost(x.url)+(x.at?" · "+new Date(x.at).toLocaleTimeString("vi-VN",{hour:"2-digit",minute:"2-digit"}):"")));li.append(l);ol.append(li)});w.append(ol);return w}
 function speaker(box,m,last){if(!isGroup(cur)||m.role!=="agent"||!m.from)return;if(last.v===m.from)return;last.v=m.from;const b=byId(m.from);const h=el("div","speaker");h.append(face(b&&b.av,20),el("span",0,b?b.name:"Bot"));box.append(h)}
 function renderThread(){const a=cur;if(!a)return;$("#threadState").textContent=stateLine(a);headAvatar(a);const box=$("#messages");
- const keepSec=[...box.querySelectorAll(".secret input[data-secret]")].map(i=>[i.closest(".secret").dataset.id,i.value]);
+ const keepSec=[...box.querySelectorAll(".secret input[data-secret]")].map(i=>[i.closest(".secret").dataset.id,i.dataset.secret,i.value]);
  const keepForm=[...box.querySelectorAll(".form-card [name]")].map(i=>[i.closest(".form-card").dataset.id,i.name,i.value]);
  const keepEdit=[...box.querySelectorAll(".ap-body")].map(t=>[t.closest(".approval").dataset.id,t.value,t.closest(".approval").querySelector(".ap-subject")?.value]);
  const sEl=statusEl();[...box.childNodes].forEach(n=>n!==sEl&&n.remove());if(sEl.parentNode!==box)box.append(sEl);const all=S.msgs[a.id]||[];const W=win[a.id]||(win[a.id]=PAGE);const L=all.length>W?all.slice(-W):all;const last={v:null};
@@ -246,7 +246,7 @@ function renderThread(){const a=cur;if(!a)return;$("#threadState").textContent=s
   if(m.approval)frag.append(approvalCard(m));if(m.secret)frag.append(secretCard(m));mark(n0,isNew);nodeCache.set(m.id,{sig,nodes:[...frag.childNodes].slice(n0),lastV:last.v,prevT})});
  box.insertBefore(frag,sEl);
  keepForm.forEach(([id,n,v])=>{const i=box.querySelector(`.form-card[data-id="${id}"] [name="${n}"]`);if(i&&v)i.value=v});
- keepSec.forEach(([id,v])=>{const i=box.querySelector(`.secret[data-id="${id}"] input[data-secret]`);if(i)i.value=v});
+ keepSec.forEach(([id,n,v])=>{const i=box.querySelector(`.secret[data-id="${id}"] input[data-secret="${n}"]`);if(i&&!i.value)i.value=v});
  keepEdit.forEach(([id,v,sj])=>{const c=box.querySelector(`.approval[data-id="${id}"]`);if(c){const t=c.querySelector(".ap-body");if(t)t.value=v;const s2=c.querySelector(".ap-subject");if(s2&&sj!=null)s2.value=sj}});
  outbox.filter(o=>o.agentId===a.id).forEach(o=>{last.v=null;const b=el("div","msg mine pending"+(o.shown?"":" enter"),o.text);o.shown=1;if(o.wait)b.append(el("span","chip","đang gửi…"));frag.append(b)});
  Object.entries(S.drafts).forEach(([id,d])=>{if(d.agentId===a.id&&shown(d)){speaker(frag,{role:"agent",from:d.from},last);const b=el("div","msg bot draft"+(shownIds.has(id)?"":" enter"));shownIds.add(id);b.id="d_"+id;frag.append(b);if(reduceMotion())d.sl=1e9;drawDraft(id,b);requestAnimationFrame(()=>paintDraft(id))}});
@@ -504,7 +504,7 @@ async function gmailTest(to){if(!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(to)){toast("�
 $("#closeConnectors").onclick=()=>closeSheet(true);
 $("#appsBtn").onclick=()=>{if(sheetOpen)return;renderConnectors();openSheet($("#connectors"))};
 // in-chat secret request card: masked input → vault; message/journal hold only the name
-function secretCard(m){const x=m.secret,saved=S.secrets.includes(x.name),c=el("div","secret"+(saved?" saved":""));c.dataset.id=m.id;c.dataset.name=x.name;
+function secretCard(m){if(m.secret.vault)return vaultCard(m);const x=m.secret,saved=S.secrets.includes(x.name),c=el("div","secret"+(saved?" saved":""));c.dataset.id=m.id;c.dataset.name=x.name;
  const top=el("div","sec-top");top.append(I("key-round",18),el("b",0,x.label||x.name),el("code",0,x.name));c.append(top);if(x.desc)c.append(el("p","sec-desc",x.desc));
  if(saved){const d=el("div","sec-done");d.append(I("check",16),el("span",0,"Đã lưu vào kho bí mật"));c.append(d);return c}
  const sf=secretField(x.name,x.label||x.name);const row=el("div","sec-row");const go=el("button","pill","Lưu");go.className="pill sec-save";
@@ -740,4 +740,53 @@ const _om=openMemory;openMemory=async function(id,keep){await _om(id,keep);const
 function shrink(file){return new Promise((ok,bad)=>{const img=new Image();img.onload=()=>{const k=Math.min(1,1600/Math.max(img.width,img.height));const c=document.createElement("canvas");c.width=img.width*k|0;c.height=img.height*k|0;c.getContext("2d").drawImage(img,0,0,c.width,c.height);c.toBlob(b=>b?ok(b):bad(),"image/jpeg",.82)};img.onerror=bad;const fr=new FileReader();fr.onload=()=>{img.src=fr.result};fr.onerror=bad;fr.readAsDataURL(file)})} // data: URL, the CSP allows no blob: images
 $("#pmImg").onclick=()=>{closeMenu();if(!cur||isGroup(cur)){toast("Gửi ảnh trong chat với một bot");return}$("#imgPick").click()};
 $("#imgPick").onchange=async e=>{const f=e.target.files&&e.target.files[0];e.target.value="";if(!f||!cur)return;try{const b=await shrink(f);const nm=(f.name||"anh").replace(/\.[^.]+$/,"").normalize("NFC").slice(0,50)+".jpg";const data=await new Promise((ok,bad)=>{const fr=new FileReader();fr.onload=()=>ok(String(fr.result).split(",")[1]);fr.onerror=bad;fr.readAsDataURL(b)});const j=await api(`/agents/${cur.id}/computer/upload`,{name:nm,data});const inp=$("#input");inp.value=(inp.value.trim()?inp.value.trim()+"\n":"Bạn xem ảnh này giúp mình.\n")+"[Ảnh: "+j.path+"]";inp.dispatchEvent(new Event("input"));inp.focus();toast("Đã tải ảnh lên")}catch{toast("Không tải được ảnh (tối đa 1 MB sau khi nén)")}};
+// ---------- Vault (cards, logins, personal details) ----------
+// Values live only in the encrypted vault on the server. The list shows
+// metadata; a value is fetched (and logged) only when the owner taps to reveal.
+const VF={card:[["number","Số thẻ",1,"numeric"],["name","Tên trên thẻ"],["exp","Hết hạn (MM/YY)",0,"numeric"],["cvc","CVC",1,"numeric"],["zip","Mã bưu chính"]],
+ login:[["site","Trang web"],["username","Tên đăng nhập / email"],["password","Mật khẩu",1],["totp","Khoá 2 lớp (TOTP, tuỳ chọn)",1],["notes","Ghi chú"]],
+ identity:[["name","Họ tên"],["email","Email",0,"email"],["phone","Điện thoại",0,"tel"],["address","Địa chỉ"],["city","Thành phố"],["postal","Mã bưu chính"],["country","Quốc gia"]]};
+function vfield(label,attrs){const w=el("label","fld");w.append(el("span",0,label));const i=el("input");Object.assign(i,attrs);i.setAttribute("aria-label",label);w.append(i);return{w,i}}
+const VT={card:["credit-card","Thẻ thanh toán","Thẻ"],login:["lock","Đăng nhập","Đăng nhập"],identity:["user-round","Thông tin cá nhân","Thông tin"]};
+const VA={fill:"Điền form",env:"Dùng trong lệnh",reveal:"Bạn xem",save:"Đã lưu",delete:"Đã xoá"};
+let vaultData=null,vaultOpen=null,vaultEdit=null,vaultShown={};
+const vSub=it=>it.type==="card"?(it.hint.brand||"Thẻ")+" •••• "+(it.hint.last4||""):it.type==="login"?[it.hint.site,it.hint.user].filter(Boolean).join(" · ")+(it.hint.totp?" · 2 lớp":""):(it.hint.name||"")+" · "+(it.filled||[]).length+" mục";
+function vaultForm(type,item,onSaved,work){const f=el("form","vault-form");const ins={};
+ (VF[type]||[]).forEach(([k,label,sec,mode])=>{let w,i;if(sec){const sf=secretField(k,label,item?"Đã lưu · để trống nếu giữ nguyên":label);w=el("label","fld");w.append(el("span",0,label),sf.w);i=sf.i}else{const x=vfield(label,{autocomplete:"off",autocapitalize:"off",spellcheck:false});w=x.w;i=x.i;i.dataset.secret=k;if(item)i.placeholder="Đã lưu · để trống nếu giữ nguyên";if(k==="site"&&work&&work.site)i.value=work.site}
+  if(mode)i.inputMode=mode;if(k==="number"){i.maxLength=23;i.oninput=()=>{const d=i.value.replace(/\D/g,"").slice(0,19);i.value=d.replace(/(.{4})/g,"$1 ").trim()}}if(k==="exp"){i.maxLength=5;i.oninput=()=>{const d=i.value.replace(/\D/g,"").slice(0,4);i.value=d.length>2?d.slice(0,2)+"/"+d.slice(2):d}}
+  i.setAttribute("data-1p-ignore","");i.setAttribute("data-lpignore","true");ins[k]=i;f.append(w)});
+ const lb=vfield("Tên gợi nhớ (tuỳ chọn)",{autocomplete:"off",value:item?item.label:(work&&work.label)||""});lb.i.id="vaultLabel";f.prepend(lb.w);
+ const err=el("p","sec-err");err.setAttribute("role","alert");const go=el("button","pill wide",item?"Lưu thay đổi":"Lưu vào Vault");go.type="submit";go.id="vaultSave";
+ f.onsubmit=async e=>{e.preventDefault();err.textContent="";const fields={};Object.entries(ins).forEach(([k,i])=>{if(i.value.trim())fields[k]=i.value.trim()});if(!item&&!Object.keys(fields).length){err.textContent="Chưa nhập gì.";return}
+  go.disabled=true;go.textContent="Đang lưu…";try{const it=await api("/vault",{id:item?item.id:"",type,label:lb.i.value.trim(),fields,work:work&&work.task||""});Object.values(ins).forEach(i=>i.value="");buzz("confirm");toast("Đã lưu vào Vault");onSaved&&onSaved(it)}
+  catch(e){err.textContent=e.status===400?(type==="card"?"Số thẻ không hợp lệ.":type==="login"?"Cần mật khẩu; khoá 2 lớp phải là mã base32.":"Kiểm tra lại thông tin."):"Không lưu được, thử lại.";go.disabled=false;go.textContent=item?"Lưu thay đổi":"Lưu vào Vault"}};
+ f.append(err,go,el("small","hint","Mã hoá trên máy chủ theo tài khoản của bạn. Bot chỉ thấy nhãn và 4 số cuối, không bao giờ thấy giá trị."));return f}
+async function openVault(keep){const B=$("#vaultBody");if(!keep){B.innerHTML="";B.append(el("p","caption","Đang tải…"));if(sheetOpen)swapSheet($("#vaultSheet"));else openSheet($("#vaultSheet"))}
+ try{vaultData=await api("/vault")}catch{B.innerHTML="";B.append(el("p","caption","Không tải được Vault"));return}renderVault()}
+function renderVault(){const B=$("#vaultBody"),d=vaultData||{items:[],uses:[]};B.innerHTML="";
+ const hero=el("div","vault-hero");hero.append(I("shield-check",22),el("div",0));hero.lastChild.append(el("b",0,"Vault của bạn"),el("small",0,"Thẻ, đăng nhập và thông tin cá nhân, mã hoá trên máy chủ. Mỗi lần bot dùng đều hỏi bạn duyệt."));B.append(hero);
+ if(vaultEdit&&vaultEdit.type){const it=vaultEdit.id?d.items.find(x=>x.id===vaultEdit.id):null;const h=el("div","vault-fhd");const back=el("button","text-btn","Huỷ");back.onclick=()=>{vaultEdit=null;renderVault()};h.append(el("b",0,(it?"Sửa ":"Thêm ")+VT[vaultEdit.type][2].toLowerCase()),back);B.append(h,vaultForm(vaultEdit.type,it,()=>{vaultEdit=null;openVault(true)}));return}
+ const add=el("div","vault-add");Object.keys(VT).forEach(t=>{const b=el("button","pill ghost");b.dataset.vadd=t;b.append(I("plus",16),el("span",0,VT[t][2]));b.onclick=()=>{vaultEdit={type:t};renderVault()};add.append(b)});B.append(add);
+ if(!d.items.length)B.append(el("p","caption","Chưa có mục nào. Thêm ở trên, hoặc khi bot cần, nó sẽ gửi thẻ để bạn nhập ngay trong chat."));
+ Object.keys(VT).forEach(t=>{const list=d.items.filter(x=>x.type===t);if(!list.length)return;const g=el("div","vault-group");g.append(el("h3",0,VT[t][1]));
+  list.forEach(it=>{const row=el("div","vault-it"+(vaultOpen===it.id?" open":""));row.dataset.id=it.id;const hd=el("button","vault-row");const ic=el("span","cell-ic");ic.append(I(VT[t][0],18));const tx=el("span","cell-t");tx.append(el("span",0,it.label),el("small",0,vSub(it)));hd.append(ic,tx,I(vaultOpen===it.id?"chevron-down":"chevron-right",16));
+   hd.onclick=()=>{vaultOpen=vaultOpen===it.id?null:it.id;renderVault()};row.append(hd);if(vaultOpen===it.id)row.append(vaultDetail(it));g.append(row)});B.append(g)});
+ if(d.uses&&d.uses.length){const det=el("details","mem-log vault-log");det.append(el("summary",0,"Lịch sử dùng ("+d.uses.length+")"));const ol=el("ol");d.uses.forEach(u=>{const li=el("li");li.append(el("b",0,VA[u.action]||u.action),el("span",0," "+u.label+(u.target?" · "+u.target:"")),el("small",0," — "+(u.bot?(byId(u.bot)?.name||"bot")+", ":"")+ago(u.at)));if(u.result)li.append(el("small","vault-res",u.result));ol.append(li)});det.append(ol);B.append(det)}}
+function vaultDetail(it){const box=el("div","vault-det");const sh=vaultShown[it.id];const VFm=Object.fromEntries((VF[it.type]||[]).map(x=>[x[0],x[1]]));
+ (it.filled||[]).forEach(k=>{const r=el("div","vault-f");r.append(el("span",0,VFm[k]||k));const v=sh?sh.fields[k]:"";const val=el("code",sh?"shown":0,sh?(k==="number"?v.replace(/(.{4})/g,"$1 ").trim():v):"••••••••");val.dataset.noi18n="";r.append(val);
+  if(sh){const cp=el("button","icon-btn sm");cp.setAttribute("aria-label","Sao chép");cp.append(I("copy",15));cp.onclick=()=>{navigator.clipboard?.writeText(v).then(()=>toast("Đã sao chép")).catch(()=>{})};r.append(cp)}box.append(r)});
+ if(sh&&sh.code){const r=el("div","vault-f");r.append(el("span",0,"Mã 2 lớp hiện tại"),el("code","shown",sh.code));box.append(r)}
+ const bar=el("div","mem-bar");const eye=el("button","pill ghost");eye.dataset.vreveal=it.id;eye.append(I(sh?"eye-off":"eye",16),el("span",0,sh?"Ẩn":"Hiện giá trị"));
+ eye.onclick=async()=>{if(vaultShown[it.id]){delete vaultShown[it.id];renderVault();return}try{const r=await api(`/vault/${it.id}/reveal`,{});vaultShown[it.id]=r;renderVault();setTimeout(()=>{if(vaultShown[it.id]===r){delete vaultShown[it.id];if(sheetOpen===$("#vaultSheet"))renderVault()}},30000)}catch{toast("Không mở được")}};
+ const ed=el("button","pill ghost");ed.append(I("pencil",16),el("span",0,"Sửa"));ed.onclick=()=>{delete vaultShown[it.id];vaultEdit={type:it.type,id:it.id};renderVault()};
+ const del=el("button","pill ghost danger");del.append(I("trash-2",16),el("span",0,"Xoá"));del.onclick=async()=>{if(!confirm("Xoá “"+it.label+"” khỏi Vault?"))return;try{await api(`/vault/${it.id}/delete`,{});delete vaultShown[it.id];vaultOpen=null;toast("Đã xoá");openVault(true)}catch{toast("Không xoá được")}};
+ bar.append(eye,ed,del);box.append(bar);if(sh)box.append(el("small","hint","Tự ẩn sau 30 giây. Lần xem này được ghi vào lịch sử."));return box}
+$("#closeVault").onclick=()=>{vaultShown={};vaultEdit=null;closeSheet(true)};
+// in-chat Vault form card: the bot asked to save a card/login/details; values go straight to the vault
+function vaultCard(m){const x=m.secret,t=x.vault,key="vault-saved:"+m.id,saved=localStorage.getItem(key),c=el("div","secret vault-card"+(saved?" saved":""));c.dataset.id=m.id;c.dataset.name=x.name;
+ const top=el("div","sec-top");top.append(I(VT[t]?VT[t][0]:"lock",18),el("b",0,x.label||VT[t][1]),el("code",0,"Vault"));c.append(top);if(x.desc)c.append(el("p","sec-desc",x.desc));
+ if(saved){const d=el("div","sec-done");d.append(I("check",16),el("span",0,"Đã lưu vào Vault · "+saved));c.append(d);return c}
+ c.append(vaultForm(t,null,it=>{localStorage.setItem(key,vSub(it)||it.label);nodeCache.delete(m.id);renderThread()},{task:m.taskId,label:x.label,site:x.site}));return c}
+{const _rs3=renderSettings;renderSettings=function(){_rs3();const B=$("#settingsBody");const c=card("Bảo mật",cell("shield-check","Vault",{id:"openVault",sub:"Thẻ, đăng nhập, thông tin cá nhân · mã hoá",onClick:()=>openVault()}));const u=$("#openUsage");const g=u&&u.closest(".card-group");g?g.after(c):B.append(c)}}
+window.__AURORA=Object.assign(window.__AURORA||{},{openVault});
 })();
