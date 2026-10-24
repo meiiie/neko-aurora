@@ -58,6 +58,11 @@ func computerArg(t toolReq) string {
 
 // displayArg is what the tool card shows (never a whole file body).
 func displayArg(c toolCall) string {
+	if strings.HasPrefix(c.name, "vault_") {
+		var x toolReq
+		_ = json.Unmarshal([]byte(c.arg), &x)
+		return clean(strings.TrimSpace(x.Item+" "+first(x.URL, x.Cmd)), 200)
+	}
 	if c.name == "computer_write_file" || c.name == "computer_edit_file" {
 		var x struct{ Path string }
 		_ = json.Unmarshal([]byte(c.arg), &x)

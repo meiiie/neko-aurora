@@ -80,6 +80,7 @@ type memStore struct {
 	mu   sync.Mutex
 	path string
 	m    map[string][]memItem
+	mask func(string) string // vault redaction: a fact holding a stored secret is refused
 }
 
 const maxMemPerBot = 30
@@ -156,7 +157,7 @@ func (ms *memStore) RememberBy(bot, text, by string) bool {
 		return false
 	}
 	text = clean(text, 300)
-	if text == "" || looksSecret(text) {
+	if text == "" || looksSecret(text) || ms.mask != nil && ms.mask(text) != text {
 		return false
 	}
 	ms.mu.Lock()
@@ -187,7 +188,7 @@ func (ms *memStore) Edit(bot string, i int, text, by string) error {
 		return ErrNotFound
 	}
 	text = clean(text, 300)
-	if text == "" || looksSecret(text) {
+	if text == "" || looksSecret(text) || ms.mask != nil && ms.mask(text) != text {
 		return ErrInvalid
 	}
 	ms.mu.Lock()

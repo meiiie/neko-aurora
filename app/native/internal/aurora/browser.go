@@ -48,12 +48,12 @@ func (s *Service) browserOpen(ctx context.Context, raw string) (tools.Result, er
 	cctx, cancel := context.WithTimeout(ctx, 40*time.Second)
 	defer cancel()
 	args := []string{"--headless=new", "--disable-gpu", "--no-first-run", "--no-default-browser-check", "--disable-extensions", "--disable-sync", "--mute-audio", "--user-data-dir=" + dir, "--virtual-time-budget=6000", "--dump-dom", raw}
-	if os.Getuid() == 0 {
-		args = append([]string{"--no-sandbox"}, args...)
+	if os.Getuid() == 0 || Env("BROWSER_NOSANDBOX") == "1" {
+		args = append([]string{"--no-sandbox", "--disable-dev-shm-usage"}, args...)
 	}
 	if hosted() {
 		// resolve-time guard for the browser's own network stack
-		args = append([]string{"--host-resolver-rules=MAP localhost ~NOTFOUND, MAP *.local ~NOTFOUND"}, args...)
+		args = append([]string{"--host-resolver-rules=MAP localhost ~NOTFOUND, MAP *.local ~NOTFOUND, MAP *.internal ~NOTFOUND"}, args...)
 	}
 	cmd := exec.CommandContext(cctx, bin, args...)
 	cmd.Env = []string{"HOME=" + dir, "PATH=" + os.Getenv("PATH"), "LANG=C.UTF-8"}

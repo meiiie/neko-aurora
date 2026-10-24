@@ -119,6 +119,7 @@ func open(dir string, fixed []byte) (*Vault, error) {
 	blk, _ := aes.NewCipher(key)
 	aead, _ := cipher.NewGCM(blk)
 	v := &Vault{path: filepath.Join(dir, "vault.json"), aead: aead, items: map[string]entry{}, cache: map[string]string{}}
+	defer register(v)
 	b, err := os.ReadFile(v.path)
 	if err == nil {
 		var list []entry
@@ -230,7 +231,9 @@ func (v *Vault) List() []Meta {
 	v.mu.RLock()
 	defer v.mu.RUnlock()
 	for _, e := range v.items {
-		out = append(out, e.Meta)
+		if !isItemKind(e.Kind) {
+			out = append(out, e.Meta)
+		}
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].Name < out[j].Name })
 	return out
@@ -244,6 +247,10 @@ func (v *Vault) Redact(s string) string {
 	v.mu.RLock()
 	defer v.mu.RUnlock()
 	for n, val := range v.cache {
+		if isItemKind(v.items[n].Kind) {
+			s = redactItem(s, n, val)
+			continue
+		}
 		if len(val) >= 4 && v.items[n].Kind != "plain" {
 			s = strings.ReplaceAll(s, val, "«"+n+"»")
 			if c := strings.ReplaceAll(val, " ", ""); c != val && len(c) >= 4 {
@@ -264,6 +271,83 @@ type redactW struct {
 
 func (r redactW) Write(p []byte) (int, error) {
 	if _, err := r.w.Write([]byte(r.v.Redact(string(p)))); err != nil {
+		return 0, err
+	}
+	return len(p), nil
+}
+
+// redactItem masks each secret field of a typed item: «VI_ID.field». A card
+// number is also caught with spaces/dashes every 4 digits.
+func redactItem(s, n, val string) string {
+	var f map[string]string
+	if json.Unmarshal([]byte(val), &f) != nil {
+		return s
+	}
+	keys := make([]string, 0, len(f))
+	for k := range f {
+		keys = append(keys, k)
+	}
+	sort.Slice(keys, func(i, j int) bool { return len(f[keys[i]]) > len(f[keys[j]]) }) // longest first
+	for _, k := range keys {
+		x := f[k]
+		if plainField[k] || len(x) < 3 || (len(x) < 4 && k != "cvc") {
+			continue
+		}
+		tag := "«" + n + "." + k + "»"
+		if k == "cvc" {
+			// 3-4 digits are too common to replace everywhere: only next to a CVC label
+			s = regexp.MustCompile(`(?i)((?:cvc|cvv|csc|security code|mã bảo mật)\W{0,6})`+regexp.QuoteMeta(x)+`\b`).ReplaceAllString(s, "${1}"+tag)
+			continue
+		}
+		s = strings.ReplaceAll(s, x, tag)
+		if k == "number" && len(x) >= 12 {
+			for _, sep := range []string{" ", "-"} {
+				var g []string
+				for i := 0; i < len(x); i += 4 {
+					g = append(g, x[i:min(i+4, len(x))])
+				}
+				s = strings.ReplaceAll(s, strings.Join(g, sep), tag)
+			}
+		}
+	}
+	return s
+}
+
+// Every open vault, so the shared process log is redacted with all of them
+// (hosted mode opens one vault per user; one log.SetOutput serves all).
+var (
+	regMu sync.RWMutex
+	reg   = map[string]*Vault{}
+)
+
+func register(v *Vault) {
+	regMu.Lock()
+	reg[v.path] = v // reopening the same dir replaces the old handle
+	regMu.Unlock()
+}
+
+// Close drops v from the log redaction set (account deleted).
+func (v *Vault) Close() {
+	regMu.Lock()
+	if reg[v.path] == v {
+		delete(reg, v.path)
+	}
+	regMu.Unlock()
+}
+
+// LogWriter redacts every write with every open vault.
+func LogWriter(w io.Writer) io.Writer { return allW{w} }
+
+type allW struct{ w io.Writer }
+
+func (a allW) Write(p []byte) (int, error) {
+	s := string(p)
+	regMu.RLock()
+	for _, v := range reg {
+		s = v.Redact(s)
+	}
+	regMu.RUnlock()
+	if _, err := a.w.Write([]byte(s)); err != nil {
 		return 0, err
 	}
 	return len(p), nil
