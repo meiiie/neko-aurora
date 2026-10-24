@@ -50,3 +50,20 @@ func TestBrandAssetsServed(t *testing.T) {
 		}
 	}
 }
+
+func TestServeGzipAndETag(t *testing.T) {
+	r := httptest.NewRequest("GET", "/app/app.js", nil)
+	r.Header.Set("Accept-Encoding", "gzip")
+	w := httptest.NewRecorder()
+	Serve(w, r)
+	if w.Header().Get("Content-Encoding") != "gzip" || w.Header().Get("ETag") == "" {
+		t.Fatalf("headers %v", w.Header())
+	}
+	r2 := httptest.NewRequest("GET", "/app/app.js", nil)
+	r2.Header.Set("If-None-Match", w.Header().Get("ETag"))
+	w2 := httptest.NewRecorder()
+	Serve(w2, r2)
+	if w2.Code != 304 {
+		t.Fatalf("want 304, got %d", w2.Code)
+	}
+}

@@ -12,10 +12,11 @@ License headers are kept in the files that carry derived code.
 - Source: https://github.com/CopilotKit/openmuse (commit 1ac68f3909f2478ab6280883f1ab5ea65eb5719d)
 - Used: `TaskStatus`, `TaskStep`, `RunEvent` shapes from `packages/domain/src/agent.ts`
 - In: `app/native/internal/aurora/agui.go`, `app/native/internal/ledger/direct_runtime.go` (step statuses)
+- Patterns (re-implemented in Go, no code copied): serial ordered commit of parallel tool calls (`engine/model.ts` `serial()`), user-confirmed memories (`remember_fact`), capped untrusted page text — in `app/native/internal/aurora/tools.go`, `harness.go`
 
 ## OpenDots (CopilotKit) — MIT
 - Source: https://github.com/CopilotKit/OpenDots
-- Used: UX patterns only (human-in-the-loop review cards, tool-rendered cards). No code copied.
+- Used: UX patterns only (human-in-the-loop review cards, tool-rendered cards), and the per-result character cap with a truncation marker (`src/server/connections.ts`) in `harness.go`. No code copied.
 
 ### MIT License text
 
@@ -117,3 +118,30 @@ WITHOUT WARRANTY OF ANY KIND.
   of sources from apps/mobile/src/search-tool-card.tsx (commit 1ac68f3).
 - Versioned, domain-separated AES-GCM envelope (packages/integrations/src/vault.ts):
   our vault entries now carry `v: 1` with AAD `neko-aurora:secret:v1:<name>`.
+
+## Neko Core (Meiiie / The Wiii Lab) — AGPL-3.0-only (outside sdk/)
+- Source: https://github.com/meiiie/neko-core
+- Used: design patterns only, re-implemented in Go/JS (non-blocking input queue that drains in order, abort-at-step-boundary steering, checkpointed continuation after interruption). No code copied. See docs/runtime-decision-2026-10-23.md.
+
+## pstack (Lauren Tan / poteto) — MIT, © 2026 Lauren Tan
+- Source: https://github.com/cursor/plugins/tree/main/pstack (commit 8b3326d)
+- Used: ideas "attack the premise" and "prove it works", re-implemented as Go gates
+  in app/native/internal/aurora/pivot.go (failure fingerprints: premise nudge on the
+  2nd repeat, honest stop with choices on the 3rd) and artifacts.go (a checklist item
+  closes only when a real file passes a type check; results in verify.txt). Prompt
+  text is our own Vietnamese wording. No code copied.
+
+Permission is hereby granted, free of charge, to any person obtaining a copy of this
+software and associated documentation files (the "Software"), to deal in the Software
+without restriction, including without limitation the rights to use, copy, modify,
+merge, publish, distribute, sublicense, and/or sell copies of the Software, and to
+permit persons to whom the Software is furnished to do so, subject to the following
+conditions: The above copyright notice and this permission notice shall be included in
+all copies or substantial portions of the Software. THE SOFTWARE IS PROVIDED "AS IS",
+WITHOUT WARRANTY OF ANY KIND.
+
+## DeepSeek-Bot (DS Bot)
+
+https://github.com/Fei2411/DeepSeek-Bot — Apache License 2.0, © 2026 Fei2411 and the DS Bot contributors.
+Neko Aurora ports design ideas only (post-turn memory review, a clock in the model context, restart-safe
+request handling); no source code was copied. See docs/deepseek-bot-study-2026-10-23.md.

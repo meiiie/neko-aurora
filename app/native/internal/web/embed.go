@@ -1,8 +1,14 @@
 package web
 
 import (
+	"bytes"
+	"compress/gzip"
+	"crypto/sha256"
 	"embed"
+	"encoding/hex"
 	"net/http"
+	"strings"
+	"sync"
 )
 
 //go:embed assets/*
@@ -18,6 +24,7 @@ var contentTypes = map[string]string{
 	"/app/app.js":                "text/javascript; charset=utf-8",
 	"/app/i18n.js":               "text/javascript; charset=utf-8",
 	"/app/md.js":                 "text/javascript; charset=utf-8",
+	"/app/ux.js":                 "text/javascript; charset=utf-8",
 	"/app/style.css":             "text/css; charset=utf-8",
 	"/app/sw.js":                 "text/javascript; charset=utf-8",
 	"/app/icon.svg":              "image/svg+xml",
@@ -30,6 +37,10 @@ var contentTypes = map[string]string{
 	"/app/privacy.html":          "text/html; charset=utf-8",
 	"/app/terms.html":            "text/html; charset=utf-8",
 	"/app/legal.css":             "text/css; charset=utf-8",
+	"/app/signin.html":           "text/html; charset=utf-8",
+	"/app/welcome.html":          "text/html; charset=utf-8",
+	"/app/hosted.css":            "text/css; charset=utf-8",
+	"/app/hosted.js":             "text/javascript; charset=utf-8",
 }
 
 // The Neko Aurora design system (tokens, fonts, icons) is shared by the
@@ -82,7 +93,45 @@ func Serve(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", contentType)
 	if name == "/app/sw.js" {
 		w.Header().Set("Service-Worker-Allowed", "/app/")
-		w.Header().Set("Cache-Control", "no-cache")
+	}
+	// revalidate every load (deploys change files in place), but answer an
+	// unchanged file with 304 and send text gzipped (app.js 113 KB -> 39 KB)
+	z := packed(name, body, strings.HasPrefix(contentType, "text/") || strings.Contains(contentType, "json") || strings.Contains(contentType, "svg"))
+	w.Header().Set("Cache-Control", "no-cache")
+	w.Header().Set("ETag", z.etag)
+	w.Header().Add("Vary", "Accept-Encoding")
+	if r.Header.Get("If-None-Match") == z.etag {
+		w.WriteHeader(http.StatusNotModified)
+		return
+	}
+	if z.gz != nil && strings.Contains(r.Header.Get("Accept-Encoding"), "gzip") {
+		w.Header().Set("Content-Encoding", "gzip")
+		_, _ = w.Write(z.gz)
+		return
 	}
 	_, _ = w.Write(body)
+}
+
+type packedAsset struct {
+	etag string
+	gz   []byte
+}
+
+var packedCache sync.Map
+
+func packed(name string, body []byte, text bool) packedAsset {
+	if v, ok := packedCache.Load(name); ok {
+		return v.(packedAsset)
+	}
+	h := sha256.Sum256(body)
+	z := packedAsset{etag: `"` + hex.EncodeToString(h[:8]) + `"`}
+	if text && len(body) > 1024 {
+		var b bytes.Buffer
+		g, _ := gzip.NewWriterLevel(&b, gzip.BestCompression)
+		_, _ = g.Write(body)
+		_ = g.Close()
+		z.gz = b.Bytes()
+	}
+	packedCache.Store(name, z)
+	return z
 }

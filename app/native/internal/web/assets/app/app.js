@@ -30,8 +30,10 @@ const API="/app/api";
 // iOS shell (Capacitor) native plugins, null in the browser
 const CAP=window.Capacitor&&window.Capacitor.isNativePlatform&&window.Capacitor.isNativePlatform()?window.Capacitor.Plugins:null;
 
-async function api(path,body){const r=await fetch(API+path,{method:body===undefined?"GET":"POST",credentials:"same-origin",cache:"no-store",headers:body===undefined?{}:{"Content-Type":"application/json"},body:body===undefined?undefined:JSON.stringify(body)});
- if(!r.ok){const e=new Error(String(r.status));e.status=r.status;throw e}return r.json()}
+async function api(path,body,retry){const get=body===undefined;let r;try{r=await fetch(API+path,{method:get?"GET":"POST",credentials:"same-origin",cache:"no-store",headers:get?{}:{"Content-Type":"application/json"},body:get?undefined:JSON.stringify(body),signal:get&&AbortSignal.timeout?AbortSignal.timeout(15000):undefined});
+ // a GET stuck on a container that is shutting down (deploy) or a 503 while the workspace opens: retry once on a fresh connection
+ if(get&&!retry&&r.status===503){await new Promise(f=>setTimeout(f,1500));return api(path,body,true)}
+ if(!r.ok){const e=new Error(String(r.status));e.status=r.status;e.body=await r.json().catch(()=>null);throw e}return get?await r.json():r.json()}catch(e){if(get&&!retry&&!e.status){await new Promise(f=>setTimeout(f,800));return api(path,body,true)}throw e}}
 const T=x=>new Date(x).getTime();
 const isGroup=a=>a&&a.kind==="group";
 const bots=()=>S.agents.filter(a=>!isGroup(a));
@@ -58,13 +60,13 @@ addEventListener("online",()=>{net();if(es&&es.readyState===2)connect()});addEve
 function connect(){es=new EventSource(API+"/events");
  es.onopen=()=>{if(esDown){esDown=false;loadState().catch(()=>{})}net()};
  es.onerror=()=>{esDown=true;setTimeout(net,2500)};
- es.addEventListener("agent",e=>{const a=JSON.parse(e.data);if(seen&&seen[a.id]==null)markSeen(a.id);upsert(a);if(cur&&cur.id===a.id){cur=a;markSeen(a.id);renderThread()}renderListSoon()});
+ es.addEventListener("agent",e=>{const a=JSON.parse(e.data);const was=S.agents.find(x=>x.id===a.id);if(was&&was.status==="working"&&a.status!=="working"&&S.msgs[a.id])loadMsgs(a.id).catch(()=>{});/* adopt server order once a turn ends (messages folded in mid-turn sit before the answer) */if(seen&&seen[a.id]==null)markSeen(a.id);upsert(a);if(cur&&cur.id===a.id){cur=a;markSeen(a.id);renderThread()}renderListSoon()});
  es.addEventListener("archived",e=>{const {id}=JSON.parse(e.data);S.agents=S.agents.filter(a=>a.id!==id);S.pending=S.pending.filter(m=>m.agentId!==id);renderListSoon()});
  es.addEventListener("message",e=>{const m=JSON.parse(e.data);const L=S.msgs[m.agentId];delete S.drafts[m.id];
   if(L){const i=L.findIndex(x=>x.id===m.id);if(i>=0)L[i]=m;else{const j=/:step\d+$/.test(m.id)?L.findIndex(x=>x.id===m.taskId):-1;if(j>=0)L.splice(j,0,m);else L.push(m)}}
   S.pending=S.pending.filter(x=>x.id!==m.id);if(m.approval&&m.approval.state==="pending")S.pending.push(m);
   if(cur&&cur.id===m.agentId)renderThread();renderListSoon()});
- es.addEventListener("delta",e=>{const d=JSON.parse(e.data);S.deltaCount=(S.deltaCount||0)+1;const x=S.drafts[d.id]||(S.drafts[d.id]={agentId:d.agentId,from:d.from,text:""});x.text=typeof d.text==="string"?d.text:x.text+d.delta;if(cur&&cur.id===d.agentId)paintDraft(d.id)});
+ es.addEventListener("delta",e=>{const d=JSON.parse(e.data);S.deltaCount=(S.deltaCount||0)+1;if(!S.drafts[d.id])setTimeout(()=>{if(S.drafts[d.id]&&cur&&cur.id===d.agentId&&!document.getElementById("d_"+d.id))paintDraft(d.id)},470);const x=S.drafts[d.id]||(S.drafts[d.id]={agentId:d.agentId,from:d.from,text:"",t0:Date.now()});x.text=typeof d.text==="string"?d.text:x.text+d.delta;if(cur&&cur.id===d.agentId)paintDraft(d.id)});
  es.addEventListener("draft_end",e=>{const d=JSON.parse(e.data);if(S.drafts[d.id]){delete S.drafts[d.id];if(cur&&cur.id===d.agentId)renderThread()}});
  es.addEventListener("activity",e=>{if(sheetOpen===$("#activity"))renderLog([JSON.parse(e.data)],true)});
  es.addEventListener("brief",e=>{S.brief=JSON.parse(e.data);renderListSoon()});
@@ -72,6 +74,8 @@ function connect(){es=new EventSource(API+"/events");
 }
 // ---------- list ----------
 function avatarOf(a,sz){if(!isGroup(a))return face(a.av,sz);const w=el("span","stack");w.style.width=w.style.height=sz+"px";(a.members||[]).slice(0,2).forEach((id,i)=>{const b=byId(id);w.append(face(b&&b.av,Math.round(sz*.64),"s"+i))});return w}
+// chat header avatar carries the same presence dot as the list (Messenger-style)
+function headAvatar(a){const h=$("#threadAvatar");const k=a.status==="working"?"work":waiting(a)?"wait":"";if(h.dataset.k===k&&h.dataset.id===a.id&&h.firstChild)return;h.dataset.k=k;h.dataset.id=a.id;h.classList.add("head-av");h.replaceChildren(avatarOf(a,32));const bd=badge(a);if(bd)h.append(bd)}
 function badge(a){const k=a.status==="working"?"work":waiting(a)?"wait":a.status==="error"?"err":"";if(!k)return null;const b=el("i","badge "+k);b.setAttribute("aria-hidden","true");return b}
 let filter="";
 const statusLine=a=>a.status==="working"?"Đang làm việc…":waiting(a)?"Chờ bạn duyệt":a.snip||a.desc||"";
@@ -180,7 +184,7 @@ function swipeRow(li,inn){let x0,y0,dx=0,mode=null,base=0;
 let cur=null;
 const stateTxt={working:"Đang làm việc…",waiting:"Chờ bạn duyệt",idle:"Sẵn sàng",done:"Đã xong",error:"Có lỗi"};
 const stateLine=a=>isGroup(a)&&a.status!=="working"&&!waiting(a)?(a.members||[]).map(id=>byId(id)?.name).filter(Boolean).join(", "):a.status==="working"&&a.snip&&a.snip.startsWith("Bước")?a.snip:waiting(a)?"Chờ bạn duyệt":stateTxt[a.status]||"";
-function openThread(id){const a=byId(id);if(!a)return;closeMenu();cur=a;markSeen(id);$("#threadAvatar").replaceChildren(avatarOf(a,32));$("#threadName").textContent=a.name;$("#threadState").textContent=stateLine(a);$("#input").placeholder=isGroup(a)?"Hỏi cả nhóm":"Hỏi "+a.name;closeFind();renderThread();loadMsgs(id).catch(()=>toast("Không tải được hội thoại"));$("#thread").classList.remove("off");$("#list").classList.add("under");buzz("tap");const hs=history.state;if(hs&&hs.spent)history.replaceState({t:1},"","#"+id);else if(!(hs&&hs.t))history.pushState({t:1},"","#"+id)}
+function openThread(id){const a=byId(id);if(!a)return;closeMenu();cur=a;markSeen(id);headAvatar(a);$("#threadName").textContent=a.name;$("#threadState").textContent=stateLine(a);$("#input").placeholder=isGroup(a)?"Hỏi cả nhóm":"Hỏi "+a.name;closeFind();renderThread();loadMsgs(id).catch(()=>toast("Không tải được hội thoại"));$("#thread").classList.remove("off");$("#list").classList.add("under");buzz("tap");const hs=history.state;if(hs&&hs.spent)history.replaceState({t:1},"","#"+id);else if(!(hs&&hs.t))history.pushState({t:1},"","#"+id)}
 function closeThread(fromPop){if(!cur)return;if(profId)closeProfile(true);closeFind();markSeen(cur.id);cur=null;stopVoice();$("#thread").classList.add("off");$("#list").classList.remove("under");$("#thread").style.transform="";$("#list").style.transform="";renderList();if(!fromPop&&history.state&&history.state.t)history.replaceState({spent:1},"",location.pathname)}
 const deciding=new Set();
 const ICON={pending:"○",running:"◐",done:"✓",waiting:"⏸",failed:"✕",cancelled:"–"};
@@ -190,17 +194,20 @@ function planCard(m){const c=el("div","plan");const st=m.plan.steps,done=st.filt
  const bar=el("div","bar");const f=el("i");f.style.width=(100*done/st.length)+"%";bar.append(f);c.append(bar);
  const ol=el("ol");st.forEach((x,i)=>{const li=el("li","step "+x.status);li.append(stepIcon(x.status),el("span",0,x.title));ol.append(li)});c.append(ol);return c}
 function approvalCard(m){const ap=m.approval,c=el("div","approval"+(ap.state!=="pending"?" done":""));c.dataset.id=m.id;
- c.append(el("small",0,ap.state==="superseded"?"Đã thay bằng yêu cầu mới":"Cần bạn duyệt · không gửi khi chưa có OK"),el("div","ap-title",ap.title));
+ c.append(el("small",0,ap.state==="superseded"?"Đã thay bằng yêu cầu mới":ap.kind==="computer"?"Lệnh trên máy tính của bot · chỉ chạy khi bạn duyệt":"Cần bạn duyệt · không gửi khi chưa có OK"),el("div","ap-title",ap.title));
  if(ap.to){const meta=el("div","ap-meta");meta.append(el("span",0,"Tới: "),el("b",0,ap.to));c.append(meta)}
  const ed=ap.state==="pending"&&editing.has(m.id);
  if(ap.subject||(ed&&ap.kind==="email")){if(ed){const i=el("input","ap-subject");i.value=ap.subject||"";i.setAttribute("aria-label","Tiêu đề");c.append(i)}else{const meta=el("div","ap-meta");meta.append(el("span",0,"Tiêu đề: "),el("b",0,ap.subject));c.append(meta)}}
- if(ed){const t=el("textarea","ap-body");t.value=ap.body;t.rows=8;t.setAttribute("aria-label","Nội dung");c.append(t)}else c.append(el("pre",0,ap.body));
+ if(ed){const t=el("textarea","ap-body");t.value=ap.body;t.rows=8;t.setAttribute("aria-label","Nội dung");c.append(t)}else if(ap.kind==="computer"){const cs=AURORA_UX.cmdShown(ap.body),fc=AURORA_UX.foldCmd(cs.cmd),pre=el("pre","ap-cmd",fc.head);pre.title=ap.body;pre.dataset.noi18n="";c.append(pre);if(fc.more){const d=el("details","ap-more"),sm=el("summary",0,"Xem cả lệnh · thêm "+fc.more+" dòng"),rp=el("pre","ap-cmd",fc.rest);rp.dataset.noi18n="";d.append(sm,rp);c.append(d)}}else c.append(el("pre",0,ap.body));
+ const os=ap.kind==="computer"&&ap.outcome?AURORA_UX.outSummary(ap.outcome):null;
+ if(os&&os.count){if(os.long){const d=el("details","ap-outd"),sm=el("summary",0,`Xem toàn bộ đầu ra · ${os.count} dòng`);const tail=el("pre","ap-out ap-tail",os.tail),full=el("pre","ap-out",os.full);tail.dataset.noi18n=full.dataset.noi18n="";d.append(sm,full);c.append(tail,d)}else{const o=el("pre","ap-out",os.full);o.dataset.noi18n="";c.append(o)}}
  if(ap.state==="pending"){const bs=el("div","btns"),no=el("button",0,"Để sau"),e=el("button",0,ed?"Huỷ sửa":"Sửa"),go=el("button","go",ed?"Lưu & duyệt":"Duyệt");
   no.onclick=()=>decide(m,"declined",bs);e.onclick=()=>{ed?editing.delete(m.id):editing.add(m.id);renderThread()};
   go.onclick=()=>{const ex={};if(ed){ex.body=c.querySelector(".ap-body").value;const sj=c.querySelector(".ap-subject");if(sj)ex.subject=sj.value;if(!ex.body.trim()){toast("Nội dung trống");return}}decide(m,"approved",bs,ex)};
   if(deciding.has(m.id))no.disabled=e.disabled=go.disabled=true;bs.append(no,e,go);c.append(bs);
   c.append(el("small","hint","Muốn đổi hướng? Nhắn yêu cầu mới, bản nháp này sẽ được thay."))}
- else if(ap.state!=="superseded"){const dv=ap.delivery,DS={queued:"đang chờ kênh email",sending:"đang gửi…",sent:"đã gửi"+(dv&&dv.from?" từ "+dv.from:""),failed:"gửi thất bại"+(dv&&dv.detail?": "+dv.detail:"")};c.append(el("small",0,ap.state==="approved"?(dv?"✓ Bạn đã duyệt · "+DS[dv.status]:"✓ Bạn đã duyệt · chưa gửi ra ngoài (kênh gửi chưa kết nối)"):"Đã hoãn"))}
+ else if(ap.state!=="superseded"){const dv=ap.delivery,DS={queued:"đang chờ kênh email",sending:"đang gửi…",sent:"đã gửi"+(dv&&dv.from?" từ "+dv.from:""),failed:"gửi thất bại"+(dv&&dv.detail?": "+dv.detail:"")};if(ap.kind==="computer"&&ap.state==="approved"){const sec=os&&os.secs!=null?" · "+String(os.secs).replace(".",",")+"s":"";c.append(el("small","ap-line"+(os&&os.exit?" bad":""),!dv||dv.status==="sending"||dv.status==="queued"?"✓ Đã duyệt · đang chạy…":dv.status==="failed"?"✓ Đã duyệt · không chạy được"+(dv.detail?": "+dv.detail:""):os&&os.exit?`✓ Đã duyệt · lỗi (mã thoát ${os.exit})${os.err?" · "+os.err:""}${sec}`:`✓ Đã duyệt · chạy xong${os&&os.exit===0?" · mã thoát 0":""}${sec}`));return c}
+ c.append(el("small",0,ap.state==="approved"?(dv?"✓ Bạn đã duyệt · "+DS[dv.status]:"✓ Bạn đã duyệt · chưa gửi ra ngoài (kênh gửi chưa kết nối)"):"Đã hoãn"))}
  return c}
 // tool activity stays unobtrusive: a status line while running, folded into the
 // "Nguồn" footer afterwards (states/dedup after CopilotKit/openmuse search-tool-card.tsx, MIT)
@@ -209,48 +216,131 @@ function uniqSources(list){const seen=new Map();(list||[]).forEach((x,i)=>{if(!s
 // markdown lives in md.js (AURORA_MD); drafts render with streaming:true
 const md=(node,text,src,streaming)=>AURORA_MD.render(node,text,src,{streaming});
 document.addEventListener("aurora-copied",()=>{buzz("confirm");toast("Đã sao chép")});
-function sourceList(m){const w=el("details","sources");const sm=el("summary");const u=uniqSources(m.sources);const ok=u.length>0;sm.append(el("span",0,ok?`Nguồn · ${u.length}`:"Không lấy được dữ liệu"),I("chevron-down",14));w.append(sm);
+function sourceList(m){const w=el("details","sources");const sm=el("summary");const u=uniqSources(m.sources);const ok=u.length>0,T=m.tools||[],bad=T.length>0&&T.every(t=>t.status==="failed");sm.append(el("span",0,ok?`Nguồn · ${u.length}`:bad?"Không lấy được dữ liệu":`Các bước · ${T.length}`),I("chevron-down",14));w.append(sm);
  (m.tools||[]).forEach(t=>{const r=el("p","tool-line"+(t.status==="failed"?" bad":""),(t.summary||t.name)+(t.ms?" · "+(t.ms/1000).toFixed(1).replace(".",",")+"s":""));w.append(r)});const ol=el("ol");
  u.forEach(x=>{const li=el("li");const l=el("a");l.href=x.url;l.target="_blank";l.rel="noopener noreferrer";l.append(el("b",0,"["+x.n+"] "+(x.title||srcHost(x.url))),el("small",0,srcHost(x.url)+(x.at?" · "+new Date(x.at).toLocaleTimeString("vi-VN",{hour:"2-digit",minute:"2-digit"}):"")));li.append(l);ol.append(li)});w.append(ol);return w}
 function speaker(box,m,last){if(!isGroup(cur)||m.role!=="agent"||!m.from)return;if(last.v===m.from)return;last.v=m.from;const b=byId(m.from);const h=el("div","speaker");h.append(face(b&&b.av,20),el("span",0,b?b.name:"Bot"));box.append(h)}
-function renderThread(){const a=cur;if(!a)return;$("#threadState").textContent=stateLine(a);const box=$("#messages");
+function renderThread(){const a=cur;if(!a)return;$("#threadState").textContent=stateLine(a);headAvatar(a);const box=$("#messages");
  const keepSec=[...box.querySelectorAll(".secret input[data-secret]")].map(i=>[i.closest(".secret").dataset.id,i.value]);
+ const keepForm=[...box.querySelectorAll(".form-card [name]")].map(i=>[i.closest(".form-card").dataset.id,i.name,i.value]);
  const keepEdit=[...box.querySelectorAll(".ap-body")].map(t=>[t.closest(".approval").dataset.id,t.value,t.closest(".approval").querySelector(".ap-subject")?.value]);
- box.innerHTML="";const L=S.msgs[a.id]||[];const last={v:null};
- const pin=atBottom(box);let prevT=0;
- L.forEach((m,idx)=>{if(m.role!=="agent")last.v=null;const t=T(m.t);if(m.role==="user"&&t>0&&(!prevT||t-prevT>15*60e3))box.append(el("div","daystamp",dayStamp(t)));if(t>0)prevT=t;
-  if(m.text){speaker(box,m,last);const b=el("div","msg"+(m.role==="user"?" mine":m.role==="system"?" sys":" bot"));if(m.role==="agent")md(b,m.text,m.sources);else b.textContent=m.text;if(m.queued){b.append(el("span","chip","Đang chờ lượt"))}box.append(b)}
-  if(m.plan)box.append(planCard(m));
-  if(m.choices&&m.choices.length){const wrap=el("div","choices");const later=L.slice(idx+1).some(x=>x.role==="user");m.choices.forEach(ch=>{const b=el("button","choice",ch);b.disabled=later||usedChoice.has(m.id);b.onclick=async()=>{if(usedChoice.has(m.id))return;usedChoice.add(m.id);renderThread();if(!(await sendMsg(ch)))usedChoice.delete(m.id)};wrap.append(b)});box.append(wrap)}
-  if(m.tools&&m.tools.length&&m.text&&!(a.status==="working"&&idx===L.length-1&&!m.text))box.append(sourceList(m));
-  if(m.approval)box.append(approvalCard(m));if(m.secret)box.append(secretCard(m))});
+ const sEl=statusEl();[...box.childNodes].forEach(n=>n!==sEl&&n.remove());if(sEl.parentNode!==box)box.append(sEl);const all=S.msgs[a.id]||[];const W=win[a.id]||(win[a.id]=PAGE);const L=all.length>W?all.slice(-W):all;const last={v:null};
+ const first=stickFor!==a.id;if(first){stickFor=a.id;stick=true;nodeCache.clear()}const frag=document.createDocumentFragment();const mark=(n0,isNew)=>{if(isNew)[...frag.childNodes].slice(n0).forEach(n=>{if(!n.classList)return;n.classList.add("enter");n.addEventListener("animationend",()=>n.classList.remove("enter"),{once:true})})};
+ if(all.length>W){const o=el("button","older","Xem tin nhắn cũ hơn");o.type="button";o.onclick=loadOlder;frag.append(o)}if(justSent)stick=true;let prevT=0;
+ L.forEach((m,idx)=>{
+  // keyed reuse: a message whose data and context did not change keeps its
+  // DOM (no markdown re-parse, open folds and inputs stay as they are)
+  const later=m.choices&&m.choices.length?L.slice(idx+1).some(x=>x.role==="user"):false;
+  const sig=JSON.stringify(m)+"|"+(idx===L.length-1&&!m.text?a.status:"")+"|"+later+"|"+showThink+"|"+usedChoice.has(m.id)+"|"+last.v+"|"+prevT;
+  const hit=nodeCache.get(m.id);if(hit&&hit.sig===sig){hit.nodes.forEach(n=>frag.append(n));last.v=hit.lastV;prevT=hit.prevT;return}
+  const n0=frag.childNodes.length,isNew=!first&&!shownIds.has(m.id)&&!(m.role==="user"&&sentRecently(m.text));if(!first&&!shownIds.has(m.id))seenAt.set(m.id,Date.now());shownIds.add(m.id);if(m.role!=="agent")last.v=null;const t=T(m.t);if(m.role==="user"&&t>0&&(!prevT||t-prevT>15*60e3))frag.append(el("div","daystamp",dayStamp(t)));if(t>0)prevT=t;
+  const cp=m.role==="agent"&&AURORA_UX.isCheckpoint(m.text),body=cp?m.text.trim().slice(0,-AURORA_UX.CHECKPOINT.length).trim():m.text;
+  if(m.thinking&&m.role==="agent"&&showThink)frag.append(thinkCard(m));
+  if(body&&!AURORA_UX.isNoise(m)){speaker(frag,m,last);const b=el("div","msg"+(m.role==="user"?" mine":m.role==="system"?" sys":" bot"));if(m.role==="agent"){if(isNew&&!reduceMotion())typeIn(b,body,m.sources,a.id);else{md(b,body,m.sources);chipify(b,a.id)}}else b.textContent=body;frag.append(b)}
+  if(m.role==="user"&&m.ref)frag.append(el("div","note-line ref-line","Kèm ngữ cảnh: chat “"+m.ref+"”"));
+  if(cp)frag.append(el("div","note-line","↻ Đang làm tiếp ở lượt sau"));
+  if(m.plan)frag.append(planCard(m));
+  if(m.choices&&m.choices.length){const wrap=el("div","choices");const later=L.slice(idx+1).some(x=>x.role==="user");m.choices.forEach(ch=>{const b=el("button","choice",ch);b.disabled=later||usedChoice.has(m.id);b.onclick=async()=>{if(usedChoice.has(m.id))return;usedChoice.add(m.id);renderThread();if(!(await sendMsg(ch)))usedChoice.delete(m.id)};wrap.append(b)});frag.append(wrap)}
+  if(m.form)frag.append(formCard(m));
+  if(m.tools&&m.tools.length&&(m.text||m.approval)&&!(a.status==="working"&&idx===L.length-1&&!m.text))frag.append(sourceList(m));
+  if(m.approval)frag.append(approvalCard(m));if(m.secret)frag.append(secretCard(m));mark(n0,isNew);nodeCache.set(m.id,{sig,nodes:[...frag.childNodes].slice(n0),lastV:last.v,prevT})});
+ box.insertBefore(frag,sEl);
+ keepForm.forEach(([id,n,v])=>{const i=box.querySelector(`.form-card[data-id="${id}"] [name="${n}"]`);if(i&&v)i.value=v});
  keepSec.forEach(([id,v])=>{const i=box.querySelector(`.secret[data-id="${id}"] input[data-secret]`);if(i)i.value=v});
  keepEdit.forEach(([id,v,sj])=>{const c=box.querySelector(`.approval[data-id="${id}"]`);if(c){const t=c.querySelector(".ap-body");if(t)t.value=v;const s2=c.querySelector(".ap-subject");if(s2&&sj!=null)s2.value=sj}});
- Object.entries(S.drafts).forEach(([id,d])=>{if(d.agentId===a.id&&shown(d)){speaker(box,{role:"agent",from:d.from},last);const b=el("div","msg bot draft");md(b,visible(d.text),srcOf(id),true);b.id="d_"+id;box.append(b)}});
- if(a.status==="working"&&!Object.values(S.drafts).some(d=>d.agentId===a.id&&shown(d)))box.append(turnStatus(a,L));
+ outbox.filter(o=>o.agentId===a.id).forEach(o=>{last.v=null;const b=el("div","msg mine pending"+(o.shown?"":" enter"),o.text);o.shown=1;if(o.wait)b.append(el("span","chip","đang gửi…"));frag.append(b)});
+ Object.entries(S.drafts).forEach(([id,d])=>{if(d.agentId===a.id&&shown(d)){speaker(frag,{role:"agent",from:d.from},last);const b=el("div","msg bot draft"+(shownIds.has(id)?"":" enter"));shownIds.add(id);b.id="d_"+id;frag.append(b);if(reduceMotion())d.sl=1e9;drawDraft(id,b);requestAnimationFrame(()=>paintDraft(id))}});
+ // an answer just landed (first seen < 2.5 s ago, nothing running): no status line while the bot state catches up
+ const lm=L.at(-1),age=lm&&seenAt.has(lm.id)?Date.now()-seenAt.get(lm.id):1e9;
+ const landed=lm&&lm.role==="agent"&&lm.text&&age<2500&&!(lm.tools||[]).some(t=>t.status==="running")&&!(lm.approval&&lm.approval.state==="pending");
+ if(landed)setTimeout(()=>{if(cur&&cur.id===a.id)renderThread()},2600-age);
+ if(!L.length&&!outbox.some(o=>o.agentId===a.id)&&!Object.values(S.drafts).some(d=>d.agentId===a.id))frag.append(emptyThread(a));
+ box.insertBefore(frag,sEl);setStatus(a,L,!landed&&!Object.values(S.drafts).some(d=>d.agentId===a.id&&shown(d)));
  setSendMode();
- if(pin||justSent)requestAnimationFrame(()=>{box.scrollTop=box.scrollHeight;justSent=false;syncJump()})}
-// single status line (bot face + milestone text), replaced by the streamed answer
-function turnStatus(a,L){const lastW=[...L].reverse().find(m=>m.role==="agent"&&m.tools&&m.tools.length);const run=lastW&&lastW.tools.find(t=>t.status==="running");
- const txt=run?(run.summary||"Đang tra cứu"):lastW&&T(lastW.t)>=T((L.filter(m=>m.role==="user").at(-1)||{}).t)?"Đang tổng hợp":"Đang suy nghĩ";
- const d=el("div","status");d.setAttribute("role","status");const f=el("span","st-face");f.append(face(a.av||{},22));d.append(f,el("span","st-t",txt));return d}
+ if(stick)requestAnimationFrame(()=>{box.scrollTop=box.scrollHeight;justSent=false;syncJump()})}
+// long chats: the last PAGE messages render; older ones load on demand (button
+// or scrolling to the top) with the scroll position kept
+const PAGE=60,win={},nodeCache=new Map(),seenAt=new Map();
+function loadOlder(){if(!cur)return;const box=$("#messages"),h=box.scrollHeight,top=box.scrollTop;win[cur.id]=(win[cur.id]||PAGE)+PAGE;stick=false;renderThread();box.scrollTop=top+box.scrollHeight-h}
+// a finished answer that arrived whole (no stream) types in like a stream
+function typeIn(b,body,src,id){let k=0;b.classList.add("typing");const step=()=>{if(!b.isConnected&&k>0){md(b,body,src);chipify(b,id);return}const gap=body.length-k;k+=Math.max(3,Math.ceil(gap/14));while(k<body.length&&!/\s/.test(body[k]))k++;
+ if(k>=body.length){b.classList.remove("typing");md(b,body,src);chipify(b,id);if(stick){const x=$("#messages");x.scrollTop=x.scrollHeight}return}
+ md(b,body.slice(0,k),src,true);if(stick){const x=$("#messages");x.scrollTop=x.scrollHeight}requestAnimationFrame(step)};md(b,body.slice(0,Math.min(body.length,24)),src,true);requestAnimationFrame(step)}
+// PWA install: Android/Chrome gives a prompt event; iOS Safari only has the
+// Share menu, so the cell explains it. Hidden inside the app shell or once installed.
+let installEv=null;addEventListener("beforeinstallprompt",e=>{e.preventDefault();installEv=e});addEventListener("appinstalled",()=>{installEv=null;toast("Đã cài Neko Aurora")});
+const installable=()=>!(CAP||matchMedia("(display-mode: standalone)").matches||navigator.standalone);
+async function installApp(){if(installEv){installEv.prompt();try{await installEv.userChoice}catch{}installEv=null;return}toast("Trên iPhone: bấm nút Chia sẻ ở Safari, chọn “Thêm vào MH chính”")}
+// first open of a bot with no messages: who it is and three starters
+function emptyThread(a){const w=el("div","thread-empty enter");const f=el("div","te-face"),g=isGroup(a);
+ const mem=g?(a.members||[]).map(byId).filter(Boolean):[];if(g&&mem.length){f.classList.add("stack");mem.slice(0,3).forEach(b=>f.append(face(b.av||{},48)))}else f.append(face(a.av||{},64));
+ const names=mem.map(b=>b.name);const who=names.length>1?names.slice(0,-1).join(", ")+" và "+names.at(-1):names[0]||"";
+ w.append(f,el("b",0,a.name),el("p",0,g?(who?"Nhóm gồm "+who+". Nhắn một lần, các bot cùng làm.":"Nhóm chat"):a.desc||"Sẵn sàng nhận việc."));
+ const c=el("div","choices");(g?["Mỗi bạn giới thiệu ngắn một câu nhé","Chia việc giúp mình: lên kế hoạch tuần này","Cả nhóm cùng góp ý một ý tưởng"]:["Bạn giúp được mình những gì?","Gợi ý 3 việc mình nên giao cho bạn","Bắt đầu với một việc nhỏ hôm nay nhé"]).forEach(t=>{const b=el("button","choice",t);b.type="button";b.onclick=()=>sendMsg(t);c.append(b)});w.append(c);return w}
+// Working status (one persistent node, so the mascot and shine never restart
+// on a re-render): the bot's own mascot moves per phase (bob/scan/hop…, eyes
+// blink), the phase text shines and crossfades when it changes, the stop
+// button sits on the line. Hidden at once when the answer starts.
+let stEl=null;const shownIds=new Set();const sent=new Map();const sentRecently=t=>{const x=sent.get(t);return x&&Date.now()-x<120e3};
+function statusEl(){if(!stEl){stEl=el("div","status off");stEl.setAttribute("role","status");stEl.setAttribute("aria-live","polite");const x=el("button","st-stop");x.type="button";x.setAttribute("aria-label","Dừng");x.append(I("square",12));x.onclick=()=>stopAgent();stEl.append(el("span","st-mascot"),el("span","st-t"),x)}return stEl}
+function phaseOf(a,L){const p=AURORA_UX.phase(a,L);if(!p)return null;if(p.k==="think"){const u=[...L].reverse().find(m=>m.role==="user");const s=u?(Date.now()-T(u.t))/1e3:0;p.t=s>20?"Đang hoàn thiện câu trả lời":s>8?"Đang sắp xếp ý":"Đang suy nghĩ"}return p}
+function setStatus(a,L,on){const st=statusEl(),p=on&&phaseOf(a,L);st.classList.toggle("off",!p);if(!p)return;
+ const key=a.id+JSON.stringify(a.av||{});if(st.dataset.av!==key){st.dataset.av=key;st.firstChild.replaceChildren(face(a.av||{},28))}
+ st.dataset.k=p.k;st.lastChild.hidden=a.status!=="working";const t=st.children[1],old=t.querySelector("span:not(.out)");if(old&&old.textContent===p.t)return;
+ if(old){old.classList.add("out");setTimeout(()=>old.remove(),260)}t.append(el("span",old?"in":"",p.t))}
+setInterval(()=>{if(cur&&stEl&&!stEl.classList.contains("off"))setStatus(cur,S.msgs[cur.id]||[],true)},1000);
+// download links in a reply become file chips (type, name, size; 48px tap target)
+const pcSizes={};
+function chipify(b,id){const links=[...b.querySelectorAll("a[href]")].filter(x=>AURORA_UX.isDownload(x.getAttribute("href")));if(!links.length)return;
+ const paint=()=>links.forEach(x=>{const f=AURORA_UX.fileInfo(x.getAttribute("href"),pcSizes[id]);x.className="file-chip";x.removeAttribute("target");x.setAttribute("download",f.name);x.setAttribute("aria-label",`Tải ${f.name}`);x.replaceChildren(el("span","fc-ext",(f.ext||"file").toUpperCase().slice(0,4)),Object.assign(el("span","fc-txt"),{}));const t=x.lastChild;t.append(el("b",0,f.name),el("small",0,f.label+(f.size?" · "+f.size:"")))});
+ paint();if(!pcSizes[id]){pcSizes[id]={};api(`/agents/${id}/computer`).then(st=>{(st.files||[]).forEach(f=>{if(!f.dir)pcSizes[id][f.path]=f.size});paint()}).catch(()=>{})}}
 const srcOf=id=>{const m=(S.msgs[cur&&cur.id]||[]).find(x=>x.id===id);return m&&m.sources};
 const atBottom=b=>b.scrollHeight-b.scrollTop-b.clientHeight<120;let justSent=false;
+// stick: follow new text; a user scroll up releases it, scrolling back down or sending re-arms it
+let stick=true,stickFor=null;
 const dayStamp=t=>{const d=new Date(t),n=new Date(),y=new Date(n-864e5);const hm=d.toLocaleTimeString("vi-VN",{hour:"2-digit",minute:"2-digit"});return(d.toDateString()===n.toDateString()?"Hôm nay ":d.toDateString()===y.toDateString()?"Hôm qua ":d.toLocaleDateString("vi-VN",{day:"numeric",month:"numeric"})+" ")+hm};
 function syncJump(){const b=$("#messages");$("#jumpBtn").classList.toggle("hidden",atBottom(b))}
 const visible=t=>{const i=t.search(/(^|\n)\s*(APPROVAL|PLAN|CHOICES|TOOL|SECRET):|(APPROVAL|PLAN|CHOICES|TOOL|SECRET):\s*[\[{]/);return(i>=0?t.slice(0,i):t).trim()||"…"};
 // A draft is painted only once it has a letter or digit: a lone "-" or "**"
 // at the start of a streamed step must not flash as its own bubble.
-function shown(d){return/[\p{L}\p{N}]/u.test(visible(d.text||""))}
-function paintDraft(id){const n=document.getElementById("d_"+id);if(!n){if(shown(S.drafts[id]))renderThread();return}const box=$("#messages"),pin=atBottom(box);n.replaceChildren();md(n,visible(S.drafts[id].text),srcOf(id),true);if(pin)box.scrollTop=box.scrollHeight;syncJump()}
+function shown(d){const t=visible(d.text||"");return Date.now()-(d.t0||0)>=450&&/[\p{L}\p{N}]/u.test(t)&&/\s/.test(t.trim())} // a whole first word, never a lone "Đ"
+// Streaming reveal: the draft shows words up to d.sl, which a frame loop
+// walks toward the received text (faster the further behind), so a chunked
+// stream reads as a steady typewriter. Reduced motion shows text as it lands.
+const reveal={};
+function paintDraft(id){const d=S.drafts[id];if(!d)return;const n=document.getElementById("d_"+id);if(!n){if(shown(d))renderThread();return}
+ if(reduceMotion()){d.sl=1e9;drawDraft(id,n);return}
+ if(reveal[id])return;reveal[id]=requestAnimationFrame(function step(){const d=S.drafts[id],n=document.getElementById("d_"+id);if(!d||!n){delete reveal[id];return}
+  const full=visible(d.text).length,gap=full-(d.sl||0);if(gap<=0){delete reveal[id];return}d.sl=(d.sl||0)+Math.max(2,Math.ceil(gap/12));drawDraft(id,n);reveal[id]=requestAnimationFrame(step)})}
+function drawDraft(id,n){const d=S.drafts[id],t=visible(d.text);let k=Math.min(t.length,d.sl||0);while(k<t.length&&!/\s/.test(t[k]))k++;if(k===t.length){const w=t.trimEnd().search(/\s\S*$/);if(w>0)k=w} // the word still arriving waits for its end
+ n.replaceChildren();md(n,t.slice(0,k),srcOf(id),true);const box=$("#messages");if(stick)box.scrollTop=box.scrollHeight;syncJump()}
 async function decide(m,v,bs,extra){if(deciding.has(m.id))return;deciding.add(m.id);bs.querySelectorAll("button").forEach(b=>b.disabled=true);
  try{await api(`/approvals/${m.id}`,{decision:v,...(extra||{})});buzz(v==="approved"?"confirm":"soft");editing.delete(m.id)}catch(e){if(e.status!==409){deciding.delete(m.id);toast("Không ghi nhận được, thử lại");bs.querySelectorAll("button").forEach(b=>b.disabled=false)}}}
-// send ↔ stop in the same spot while the agent works (stopping holds queued follow-ups)
-function setSendMode(){const b=$("#composer .send");const empty=!$("#input").value.trim(),run=!!(cur&&cur.status==="working")&&empty,voice=empty&&!run;b.classList.toggle("stop",run);b.classList.toggle("voice",voice);b.replaceChildren(I(run?"square":voice?"audio-lines":"arrow-up"));b.setAttribute("aria-label",run?"Dừng":voice?"Nói":"Gửi")}
+// the composer never locks or turns into stop: voice when empty, send with text (stop lives on the status line)
+function setSendMode(){const b=$("#composer .send");const voice=!$("#input").value.trim();b.classList.toggle("voice",voice);b.replaceChildren(I(voice?"audio-lines":"arrow-up"));b.setAttribute("aria-label",voice?"Nói":"Gửi")}
 let stopping=false;async function stopAgent(){if(!cur||stopping)return;stopping=true;try{await api(`/agents/${cur.id}/stop`,{});buzz("soft");toast("Đã dừng")}catch{toast("Không dừng được")}finally{stopping=false}}
-let sending=false;
-async function sendMsg(text){const a=cur;text=text.trim();if(!a||!text||sending)return false;sending=true;
- try{await api(`/agents/${a.id}/messages`,{text});buzz("tap");return true}catch(e){toast(e.status===429?"Bạn gửi nhanh quá, đợi vài giây rồi gửi lại nhé":!navigator.onLine?"Đang ngoại tuyến, tin chưa gửi":"Không gửi được, thử lại");return false}finally{sending=false}}
+
+// Outbox: the composer never blocks. Every message gets a client nonce, shows
+// at once, and is delivered in order; retries (offline, reconnect, 429/5xx)
+// reuse the nonce so the server stores it exactly once. The running bot folds
+// new messages into its current turn (server inbox), so nothing waits.
+const outbox=[];let pumping=false;const sleep=ms=>new Promise(r=>setTimeout(r,ms));
+const MAX_MSG=10000;
+function sendMsg(text){const a=cur;text=text.trim();if(!a||!text)return false;
+ if([...text].length>MAX_MSG){toast(`Tin quá dài (tối đa ${MAX_MSG.toLocaleString("vi-VN")} ký tự). Chia nhỏ hoặc gửi dạng file nhé.`);return false}
+ const ref=pendingRef&&pendingRef.for===a.id?pendingRef.id:undefined;setRef(null);
+ sent.set(text,Date.now());outbox.push({agentId:a.id,text,ref,n:"c"+Date.now().toString(36)+Math.random().toString(36).slice(2,10),t:Date.now()});buzz("tap");renderThread();pump();return true}
+async function pump(){if(pumping)return;pumping=true;try{while(outbox.length){const it=outbox[0];
+  try{const m=await api(`/agents/${it.agentId}/messages`,{text:it.text,clientNonce:it.n,ref:it.ref});outbox.shift();
+   if(m&&m.id){const L=S.msgs[it.agentId]||(S.msgs[it.agentId]=[]);if(!L.some(x=>x.id===m.id))L.push(m)}if(cur&&cur.id===it.agentId)renderThread()}
+  catch(e){const quota=e.status===429&&e.body&&e.body.error==="quota_exceeded";
+   if(quota||e.status&&e.status>=400&&e.status<500&&e.status!==429){
+    // final refusal: never retry, and give the text back so nothing is lost
+    const drop=quota?outbox.filter(x=>x.agentId===it.agentId):[outbox[0]];for(const x of drop)outbox.splice(outbox.indexOf(x),1);
+    const inp=$("#input");if(cur&&cur.id===it.agentId&&!inp.value.trim()){inp.value=drop.map(x=>x.text).join("\n");inp.dispatchEvent(new Event("input"))}
+    toast(quota?`Hết lượt hôm nay (${e.body.daily} tin/ngày). Mai dùng tiếp nhé.`:e.status===413?"Tin quá dài, chia nhỏ giúp mình nhé":"Không gửi được, thử lại");if(cur&&cur.id===it.agentId)renderThread();continue}
+   it.wait=true;if(cur&&cur.id===it.agentId)renderThread();await sleep(e.status===429?4000:!navigator.onLine?1500:2000)}}}finally{pumping=false}}
+addEventListener("online",pump);
 // edge-swipe back (iOS style), anywhere on screen while a thread is open
 (()=>{const th=$("#thread"),ls=$("#list"),root=$("#app");let x0=null,y0,dx=0,on=false;
  root.addEventListener("touchstart",e=>{const t=e.touches[0];if(!cur||sheetOpen||profId||t.clientX>28){x0=null;return}x0=t.clientX;y0=t.clientY;dx=0;on=false},{passive:true});
@@ -319,10 +409,12 @@ function cell(icon,label,opt={}){const b=el(opt.toggle!=null||opt.static?"div":"
 const card=(title,...cells)=>{const w=el("section","card-group");if(title)w.append(el("h3",0,title));const c=el("div","card");cells.forEach(x=>c.append(x));w.append(c);return w};
 function renderSettings(){const B=$("#settingsBody");B.innerHTML="";
  const acc=el("div","account");const m=el("img");m.src="/app/icon.svg";m.alt="";m.width=m.height=52;const at=el("div");at.append(el("b",0,"Chủ sở hữu"),el("small",0,location.host));acc.append(m,at);B.append(card(null,acc));
+ fetch("/app/auth/me").then(r=>r.ok?r.json():null).then(me=>{if(!me)return;const q=me.quota||{};at.replaceChildren(el("b",0,me.name||"Bạn"),el("small",0,[me.email,q.daily?`Gói ${me.plan||"free"} · ${q.used||0}/${q.daily} tin hôm nay`:""].filter(Boolean).join(" · ")))}).catch(()=>{});
  B.append(card("Mức dùng",cell("sparkles","Mô hình AI",{static:1,value:S.ai.configured?(S.ai.model||"đã cấu hình"):"chưa cấu hình"}),cell("activity","Lõi chạy",{static:1,value:S.ai.runtime||"Neko Core"}),cell("users","Bot & nhóm",{static:1,value:`${bots().length} bot · ${S.agents.length-bots().length} nhóm`})));
  B.append(card("Ứng dụng",cell("layout-grid","Kết nối ứng dụng",{id:"openConnectors",value:connectedCount()+" đã kết nối",onClick:()=>{renderConnectors();swapSheet($("#connectors"))}})));
  B.append(card("Bot",cell("check","Luôn duyệt trước khi gửi",{toggle:true,locked:true,sub:"Không gì rời máy chủ khi bạn chưa bấm Duyệt"}),
   cell("bell","Thông báo",{id:"notifyCell",toggle:pushOn||notifOn,sub:pushOn?"Thông báo đẩy đang bật":notifOn?"Khi app đang mở":"Báo khi bot cần bạn",onToggle:sw=>{if(sw.getAttribute("aria-checked")==="true"){toast("Tắt trong Cài đặt của máy");return}enableNotify().then(renderSettings).catch(()=>toast("Không bật được thông báo"))}}),
+  ...(installable()?[cell("smartphone","Cài app lên màn hình chính",{id:"installCell",sub:installEv?"Mở nhanh như ứng dụng, toàn màn hình":"Safari: bấm Chia sẻ rồi “Thêm vào MH chính”",onClick:installApp})]:[]),
   cell("smartphone","Phản hồi rung",{id:"hapticsCell",toggle:haptics,sub:CAP?"Rung nhẹ khi chạm":"Rung nhẹ khi chạm (Android)",onToggle:sw=>{haptics=!haptics;store.set("neko-aurora-haptics",haptics);sw.setAttribute("aria-checked",haptics);buzz("tap")}}),
   cell("message-circle","Ngôn ngữ",{id:"langCell",value:{auto:"Theo thiết bị",vi:"Tiếng Việt",en:"English"}[window.__I18N?__I18N.pref():"auto"],onClick:()=>{if(!window.__I18N)return;const order=["auto","vi","en"],p=__I18N.pref();__I18N.set(order[(order.indexOf(p)+1)%3])}}),
   cell("sun-moon","Giao diện",{id:"openThemes",value:(THEMES.find(t=>t.id===curTheme())||THEMES[0]).name,onClick:()=>{renderThemes();swapSheet($("#themes"))}})));
@@ -338,7 +430,7 @@ function renderDelAcct(){const B=$("#delAcctBody");B.innerHTML="";
  go.onclick=async()=>{go.disabled=true;go.textContent="Đang xoá…";try{await api("/account/delete",{confirm:f.i.value.trim().normalize("NFC").replace(/xóa/i,"XOÁ")});buzz("confirm");try{localStorage.clear()}catch{}if(es){es.close();es=null}closeSheet(true);toast("Đã xoá tài khoản và dữ liệu");setTimeout(()=>location.reload(),2500)}catch{go.disabled=false;go.textContent="Xoá vĩnh viễn";toast("Không xoá được, thử lại")}};
  B.append(f.w,go)}
 $("#closeDelAcct").onclick=()=>closeSheet(true);
-async function logout(){try{await fetch("/app/logout",{method:"POST",credentials:"same-origin",headers:{"Content-Type":"application/json"},body:"{}"})}catch{}closeSheet(true);if(es){es.close();es=null}const r=await fetch(API+"/state",{credentials:"same-origin",cache:"no-store"}).catch(()=>null);if(r&&r.status===401)$("#login").classList.remove("hidden");else toast("Máy chủ cục bộ: phiên luôn mở trên máy này")}
+async function logout(){if(await fetch("/app/auth/config").then(r=>r.ok).catch(()=>false)){await fetch("/app/logout",{method:"POST",credentials:"same-origin",headers:{"Content-Type":"application/json"},body:"{}"}).catch(()=>{});location.replace("/app/signin.html");return}try{await fetch("/app/logout",{method:"POST",credentials:"same-origin",headers:{"Content-Type":"application/json"},body:"{}"})}catch{}closeSheet(true);if(es){es.close();es=null}const r=await fetch(API+"/state",{credentials:"same-origin",cache:"no-store"}).catch(()=>null);if(r&&r.status===401)$("#login").classList.remove("hidden");else toast("Máy chủ cục bộ: phiên luôn mở trên máy này")}
 $("#meBtn").onclick=()=>{if(sheetOpen)return;renderSettings();openSheet($("#settings"))};$("#closeSettings").onclick=()=>closeSheet(true);
 // ---------- connectors (sheet + setup; credentials live in the server vault) ----------
 // Layout follows the iOS connectors sheet pattern; brand marks: Simple Icons (CC0), else Lucide glyphs.
@@ -439,9 +531,11 @@ $("#micBtn").onclick=()=>{if(rec){stopVoice();return}rec=new SR();rec.lang="vi-V
  rec.onresult=e=>{let t="";for(const r of e.results)t+=r[0].transcript;inp.value=base+t;inp.oninput()};rec.onend=()=>{rec=null;$("#micBtn").classList.remove("on")};rec.onerror=e=>{toast(e.error==="not-allowed"?"Chưa cho phép micro":"Không nghe được, thử lại")};
  try{rec.start();$("#micBtn").classList.add("on")}catch{rec=null}};
 // ---------- themes ----------
-const THEMES=[{id:"light",name:"Sáng",sub:"Xám trung tính, nút đen · mặc định",sw:["#f7f7f7","#ffffff","#0d0d0d"],tc:"#f7f7f7"},{id:"dark",name:"Tối",sub:"Nền đen, chữ trắng",sw:["#000000","#1c1c1e","#f5f5f5"],tc:"#000000"},{id:"cream",name:"Kem Aurora",sub:"Kem sáng, khăn đỏ",sw:["#f4efe4","#e0261f","#17130e"],tc:"#f4efe4"},{id:"gold",name:"Đen vàng",sub:"Nền đen, điểm vàng · tối",sw:["#0d0c0a","#d4a72c","#f5ecd7"],tc:"#0d0c0a"},{id:"blue",name:"Trắng xanh",sub:"Nền trắng, điểm xanh · sáng",sw:["#f5f8fc","#1d5fd1","#0f1b2d"],tc:"#f5f8fc"}];
-const curTheme=()=>{try{const t=localStorage.getItem("neko-aurora-theme");return THEMES.some(x=>x.id===t)?t:"light"}catch{return"light"}};
-function applyTheme(id){const t=THEMES.find(x=>x.id===id)||THEMES[0];try{t.id==="light"?localStorage.removeItem("neko-aurora-theme"):localStorage.setItem("neko-aurora-theme",t.id)}catch{}
+const THEMES=[{id:"auto",name:"Theo thiết bị",sub:"Sáng hoặc tối theo cài đặt máy · mặc định",sw:["#f7f7f7","#000000","#f5f5f5"],tc:""},{id:"light",name:"Sáng",sub:"Xám trung tính, nút đen",sw:["#f7f7f7","#ffffff","#0d0d0d"],tc:"#f7f7f7"},{id:"dark",name:"Tối",sub:"Nền đen, chữ trắng",sw:["#000000","#1c1c1e","#f5f5f5"],tc:"#000000"},{id:"cream",name:"Kem Aurora",sub:"Kem sáng, khăn đỏ",sw:["#f4efe4","#e0261f","#17130e"],tc:"#f4efe4"},{id:"gold",name:"Đen vàng",sub:"Nền đen, điểm vàng · tối",sw:["#0d0c0a","#d4a72c","#f5ecd7"],tc:"#0d0c0a"},{id:"blue",name:"Trắng xanh",sub:"Nền trắng, điểm xanh · sáng",sw:["#f5f8fc","#1d5fd1","#0f1b2d"],tc:"#f5f8fc"}];
+const curTheme=()=>{try{const t=localStorage.getItem("neko-aurora-theme");return THEMES.some(x=>x.id===t)?t:"auto"}catch{return"auto"}};
+const sysDark=matchMedia("(prefers-color-scheme: dark)");sysDark.addEventListener?.("change",()=>{if(curTheme()==="auto")applyTheme("auto")});
+function applyTheme(id){const pick=THEMES.find(x=>x.id===id)||THEMES[0];try{pick.id==="auto"?localStorage.removeItem("neko-aurora-theme"):localStorage.setItem("neko-aurora-theme",pick.id)}catch{}
+ const t=pick.id==="auto"?THEMES.find(x=>x.id===(sysDark.matches?"dark":"light")):pick;
  if(t.id==="light")delete document.documentElement.dataset.theme;else document.documentElement.dataset.theme=t.id;
  document.querySelectorAll('meta[name="theme-color"]').forEach(m=>m.content=t.tc);
  const cs=document.querySelector('meta[name="color-scheme"]');if(cs)cs.content=t.id==="gold"||t.id==="dark"?"dark":"light";renderThemes()}
@@ -466,7 +560,18 @@ function renderProfile(){const a=byId(profId);const B=$("#profBody");if(!a){B.in
  B.append(card(null,...rows));
  const on=!muted.includes(a.id);const nc=card(null,cell("bell","Thông báo",{id:"prNotify",toggle:on,onToggle:sw=>{const now=sw.getAttribute("aria-checked")!=="true";muted=now?muted.filter(x=>x!==a.id):[...muted,a.id];store.set("neko-aurora-muted",muted);sw.setAttribute("aria-checked",now);buzz("tap");if(now&&!pushOn&&!notifOn)enableNotify().catch(()=>{})}}));
  B.append(nc,el("p","caption","Báo khi bot này xong việc hoặc đang chờ bạn (trên máy này)."));
+ if(!isGroup(a)){const pc=el("div");pc.id="pcBox";B.append(pc);renderComputer(a.id,pc)}
  $("#pmPinT").textContent=a.pin?"Bỏ ghim":"Ghim";$("#pmPin").classList.toggle("hidden",isGroup(a));$("#pmArch").classList.toggle("hidden",isGroup(a))}
+// bot computer: sandboxed home, recent commands, files, reset
+const kb=n=>n<1024?n+" B":n<1048576?(n/1024).toFixed(1)+" KB":(n/1048576).toFixed(1)+" MB";
+function renderComputer(id,box){api(`/agents/${id}/computer`).then(st=>{if(profId!==id)return;box.innerHTML="";
+ const rows=[cell("monitor","Trạng thái",{static:1,value:st.available?"Sẵn sàng":"Đang tắt",sub:st.available?"Linux riêng · "+kb(st.usedBytes)+" / "+kb(st.quotaBytes):st.error||""})];
+ box.append(card("Máy tính",...rows));
+ if(st.log.length){const w=el("section","card-group");w.append(el("h3",0,"Lệnh gần đây"));const c=el("div","card pc-log");st.log.slice(-5).reverse().forEach(r=>{const d=el("details","pc-run");const s=el("summary");s.append(el("code",0,"$ "+r.cmd),el("span","pc-exit"+(r.exitCode?" bad":""),r.timedOut?"hết giờ":r.exitCode?"lỗi "+r.exitCode:"xong"));d.append(s,el("pre",0,r.output||"(không có đầu ra)"));c.append(d)});w.append(c);box.append(w)}
+ const files=st.files.filter(f=>!f.dir).slice(0,12);
+ if(files.length)box.append(card("File",...files.map(f=>cell("folder",f.path,{value:kb(f.size),onClick:()=>/\.(pptx?|docx?|xlsx?|pdf|png|jpe?g|gif|webp|mp4|webm|mov|zip|gz|tar)$/i.test(f.path)?(location.href=API+`/agents/${id}/computer/download?path=${encodeURIComponent(f.path)}`):api(`/agents/${id}/computer/file?path=${encodeURIComponent(f.path)}`).then(x=>{const old=box.querySelector(".pc-view");if(old)old.remove();const p=el("pre","pc-view",x.text+(x.truncated?"\n…":""));box.append(p);p.scrollIntoView({behavior:"smooth",block:"nearest"})}).catch(()=>toast("Không mở được file"))}))));
+ box.append(card(null,cell("x","Làm mới máy tính",{danger:1,id:"pcReset",onClick:()=>{if(!confirm("Xoá mọi file và lịch sử lệnh trên máy tính của bot này?"))return;api(`/agents/${id}/computer/reset`,{}).then(()=>{toast("Đã làm mới");renderComputer(id,box)}).catch(()=>toast("Không làm mới được"))}})),el("p","caption","Mỗi bot có một máy Linux riêng, cách ly với máy chủ, mặc định không có mạng. Bot tự chạy lệnh trên máy này; việc gửi ra ngoài, tiêu tiền hay dùng khoá của bạn luôn chờ bạn duyệt."))
+}).catch(()=>{box.innerHTML=""})}
 $("#profBack").onclick=()=>closeProfile();
 $("#profShare").onclick=()=>{const a=byId(profId);if(a)shareLink(a)};
 $("#profMore").onclick=e=>{e.stopPropagation();toggleMenu($("#profMenu"),$("#profMore"))};
@@ -493,11 +598,11 @@ $("#search").oninput=e=>{filter=e.target.value;renderList()};
 $("#search").onkeydown=e=>{if(e.key==="Enter")e.target.blur()};
 // Grok-style composer: one line inline with mic/send; once text wraps, the field takes the full width and the buttons drop to a row below.
 const inp=$("#input"),ask=inp.parentElement;inp.oninput=()=>{const was=ask.classList.contains("multi");if(!inp.value)ask.classList.remove("multi");inp.style.height="auto";if(!was&&inp.value&&inp.scrollHeight>52)ask.classList.add("multi");inp.style.height="auto";inp.style.height=Math.min(160,inp.scrollHeight)+"px";setSendMode()};
-$("#composer").onsubmit=async e=>{e.preventDefault();stopVoice();const v=inp.value;if(!v.trim()){if(cur&&cur.status==="working")stopAgent();else if(SR)$("#micBtn").click();else inp.focus();return}inp.value="";inp.style.height="";ask.classList.remove("multi");inp.blur();justSent=true;setSendMode();if(!(await sendMsg(v))){inp.value=v;inp.oninput()}};
+$("#composer").onsubmit=async e=>{e.preventDefault();stopVoice();const v=inp.value;if(!v.trim()){if(SR)$("#micBtn").click();else inp.focus();return}inp.value="";inp.style.height="";ask.classList.remove("multi");justSent=true;setSendMode();if(!sendMsg(v)){inp.value=v;inp.oninput()}};
 inp.onkeydown=e=>{if(e.key==="Enter"&&!e.shiftKey&&!e.isComposing){e.preventDefault();$("#composer").requestSubmit()}};
 document.addEventListener("visibilitychange",()=>{if(!document.hidden&&es)loadState().catch(()=>{})});
 if("serviceWorker"in navigator)navigator.serviceWorker.register("/app/sw.js",{scope:"/app/"}).then(r=>r.pushManager?.getSubscription()).then(s=>{if(s)pushOn=true}).catch(()=>{});
-function boot(){return loadState().then(()=>{$("#login").classList.add("hidden");if(!es)connect();const h=location.hash.slice(1);if(h)openThread(h)}).catch(e=>{if(e.status===401){$("#login").classList.remove("hidden")}else toast("Không kết nối được máy chủ")})}
+function boot(){return loadState().then(()=>{$("#login").classList.add("hidden");if(!es)connect();const h=location.hash.slice(1);if(h)openThread(h)}).catch(async e=>{if(e.status===401){const c=await fetch("/app/auth/config").then(r=>r.ok?r.json():null).catch(()=>null);if(c&&c.hosted){location.replace("/app/signin.html");return}$("#login").classList.remove("hidden")}else toast("Không kết nối được máy chủ")})}
 let logging=false;$("#loginForm").onsubmit=async e=>{e.preventDefault();if(logging)return;logging=true;try{const r=await fetch("/app/login",{method:"POST",credentials:"same-origin",headers:{"Content-Type":"application/json"},body:JSON.stringify({code:$("#loginCode").value})});if(!r.ok){toast(r.status===429?"Thử quá nhiều lần, đợi 5 phút":"Mã không đúng");return}$("#loginCode").value="";await boot()}catch{toast("Không kết nối được")}finally{logging=false}};
 boot();
 // ---------- Aurora icons (Lucide, ISC) + haptics ----------
@@ -509,9 +614,130 @@ function buzz(k){try{if(CAP&&CAP.Haptics){if(!haptics||matchMedia("(prefers-redu
 [["#newBtn","plus"],["#threadMore","ellipsis"],["#plusBtn","plus"],["#profBack","chevron-left"],["#profShare","share"],["#profMore","ellipsis"],["#appsBtn","layout-grid"],["#searchIc","search"],["#backBtn","chevron-left"],["#jumpBtn","chevron-down"],["#micBtn","mic"],["#cancelBtn","x"],["#closeGroup","x"],["#closeSetup","chevron-left"],["#closeSettings","x"],["#closeConnectors","x"]].forEach(([q,n])=>{const b=$(q);if(b)b.replaceChildren(I(n))});
 document.querySelectorAll(".mi[data-i]").forEach(s=>s.replaceChildren(I(s.dataset.i,18)));
 setSendMode();
-$("#messages").addEventListener("scroll",syncJump,{passive:true});if(window.ResizeObserver)new ResizeObserver(syncJump).observe($("#messages"));$("#jumpBtn").onclick=()=>{const b=$("#messages");b.scrollTo({top:b.scrollHeight,behavior:"smooth"});buzz("tap")};
-window.__AURORA={state:()=>S,reload:loadState,current:()=>cur&&cur.id};
+$("#messages").addEventListener("scroll",()=>{const b=$("#messages");stick=atBottom(b);syncJump();if(b.scrollTop<80&&cur&&(S.msgs[cur.id]||[]).length>(win[cur.id]||PAGE)&&!olderBusy){olderBusy=true;requestAnimationFrame(()=>{loadOlder();olderBusy=false})}},{passive:true});let olderBusy=false;
+if(window.visualViewport)visualViewport.addEventListener("resize",()=>{if(cur&&stick){const b=$("#messages");b.scrollTop=b.scrollHeight}});if(window.ResizeObserver)new ResizeObserver(syncJump).observe($("#messages"));$("#jumpBtn").onclick=()=>{const b=$("#messages");b.scrollTo({top:b.scrollHeight,behavior:"smooth"});buzz("tap")};
+window.__AURORA={state:()=>S,reload:loadState,current:()=>cur&&cur.id,render:()=>renderThread()};
 // iOS shell: APNs registration (permission asked once, only after login; push is optional for the app to work)
 if(CAP&&CAP.PushNotifications){const P=CAP.PushNotifications;P.addListener("registration",t=>{api("/push/apns",{token:t.value}).catch(()=>{})});P.addListener("pushNotificationActionPerformed",a=>{const u=a.notification&&a.notification.data&&a.notification.data.url;if(u&&u.startsWith("/app/"))location.href=u});P.checkPermissions().then(r=>r.receive==="granted"?P.register():r.receive==="prompt"?P.requestPermissions().then(x=>x.receive==="granted"&&P.register()):0).catch(()=>{})}
-})();
+// ---------- memory panel, presets, usage, search (DS Bot ideas; Apache-2.0 credit in THIRD_PARTY_NOTICES) ----------
 
+// ---------- memory panel ----------
+let memBot=null;
+const BY={bot:"bot tự ghi",review:"tự nhận ra",owner:"bạn"},OP={add:"Thêm",edit:"Sửa",delete:"Xoá"};
+function memRow(it,i,team){const li=el("li","mem-it");const t=el("p","mem-t",it.text);const meta=el("small","mem-m",new Date(it.at).toLocaleDateString("vi-VN"));li.append(t,meta);
+ li.onclick=()=>{if(li.classList.contains("editing"))return;li.classList.add("editing");li.innerHTML="";const ta=el("textarea","mem-edit");ta.value=it.text;ta.maxLength=300;ta.rows=3;const bar=el("div","mem-bar");
+  const del=el("button","pill danger","Xoá"),cancel=el("button","pill soft","Huỷ"),save=el("button","pill","Lưu");bar.append(del,cancel,save);li.append(ta,bar);ta.focus();
+  cancel.onclick=e=>{e.stopPropagation();openMemory(memBot,true)};
+  save.onclick=e=>{e.stopPropagation();const v=ta.value.trim();if(!v)return;api(`/agents/${memBot}/memory/${i}`,{text:v,team}).then(()=>{toast("Đã lưu");openMemory(memBot,true)}).catch(()=>toast("Không lưu được (không ghi mật khẩu/khoá)"))};
+  del.onclick=async e=>{e.stopPropagation();if(del.dataset.armed!=="1"){del.dataset.armed="1";del.textContent="Bấm lần nữa để xoá";return}
+   const r=await fetch(API+`/agents/${memBot}/memory/${i}${team?"?scope=team":""}`,{method:"DELETE",credentials:"same-origin"}).catch(()=>null);if(r&&r.ok){toast("Đã xoá");openMemory(memBot,true)}else toast("Không xoá được")}};
+ return li}
+function memSection(title,items,team,note){const w=el("section","card-group");w.append(el("h3",0,title+" · "+items.length));const ul=el("ul","card mem-list");
+ if(!items.length)ul.append(el("li","mem-empty",note));items.forEach((it,i)=>ul.append(memRow(it,i,team)));w.append(ul);return w}
+async function openMemory(id,keep){memBot=id;const a=byId(id);const B=$("#memBody");if(!keep){B.innerHTML="";B.append(el("p","caption","Đang tải…"));if(sheetOpen)swapSheet($("#memSheet"));else openSheet($("#memSheet"))}
+ let m;try{m=await api(`/agents/${id}/memory`)}catch{B.innerHTML="";B.append(el("p","caption","Không tải được bộ nhớ"));return}
+ B.innerHTML="";$("#memTitle").textContent="Bộ nhớ · "+(a?a.name:"");
+ const add=el("form","mem-add");const inp=el("input");inp.placeholder="Thêm điều bot nên nhớ…";inp.maxLength=300;inp.id="memInput";const sc=el("label","mem-scope");const cb=el("input");cb.type="checkbox";cb.id="memTeam";sc.append(cb,el("span",0,"Cho mọi bot"));const go=el("button","pill","Thêm");go.type="submit";add.append(inp,sc,go);
+ add.onsubmit=e=>{e.preventDefault();const v=inp.value.trim();if(!v)return;api(`/agents/${id}/memory`,{text:v,team:cb.checked}).then(()=>{toast("Đã ghi nhớ");openMemory(id,true)}).catch(()=>toast("Không ghi được (không ghi mật khẩu/khoá)"))};
+ B.append(add,memSection("Riêng "+(a?a.name:"bot"),m.items||[],false,"Chưa có gì. Bot tự ghi khi bạn nêu sở thích lâu dài."),memSection("Chung cho mọi bot",m.team||[],true,"Tên, cách xưng hô, ngôn ngữ… áp dụng cho mọi bot."));
+ const j=m.journal||[];if(j.length){const d=el("details","mem-log");d.append(el("summary",0,"Lịch sử thay đổi ("+j.length+")"));const ol=el("ol");j.forEach(c=>{const li=el("li");li.append(el("b",0,(OP[c.op]||c.op)+(c.bot==="_team"?" · chung":"")),el("span",0," "+(c.after||c.before||"")),el("small",0," — "+(BY[c.by]||c.by)+", "+ago(c.at)));if(c.op==="edit"&&c.before)li.append(el("s",0,c.before));ol.append(li)});d.append(ol);B.append(d)}
+ B.append(el("p","caption","Bộ nhớ là dữ liệu, không phải lệnh. Không bao giờ lưu mật khẩu hay khoá."))};
+$("#closeMem").onclick=()=>closeSheet(true);
+// ---------- permission presets ----------
+const PRESETS=[["readonly","Chỉ đọc","Chỉ xem, đọc file; mọi thay đổi chờ bạn duyệt"],["workspace","Máy riêng","Tự làm trên máy riêng của bot, không mạng"],["full","Toàn quyền","Có mạng; gửi ra ngoài vẫn hỏi bạn"]];
+function presetCard(id,box){api(`/agents/${id}/computer`).then(st=>{const p=st.policy||{};const cur=p.preset||(p.network?"full":"workspace");const w=el("section","card-group");w.id="presetBox";w.append(el("h3",0,"Quyền của bot"));const seg=el("div","seg");seg.setAttribute("role","radiogroup");
+ PRESETS.forEach(([k,n])=>{const b=el("button","seg-b",n);b.dataset.preset=k;b.setAttribute("role","radio");b.setAttribute("aria-checked",k===cur);b.onclick=()=>api(`/agents/${id}/computer/policy`,{preset:k}).then(np=>{buzz("tap");toast("Quyền: "+n);presetCard(id,box)}).catch(()=>toast("Không lưu được"));seg.append(b)});
+ w.append(seg,el("p","caption",PRESETS.find(x=>x[0]===cur)[2]));const old=box.querySelector("#presetBox");old?old.replaceWith(w):box.prepend(w)}).catch(()=>{})}
+// ---------- profile hooks ----------
+const _rp=renderProfile;renderProfile=function(){_rp();const a=byId(profId);if(!a)return;const B=$("#profBody");if(isGroup(a)){B.append(card("Ghi nhớ",cell("sparkles","Bộ nhớ nhóm",{id:"prMem",sub:"Điều cả nhóm nhớ, chỉ dùng trong nhóm này",onClick:()=>openMemory(a.id)})));return}schedCard(a.id,B);
+ const c=card("Ghi nhớ",cell("sparkles","Bộ nhớ",{id:"prMem",value:"",sub:"Xem, sửa, xoá điều bot nhớ về bạn",onClick:()=>openMemory(a.id)}));const pc=$("#pcBox");pc?B.insertBefore(c,pc):B.append(c);
+ api(`/agents/${a.id}/memory`).then(m=>{const v=c.querySelector(".cell-v")||el("span","cell-v");v.textContent=((m.items||[]).length+(m.team||[]).length)+" mục";const ch=c.querySelector(".chev");ch?ch.before(v):c.querySelector(".cell").append(v)}).catch(()=>{});
+ if(pc)presetCard(a.id,pc)};
+// ---------- usage page ----------
+let usageRange="7";
+const fmtTok=n=>n>=1e6?(n/1e6).toFixed(1)+"M":n>=1e3?(n/1e3).toFixed(1)+"K":String(n);
+const KIND={chat:"Trò chuyện",checkpoint:"Tóm tắt ngữ cảnh",memory:"Ghi nhớ",budget:"Quyết định khi hết giờ",factcheck:"Kiểm tra số liệu",review:"Rà soát file",rewrite:"Sửa tiếng Việt",brief:"Bản tin"};
+async function openUsage(keep){const B=$("#usageBody");if(!keep){B.innerHTML="";swapSheet($("#usageSheet"))}
+ let u;try{u=await api("/usage?range="+usageRange)}catch{B.innerHTML="";B.append(el("p","caption","Không tải được"));return}
+ B.innerHTML="";const seg=el("div","seg");[["1","24 giờ"],["7","7 ngày"],["30","30 ngày"],["365","12 tháng"]].forEach(([k,n])=>{const b=el("button","seg-b",n);b.setAttribute("aria-checked",k===usageRange);b.onclick=()=>{usageRange=k;openUsage(true)};seg.append(b)});
+ const hero=el("div","use-hero");hero.append(el("b",0,"≈ "+fmtTok(u.total.tokens)+" token"),el("small",0,u.total.calls+" lượt gọi mô hình · "+(S.ai.model||"")));B.append(seg,hero);
+ const days=u.days||[],mx=Math.max(1,...days.map(d=>d.tokens));if(days.length>1){const ch=el("div","use-bars");days.slice(-31).forEach(d=>{const c=el("i");c.style.height=Math.max(3,Math.round(d.tokens/mx*72))+"px";c.title=d.key+": "+fmtTok(d.tokens);ch.append(c)});B.append(ch)}
+ B.append(card("Theo bot",...(u.bots||[]).map(r=>cell("users",u.names[r.key]||r.key,{static:1,value:fmtTok(r.tokens),sub:r.calls+" lượt"}))));
+ B.append(card("Theo loại",...(u.kinds||[]).map(r=>cell("activity",KIND[r.key]||r.key,{static:1,value:fmtTok(r.tokens),sub:r.calls+" lượt"}))));
+ B.append(el("p","caption","Số token là ước tính từ độ dài văn bản gửi và nhận."))};
+$("#closeUsage").onclick=()=>closeSheet(true);
+const _rs=renderSettings;renderSettings=function(){_rs();const B=$("#settingsBody");const c=card("Sử dụng",cell("activity","Mức dùng AI",{id:"openUsage",sub:"Token theo ngày, theo bot và theo loại",onClick:()=>openUsage()}));const last=B.querySelectorAll(".card-group");last.length>1?B.insertBefore(c,last[last.length-1]):B.append(c)};
+// ---------- chat search ----------
+let hits=[],hitQ="",tmr=0;
+// search snippets are plain text: markdown marks, citation brackets and directives are dropped
+const plainSnip=t=>String(t||"").replace(/\*\*|__|`+|^#+\s*|\[(\d+)\]|!?\[([^\]]*)\]\([^)]*\)/gm,(m,n,l)=>l||"").replace(/\s+/g," ").trim();
+const _rl=renderList;renderList=function(){_rl();const q=filter.trim();if(q.length<2||hitQ!==q||!hits.length)return;$("#empty").classList.add("hidden");const ul=$("#rows");const h=el("li","sec-h");h.setAttribute("role","heading");h.append(el("span",0,"Tin nhắn"));ul.append(h);
+ hits.forEach(x=>{const li=el("li","hit-row");const b=el("button","hit-b");const a=byId(x.agentId);const av=el("span","row-av");if(a)av.append(avatarOf(a,36));const t=el("span","hit-t");t.append(el("b",0,x.name+(x.role==="user"?" · bạn":"")),el("span",0,plainSnip(x.snippet)));b.append(av,t);b.onclick=()=>{openThread(x.agentId);setTimeout(()=>{const f=$("#findInput");if(f){$("#findBar").classList.remove("hidden");f.value=q;runFind()}},700)};li.append(b);ul.append(li)})};
+$("#search").addEventListener("input",()=>{clearTimeout(tmr);const q=filter.trim();if(q.length<2){hits=[];hitQ="";return}tmr=setTimeout(()=>api("/search?q="+encodeURIComponent(q)).then(r=>{if(filter.trim()!==q)return;hits=r.hits||[];hitQ=q;renderList()}).catch(()=>{}),250)});
+// ---------- reference a chat (DS Bot "Reference a chat") ----------
+let pendingRef=null;
+function setRef(r){pendingRef=r;const box=$("#refChip");if(box)box.remove();if(!r)return;const c=el("div","ref-chip");c.id="refChip";c.append(el("span",0,"Kèm chat: "+r.name));const x=el("button","text-btn","Bỏ");x.onclick=()=>setRef(null);c.append(x);const comp=$("#composer")||$("#msgInput")?.closest("form")||$("#msgInput")?.parentElement;comp&&comp.parentElement.insertBefore(c,comp)}
+$("#pmRef").onclick=()=>{closeMenu();if(!cur)return;const B=$("#refBody");B.innerHTML="";const L=S.agents.filter(x=>x.id!==cur.id);
+ B.append(card(null,...L.map(x=>cell(isGroup(x)?"users":"message-circle",x.name,{sub:x.snip||"",onClick:()=>{setRef({id:x.id,name:x.name,for:cur.id});closeSheet(true);toast("Sẽ kèm chat “"+x.name+"”")}}))),el("p","caption","Tin nhắn gần nhất của chat đó được gửi kèm làm ngữ cảnh cho tin tiếp theo của bạn."));openSheet($("#refSheet"))};
+$("#closeRef").onclick=()=>closeSheet(true);
+// ---------- schedules on the profile ----------
+const RPT={daily:"Mỗi ngày",weekdays:"Thứ 2–6",once:"Một lần"};
+function schedCard(id,B){api("/schedules?bot="+encodeURIComponent(id)).then(r=>{const L=r.schedules||[];const old=B.querySelector("#schedBox");if(old)old.remove();if(!L.length&&!old)return;
+ const w=card("Lịch hẹn",...(L.length?L.map(x=>cell("clock",x.at+" · "+(RPT[x.repeat]||x.repeat)+(x.date?" "+x.date.split("-").reverse().join("/"):""),{sub:x.text,value:"Xoá",onClick:()=>api(`/schedules/${x.id}/delete`,{}).then(()=>{toast("Đã xoá lịch");schedCard(id,B)}).catch(()=>toast("Không xoá được"))})):[cell("clock","Chưa có lịch hẹn",{static:1})]));w.id="schedBox";const pc=$("#pcBox");pc?B.insertBefore(w,pc):B.append(w)}).catch(()=>{})}
+
+// ---------- extras: model menu, providers, thinking, skills, MCP, folder, forms, images (DS Bot ideas, Apache-2.0 credit) ----------
+let showThink=localStorage.getItem("aurora.think")!=="0";
+function thinkCard(m){const d=el("details","think");d.append(el("summary",0,"Suy nghĩ của bot"));const p=el("pre",0,m.thinking.slice(0,6000));d.append(p);return d}
+function formCard(m){const f=m.form;const w=el("form","card form-card");w.dataset.id=m.taskId;w.append(el("h4",0,f.title));const ins=[];
+ f.fields.forEach((x,i)=>{const l=el("label","fm-row");l.append(el("span",0,x.label+(x.required?" *":"")));let inp;
+  if(x.type==="select"){inp=el("select");(x.options||[]).forEach(o=>{const op=el("option",0,o);op.value=o;inp.append(op)})}else if(x.type==="textarea"){inp=el("textarea");inp.rows=3}else{inp=el("input");inp.type=x.type==="number"?"number":x.type==="date"?"date":"text"}
+  inp.name="f"+i;if(x.required)inp.required=true;if(f.done)inp.disabled=true;l.append(inp);ins.push([x,inp]);w.append(l)});
+ const go=el("button","pill",f.done?"Đã gửi":"Gửi");go.type="submit";go.disabled=!!f.done;w.append(go);
+ w.onsubmit=async e=>{e.preventDefault();const txt="📋 "+f.title+"\n"+ins.map(([x,i])=>"- "+x.label+": "+(i.value||"(bỏ trống)")).join("\n");go.disabled=true;if(await sendMsg(txt)){api(`/forms/${m.taskId}/done`,{}).catch(()=>{});f.done=true}else go.disabled=false};return w}
+const CAPS=[["web","Tìm & đọc web"],["computer","Máy tính"],["browser","Trình duyệt"],["mcp","Máy chủ MCP"],["bots","Tạo/sửa bot"],["skills","Kỹ năng"]];
+function sel(opts,cur){const s=el("select","ext-sel");opts.forEach(([v,n])=>{const o=el("option",0,n);o.value=v;if(v===cur)o.selected=true;s.append(o)});return s}
+function field(label,node,hint){const l=el("label","fm-row");l.append(el("span",0,label),node);if(hint)l.append(el("small","caption",hint));return l}
+async function openExt(id,keep){const B=$("#extBody");const a=byId(id);if(!keep){B.innerHTML="";B.append(el("p","caption","Đang tải…"));$("#extTitle").textContent="AI & công cụ · "+(a?a.name:"");sheetOpen?swapSheet($("#extSheet")):openSheet($("#extSheet"))}
+ let x;try{x=await api(`/agents/${id}/ext`)}catch{B.innerHTML="";B.append(el("p","caption","Không tải được"));return}
+ B.innerHTML="";const save=(p,msg)=>api(`/agents/${id}/ext`,p).then(()=>{buzz("tap");toast(msg||"Đã lưu");openExt(id,true)}).catch(()=>toast("Không lưu được"));
+ const ms=sel([["","Mặc định máy chủ"],...x.menu.map(m=>[m.id,m.label+" · "+m.provider])],x.model||"");ms.id="extModel";ms.onchange=()=>save({model:ms.value},"Đã đổi mô hình");
+ const g1=el("section","card-group");g1.append(el("h3",0,"Mô hình"));const c1=el("div","card pad");c1.append(field("Mô hình trả lời",ms,"Thêm nhà cung cấp và khoá riêng ở Cài đặt › Mô hình."));g1.append(c1);
+ const th=card(null,cell("sparkles","Hiện suy nghĩ",{id:"extThink",sub:"Bot suy nghĩ trước khi trả lời (chậm hơn); phần suy nghĩ gập lại dưới tin nhắn",toggle:!!x.thinking,onToggle:sw=>save({thinking:sw.getAttribute("aria-checked")!=="true"})}));g1.append(th);
+ const fi=el("input","ext-in");fi.id="extFolder";fi.placeholder="vd. du-an/bao-cao";fi.value=x.folder||"";const fb=el("button","pill","Lưu");fb.type="button";fb.onclick=()=>save({folder:fi.value},"Đã đặt thư mục làm việc");const fr=el("div","row-in");fr.append(fi,fb);
+ const g2=el("section","card-group");g2.append(el("h3",0,"Thư mục làm việc"));const c2=el("div","card pad");c2.append(field("Trong /home/bot",fr,"Lệnh và file của bot mặc định nằm trong thư mục này."));g2.append(c2);
+ const off=x.off||{};const g3=card("Khả năng",...CAPS.map(([k,n])=>cell("check",n,{id:"cap_"+k,toggle:!off[k],onToggle:sw=>{const o={...off};if(sw.getAttribute("aria-checked")==="true")o[k]=true;else delete o[k];save({off:o})}})));
+ const on=new Set(x.skills||[]);const g4=card("Kỹ năng"+(on.size?"":" · tất cả"),...(x.allSkills||[]).map(k=>cell("sparkles",k.name,{sub:k.desc,toggle:!on.size||on.has(k.id),onToggle:sw=>{let l=on.size?[...on]:(x.allSkills||[]).map(z=>z.id);l=sw.getAttribute("aria-checked")==="true"?l.filter(z=>z!==k.id):[...l,k.id];l.length?save({skills:l.length===(x.allSkills||[]).length?[]:l}):save({off:{...off,skills:true}})}})));
+ const mcp=x.mcp||[];const strip=()=>mcp.map(m=>({name:m.name,url:m.url,header:m.header||undefined,secret:m.secret||undefined}));
+ const g5=card("Máy chủ MCP",...mcp.map((m,i)=>cell("link",m.name,{sub:m.error?("Lỗi: "+m.error):(m.tools||[]).map(t=>t.name).join(", ")||"chưa có công cụ",value:"Gỡ",onClick:()=>{const l=strip();l.splice(i,1);save({mcp:l},"Đã gỡ máy chủ")}})));
+ const mf=el("form","mcp-add");const mn=el("input","ext-in");mn.placeholder="Tên (vd. deepwiki)";mn.id="mcpName";const mu=el("input","ext-in");mu.placeholder="https://…/mcp hoặc …/sse";mu.id="mcpUrl";mu.inputMode="url";const mh=el("input","ext-in");mh.placeholder="Header xác thực (tuỳ chọn, vd. Authorization)";const msx=el("input","ext-in");msx.placeholder="Tên bí mật trong kho (vd. MCP_TOKEN)";const mb=el("button","pill","Thêm máy chủ");mb.type="submit";
+ mf.append(mn,mu,mh,msx,mb);mf.onsubmit=e=>{e.preventDefault();if(!mn.value.trim()||!mu.value.trim())return;save({mcp:[...strip(),{name:mn.value.trim(),url:mu.value.trim(),header:mh.value.trim()||undefined,secret:msx.value.trim()||undefined}]},"Đã thêm máy chủ MCP")};
+ g5.append(mf,el("p","caption","Bot gọi thẳng công cụ của máy chủ đã thêm. Khoá đặt trong kho bí mật, không bao giờ hiện ra."));
+ B.append(g1,g2,g3,g4,g5)}
+$("#closeExt").onclick=()=>closeSheet(true);
+async function openModels(keep){const B=$("#extBody");if(!keep){B.innerHTML="";$("#extTitle").textContent="Mô hình & nhà cung cấp";sheetOpen?swapSheet($("#extSheet")):openSheet($("#extSheet"))}
+ let x;try{x=await api("/models")}catch{B.innerHTML="";B.append(el("p","caption","Không tải được"));return}B.innerHTML="";
+ B.append(card("Nhà cung cấp",cell("sparkles","GLM (mặc định)",{static:1,sub:"Có sẵn trên máy chủ",value:"✓"}),...(x.providers||[]).map(p=>cell("link",p.name,{sub:p.base+" · "+p.models.join(", ")+(p.hasKey?" · có khoá":" · chưa có khoá"),value:"Xoá",onClick:()=>api(`/providers/${p.id}/delete`,{}).then(()=>{toast("Đã xoá");openModels(true)})}))));
+ const f=el("form","mcp-add");f.id="provForm";const ins=[["id","Mã (vd. openai)"],["name","Tên hiển thị"],["base","Địa chỉ API (vd. https://api.openai.com/v1)"],["models","Các mô hình, cách nhau dấu phẩy"]].map(([k,p])=>{const i=el("input","ext-in");i.name=k;i.placeholder=p;f.append(i);return i});
+ const key=el("input","ext-in");key.type="password";key.autocomplete="off";key.name="key";key.placeholder="Khoá API (lưu vào kho bí mật)";f.append(key);const b=el("button","pill","Lưu nhà cung cấp");b.type="submit";f.append(b);
+ f.onsubmit=e=>{e.preventDefault();const [id,name,base,models]=ins.map(i=>i.value.trim());api("/providers",{id,name,base,models:models.split(",").map(s=>s.trim()).filter(Boolean),key:key.value||undefined}).then(()=>{key.value="";toast("Đã lưu nhà cung cấp");openModels(true)}).catch(()=>toast("Không lưu được (kiểm tra mã và địa chỉ https)"))};
+ const g=el("section","card-group");g.append(el("h3",0,"Thêm nhà cung cấp tương thích OpenAI"));const c=el("div","card pad");c.append(f,el("p","caption","Khoá chỉ được ghi vào kho bí mật mã hoá; không bao giờ hiện lại hay gửi cho mô hình."));g.append(c);B.append(g);
+ const vs=sel(x.models.map(m=>[m.id,m.label+" · "+m.provider]).concat(x.models.some(m=>m.id===x.vision)?[]:[[x.vision,x.vision]]),x.vision);vs.id="visionSel";vs.onchange=()=>api("/vision",{model:vs.value}).then(()=>toast("Đã đổi mô hình đọc ảnh")).catch(()=>toast("Không lưu được"));
+ const g2=el("section","card-group");g2.append(el("h3",0,"Mô hình đọc ảnh"));const c2=el("div","card pad");c2.append(field("Khi bạn gửi ảnh",vs,"Mô hình trả lời chỉ đọc chữ; ảnh được mô hình này mô tả lại."));g2.append(c2);B.append(g2);
+ const tg=card("Hiển thị",cell("sparkles","Hiện phần suy nghĩ",{id:"thinkShow",sub:"Với bot bật “Hiện suy nghĩ”",toggle:showThink,onToggle:sw=>{showThink=sw.getAttribute("aria-checked")!=="true";localStorage.setItem("aurora.think",showThink?"1":"0");sw.setAttribute("aria-checked",showThink)}}),cell("activity","Trình duyệt của bot",{static:1,value:x.browser?"Có":"Đọc trang thường",sub:x.browser?"Trình duyệt không giao diện, chỉ đọc":"Máy chủ này không có Chrome; dùng trình đọc trang"}));B.append(tg)}
+async function openSkills(keep){const B=$("#extBody");if(!keep){B.innerHTML="";$("#extTitle").textContent="Kỹ năng";sheetOpen?swapSheet($("#extSheet")):openSheet($("#extSheet"))}
+ let x;try{x=await api("/skills")}catch{return}B.innerHTML="";
+ B.append(card("Kỹ năng",...x.skills.map(k=>cell("sparkles",k.name,{sub:k.desc,value:k.id.startsWith("sk-")?"Xoá":"",onClick:()=>{if(k.id.startsWith("sk-"))api(`/skills/${k.id}/delete`,{}).then(()=>openSkills(true))}}))));
+ const f=el("form","mcp-add");f.id="skillForm";const n=el("input","ext-in");n.placeholder="Tên kỹ năng";const d=el("input","ext-in");d.placeholder="Dùng khi nào (một dòng)";const b=el("textarea","ext-in");b.rows=4;b.placeholder="Hướng dẫn từng bước cho bot";const go=el("button","pill","Thêm kỹ năng");go.type="submit";f.append(n,d,b,go);
+ f.onsubmit=e=>{e.preventDefault();api("/skills",{name:n.value.trim(),desc:d.value.trim(),body:b.value.trim()}).then(()=>{toast("Đã thêm kỹ năng");openSkills(true)}).catch(()=>toast("Cần tên và hướng dẫn"))};
+ const g=el("section","card-group");g.append(el("h3",0,"Kỹ năng mới"));const c=el("div","card pad");c.append(f);g.append(c,el("p","caption","Bot chỉ thấy tên và mô tả; khi việc khớp, bot đọc hướng dẫn đầy đủ."));B.append(g)}
+const _rp2=renderProfile;renderProfile=function(){_rp2();const a=byId(profId);if(!a||isGroup(a))return;const B=$("#profBody");const c=card("AI & công cụ",cell("sparkles","Mô hình, suy nghĩ, kỹ năng, MCP",{id:"prExt",sub:"Thư mục làm việc và các khả năng của bot",onClick:()=>openExt(a.id)}));const m=$("#prMem");const g=m&&m.closest(".card-group");g?g.after(c):B.append(c)};
+const _rs2=renderSettings;renderSettings=function(){_rs2();const B=$("#settingsBody");const c=card("AI",cell("sparkles","Mô hình & nhà cung cấp",{id:"openModels",sub:"GLM mặc định, thêm khoá riêng, mô hình đọc ảnh",onClick:()=>openModels()}),cell("list-checks","Kỹ năng",{id:"openSkills",sub:"Hướng dẫn bot dùng lại cho việc lặp lại",onClick:()=>openSkills()}));const u=$("#openUsage");const g=u&&u.closest(".card-group");g?g.before(c):B.append(c)};
+// memory: ask + summarize
+const _om=openMemory;openMemory=async function(id,keep){await _om(id,keep);const B=$("#memBody");if(!B.querySelector(".mem-add"))return;const bar=el("div","mem-tools");const ask=el("button","pill soft","Hỏi bộ nhớ");ask.id="memAsk";const sum=el("button","pill soft","Gộp trùng lặp");sum.id="memSum";bar.append(ask,sum);B.querySelector(".mem-add").after(bar);
+ ask.onclick=()=>{if(B.querySelector(".mem-q"))return;const f=el("form","mem-add mem-q");const i=el("input");i.placeholder="vd. Bot biết gì về lịch làm việc của mình?";const g=el("button","pill","Hỏi");f.append(i,g);bar.after(f);i.focus();f.onsubmit=e=>{e.preventDefault();if(!i.value.trim())return;g.disabled=true;api(`/agents/${id}/memory/ask`,{q:i.value.trim()}).then(r=>{const p=el("p","mem-ans",r.answer);f.after(p);g.disabled=false}).catch(()=>{g.disabled=false;toast("Không hỏi được")})}};
+ sum.onclick=()=>{sum.disabled=true;sum.textContent="Đang gộp…";api(`/agents/${id}/memory/summarize`,{}).then(r=>{sum.disabled=false;sum.textContent="Gộp trùng lặp";const L=r.proposal||[];if(!L.length){toast("Không có gì để gộp");return}const w=el("div","card mem-prop");w.append(el("b",0,"Đề xuất ("+r.before+" → "+L.length+" mục)"));const ul=el("ul");L.forEach(t=>ul.append(el("li",0,t)));const ok=el("button","pill","Áp dụng"),no=el("button","pill soft","Bỏ");const br=el("div","mem-bar");br.append(no,ok);w.append(ul,br);bar.after(w);no.onclick=()=>w.remove();ok.onclick=()=>api(`/agents/${id}/memory/summarize`,{apply:L}).then(()=>{toast("Đã gộp bộ nhớ");openMemory(id,true)}).catch(()=>toast("Không áp dụng được"))}).catch(()=>{sum.disabled=false;sum.textContent="Gộp trùng lặp";toast("Không gộp được")})}};
+// images: downscale on the phone, upload into the bot's computer, describe via the vision model
+function shrink(file){return new Promise((ok,bad)=>{const img=new Image();img.onload=()=>{const k=Math.min(1,1600/Math.max(img.width,img.height));const c=document.createElement("canvas");c.width=img.width*k|0;c.height=img.height*k|0;c.getContext("2d").drawImage(img,0,0,c.width,c.height);c.toBlob(b=>b?ok(b):bad(),"image/jpeg",.82)};img.onerror=bad;const fr=new FileReader();fr.onload=()=>{img.src=fr.result};fr.onerror=bad;fr.readAsDataURL(file)})} // data: URL, the CSP allows no blob: images
+$("#pmImg").onclick=()=>{closeMenu();if(!cur||isGroup(cur)){toast("Gửi ảnh trong chat với một bot");return}$("#imgPick").click()};
+$("#imgPick").onchange=async e=>{const f=e.target.files&&e.target.files[0];e.target.value="";if(!f||!cur)return;try{const b=await shrink(f);const nm=(f.name||"anh").replace(/\.[^.]+$/,"").normalize("NFC").slice(0,50)+".jpg";const data=await new Promise((ok,bad)=>{const fr=new FileReader();fr.onload=()=>ok(String(fr.result).split(",")[1]);fr.onerror=bad;fr.readAsDataURL(b)});const j=await api(`/agents/${cur.id}/computer/upload`,{name:nm,data});const inp=$("#input");inp.value=(inp.value.trim()?inp.value.trim()+"\n":"Bạn xem ảnh này giúp mình.\n")+"[Ảnh: "+j.path+"]";inp.dispatchEvent(new Event("input"));inp.focus();toast("Đã tải ảnh lên")}catch{toast("Không tải được ảnh (tối đa 1 MB sau khi nén)")}};
+})();

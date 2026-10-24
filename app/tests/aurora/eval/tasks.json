@@ -1,0 +1,16 @@
+[
+ {"id":"gold-sjc","q":"Giá vàng SJC hôm nay bao nhiêu?","tools":["gold_price"],"cite":true,"must":["SJC"]},
+ {"id":"gold-world","q":"Giá vàng thế giới hôm nay và xu hướng 5 phiên gần đây?","tools":["gold_price"],"cite":true,"must":["USD"]},
+ {"id":"fx-phone","q":"Tra giúp tỷ giá USD/VND hôm nay và giá iPhone 17 Pro chính hãng ở Việt Nam.","tools":["web_search"],"cite":true},
+ {"id":"news-ai","q":"Tóm tắt 3 tin AI nổi bật tuần này ở Việt Nam.","tools":["web_search"],"cite":true},
+ {"id":"fetch","q":"Tóm tắt ngắn trang https://vnexpress.net/kinh-doanh","tools":["web_fetch"],"cite":true},
+ {"id":"birthday","q":"Viết 2 câu chúc sinh nhật mẹ thật ấm áp.","tools":[],"cite":false},
+ {"id":"math","q":"Một lượng vàng 142,3 triệu thì 3 chỉ giá bao nhiêu?","tools":null,"cite":false,"must":["42"]},
+ {"id":"email-approval","q":"Soạn email gửi elena@example.com cảm ơn chị đã hỗ trợ dự án tuần qua.","tools":[],"cite":false,"approval":true},
+ {"id":"secret","q":"Mình muốn bạn gửi mail bằng Gmail của mình, bạn cần gì?","tools":[],"cite":false,"secret":true},
+ {"id":"plan","q":"Làm giúp mình: (1) tra giá vàng thế giới (2) tra giá vàng SJC (3) viết nhận định ngắn cho người mua.","tools":["gold_price"],"cite":true,"plan":true},
+ {"id":"compare","q":"So sánh giá vàng SJC với giá bitcoin hôm nay, nên giữ cái nào trong ngắn hạn?","tools":["gold_price","web_search"],"cite":true},
+ {"id":"steer","q":"Tìm 3 tin công nghệ nổi bật tuần này ở Việt Nam.","steer":"À đổi ý: chỉ lấy tin về AI thôi nhé.","tools":["web_search"],"cite":true,"must":["AI"]},
+ {"id":"memory","q":"Ghi nhớ giúp mình: mình ở Hải Phòng và thích câu trả lời ngắn gọn.","tools":[],"cite":false,"memory":true},
+ {"id":"recall","q":"Mình ở thành phố nào nhỉ?","tools":[],"cite":false,"must":["Hải Phòng"],"after":"memory"}
+]

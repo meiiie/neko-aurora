@@ -1,0 +1,15 @@
+{"id":"gold-sjc","score":1,"secs":4.1,"failed":[],"tools":["gold_price"]}
+{"id":"gold-world","score":1,"secs":5.1,"failed":[],"tools":["gold_price"]}
+{"id":"fx-phone","score":1,"secs":7.1,"failed":[],"tools":["web_search"]}
+{"id":"news-ai","score":1,"secs":11.2,"failed":[],"tools":["web_search","web_fetch"]}
+{"id":"fetch","score":1,"secs":6.1,"failed":[],"tools":["web_fetch"]}
+{"id":"birthday","score":1,"secs":3.1,"failed":[],"tools":[]}
+{"id":"math","score":1,"secs":5.6,"failed":[],"tools":["gold_price"]}
+{"id":"email-approval","score":1,"secs":3.1,"failed":[],"tools":[]}
+{"id":"secret","score":1,"secs":3.6,"failed":[],"tools":[]}
+{"id":"plan","score":1,"secs":19.3,"failed":[],"tools":["gold_price"]}
+{"id":"compare","score":1,"secs":11.7,"failed":[],"tools":["gold_price","web_search"]}
+{"id":"steer","score":1,"secs":21.1,"failed":[],"tools":["web_search"]}
+{"id":"memory","score":1,"secs":3.2,"failed":[],"tools":[]}
+{"id":"recall","score":1,"secs":1.6,"failed":[],"tools":[]}
+EVAL 14/14 tasks fully passed · mean score 1.000 · mean 7.6s

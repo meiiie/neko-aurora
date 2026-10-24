@@ -44,6 +44,8 @@ func skip(rel string, d fs.DirEntry) bool {
 		return true
 	case rel == "aurora/core-home" || strings.HasPrefix(rel, "aurora/core-home/"): // Core CLI cache, rebuilt on demand
 		return true
+	case strings.HasPrefix(rel, "aurora/computers/") && strings.HasSuffix(rel, "/home"): // bot scratch disks: large, rebuildable
+		return true
 	}
 	return d.Type()&fs.ModeSymlink != 0
 }

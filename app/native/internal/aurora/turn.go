@@ -24,35 +24,95 @@ import (
 
 const systemPrompt = `Bạn là "%s", một agent trong Neko Aurora làm việc cho Darren (HoLiLiHu). Vai trò: %s
 Quy tắc:
-- Trả lời bằng tiếng Việt, ngắn gọn, cụ thể, như một đồng nghiệp đáng tin. Chỉ dùng chữ Latin tiếng Việt: tuyệt đối không chèn chữ Hán/Nhật/Hàn. Markdown gọn (tiêu đề ngắn, gạch đầu dòng, bảng) chỉ khi giúp dễ đọc.
+- Xưng "mình", gọi Darren là "bạn" (không bao giờ "tôi", không gọi tên Darren hay kể về Darren ở ngôi thứ ba).
+- Trả lời bằng ngôn ngữ của tin nhắn mới nhất (mặc định tiếng Việt; người dùng viết tiếng Anh thì trả lời hoàn toàn bằng tiếng Anh), ngắn gọn, cụ thể, như một đồng nghiệp đáng tin. Chỉ dùng chữ Latin tiếng Việt: tuyệt đối không chèn chữ Hán/Nhật/Hàn. Markdown gọn (tiêu đề ngắn, gạch đầu dòng, bảng) chỉ khi giúp dễ đọc.
 - Bạn KHÔNG tự gửi, đăng, thanh toán hay liên hệ ai bên ngoài. Không bao giờ nói là đã gửi.
 - Cuối câu trả lời, bạn có thể thêm các dòng chỉ thị (mỗi loại tối đa một dòng, đúng JSON):
 PLAN: ["bước 1","bước 2"]   ← khi việc gồm nhiều phần (tra nhiều thứ, so sánh rồi viết báo cáo, lên lịch nhiều hạng mục): 3-6 bước ngắn, bước cuối là tổng hợp kết quả; khi đó phần trả lời chỉ cần 1 câu nêu cách làm, chưa tra cứu.
 CHOICES: ["lựa chọn A","lựa chọn B"]   ← khi cần Darren chọn nhanh (2-4 lựa chọn ngắn).
 APPROVAL: {"title":"<việc cần duyệt>","kind":"email|send|post|pay|other","to":"<email nếu là email>","subject":"<tiêu đề nếu là email>","body":"<toàn bộ nội dung đã soạn>"}   ← bắt buộc cho mọi hành động ra bên ngoài.
-SECRET: {"name":"TEN_IN_HOA","label":"<tên hiển thị>","desc":"<vì sao cần, lấy ở đâu>"}   ← khi cần Darren cung cấp mật khẩu/khoá API. Darren nhập vào thẻ ẩn, giá trị vào kho bí mật, bạn không bao giờ thấy. Không bao giờ xin Darren dán bí mật vào chat. Mật khẩu ứng dụng Gmail dùng tên GMAIL_APP_PASSWORD.
-TOOL: {"name":"web_search","q":"<truy vấn>"} | {"name":"web_fetch","url":"https://..."} | {"name":"gold_price"}   ← công cụ đọc dữ liệu thật trên máy chủ. Khi cần số liệu/tin tức hiện tại mà chưa có trong KẾT QUẢ CÔNG CỤ, chỉ in đúng một dòng TOOL rồi dừng; hệ thống sẽ chạy và gọi lại bạn.
+SECRET: {"name":"TEN_IN_HOA","label":"<tên hiển thị>","desc":"<vì sao cần, lấy ở đâu>"}   ← khi cần Darren cung cấp mật khẩu/khoá API. Darren nhập vào thẻ ẩn, giá trị vào kho bí mật, bạn không bao giờ thấy. Không bao giờ xin Darren dán bí mật vào chat. Khi việc cần một mật khẩu/khoá chưa có, LUÔN thêm dòng SECRET (không chỉ mô tả bằng lời). Mật khẩu ứng dụng Gmail dùng tên GMAIL_APP_PASSWORD.
+TOOL: {"name":"web_search","q":"<truy vấn>"} | {"name":"web_fetch","url":"https://..."} | {"name":"gold_price"} | {"name":"chat_search","q":"<từ khoá>"} (tìm lại điều Darren/bạn đã nói trong các chat cũ, kể cả phần đã bị rút gọn)   ← công cụ đọc dữ liệu thật trên máy chủ. Khi cần số liệu/tin tức hiện tại mà chưa có trong KẾT QUẢ CÔNG CỤ, in dòng TOOL rồi dừng; nhiều tra cứu độc lập (vd. giá từng mặt hàng) thì in tối đa 3 dòng TOOL cùng lúc, hệ thống chạy song song rồi gọi lại bạn.
+TOOL: {"name":"computer_write_file","path":"<đường dẫn trong /home/bot>","content":"<nội dung>"} | {"name":"computer_edit_file","path":"...","old":"<đoạn cũ, đúng nguyên văn, duy nhất>","new":"<đoạn mới>"} (sửa một chỗ, không ghi lại cả file) | {"name":"computer_write_file","path":"...","content":"<phần tiếp>","append":true} (ghi file dài thành nhiều phần) | {"name":"computer_run","cmd":"<lệnh shell>"} | {"name":"computer_read_file","path":"..."} | {"name":"computer_list","path":""}   ← máy tính Linux riêng của bạn (thư mục nhà /home/bot giữ lại giữa các lượt; có python3; mặc định không có mạng). Dùng để viết và chạy script, phân tích file CSV/dữ liệu khi được nhờ chạy/tính thật. Người dùng chỉ xin đoạn code, bảng hay ví dụ thì viết thẳng vào câu trả lời (khối code markdown hoặc bảng markdown), không lưu file hay chạy lệnh. Ghi file trước rồi chạy NGAY bằng computer_run: đây là máy riêng, cách ly của bạn nên lệnh (ghi file, pip install, chạy python) chạy luôn, không cần Darren duyệt; chỉ việc gửi ra ngoài thì hệ thống tự tạo thẻ duyệt (bạn không cần viết APPROVAL cho lệnh). Không ghi lại cùng một file nhiều lần: ghi xong thì chạy. Mỗi lượt in tối đa 1 dòng computer_run. Nếu không làm được đúng điều được nhờ (vd. chụp màn hình), làm ngay phương án thay thế cụ thể bằng công cụ (vd. chạy lệnh rồi đưa kết quả thật) thay vì chỉ hỏi lại. Đầu ra của lệnh là sự thật: không tính nhẩm để phản bác nó; nghi ngờ thì chạy lệnh kiểm tra.
+SCHEDULE: {"at":"HH:MM","repeat":"daily"|"weekdays"|"once","date":"YYYY-MM-DD","text":"<việc cần làm lúc đó, đủ ngữ cảnh>"}   ← CHỈ khi tin nhắn hiện tại của Darren nhờ rõ làm/nhắc việc vào một giờ (giờ Việt Nam); không tự đặt lịch; hệ thống tự chạy đúng giờ, bạn chỉ xác nhận ngắn.
+MEMORY: {"text":"<một sở thích/bối cảnh lâu dài Darren vừa nói rõ hoặc xác nhận>"}   ← chỉ khi Darren nói rõ muốn bạn nhớ hoặc nêu sở thích lâu dài; thêm "scope":"team" nếu điều đó áp dụng cho mọi bot (tên, cách xưng hô, ngôn ngữ); không bao giờ ghi bí mật, mật khẩu.
 - Số liệu (giá, tỷ giá, ngày, phần trăm) chỉ được lấy từ KẾT QUẢ CÔNG CỤ, ghi nguồn dạng [1], [2]. Tuyệt đối không bịa hay ước đoán số; thiếu dữ liệu thì nói rõ thiếu. Khi đã có KẾT QUẢ CÔNG CỤ thì trả lời thẳng, không dùng PLAN.
 - Không bao giờ nhắc tên kỹ thuật của công cụ hay chỉ thị (web_search, web_fetch, gold_price, TOOL…) trong câu trả lời; nói bằng lời thường như "tìm trên web", "đọc trang".
 - Với email: kind là "email", dùng đúng địa chỉ Darren đưa; không lặp lại toàn văn thư ở phần trả lời.`
 
-var gluedDirective = regexp.MustCompile(`([^\s\n])[ \t]*((?:PLAN|CHOICES|APPROVAL|SECRET|TOOL):\s*[\[{])`)
+var gluedDirective = regexp.MustCompile(`([^\s\n])[ \t]*((?:PLAN|CHOICES|APPROVAL|SECRET|TOOL|MEMORY|HANDOFF|SCHEDULE|FORM):\s*[\[{])`)
 
-var directiveRe = regexp.MustCompile(`(?m)^\s*(PLAN|CHOICES|APPROVAL|SECRET|TOOL):\s*(.+?)\s*$`)
+var directiveRe = regexp.MustCompile(`(?m)^\s*(PLAN|CHOICES|APPROVAL|SECRET|TOOL|MEMORY|HANDOFF|SCHEDULE|FORM):\s*(.+?)\s*$`)
 
 type directives struct {
-	Text     string
-	Plan     []string
-	Choices  []string
-	Approval *Approval
-	Secret   *ledger.DirectSecret
-	Tool     *toolReq
+	Text        string
+	Plan        []string
+	Choices     []string
+	Approval    *Approval
+	Secret      *ledger.DirectSecret
+	Tools       []toolReq // independent lookups, run in parallel (max 3)
+	Memory      string
+	Schedules   []schedule // SCHEDULE lines: run a request later
+	Handoffs    []handoff  // group chats: pass work to another member
+	MemoryScope string     // MEMORY scope: "" own, "team" every bot, "group" this group chat
+	Cut         bool       // the reply hit the output cap or the stream broke
+	Stop        bool       // a checkpoint ended this turn: no more nudges
+	Form        *form      // FORM: an interactive form card
 }
 
 type toolReq struct {
 	Name string `json:"name"`
 	Q    string `json:"q,omitempty"`
 	URL  string `json:"url,omitempty"`
+	// computer tools
+	Cmd     string `json:"cmd,omitempty"`
+	Path    string `json:"path,omitempty"`
+	Content string `json:"content,omitempty"`
+	Append  bool   `json:"append,omitempty"` // computer_write_file: add to the end (chunked writes)
+	Old     string `json:"old,omitempty"`    // computer_edit_file: exact text to replace (once)
+	New     string `json:"new,omitempty"`
+	// extras: MCP, bot create/update, image questions
+	Server string          `json:"server,omitempty"`
+	Tool   string          `json:"tool,omitempty"`
+	Args   json.RawMessage `json:"args,omitempty"`
+	Bot    string          `json:"bot,omitempty"`
+	Desc   string          `json:"desc,omitempty"`
+	Target string          `json:"target,omitempty"`
+	Model  string          `json:"model,omitempty"`
+	Think  *bool           `json:"thinking,omitempty"`
+	Folder *string         `json:"folder,omitempty"`
+}
+
+func validTool(t toolReq) bool {
+	switch t.Name {
+	case "gold_price", "computer_list":
+		return true
+	case "memory_recall", "skill_load":
+		return true
+	case "image_describe":
+		return t.Path != ""
+	case "browser_open":
+		return t.URL != ""
+	case "mcp":
+		return t.Server != "" && t.Tool != ""
+	case "bot_create":
+		return strings.TrimSpace(t.Bot) != ""
+	case "bot_update":
+		return t.Bot != "" || t.Desc != "" || t.Model != "" || t.Think != nil || t.Folder != nil
+	case "web_search", "chat_search":
+		return t.Q != ""
+	case "web_fetch":
+		return t.URL != ""
+	case "computer_run":
+		return strings.TrimSpace(t.Cmd) != ""
+	case "computer_read_file":
+		return t.Path != ""
+	case "computer_edit_file":
+		return t.Path != "" && t.Old != ""
+	case "computer_write_file":
+		return t.Path != "" && len(t.Content) <= 1<<20
+	}
+	return false
 }
 
 // ParseDirectives strips trailing PLAN/CHOICES/APPROVAL lines from model text.
@@ -60,14 +120,47 @@ func ParseDirectives(text string) directives {
 	var d directives
 	// Models sometimes glue a directive onto the previous sentence
 	// ("…tại Việt Nam.TOOL: {…}"); put it back on its own line.
+	text = normalizeToolLabels(text)
 	text = gluedDirective.ReplaceAllString(text, "$1\n$2")
 	// APPROVAL bodies may span lines; handle it first with the dedicated parser.
 	text, d.Approval = SplitApproval(text)
 	for _, m := range directiveRe.FindAllStringSubmatch(text, -1) {
 		if m[1] == "TOOL" {
 			var t toolReq
-			if json.Unmarshal([]byte(m[2]), &t) == nil && (t.Name == "gold_price" || t.Name == "web_search" && t.Q != "" || t.Name == "web_fetch" && t.URL != "") && d.Tool == nil {
-				d.Tool = &t
+			if json.Unmarshal([]byte(m[2]), &t) == nil && validTool(t) && len(d.Tools) < 3 {
+				d.Tools = append(d.Tools, t)
+			}
+			continue
+		}
+		if m[1] == "SCHEDULE" {
+			var x schedule
+			if json.Unmarshal([]byte(m[2]), &x) == nil && len(d.Schedules) < 3 {
+				d.Schedules = append(d.Schedules, x)
+			}
+			continue
+		}
+		if m[1] == "FORM" {
+			if f := parseForm(m[2]); f != nil {
+				d.Form = f
+			}
+			continue
+		}
+		if m[1] == "HANDOFF" {
+			var h handoff
+			if json.Unmarshal([]byte(m[2]), &h) == nil && h.To != "" && strings.TrimSpace(h.Text) != "" && len(d.Handoffs) < 3 {
+				h.Text = clean(h.Text, 2000)
+				d.Handoffs = append(d.Handoffs, h)
+			}
+			continue
+		}
+		if m[1] == "MEMORY" {
+			var x struct {
+				Text  string `json:"text"`
+				Scope string `json:"scope"`
+			}
+			if json.Unmarshal([]byte(m[2]), &x) == nil {
+				d.Memory = clean(x.Text, 300)
+				d.MemoryScope = x.Scope
 			}
 			continue
 		}
@@ -106,6 +199,9 @@ func ParseDirectives(text string) directives {
 		}
 	}
 	d.Text = strings.TrimSpace(directiveRe.ReplaceAllString(text, ""))
+	if d.Form != nil && d.Text == "" {
+		d.Text = "Bạn điền giúp mình mấy thông tin này nhé."
+	}
 	return d
 }
 
@@ -150,10 +246,15 @@ func eligible(w ledger.Work) bool {
 func (s *Service) runLoop() {
 	t := time.NewTicker(150 * time.Millisecond)
 	defer t.Stop()
+	sweep := time.NewTicker(heartbeat)
+	defer sweep.Stop()
 	for {
 		select {
 		case <-s.ctx.Done():
 			return
+		case <-sweep.C:
+			s.sweepLeases()
+			continue
 		case <-t.C:
 		case <-s.wake:
 		}
@@ -184,7 +285,9 @@ func (s *Service) runLoop() {
 				s.mu.Lock()
 				s.running[botID] = true
 				s.mu.Unlock()
+				s.bg.Add(1)
 				go func(w ledger.Work) {
+					defer s.bg.Done()
 					defer func() { s.mu.Lock(); delete(s.running, w.BotID); s.mu.Unlock(); s.poke() }()
 					s.runWork(w)
 				}(w)
@@ -201,7 +304,8 @@ func (s *Service) poke() {
 	}
 }
 
-// recoverInterrupted closes direct runs a crash left open.
+// recoverInterrupted requeues direct runs a crash or restart left open
+// (bounded by ledger.MaxDirectResumes, then failed) and closes stops.
 func (s *Service) recoverInterrupted() {
 	for _, w := range s.L.Snapshot().Work {
 		if w.Direct == nil {
@@ -209,9 +313,63 @@ func (s *Service) recoverInterrupted() {
 		}
 		switch w.Status {
 		case "running":
-			_, _ = s.L.DirectFinish(w.RequestID, w.Epoch, "failed", "interrupted_by_restart", nil)
+			s.resumeOrFail(w)
 		case "cancelling":
 			_, _ = s.L.DirectStopped(w.RequestID)
+		}
+	}
+}
+
+func (s *Service) resumeOrFail(w ledger.Work) {
+	if _, err := s.L.DirectResume(w.RequestID); err == nil {
+		log.Printf("aurora resumed %s after interruption (attempt %d)", w.RequestID, w.DirectResumes+1)
+		s.record(w.BotID, w.RequestID, "step", "Tiếp tục việc bị gián đoạn")
+		s.poke()
+		return
+	}
+	_, _ = s.L.DirectFinish(w.RequestID, w.Epoch, "failed", "interrupted_by_restart", nil)
+}
+
+// Lease/heartbeat (OpenMuse worker.ts pattern, MIT): a running turn renews
+// its lease; the sweeper requeues any run whose lease lapsed while no
+// goroutine in this process owns its bot (a hung or lost run).
+var (
+	leaseFor  = 90 * time.Second
+	heartbeat = 30 * time.Second
+)
+
+func (s *Service) leaseUntil() string { return s.Now().Add(leaseFor).UTC().Format(time.RFC3339) }
+
+func (s *Service) holdLease(ctx context.Context, id string) {
+	t := time.NewTicker(heartbeat)
+	defer t.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-t.C:
+			if cur, err := s.L.Get(id); err == nil && cur.Status == "running" {
+				_, _ = s.L.DirectUpdate(id, cur.Epoch, func(r *ledger.DirectRun) { r.LeaseUntil = s.leaseUntil() })
+			}
+		}
+	}
+}
+
+func (s *Service) sweepLeases() {
+	now := s.Now()
+	for _, w := range s.L.Snapshot().Work {
+		if w.Status != "running" || w.Direct == nil || w.Direct.LeaseUntil == "" {
+			continue
+		}
+		until, err := time.Parse(time.RFC3339, w.Direct.LeaseUntil)
+		if err != nil || now.Before(until) {
+			continue
+		}
+		s.mu.Lock()
+		owned := s.running[w.BotID]
+		s.mu.Unlock()
+		if !owned {
+			s.resumeOrFail(w)
 		}
 	}
 }
@@ -219,16 +377,20 @@ func (s *Service) recoverInterrupted() {
 func (s *Service) history(botID, current string) []ChatMsg {
 	v := newView(s.L.Snapshot())
 	b, _ := v.bot(botID)
-	msgs := []ChatMsg{{Role: "system", Content: fmt.Sprintf(systemPrompt, b.Name, v.desc(b))}}
+	msgs := []ChatMsg{{Role: "system", Content: fmt.Sprintf(systemPrompt, b.Name, v.desc(b)) + memoryPrompt(s.Mem.List(botID)) + teamPrompt(s.Mem.List(teamKey)) + s.computerNote(botID) + s.extNote(botID) + clockNote(time.Now())}}
+	if cw, err := s.L.Get(current); err == nil && isEnglish(cw.Text) {
+		// the owner wrote English: the Vietnamese-first prompt must not win
+		msgs[0].Content += "\nLANGUAGE: the user's latest message is in English. Reply entirely in natural English (keep [n] citations and directive lines as specified)."
+	}
 	l := v.byBot[botID]
 	if cw, err := s.L.Get(current); err == nil && isGroupID(cw.ConversationID) {
 		return s.groupHistory(v, b, cw, msgs)
 	}
-	if len(l) > 30 {
-		l = l[len(l)-30:]
+	if len(l) > maxHistoryTurns {
+		l = l[len(l)-maxHistoryTurns:]
 	}
 	for _, w := range l {
-		if w.Direct == nil || w.Direct.Kind == "" {
+		if w.Direct == nil || w.Direct.Kind == "" || w.Direct.Kind == "computer" {
 			msgs = append(msgs, ChatMsg{"user", w.Text})
 		}
 		if w.RequestID == current {
@@ -244,7 +406,12 @@ func (s *Service) history(botID, current string) []ChatMsg {
 		if r := visibleText(w.Reply); r != "" {
 			c += "\n" + r
 		}
-		if w.Direct != nil && w.Direct.Approval != nil {
+		if w.Direct != nil && w.Direct.Approval != nil && w.Direct.Approval.Kind == "computer" {
+			// never show the model its own approval boilerplate: it learns to
+			// type it instead of printing a TOOL line (live 2026-10-23)
+			c = strings.Replace(c, computerAskText, "", 1)
+			c += fmt.Sprintf("\n(đã gọi công cụ computer_run, trạng thái duyệt: %s)", w.Direct.Approval.State)
+		} else if w.Direct != nil && w.Direct.Approval != nil {
 			c += fmt.Sprintf("\n[Đề xuất cần duyệt: %s — trạng thái: %s]", w.Direct.Approval.Title, w.Direct.Approval.State)
 		}
 		if w.Status == "failed" || w.Status == "cancelled" {
@@ -254,13 +421,14 @@ func (s *Service) history(botID, current string) []ChatMsg {
 			msgs = append(msgs, ChatMsg{"assistant", c})
 		}
 	}
-	return msgs
+	return s.compact(botID, msgs)
 }
 
 func (s *Service) agui(e AGUIEvent) { s.publish("agui", e) }
 
 // call streams one model call; deltas go to SSE as TEXT_MESSAGE_CONTENT.
 func (s *Service) call(ctx context.Context, w ledger.Work, msgs []ChatMsg) (directives, error) {
+	msgs = s.personalize(msgs)
 	s.agui(AGUIEvent{Type: TEXT_MESSAGE_START, ThreadID: w.BotID, RunID: w.RequestID, MessageID: w.RequestID})
 	// Deltas are coalesced (~60ms) and each event also carries the full text so far,
 	// so a burst that overflows a slow client's buffer can never drop characters.
@@ -274,7 +442,7 @@ func (s *Service) call(ctx context.Context, w ledger.Work, msgs []ChatMsg) (dire
 		s.publish("delta", map[string]any{"type": TEXT_MESSAGE_CONTENT, "agentId": threadOf(w), "from": w.BotID, "id": w.RequestID, "messageId": w.RequestID, "delta": pend, "text": sb.String()})
 		pend, last = "", time.Now()
 	}
-	full, err := s.AI.Stream(ctx, msgs, func(d string) {
+	full, err := s.stream(withTask(ctx, w.RequestID), w.BotID, "chat", msgs, func(d string) {
 		sb.WriteString(d)
 		pend += d
 		if time.Since(last) >= 60*time.Millisecond {
@@ -282,7 +450,10 @@ func (s *Service) call(ctx context.Context, w ledger.Work, msgs []ChatMsg) (dire
 		}
 	})
 	flush()
-	return ParseDirectives(full), err
+	cut := strings.Contains(full, truncMark)
+	d := ParseDirectives(strings.ReplaceAll(full, truncMark, ""))
+	d.Cut = cut
+	return d, err
 }
 
 func (s *Service) endDraft(w ledger.Work) {
@@ -296,7 +467,16 @@ func (s *Service) runWork(w ledger.Work) {
 		s.runBrief(w)
 		return
 	}
-	run := ledger.DirectRun{Runtime: s.AI.Runtime(), Model: s.AI.ModelName()}
+	if s.PC != nil && wantsComputer.MatchString(stripRef(w.Text)) {
+		s.PC.Warm(w.BotID) // boot the bot's VM while the model plans (cold start ~10-30 s on Railway)
+	}
+	run := ledger.DirectRun{Runtime: s.AI.Runtime(), Model: s.AI.ModelName(), LeaseUntil: s.leaseUntil()}
+	if strings.HasPrefix(w.ClientNonce, "computer-") {
+		run.Kind = "computer" // hidden follow-up after an approved command
+	}
+	if strings.HasPrefix(w.ClientNonce, handoffPrefix) {
+		run.Kind = "handoff" // a member's message to another: no owner bubble
+	}
 	if !s.AI.Configured() {
 		run.Model = ""
 	}
@@ -307,9 +487,10 @@ func (s *Service) runWork(w ledger.Work) {
 	name := s.botName(w.BotID)
 	s.record(w.BotID, w.RequestID, "message", "Bạn giao cho "+name+": "+w.Text)
 	s.agui(AGUIEvent{Type: RUN_STARTED, ThreadID: w.BotID, RunID: w.RequestID})
-	ctx, cancel := context.WithTimeout(s.ctx, 6*time.Minute)
+	ctx, cancel := context.WithTimeout(s.ctx, turnBudget+turnSlack)
 	defer cancel()
 	go s.watchCancel(ctx, cancel, w.RequestID)
+	go s.holdLease(ctx, w.RequestID)
 	appr, choices, err := s.runTurn(ctx, w)
 	if err != nil {
 		cur, gerr := s.L.Get(w.RequestID)
@@ -322,6 +503,29 @@ func (s *Service) runWork(w ledger.Work) {
 		code := clean(err.Error(), 150)
 		if errors.Is(err, ErrNoAI) {
 			code = "ai_not_configured"
+		}
+		if s.ctx.Err() != nil {
+			// Root cause of "ai_unreachable after restart" (live 2026-10-23):
+			// SIGTERM cancels the in-flight model call and the dying process
+			// recorded that as a failure. Leave the run open; the next process
+			// resumes it from its checkpoint.
+			log.Printf("aurora: shutting down, %s left for resume", w.RequestID)
+			return
+		}
+		if gerr == nil && cur.Status == "running" && (code == "ai_unreachable" || code == "ai_stream_broken") && cur.DirectResumes < ledger.MaxDirectResumes {
+			// transient provider/network loss: requeue (from the checkpoint)
+			// after a pause instead of failing the owner's task
+			s.endDraft(w)
+			go func() {
+				select {
+				case <-s.ctx.Done():
+				case <-time.After(requeueDelay):
+					if c, err := s.L.Get(w.RequestID); err == nil && c.Status == "running" {
+						s.resumeOrFail(c)
+					}
+				}
+			}()
+			return
 		}
 		if gerr == nil && cur.Status == "running" {
 			_, _ = s.L.DirectFinish(w.RequestID, cur.Epoch, "failed", code, nil)
@@ -345,8 +549,14 @@ func (s *Service) runWork(w ledger.Work) {
 		}
 		d.Choices = choices
 	})
+	if appr != nil && appr.Kind == "computer" {
+		s.supersedeCommands(w.BotID, w.RequestID)
+	}
 	s.endDraft(w)
 	s.agui(AGUIEvent{Type: RUN_FINISHED, ThreadID: w.BotID, RunID: w.RequestID})
+	if s.absorbed(w.RequestID) {
+		return // folded into an earlier run: no activity line or push of its own
+	}
 	if done, _ := s.L.Get(w.RequestID); done.Direct != nil && len(done.Direct.Plan) > 0 {
 		s.record(w.BotID, w.RequestID, "plan", name+" chạy kế hoạch "+itoa(len(done.Direct.Plan))+" bước")
 	} else {
@@ -391,6 +601,12 @@ func (s *Service) appendText(id, text string) error {
 		return nil
 	}
 	text = scrubInternal(text)
+	if s.PC != nil {
+		var bad []string
+		if text, bad = s.verifyClaims(cur.BotID, text, computerTask(cur)); len(bad) > 0 && computerTask(cur) && !strings.Contains(text, unverifiedFooter) {
+			text += "\n\n" + unverifiedFooter
+		}
+	}
 	if cur.Reply != "" {
 		text = "\n\n" + text
 	}
@@ -414,7 +630,7 @@ const maxToolRounds = 5
 
 const finalNudge = "Đã hết lượt tra cứu cho lượt này. Viết NGAY câu trả lời cuối cùng chỉ từ KẾT QUẢ CÔNG CỤ ở trên, trích [n], nói rõ phần nào còn thiếu dữ liệu. Không viết dòng TOOL."
 
-const actNudge = "Bạn vừa nói sẽ làm nhưng chưa làm gì. Làm ngay trong lượt này: việc nhiều bước thì viết PLAN, cần số liệu thì in đúng một dòng TOOL, còn lại thì trả lời đầy đủ luôn. Không hứa thêm."
+const actNudge = "Bạn vừa nói sẽ làm (hoặc chép dòng “(đã gọi công cụ …)” — dòng đó KHÔNG gọi công cụ) nhưng chưa làm gì. Làm ngay trong lượt này: việc nhiều bước thì viết PLAN, cần số liệu thì in đúng một dòng TOOL, còn lại thì trả lời đầy đủ luôn. Không hứa thêm."
 
 const planNudge = "Yêu cầu này gồm nhiều phần. Trả lời đúng 1 câu nêu cách làm, rồi một dòng PLAN 3-6 bước ngắn (bước cuối là tổng hợp/viết kết quả). Chưa tra cứu, chưa trả lời chi tiết. Nếu thật ra chỉ là một câu hỏi đơn giản thì trả lời luôn."
 
@@ -426,18 +642,30 @@ func multiPart(t string) bool {
 	return len([]rune(t)) >= 120 && len(multiPartRe.FindAllString(t, -1)) >= 2
 }
 
-var promiseRe = regexp.MustCompile(`(?i)(^|\s)(sẽ|để (em|mình|tôi) (tra|làm|tìm|xem)|bắt đầu|đang tra|chờ (em|mình|tôi))`)
+var promiseRe = regexp.MustCompile(`(?i)(^|\s)(sẽ|để (em|mình|tôi) (tra|làm|tìm|xem)|bắt đầu|đang tra|chờ (em|mình|tôi)|(kiểm tra|xem) lại|trước khi (báo|trả lời|gửi)|I'll|I will|let me)`)
 
 // promiseOnly reports a short reply that only announces work it never does
 // (no directive, no question): dogfood v16 long-task failure.
 func promiseOnly(d directives) bool {
+	if len(d.Tools) == 0 && toolMimicRe.MatchString(d.Text) {
+		// live run 3: the model copied the history's "(đã gọi công cụ
+		// computer_write_file, trạng thái: pending)" line instead of a TOOL line
+		return true
+	}
 	t := strings.TrimSpace(d.Text)
-	return d.Tool == nil && d.Approval == nil && d.Secret == nil && len(d.Plan) == 0 && len(d.Choices) == 0 &&
+	return len(d.Tools) == 0 && d.Approval == nil && d.Secret == nil && len(d.Plan) == 0 && len(d.Choices) == 0 &&
 		t != "" && len([]rune(t)) < 220 && !strings.Contains(t, "?") && promiseRe.MatchString(t)
 }
 
 func (s *Service) runTurn(ctx context.Context, w ledger.Work) (*Approval, []string, error) {
+	start := time.Now()
 	tc := &toolCtx{}
+	defer s.saveResearch(w.BotID, tc)
+	if s.absorbed(w.RequestID) {
+		// Already folded into the previous run (shown above its answer):
+		// finish silently instead of a second, redundant reply.
+		return nil, nil, nil
+	}
 	// Reply flow: short acknowledgement first, then the tool status line, then
 	// the result as its own message (progress only at milestones).
 	if auto := s.autoTools(w); len(auto) > 0 {
@@ -448,17 +676,34 @@ func (s *Service) runTurn(ctx context.Context, w ledger.Work) (*Approval, []stri
 	}
 	var d directives
 	var err error
-	if steps := userSteps(w.Text); len(steps) >= 3 && threadOf(w) == w.BotID {
+	followUp := strings.HasPrefix(w.ClientNonce, "computer-") // tool output must never trigger planning
+	var resumed []ledger.DirectStep
+	if !followUp {
+		s.newRequest(w.BotID, stripRef(w.Text), computerTask(w))
+	}
+	if cp := w.ResumeFrom; cp != nil && !followUp && len(cp.Plan) >= 2 {
+		// Restarted mid-plan: keep the finished steps (and their sources)
+		// and continue from the next one instead of starting over.
+		resumed = cp.Plan
+		tc.sources = append(tc.sources, cp.Sources...)
+		titles := make([]string, len(cp.Plan))
+		for i, st := range cp.Plan {
+			titles[i] = st.Title
+		}
+		d = directives{Text: cp.PlanIntro, Plan: titles}
+	} else if steps := userSteps(w.Text); !followUp && len(steps) >= 3 && threadOf(w) == w.BotID {
 		// The owner already listed the steps: run them as a server-driven plan
 		// (one milestone update per step, then a final result) without asking
 		// the model to re-plan.
 		d = directives{Text: fmt.Sprintf("Mình sẽ làm %d bước và báo sau mỗi bước.", len(steps)), Plan: steps}
-	} else if multiPart(w.Text) && threadOf(w) == w.BotID {
+	} else if !followUp && multiPart(w.Text) && threadOf(w) == w.BotID {
 		// Long multi-part request without numbered steps: ask the model to
 		// propose the plan first, so it runs with milestones.
-		d, err = s.call(ctx, w, append(tc.inject(s.history(w.BotID, w.RequestID)), ChatMsg{Role: "system", Content: planNudge}))
+		d, err = s.ask(ctx, w, tc, func() []ChatMsg {
+			return append(tc.inject(s.history(w.BotID, w.RequestID)), ChatMsg{Role: "system", Content: planNudge})
+		})
 	} else {
-		d, err = s.call(ctx, w, tc.inject(s.history(w.BotID, w.RequestID)))
+		d, err = s.ask(ctx, w, tc, func() []ChatMsg { return tc.inject(s.history(w.BotID, w.RequestID)) })
 	}
 	if err == nil && promiseOnly(d) {
 		// "Em sẽ làm từng bước…" and then nothing: ask once for the action itself.
@@ -466,29 +711,96 @@ func (s *Service) runTurn(ctx context.Context, w ledger.Work) (*Approval, []stri
 		if cur, _ := s.L.Get(w.RequestID); cur.Direct != nil && cur.Direct.Ack == "" {
 			s.ack(w, firstLine(d.Text))
 		}
-		d, err = s.call(ctx, w, append(tc.inject(s.history(w.BotID, w.RequestID)), ChatMsg{Role: "system", Content: actNudge}))
+		d, err = s.ask(ctx, w, tc, func() []ChatMsg {
+			return append(tc.inject(s.history(w.BotID, w.RequestID)), ChatMsg{Role: "system", Content: actNudge})
+		})
 	}
-	for round := 0; err == nil && d.Tool != nil && round < maxToolRounds && s.Tools != nil; round++ {
-		arg := d.Tool.Q + d.Tool.URL
-		s.publish("draft_end", map[string]string{"id": w.RequestID, "agentId": threadOf(w)})
-		if cur, _ := s.L.Get(w.RequestID); cur.Direct != nil && cur.Direct.Ack == "" {
-			s.ack(w, ackText(d.Text, threadOf(w) != w.BotID, []toolCall{{d.Tool.Name, arg}}))
+	rounds := maxToolRounds
+	if followUp {
+		rounds = 8 // build loop: write file, list, run, verify
+	}
+	for attempt := 0; ; attempt++ {
+		for round := 0; err == nil && len(d.Tools) > 0 && round < rounds && s.Tools != nil; round++ {
+			s.publish("draft_end", map[string]string{"id": w.RequestID, "agentId": threadOf(w)})
+			calls := callsOf(d.Tools)
+			if cur, _ := s.L.Get(w.RequestID); cur.Direct != nil && cur.Direct.Ack == "" {
+				s.ack(w, ackText(d.Text, threadOf(w) != w.BotID, calls))
+			}
+			s.runTools(ctx, w, tc, calls)
+			if tc.pendingCmd != "" {
+				// a command needs the owner: end the turn on its approval card
+				d = directives{Text: computerAskText, Approval: computerApproval(tc.pendingCmd)}
+				break
+			}
+			if cp, ok := s.checkpoint(w, start); ok {
+				d = cp // out of time: continue as a fresh turn instead of a deadline error
+				break
+			}
+			d, err = s.ask(ctx, w, tc, func() []ChatMsg { return tc.inject(s.history(w.BotID, w.RequestID)) })
 		}
-		s.runTool(ctx, w, tc, d.Tool.Name, arg)
-		d, err = s.call(ctx, w, tc.inject(s.history(w.BotID, w.RequestID)))
+		// A reply that narrates tool work ("[đã ghi render_video.py]") with no
+		// tool call behind it: strip the claim and ask for directives only.
+		if err != nil || attempt >= 3 {
+			break
+		}
+		if d.Approval != nil && d.Approval.Kind == "computer" || d.Text == checkpointText || d.Stop {
+			break
+		}
+		nudge := ""
+		if d.Cut && len(d.Tools) == 0 {
+			nudge = cutNudge // a file body cut by the output cap: the TOOL line was lost
+		} else if s.narratedOnly(w, d) {
+			d.Text, nudge = stripNarration(d.Text), directivesOnly
+		} else if n := s.continueNudge(w, d); n != "" {
+			// the task is not finished (open checklist items, or a reply that
+			// announces the next work and stops): keep working in this turn
+			nudge = n
+		}
+		if nudge == "" {
+			break
+		}
+		if cp, ok := s.checkpoint(w, start); ok {
+			d = cp
+			break
+		}
+		s.publish("draft_end", map[string]string{"id": w.RequestID, "agentId": threadOf(w)})
+		d, err = s.ask(ctx, w, tc, func() []ChatMsg {
+			return append(tc.inject(s.history(w.BotID, w.RequestID)), ChatMsg{Role: "system", Content: nudge})
+		})
 	}
-	if err == nil && d.Tool != nil && len(tc.blocks) > 0 {
+	if err == nil && len(d.Tools) == 0 && d.Approval == nil {
+		d.Text = stripNarration(d.Text) // never show a claimed action that did not happen
+		if cp, ok := s.unfinished(w, d); ok {
+			d = cp
+		}
+	}
+	if err == nil && len(d.Tools) > 0 && len(tc.blocks) > 0 {
 		// Out of lookups but holding real results: write the answer from them
 		// instead of ending on a bare "no data" note (dogfood v16 compare task).
 		s.publish("draft_end", map[string]string{"id": w.RequestID, "agentId": threadOf(w)})
 		msgs := append(tc.inject(s.history(w.BotID, w.RequestID)), ChatMsg{Role: "system", Content: finalNudge})
 		d, err = s.call(ctx, w, msgs)
 	}
+	if err == nil && len(d.Plan) == 0 && s.steer(w, tc) {
+		// The owner changed course while this answer was being written:
+		// discard the draft and answer once more with the new instruction.
+		s.publish("draft_end", map[string]string{"id": w.RequestID, "agentId": threadOf(w)})
+		d, err = s.call(ctx, w, tc.inject(s.history(w.BotID, w.RequestID)))
+		if err == nil && len(d.Tools) > 0 && s.Tools != nil {
+			s.publish("draft_end", map[string]string{"id": w.RequestID, "agentId": threadOf(w)})
+			s.runTools(ctx, w, tc, callsOf(d.Tools))
+			d, err = s.call(ctx, w, append(tc.inject(s.history(w.BotID, w.RequestID)), ChatMsg{Role: "system", Content: finalNudge}))
+		}
+	}
 	if err != nil {
 		return nil, nil, err
 	}
 	s.fixScript(ctx, w, &d)
-	if d.Tool != nil { // tools exhausted or disabled: never leave a bare TOOL line
+	s.rememberD(w, d)
+	s.handOff(w, d.Handoffs)
+	s.addSchedules(w, d.Schedules)
+	s.reviewMemory(w, d.Memory)
+	if len(d.Tools) > 0 { // tools exhausted or disabled: never leave a bare TOOL line
 		d.Text = strings.TrimSpace(d.Text + "\n(Mình chưa lấy thêm được dữ liệu, nên không đưa số liệu chưa kiểm chứng.)")
 	}
 	if d.Secret != nil {
@@ -497,13 +809,24 @@ func (s *Service) runTurn(ctx context.Context, w ledger.Work) (*Approval, []stri
 		s.record(w.BotID, w.RequestID, "secret", "Xin bí mật "+sec.Name)
 	}
 	if len(d.Plan) < 2 || d.Approval != nil {
+		if d.Approval == nil {
+			s.verifyFinal(ctx, w, tc, &d)
+		}
 		return d.Approval, d.Choices, s.appendText(w.RequestID, normalizeCites(d.Text, len(tc.sources)))
 	}
 	steps := make([]Step, len(d.Plan))
 	for i, t := range d.Plan {
 		steps[i] = Step{Title: t, Status: "pending"}
+		if i < len(resumed) && resumed[i].Status == "done" {
+			steps[i] = resumed[i]
+		}
 	}
-	s.update(w.RequestID, func(r *ledger.DirectRun) { r.PlanIntro, r.Plan = clean(d.Text, 600), steps })
+	s.update(w.RequestID, func(r *ledger.DirectRun) {
+		r.PlanIntro, r.Plan = clean(planIntro(d.Text), 600), steps
+		if len(resumed) > 0 {
+			r.Sources = append([]ledger.DirectSource(nil), tc.sources...)
+		}
+	})
 	s.endDraft(w)
 	setStep := func(i int, st string) {
 		s.update(w.RequestID, func(r *ledger.DirectRun) {
@@ -515,14 +838,19 @@ func (s *Service) runTurn(ctx context.Context, w ledger.Work) (*Approval, []stri
 			}
 		})
 	}
+	tc.lookupOnly = !wantsComputer.MatchString(stripRef(w.Text))
 	for i, title := range d.Plan {
+		if steps[i].Status == "done" { // finished before the restart
+			tc.note(fmt.Sprintf("KẾT QUẢ BƯỚC %d (%s): %s", i+1, title, steps[i].Note))
+			continue
+		}
 		if ctx.Err() != nil {
 			setStep(i, "cancelled")
 			return nil, nil, ctx.Err()
 		}
 		setStep(i, "running")
 		s.agui(AGUIEvent{Type: STEP_STARTED, ThreadID: w.BotID, RunID: w.RequestID, StepName: title})
-		prompt := fmt.Sprintf("[Hệ thống] Thực hiện bước %d/%d: %s. Chỉ làm bước này. Cần số liệu hiện tại thì in đúng một dòng TOOL. Trả lời ngắn gọn (tối đa 5 gạch đầu dòng) chỉ nêu kết quả của bước, có [n] nếu dùng nguồn; không viết “Kết quả bước…” hay “Bước tiếp theo…”. Không hỏi lựa chọn khi bước đã làm xong. Không viết PLAN. Đừng tự tạo bước chờ Darren duyệt. Nếu thật sự thiếu thông tin chỉ Darren biết, hỏi 1 câu và dùng CHOICES. Chỉ dùng APPROVAL nếu bước này cần hành động ra bên ngoài.", i+1, len(d.Plan), title)
+		prompt := fmt.Sprintf("[Hệ thống] Thực hiện bước %d/%d: %s. Chỉ làm bước này. Cần số liệu hiện tại thì in đúng một dòng TOOL (tra cứu thông tin luôn dùng công cụ web/giá; máy tính riêng không có mạng, chỉ dùng khi bước yêu cầu chạy/tính trên file). Trả lời ngắn gọn (tối đa 5 gạch đầu dòng; bước yêu cầu bảng hay code thì đưa đủ bảng markdown hoặc khối code markdown) chỉ nêu kết quả của bước, có [n] nếu dùng nguồn; không viết “Kết quả bước…” hay “Bước tiếp theo…”. Không hỏi lựa chọn khi bước đã làm xong. Không viết PLAN. Đừng tự tạo bước chờ Darren duyệt. Nếu thật sự thiếu thông tin chỉ Darren biết, hỏi 1 câu và dùng CHOICES. Chỉ dùng APPROVAL nếu bước này cần hành động ra bên ngoài.", i+1, len(d.Plan), title)
 		sd, err := s.stepCall(ctx, w, tc, prompt)
 		if err != nil {
 			st := "failed"
@@ -558,11 +886,46 @@ func (s *Service) runTurn(ctx context.Context, w ledger.Work) (*Approval, []stri
 		return nil, nil, err
 	}
 	s.fixScript(ctx, w, &fd)
+	if fd.Approval == nil {
+		s.verifyFinal(ctx, w, tc, &fd)
+	}
 	if err := s.appendText(w.RequestID, normalizeCites(fd.Text, len(tc.sources))); err != nil {
 		return nil, nil, err
 	}
 	s.endDraft(w)
 	return fd.Approval, fd.Choices, nil
+}
+
+// verifyFinal: a final reply of a computer task that claims files which do
+// not exist is asked once more (with the real file list), then rewritten.
+func (s *Service) verifyFinal(ctx context.Context, w ledger.Work, tc *toolCtx, d *directives) {
+	if s.PC == nil || !computerTask(w) {
+		return
+	}
+	_, bad := s.verifyClaims(w.BotID, d.Text, true)
+	if len(bad) == 0 {
+		return
+	}
+	s.publish("draft_end", map[string]string{"id": w.RequestID, "agentId": threadOf(w)})
+	nd, err := s.ask(ctx, w, tc, func() []ChatMsg {
+		return append(tc.inject(s.history(w.BotID, w.RequestID)), ChatMsg{Role: "system", Content: verifyNudge(bad, s.computerContext(w.BotID))})
+	})
+	if err != nil {
+		return
+	}
+	for r := 0; len(nd.Tools) > 0 && r < 4 && s.Tools != nil; r++ { // it may go back to work (file writes, a command card)
+		s.publish("draft_end", map[string]string{"id": w.RequestID, "agentId": threadOf(w)})
+		s.runTools(ctx, w, tc, callsOf(nd.Tools))
+		if tc.pendingCmd != "" {
+			*d = directives{Text: computerAskText, Approval: computerApproval(tc.pendingCmd)}
+			return
+		}
+		if nd, err = s.ask(ctx, w, tc, func() []ChatMsg { return tc.inject(s.history(w.BotID, w.RequestID)) }); err != nil {
+			return
+		}
+	}
+	nd.Tools = nil
+	*d = nd
 }
 
 // stepCall runs one model call with its own small tool loop and always ends
@@ -571,17 +934,39 @@ func (s *Service) stepCall(ctx context.Context, w ledger.Work, tc *toolCtx, prom
 	mk := func(extra ...ChatMsg) []ChatMsg {
 		return append(append(tc.inject(s.history(w.BotID, w.RequestID)), ChatMsg{Role: "user", Content: prompt}), extra...)
 	}
-	d, err := s.call(ctx, w, mk())
-	for r := 0; err == nil && d.Tool != nil && r < 4 && s.Tools != nil; r++ {
+	d, err := s.ask(ctx, w, tc, func() []ChatMsg { return mk() })
+	for r := 0; err == nil && len(d.Tools) > 0 && r < 4 && s.Tools != nil; r++ {
 		s.publish("draft_end", map[string]string{"id": w.RequestID, "agentId": threadOf(w)})
-		s.runTool(ctx, w, tc, d.Tool.Name, d.Tool.Q+d.Tool.URL)
-		d, err = s.call(ctx, w, mk())
+		s.runTools(ctx, w, tc, callsOf(d.Tools))
+		if tc.pendingCmd != "" {
+			return directives{Text: "Bước này cần chạy lệnh trên máy tính của mình, bạn duyệt giúp nhé.", Approval: computerApproval(tc.pendingCmd)}, nil
+		}
+		d, err = s.ask(ctx, w, tc, func() []ChatMsg { return mk() })
 	}
-	if err == nil && d.Tool != nil {
+	if err == nil && s.narratedOnly(w, d) {
+		s.publish("draft_end", map[string]string{"id": w.RequestID, "agentId": threadOf(w)})
+		d, err = s.ask(ctx, w, tc, func() []ChatMsg { return mk(ChatMsg{Role: "system", Content: directivesOnly}) })
+		for r := 0; err == nil && len(d.Tools) > 0 && r < 4 && s.Tools != nil; r++ {
+			s.publish("draft_end", map[string]string{"id": w.RequestID, "agentId": threadOf(w)})
+			s.runTools(ctx, w, tc, callsOf(d.Tools))
+			if tc.pendingCmd != "" {
+				return directives{Text: "Bước này cần chạy lệnh trên máy tính của mình, bạn duyệt giúp nhé.", Approval: computerApproval(tc.pendingCmd)}, nil
+			}
+			d, err = s.ask(ctx, w, tc, func() []ChatMsg { return mk() })
+		}
+	}
+	if err == nil && len(d.Tools) > 0 {
 		s.publish("draft_end", map[string]string{"id": w.RequestID, "agentId": threadOf(w)})
 		d, err = s.call(ctx, w, mk(ChatMsg{Role: "system", Content: finalNudge}))
 	}
-	d.Tool, d.Plan = nil, nil
+	if len(d.Tools) == 0 && d.Approval == nil {
+		d.Text = stripNarration(d.Text)
+	}
+	s.rememberD(w, d)
+	s.handOff(w, d.Handoffs)
+	s.addSchedules(w, d.Schedules)
+	s.reviewMemory(w, d.Memory)
+	d.Tools, d.Plan, d.Memory = nil, nil, ""
 	return d, err
 }
 
@@ -593,6 +978,11 @@ var (
 // userSteps extracts an explicit numbered task list ("(1) … (2) …" or
 // "1. …\n2. …") from the owner's message; numbers must run 1,2,3….
 func userSteps(text string) []string {
+	if requirementsRe.MatchString(text) {
+		// a numbered list of requirements describes the deliverable; it is not
+		// the work plan (live pptx task: "1. File .pptx thật…" became step 1)
+		return nil
+	}
 	idx := stepMarkRe.FindAllStringSubmatchIndex(text, -1)
 	var out []string
 	for k, m := range idx {
@@ -648,7 +1038,11 @@ var internalName = map[string]string{"web_fetch": "đọc trang", "web_search": 
 
 // scrubInternal replaces internal tool identifiers that leak into replies
 // ("Định dạng web_fetch bị chặn") with plain Vietnamese.
+// toolMimicRe is the history's tool-call note copied into a reply.
+var toolMimicRe = regexp.MustCompile(`(?m)^[ \t]*\(đã gọi công cụ [a-z_]+, trạng thái[^)\n]*\)[ \t]*$`)
+
 func scrubInternal(t string) string {
+	t = strings.TrimSpace(toolMimicRe.ReplaceAllString(t, ""))
 	return internalRe.ReplaceAllStringFunc(t, func(m string) string {
 		k := strings.ToLower(internalRe.FindStringSubmatch(m)[2])
 		return "việc " + internalName[k]
@@ -701,7 +1095,7 @@ func (s *Service) fixScript(ctx context.Context, w ledger.Work, d *directives) {
 		if !hasHan(t) && (en || !hasStrayEnglish(t)) {
 			return t
 		}
-		out, err := s.AI.Stream(ctx, []ChatMsg{{"system", "Bạn là biên tập viên tiếng Việt. Viết lại nguyên văn đoạn sau, chỉ thay các cụm chữ Hán/Nhật/Hàn và các từ nối tiếng Anh lạc vào câu (with, the, and, however…) bằng tiếng Việt tự nhiên đúng nghĩa. Giữ nguyên tên riêng, thuật ngữ, mã, URL, số liệu, xuống dòng và [n]. Chỉ trả về đoạn đã sửa."}, {"user", t}}, func(string) {})
+		out, err := s.stream(ctx, w.BotID, "rewrite", []ChatMsg{{"system", "Bạn là biên tập viên tiếng Việt. Viết lại nguyên văn đoạn sau, chỉ thay các cụm chữ Hán/Nhật/Hàn và các từ nối tiếng Anh lạc vào câu (with, the, and, however…) bằng tiếng Việt tự nhiên đúng nghĩa. Giữ nguyên tên riêng, thuật ngữ, mã, URL, số liệu, xuống dòng và [n]. Chỉ trả về đoạn đã sửa."}, {"user", t}}, func(string) {})
 		if out = strings.TrimSpace(out); err != nil || out == "" || hasHan(out) || len(out) < len(t)/2 {
 			out = stripHan(t)
 		}
@@ -737,3 +1131,66 @@ var codeOrURL = regexp.MustCompile("`[^`]*`|https?://\\S+|\"[^\"]*\"")
 func hasStrayEnglish(t string) bool {
 	return strayEnglish.MatchString(codeOrURL.ReplaceAllString(t, " "))
 }
+
+func callsOf(ts []toolReq) []toolCall {
+	out := make([]toolCall, 0, len(ts))
+	for _, t := range ts {
+		if isComputerTool(t.Name) {
+			out = append(out, toolCall{t.Name, computerArg(t)})
+			continue
+		}
+		if extArg(t.Name) {
+			b, _ := json.Marshal(t)
+			out = append(out, toolCall{t.Name, string(b)})
+			continue
+		}
+		out = append(out, toolCall{t.Name, t.Q + t.URL})
+	}
+	return out
+}
+
+func (s *Service) rememberD(w ledger.Work, d directives) {
+	if d.Form != nil && s.ext != nil {
+		s.ext.setForm(w.RequestID, d.Form)
+	}
+	if d.Memory != "" && d.MemoryScope == "team" {
+		if s.Mem.Remember(teamKey, d.Memory) {
+			s.record(w.BotID, w.RequestID, "step", "Đã ghi vào bộ nhớ chung: "+clean(d.Memory, 120))
+		}
+		return
+	}
+	if d.Memory != "" && (d.MemoryScope == "group" || d.MemoryScope == "") && isGroupID(w.ConversationID) {
+		// in a group chat, what the bot learns stays with the group
+		if s.Mem.Remember(w.ConversationID, d.Memory) {
+			s.record(w.BotID, w.RequestID, "step", "Đã ghi vào bộ nhớ nhóm: "+clean(d.Memory, 120))
+		}
+		return
+	}
+	s.remember(w, d.Memory)
+}
+
+func (s *Service) remember(w ledger.Work, text string) {
+	if text != "" && s.Mem.Remember(w.BotID, text) {
+		s.record(w.BotID, w.RequestID, "step", "Đã ghi nhớ: "+clean(text, 120))
+	}
+}
+
+const computerAskText = "Mình cần bạn duyệt lệnh này trước khi chạy trên máy tính của mình."
+
+var enWords = regexp.MustCompile(`(?i)\b(the|is|are|what|how|when|why|which|and|of|to|in|for|please|can|you|it|my|me|with)\b`)
+
+// isEnglish: no Vietnamese letters and several common English words.
+func isEnglish(t string) bool {
+	if strings.ContainsAny(strings.ToLower(t), "ăâđêôơưàáạảãằắặẳẵầấậẩẫèéẹẻẽềếệểễìíịỉĩòóọỏõồốộổỗờớợởỡùúụủũừứựửữỳýỵỷỹ") {
+		return false
+	}
+	return len(enWords.FindAllString(t, 4)) >= 3
+}
+
+// wantsComputer: the owner asked for something run or computed on files.
+var wantsComputer = regexp.MustCompile(`(?i)máy tính|chạy|lệnh|script|python|csv|file|tệp|\brun\b|command|terminal|shell`)
+
+// requeueDelay is the pause before a run that lost the model is retried.
+var requeueDelay = 15 * time.Second
+
+var requirementsRe = regexp.MustCompile(`(?i)(yêu cầu|tiêu chí|requirements?)\s*:`)

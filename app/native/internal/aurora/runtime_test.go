@@ -114,7 +114,7 @@ func TestLanguageDriftHelpers(t *testing.T) {
 
 func TestGluedDirectiveParsed(t *testing.T) {
 	d := ParseDirectives(`Tôi sẽ tra giá tại Việt Nam.TOOL: {"name":"web_search","q":"giá iCloud"}`)
-	if d.Tool == nil || d.Tool.Q != "giá iCloud" || strings.Contains(d.Text, "TOOL") || d.Text != "Tôi sẽ tra giá tại Việt Nam." {
+	if len(d.Tools) != 1 || d.Tools[0].Q != "giá iCloud" || strings.Contains(d.Text, "TOOL") || d.Text != "Tôi sẽ tra giá tại Việt Nam." {
 		t.Fatalf("%+v", d)
 	}
 }

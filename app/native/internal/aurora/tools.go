@@ -2,11 +2,13 @@ package aurora
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log"
 	"os"
 	"regexp"
 	"strings"
+	"sync"
 	"time"
 
 	"nekoaurora.local/native/internal/ledger"
@@ -20,6 +22,10 @@ import (
 type toolCtx struct {
 	blocks  []string
 	sources []ledger.DirectSource
+
+	mu         sync.Mutex
+	pendingCmd string // computer_run waiting for the owner's approval
+	lookupOnly bool   // plan of a request that never asked to run anything
 }
 
 func (c *toolCtx) inject(msgs []ChatMsg) []ChatMsg {
@@ -32,7 +38,7 @@ func (c *toolCtx) inject(msgs []ChatMsg) []ChatMsg {
 	for i, s := range c.sources {
 		fmt.Fprintf(&sb, "[%d] %s — %s\n", i+1, s.Title, s.URL)
 	}
-	sb.WriteString("\n" + strings.Join(c.blocks, "\n---\n"))
+	sb.WriteString("\n" + strings.Join(budgetBlocks(c.blocks, maxContextChars), "\n---\n"))
 	out := append([]ChatMsg{msgs[0], {Role: "system", Content: sb.String()}}, msgs[1:]...)
 	return out
 }
@@ -82,10 +88,13 @@ type toolCall struct{ name, arg string }
 // autoTools prefetches clear data intents (gold prices) and owner-typed
 // allowlisted URLs, saving a model round trip.
 func (s *Service) autoTools(w ledger.Work) []toolCall {
-	if s.Tools == nil {
-		return nil
+	out := imageAuto(w.Text)
+	if s.ext.on(w.BotID, "browser") {
+		out = append(out, browserAuto(stripRef(w.Text))...)
 	}
-	var out []toolCall
+	if s.Tools == nil {
+		return out
+	}
 	for _, n := range tools.Auto(w.Text) {
 		out = append(out, toolCall{n, ""})
 	}
@@ -102,47 +111,113 @@ func toolsFromEnv() *tools.Kit {
 	return tools.New()
 }
 
-var toolLabel = map[string]string{"gold_price": "Tra giá vàng trực tuyến", "web_search": "Tìm trên web", "web_fetch": "Đọc trang"}
+var toolLabel = map[string]string{"chat_search": "Tìm trong chat cũ", "gold_price": "Tra giá vàng trực tuyến", "web_search": "Tìm trên web", "web_fetch": "Đọc trang",
+	"computer_run": "Chạy lệnh trên máy tính", "computer_read_file": "Đọc file trên máy tính", "computer_write_file": "Ghi file trên máy tính", "computer_edit_file": "Sửa file trên máy tính", "computer_list": "Xem file trên máy tính",
+	"memory_recall": "Nhớ lại", "skill_load": "Đọc kỹ năng", "image_describe": "Đọc ảnh", "browser_open": "Mở bằng trình duyệt", "mcp": "Công cụ MCP", "bot_create": "Tạo bot", "bot_update": "Sửa bot"}
 
+// runTool runs one lookup (kept for the auto-prefetch path).
 func (s *Service) runTool(ctx context.Context, w ledger.Work, tc *toolCtx, name, arg string) {
-	if s.Tools == nil {
+	s.runTools(ctx, w, tc, []toolCall{{name, arg}})
+}
+
+// maxToolsPerTurn caps lookups per turn across all rounds.
+const maxToolsPerTurn = 10
+
+type toolRun struct {
+	call toolCall
+	idx  int
+	res  tools.Result
+	err  error
+	ms   int
+}
+
+// runTools executes a batch of independent lookups in parallel (the model may
+// emit several TOOL lines at once). Network work runs concurrently; ledger
+// cards, source numbering and context blocks are committed serially in call
+// order so footnotes stay deterministic — the same ordering guarantee as
+// OpenMuse's serial checkpoint queue (CopilotKit/openmuse model.ts, MIT).
+func (s *Service) runTools(ctx context.Context, w ledger.Work, tc *toolCtx, calls []toolCall) {
+	if s.Tools == nil || len(calls) == 0 {
 		return
 	}
 	cur, _ := s.L.Get(w.RequestID)
-	if cur.Direct != nil && len(cur.Direct.Tools) >= 6 {
-		return
-	}
-	if cur.Direct != nil { // same tool+arg already ran this turn: reuse its result, don't refetch
-		for _, t := range cur.Direct.Tools {
-			if t.Name == name && t.Arg == clean(arg, 200) && t.Status == "done" {
-				tc.note("(Dữ liệu " + toolLabel[name] + " đã có ở trên, dùng lại thay vì tra lần nữa.)")
-				return
+	var runs []*toolRun
+	seen := map[string]bool{}
+	for _, c := range calls {
+		key := c.name + "\x00" + c.arg
+		if seen[key] {
+			continue
+		}
+		seen[key] = true
+		dup := false
+		if cur.Direct != nil { // same tool+arg already ran this turn: reuse its result, don't refetch
+			for _, t := range cur.Direct.Tools {
+				if t.Name == c.name && t.Arg == displayArg(c) && t.Status == "done" && !isComputerTool(c.name) {
+					dup = true
+				}
+			}
+			if len(cur.Direct.Tools)+len(runs) >= maxToolsPerTurn {
+				break
 			}
 		}
+		if dup {
+			tc.note("(Dữ liệu " + toolLabel[c.name] + " đã có ở trên, dùng lại thay vì tra lần nữa.)")
+			continue
+		}
+		runs = append(runs, &toolRun{call: c})
 	}
-	idx := 0
+	if len(runs) == 0 {
+		return
+	}
 	s.update(w.RequestID, func(r *ledger.DirectRun) {
-		idx = len(r.Tools)
-		r.Tools = append(r.Tools, ledger.DirectTool{Name: name, Arg: clean(arg, 200), Status: "running", Summary: toolLabel[name]})
+		for _, x := range runs {
+			x.idx = len(r.Tools)
+			r.Tools = append(r.Tools, ledger.DirectTool{Name: x.call.name, Arg: displayArg(x.call), Status: "running", Summary: toolLabel[x.call.name]})
+		}
 	})
-	s.agui(AGUIEvent{Type: STEP_STARTED, ThreadID: w.BotID, RunID: w.RequestID, StepName: "tool:" + name})
-	t0 := time.Now()
-	tctx, cancel := context.WithTimeout(ctx, 25*time.Second)
-	var res tools.Result
-	var err error
-	if name == "web_fetch" {
-		res, err = s.Tools.FetchFound(tctx, arg, tc.found())
-	} else {
-		res, err = s.Tools.Run(tctx, name, arg)
+	found := tc.found()
+	var wg sync.WaitGroup
+	for _, x := range runs {
+		s.agui(AGUIEvent{Type: STEP_STARTED, ThreadID: w.BotID, RunID: w.RequestID, StepName: "tool:" + x.call.name})
+		wg.Add(1)
+		go func(x *toolRun) {
+			defer wg.Done()
+			t0 := time.Now()
+			tctx, cancel := context.WithTimeout(ctx, 25*time.Second)
+			defer cancel()
+			if cp := capOf(x.call.name); cp != "" && s.ext != nil && !s.ext.on(w.BotID, cp) {
+				x.err = errors.New("Darren đã tắt khả năng " + capLabel[cp] + " của bot này")
+			} else if isExtTool(x.call.name) {
+				tctx2, c2 := context.WithTimeout(ctx, 2*time.Minute)
+				defer c2()
+				x.res, x.err = s.runExt(tctx2, w, tc, x.call)
+			} else if isComputerTool(x.call.name) {
+				x.call = folderCall(s.ext.bot(w.BotID).Folder, x.call)
+				tctx2, c2 := context.WithTimeout(ctx, 3*time.Minute)
+				defer c2()
+				x.res, x.err = s.runComputer(tctx2, w.BotID, tc, x.call)
+			} else if x.call.name == "chat_search" {
+				x.res, x.err = s.chatSearch(w, x.call.arg)
+			} else if x.call.name == "web_fetch" {
+				x.res, x.err = s.Tools.FetchFound(tctx, x.call.arg, found)
+			} else {
+				x.res, x.err = s.Tools.Run(tctx, x.call.name, x.call.arg)
+			}
+			x.ms = int(time.Since(t0) / time.Millisecond)
+		}(x)
 	}
-	cancel()
-	ms := int(time.Since(t0) / time.Millisecond)
+	wg.Wait()
+	for _, x := range runs {
+		s.commitTool(w, tc, x)
+	}
+}
+
+func (s *Service) commitTool(w ledger.Work, tc *toolCtx, x *toolRun) {
+	name, arg, res, err := x.call.name, x.call.arg, x.res, x.err
 	st, sum := "done", res.Summary
 	if err != nil {
-		st, sum = "failed", toolLabel[name]+": "+tools.Short(err)
-	}
-	if err != nil {
-		log.Printf("aurora tool %s failed: %s", name, tools.Short(err))
+		st, sum = "failed", toolLabel[name]+": "+toolErr(name, err)
+		log.Printf("aurora tool %s failed: %s", name, toolErr(name, err))
 	}
 	if res.Text != "" {
 		var refs []string
@@ -161,19 +236,19 @@ func (s *Service) runTool(ctx context.Context, w ledger.Work, tc *toolCtx, name,
 			}
 			return "[?]"
 		})
-		tc.blocks = append(tc.blocks, fmt.Sprintf("Công cụ %s%s (nguồn %s):\n%s", name, map[bool]string{true: " “" + arg + "”"}[arg != ""], strings.Join(refs, " "), text))
+		tc.blocks = append(tc.blocks, fmt.Sprintf("Công cụ %s%s (nguồn %s):\n%s", name, map[bool]string{true: " “" + displayArg(x.call) + "”"}[arg != ""], strings.Join(refs, " "), truncateResult(text, maxResultChars)))
 	} else if err != nil {
-		tc.blocks = append(tc.blocks, fmt.Sprintf("Công cụ %s thất bại (%s): KHÔNG có dữ liệu, không được đoán số.", name, tools.Short(err)))
+		tc.blocks = append(tc.blocks, fmt.Sprintf("Công cụ %s thất bại (%s): KHÔNG có dữ liệu, không được đoán số.", name, toolErr(name, err))+s.toolFail(w.BotID, name, err))
 	}
 	srcs := append([]ledger.DirectSource(nil), tc.sources...)
 	s.update(w.RequestID, func(r *ledger.DirectRun) {
-		if idx < len(r.Tools) {
-			r.Tools[idx].Status, r.Tools[idx].Summary, r.Tools[idx].Ms = st, clean(sum, 200), ms
+		if x.idx < len(r.Tools) {
+			r.Tools[x.idx].Status, r.Tools[x.idx].Summary, r.Tools[x.idx].Ms = st, clean(sum, 200), x.ms
 		}
 		r.Sources = srcs
 	})
 	s.agui(AGUIEvent{Type: STEP_FINISHED, ThreadID: w.BotID, RunID: w.RequestID, StepName: "tool:" + name})
-	s.record(w.BotID, w.RequestID, "step", fmt.Sprintf("%s · %s · %.1fs", toolLabel[name], st, float64(ms)/1000))
+	s.record(w.BotID, w.RequestID, "step", fmt.Sprintf("%s · %s · %.1fs", toolLabel[name], st, float64(x.ms)/1000))
 }
 
 var ackLabel = map[string]string{"gold_price": "giá vàng trong nước và thế giới", "web_search": "trên web", "web_fetch": "trang bạn gửi"}
@@ -182,6 +257,12 @@ var ackLabel = map[string]string{"gold_price": "giá vàng trong nước và th�
 func ackFor(calls []toolCall) string {
 	seen, parts := map[string]bool{}, []string{}
 	for _, c := range calls {
+		if c.name == "image_describe" {
+			return "Được, mình xem ảnh rồi trả lời bạn."
+		}
+		if isComputerTool(c.name) {
+			return "Được, mình làm việc này trên máy tính riêng của mình rồi báo bạn."
+		}
 		if l := ackLabel[c.name]; l != "" && !seen[l] {
 			seen[l] = true
 			parts = append(parts, l)
@@ -199,4 +280,21 @@ func (s *Service) ack(w ledger.Work, text string) {
 		return
 	}
 	s.update(w.RequestID, func(r *ledger.DirectRun) { r.Ack = text })
+}
+
+// toolErr is the error the owner and the bot see. Computer tool errors are
+// our own messages ("không tìm thấy đoạn old…") and say how to fix the call;
+// collapsing them to "lỗi mạng" left the bot retrying blind (live run 9).
+func toolErr(name string, err error) string {
+	if isComputerTool(name) && !errors.Is(err, context.DeadlineExceeded) {
+		return clean(err.Error(), 300)
+	}
+	return tools.Short(err)
+}
+
+func (s *Service) toolFail(bot, name string, err error) string {
+	if !isComputerTool(name) || s.PC == nil {
+		return ""
+	}
+	return s.failNote(bot, "tool:"+name, err.Error())
 }

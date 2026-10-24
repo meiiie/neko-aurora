@@ -17,12 +17,15 @@ RUN rm -rf docs evals experiments browser-extension cloudflare test tests \
  && bun bin/neko.ts --help >/dev/null
 
 FROM oven/bun:1.3-alpine
-RUN apk add --no-cache ca-certificates tzdata && adduser -D -u 10001 neko && mkdir -p /data && chown neko /data
+RUN apk add --no-cache ca-certificates tzdata bubblewrap util-linux-misc && adduser -D -u 10001 neko && mkdir -p /data && chown neko /data
 COPY --from=core /opt/neko-core /opt/neko-core
 COPY --from=build /out/neko-aurora /usr/local/bin/neko-aurora
 USER neko
-ENV TZ=Asia/Ho_Chi_Minh PORT=8080 NEKO_CORE_DIR=/opt/neko-core
-VOLUME ["/data"]
+ENV TZ=Asia/Ho_Chi_Minh PORT=8080 NEKO_CORE_DIR=/opt/neko-core AURORA_COMPUTER=off
+# Hosted multi-user mode (Railway template): AURORA_MODE=hosted, AURORA_SECRET (>=32 chars),
+# ZAI_API_KEY, AURORA_SMTP_* for sign-in mail; AURORA_COMPUTER=railway + RAILWAY_TOKEN +
+# RAILWAY_ENVIRONMENT_ID gives every bot a Railway Sandbox. See docs/railway-template.md.
+# State lives in /data: attach a Railway volume there (Railway rejects the VOLUME keyword).
 EXPOSE 8080
 # Binds 0.0.0.0:$PORT only when AURORA_PUBLIC_HOST and AURORA_OWNER_CODE (>=12 chars) are set;
 # remote peers can then reach only the owner-login /app/ surface.

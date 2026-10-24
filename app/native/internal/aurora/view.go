@@ -86,7 +86,10 @@ type Message struct {
 	Tools    []ledger.DirectTool   `json:"tools,omitempty"`
 	Sources  []ledger.DirectSource `json:"sources,omitempty"`
 	Queued   bool                  `json:"queued,omitempty"`
-	From     string                `json:"from,omitempty"` // speaking bot, in group threads
+	Ref      string                `json:"ref,omitempty"`      // name of a chat attached as context
+	From     string                `json:"from,omitempty"`     // speaking bot, in group threads
+	Thinking string                `json:"thinking,omitempty"` // folded model reasoning (thinking toggle)
+	Form     *form                 `json:"form,omitempty"`     // interactive form card
 	Created  time.Time             `json:"t"`
 }
 
@@ -219,6 +222,10 @@ func (v *view) agent(b ledger.Bot, prefs botPrefs) *Agent {
 		}
 	}
 	for _, w := range l {
+		if w.Direct != nil && w.Direct.Approval != nil && w.Direct.Approval.Kind == "computer" && w.Direct.Approval.Delivery != nil && w.Direct.Approval.Delivery.Status == "sending" {
+			// an approved command is still running: the bot is busy, not done
+			a.Status, a.Snip = "working", "Đang chạy lệnh trên máy tính…"
+		}
 		if active(w) {
 			a.Status, a.Snip = "working", "Đang làm việc"
 			if w.Status == "waiting_host" {
@@ -298,8 +305,34 @@ func (v *view) messages(botID string, limit int) []*Message {
 			running = true
 		}
 	}
+	// A message the owner sent mid-turn is shown where it was taken in:
+	// right before the answer it changed, not after it.
+	by := v.steeredBy()
+	text := map[string]ledger.Work{}
 	for _, w := range l {
-		out = append(out, workMessages(w, running)...)
+		text[w.RequestID] = w
+	}
+	for _, w := range l {
+		ms := workMessages(w, running)
+		if by[w.RequestID] != "" && len(ms) > 0 && ms[0].Role == "user" {
+			ms = ms[1:]
+		}
+		if w.Direct != nil && len(w.Direct.Steered) > 0 {
+			var ins []*Message
+			for _, q := range w.Direct.Steered {
+				if qw, ok := text[q]; ok {
+					ins = append(ins, &Message{ID: q + ":u", TaskID: q, AgentID: qw.BotID, Role: "user", Text: qw.Text, Created: ts(qw.CreatedAt)})
+				}
+			}
+			pos := len(ms)
+			for i, m := range ms {
+				if m.ID == w.RequestID {
+					pos = i
+				}
+			}
+			ms = append(ms[:pos:pos], append(ins, ms[pos:]...)...)
+		}
+		out = append(out, ms...)
 	}
 	if limit > 0 && len(out) > limit {
 		out = out[len(out)-limit:]
@@ -315,8 +348,14 @@ func workMessages(w ledger.Work, botRunning bool) []*Message {
 	if d != nil {
 		kind = d.Kind
 	}
+	if kind == "" && strings.HasPrefix(w.ClientNonce, "computer-") {
+		kind = "computer" // hidden follow-up/continuation, also while it waits in the queue (live run 11 showed it as the owner's bubble)
+	}
+	if kind == "" && strings.HasPrefix(w.ClientNonce, handoffPrefix) {
+		kind = "handoff"
+	}
 	if kind == "" {
-		out = append(out, &Message{ID: w.RequestID + ":u", TaskID: w.RequestID, AgentID: w.BotID, Role: "user", Text: w.Text, Queued: w.Status == "waiting_host" && botRunning, Created: at})
+		out = append(out, &Message{ID: w.RequestID + ":u", TaskID: w.RequestID, AgentID: w.BotID, Role: "user", Text: stripRef(w.Text), Ref: refName(w.Text), Queued: w.Status == "waiting_host" && botRunning, Created: at})
 	}
 	if d == nil {
 		if w.Status == "cancelled" {
@@ -326,9 +365,9 @@ func workMessages(w ledger.Work, botRunning bool) []*Message {
 		}
 		return out
 	}
-	if d.Ack != "" {
-		out = append(out, &Message{ID: w.RequestID + ":ack", TaskID: w.RequestID, AgentID: w.BotID, Role: "agent", Text: d.Ack, Created: at})
-	}
+	// The acknowledgement is not its own bubble: one reply per turn, with the
+	// live status line ("Đang tìm nguồn…") covering the wait (field report
+	// 2026-10-23: a preamble bubble then the full answer read as two replies).
 	if len(d.Plan) > 0 {
 		out = append(out, &Message{ID: w.RequestID + ":plan", TaskID: w.RequestID, AgentID: w.BotID, Role: "agent", Text: d.PlanIntro, Plan: &Plan{Steps: append([]Step(nil), d.Plan...)}, Created: at})
 	}
@@ -344,6 +383,15 @@ func workMessages(w ledger.Work, botRunning bool) []*Message {
 		if d.Approval != nil {
 			a := *d.Approval
 			m.Approval = &a
+			if a.Kind == "computer" && strings.HasPrefix(m.Text, computerAskText) {
+				// once decided, the bubble says what happened, not "please approve"
+				switch a.State {
+				case "approved", "done":
+					m.Text = "Đã chạy lệnh trên máy tính của mình."
+				case "declined", "rejected", "cancelled":
+					m.Text = "Bạn đã từ chối lệnh này, mình không chạy."
+				}
+			}
 		}
 		if d.Secret != nil {
 			x := *d.Secret
@@ -353,7 +401,7 @@ func workMessages(w ledger.Work, botRunning bool) []*Message {
 		m.Sources = append([]ledger.DirectSource(nil), d.Sources...)
 		out = append(out, m)
 	}
-	if d.Approval != nil && d.Approval.Outcome != "" {
+	if d.Approval != nil && d.Approval.Outcome != "" && d.Approval.Kind != "computer" { // computer output renders on its card
 		out = append(out, &Message{ID: w.RequestID + ":outcome", TaskID: w.RequestID, AgentID: w.BotID, Role: "agent", Text: d.Approval.Outcome, Created: ts(d.Approval.DecidedAt)})
 	}
 	if w.Status == "failed" || w.Status == "cancelled" {
@@ -418,6 +466,11 @@ func doingOf(r *ledger.DirectRun) string {
 				return v
 			}
 			return "Đang dùng công cụ…"
+		}
+	}
+	for i, st := range r.Plan {
+		if st.Status == "running" {
+			return fmt.Sprintf("Bước %d/%d · %s", i+1, len(r.Plan), clean(st.Title, 60))
 		}
 	}
 	if len(r.Tools) > 0 {

@@ -70,3 +70,40 @@ func TestDirectStopViaCancel(t *testing.T) {
 		t.Fatalf("%v %+v", err, c)
 	}
 }
+
+func TestDirectResumeReplaysAndIsBounded(t *testing.T) {
+	dir := t.TempDir()
+	s, _ := Open(dir)
+	bot := s.Snapshot().Bots[0].ID
+	w, _, _ := s.Accept(Input{BotID: bot, ClientNonce: "direct-resume-1", Text: "việc dài"})
+	for i := 0; i < MaxDirectResumes; i++ {
+		w, _ = s.Get(w.RequestID)
+		w, err := s.DirectStart(w.RequestID, w.Epoch, DirectRun{Runtime: "direct-http", LeaseUntil: "2026-10-23T00:00:00Z"})
+		if err != nil {
+			t.Fatal(err)
+		}
+		_ = s.AppendText(w.RequestID, w.Epoch, "nửa chừng")
+		if w, err = s.DirectResume(w.RequestID); err != nil || w.Status != "waiting_host" || w.Direct != nil || w.Reply != "" || w.DirectResumes != i+1 {
+			t.Fatalf("resume %d: %v %+v", i, err, w)
+		}
+	}
+	w, _ = s.Get(w.RequestID)
+	w, _ = s.DirectStart(w.RequestID, w.Epoch, DirectRun{Runtime: "direct-http"})
+	if _, err := s.DirectResume(w.RequestID); err == nil {
+		t.Fatal("resume must be bounded")
+	}
+	s.Close()
+	s2, err := Open(dir)
+	if err != nil {
+		t.Fatal("journal with direct_resumed must replay: ", err)
+	}
+	defer s2.Close()
+	if got, _ := s2.Get(w.RequestID); got.Status != "running" || got.DirectResumes != MaxDirectResumes {
+		t.Fatalf("%+v", got)
+	}
+	// a finished run is never resumed
+	_, _ = s2.DirectFinish(w.RequestID, w.Epoch, "completed", "", nil)
+	if _, err := s2.DirectResume(w.RequestID); err == nil {
+		t.Fatal("finished run resumed")
+	}
+}

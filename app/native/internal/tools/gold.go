@@ -75,7 +75,15 @@ func (k *Kit) Gold(ctx context.Context) (Result, error) {
 	}()
 	go func() {
 		defer wg.Done()
-		put("sjc", k.sjc(ctx, now, loc), Source{Title: "SJC — Giá vàng niêm yết", URL: "https://sjc.com.vn/gia-vang-online", At: at})
+		txt, src := k.sjc(ctx, now, loc), Source{Title: "SJC — Giá vàng niêm yết", URL: "https://sjc.com.vn/gia-vang-online", At: at}
+		if sjcSell(txt) == 0 {
+			// sjc.com.vn is often behind a Cloudflare challenge: fall back to
+			// PNJ's public price feed, which also lists SJC bars.
+			if t, ok := k.pnjSJC(ctx); ok {
+				txt, src = t+strings.TrimPrefix(txt, "Vàng miếng SJC: không lấy được"), Source{Title: "PNJ — Bảng giá vàng (vàng miếng SJC)", URL: "https://www.pnj.com.vn/site/gia-vang", At: at}
+			}
+		}
+		put("sjc", txt, src)
 	}()
 	wg.Wait()
 	// derived: SJC premium over world price converted at USD/VND (1 lượng = 37.5 g = 1.20565 oz)
@@ -207,6 +215,59 @@ func (k *Kit) sjc(ctx context.Context, now time.Time, loc *time.Location) string
 		}
 	}
 	return out
+}
+
+// pnjSJC reads SJC bar prices from PNJ's price feed (thousand đồng per chỉ;
+// 1 lượng = 10 chỉ) as a second source when sjc.com.vn is unreachable.
+func (k *Kit) pnjSJC(ctx context.Context) (string, bool) {
+	type row struct {
+		Code, Name string
+		Sell, Buy  float64
+	}
+	num := func(v any) float64 {
+		switch x := v.(type) {
+		case float64:
+			return x
+		case string:
+			f, _ := strconv.ParseFloat(strings.ReplaceAll(strings.ReplaceAll(x, ".", ""), ",", ""), 64)
+			return f
+		}
+		return 0
+	}
+	for try := 0; try < 2; try++ {
+		b, err := k.get(ctx, "GET", k.PNJ+"/ecom-frontend/v1/get-gold-price?zone=00", "")
+		var raw struct {
+			Data []map[string]any `json:"data"`
+		}
+		if err != nil || json.Unmarshal(b, &raw) != nil {
+			continue
+		}
+		var feed struct{ Data []row }
+		for _, m := range raw.Data {
+			c, _ := m["masp"].(string)
+			n, _ := m["tensp"].(string)
+			feed.Data = append(feed.Data, row{c, n, num(m["giaban"]), num(m["giamua"])})
+		}
+		var out string
+		for _, r := range feed.Data {
+			// sanity band: 50–500 triệu/lượng
+			if r.Sell/100 < 50 || r.Sell/100 > 500 {
+				continue
+			}
+			if r.Code == "SJC" && out == "" {
+				out = fmt.Sprintf("Vàng miếng SJC (bảng giá PNJ, lấy lúc %s): mua %.2f, bán %.2f triệu đồng/lượng", k.Now().In(time.FixedZone("ICT", 7*3600)).Format("15:04 02/01/2006"), r.Buy/100, r.Sell/100)
+			}
+		}
+		for _, r := range feed.Data {
+			if r.Code == "N24K" && out != "" && r.Sell > 0 {
+				out += fmt.Sprintf("; %s: mua %.2f, bán %.2f", r.Name, r.Buy/100, r.Sell/100)
+			}
+		}
+		if out != "" {
+			return out, true
+		}
+	}
+	return "", false
 }
 
 func numAfter(s, key string) float64 {

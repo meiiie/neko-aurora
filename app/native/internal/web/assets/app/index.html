@@ -19,7 +19,7 @@
 <link rel="stylesheet" href="/app/style.css">
 <script src="/app/theme.js"></script>
 <script src="/app/i18n.js"></script>
-  <script src="/app/md.js"></script>
+  <script src="/app/md.js"></script><script src="/app/ux.js"></script>
 <script src="/app/aurora/icons.js" defer></script>
 <script src="/app/aurora/brands.js" defer></script>
 <script src="/app/app.js" defer></script>
@@ -85,6 +85,8 @@
   <div class="menu glass hidden up" id="plusMenu" role="menu">
     <button role="menuitem" id="activityBtn"><span class="mi" data-i="list-checks"></span>Đang làm gì</button>
     <button role="menuitem" id="pmGroup"><span class="mi" data-i="users"></span>Nhóm chat mới</button>
+    <button role="menuitem" id="pmRef"><span class="mi" data-i="message-circle"></span>Tham chiếu một chat</button>
+    <button role="menuitem" id="pmImg"><span class="mi" data-i="folder"></span>Gửi ảnh</button>
   </div>
   <div class="findbar glass hidden" id="findBar"><span class="mi" data-i="search"></span><input id="findInput" type="search" placeholder="Tìm trong chat" aria-label="Tìm trong chat"><span id="findCount"></span><button class="text-btn" id="findClose">Xong</button></div>
   <div class="menu glass hidden" id="newMenu" role="menu">
@@ -131,6 +133,11 @@
 
   <aside class="sheet activity hidden" id="activity" aria-label="Hoạt động"><div class="grip"></div><header class="sheet-top"><span class="w44"></span><b>Đang làm gì</b><button class="text-btn" id="closeActivity">Xong</button></header><ol class="scroll" id="log"></ol></aside>
   <aside class="sheet themes hidden" id="delAcct" aria-label="Xoá tài khoản"><div class="grip"></div><header class="sheet-top"><span class="w44"></span><b>Xoá tài khoản</b><button class="text-btn" id="closeDelAcct">Huỷ</button></header><div class="scroll" id="delAcctBody"></div></aside>
+  <aside class="sheet themes hidden" id="memSheet" aria-label="Bộ nhớ"><div class="grip"></div><header class="sheet-top"><span class="w44"></span><b id="memTitle">Bộ nhớ</b><button class="text-btn" id="closeMem">Xong</button></header><div class="scroll" id="memBody"></div></aside>
+  <input type="file" id="imgPick" accept="image/*" class="hidden">
+  <aside class="sheet themes hidden" id="extSheet" aria-label="Cài đặt thêm"><div class="grip"></div><header class="sheet-top"><span class="w44"></span><b id="extTitle">AI &amp; công cụ</b><button class="text-btn" id="closeExt">Xong</button></header><div class="scroll" id="extBody"></div></aside>
+  <aside class="sheet themes hidden" id="refSheet" aria-label="Tham chiếu chat"><div class="grip"></div><header class="sheet-top"><span class="w44"></span><b>Kèm một chat làm ngữ cảnh</b><button class="text-btn" id="closeRef">Huỷ</button></header><div class="scroll" id="refBody"></div></aside>
+  <aside class="sheet themes hidden" id="usageSheet" aria-label="Mức dùng"><div class="grip"></div><header class="sheet-top"><span class="w44"></span><b>Mức dùng AI</b><button class="text-btn" id="closeUsage">Xong</button></header><div class="scroll" id="usageBody"></div></aside>
   <aside class="sheet themes hidden" id="themes" aria-label="Giao diện"><div class="grip"></div><header class="sheet-top"><span class="w44"></span><b>Giao diện</b><button class="text-btn" id="closeThemes">Xong</button></header><div class="scroll" id="themeList"></div></aside>
   <section class="login hidden" id="login" aria-label="Đăng nhập chủ sở hữu"><form id="loginForm"><img id="loginMark" class="login-mark" src="/app/icon-192.png" width="72" height="72" alt="" aria-hidden="true"><h1>Neko Aurora</h1><p class="sub">Nhập mã chủ sở hữu để mở.</p><input id="loginCode" type="password" autocomplete="current-password" placeholder="Mã chủ sở hữu" aria-label="Mã chủ sở hữu"><button class="pill wide">Mở</button></form></section>
   <div class="toast" id="toast" role="status"></div>

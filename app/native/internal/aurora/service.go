@@ -13,7 +13,9 @@ import (
 	"sync"
 	"time"
 	"unicode"
+	"unicode/utf8"
 
+	"nekoaurora.local/native/internal/computer"
 	"nekoaurora.local/native/internal/ledger"
 	"nekoaurora.local/native/internal/outbound"
 	"nekoaurora.local/native/internal/tools"
@@ -29,6 +31,7 @@ type Event struct {
 // no bot, message or task model: agents are ledger bots, messages are ledger
 // work items, plans and approvals are journaled on that work.
 type Service struct {
+	bg       sync.WaitGroup // turn runners and post-turn reviews; Wait() joins them on shutdown
 	sendRate rate
 	L        *ledger.Store
 	AI       Model
@@ -37,7 +40,14 @@ type Service struct {
 	Prefs    *Prefs
 	V        *vault.Vault
 	Tools    *tools.Kit
+	Mem      *memStore
+	steward  *steward
+	usage    *usageLog
+	ext      *extStore
+	sched    *schedStore
+	PC       *computer.Manager // per-bot sandboxed computers (nil = off)
 	mux      *http.ServeMux
+	pcb      pcBook // bot computer build state (build.go)
 	mu       sync.Mutex
 	subs     map[chan Event]struct{}
 	ctx      context.Context
@@ -49,7 +59,8 @@ type Service struct {
 	syncMu  sync.Mutex
 	briefM  sync.Mutex
 	// Now is overridable in tests.
-	Now func() time.Time
+	Now   func() time.Time
+	owner func() string
 	// OnDeleteAccount, when set, erases every bot, message, secret and backup
 	// on this server (the host wipes the state directory and restarts fresh).
 	OnDeleteAccount func() error
@@ -59,6 +70,14 @@ type Options struct {
 	// RunTurns lets this service execute queued owner→bot work. Disable it
 	// when the attested host/executor runtime is configured instead.
 	RunTurns bool
+	// VaultKey, when set (hosted multi-user mode), encrypts this workspace's
+	// vault with a server-held per-user key instead of a vault.key file.
+	VaultKey []byte
+	// OwnerName names the account owner in prompts (hosted mode: each
+	// user's own name; single-owner default "Darren").
+	OwnerName func() string
+	// NoBriefLoop skips the scheduled morning brief (hosted workspaces).
+	NoBriefLoop bool
 }
 
 func New(ctx context.Context, store *ledger.Store, stateDir string, opt Options) (*Service, error) {
@@ -85,21 +104,35 @@ func New(ctx context.Context, store *ledger.Store, stateDir string, opt Options)
 			}
 		}
 	}
-	v, err := vault.Open(stateDir)
+	var v *vault.Vault
+	if opt.VaultKey != nil {
+		v, err = vault.OpenWithKey(stateDir, opt.VaultKey)
+	} else {
+		v, err = vault.Open(stateDir)
+	}
 	if err != nil {
 		return nil, err
 	}
 	log.SetOutput(v.Writer(os.Stderr))
-	s := &Service{L: store, AI: model, Push: p, V: v, Tools: toolsFromEnv(), Prefs: prefs, subs: map[chan Event]struct{}{}, ctx: ctx, wake: make(chan struct{}, 1), running: map[string]bool{}, seen: map[string]string{}, Now: time.Now}
+	s := &Service{L: store, AI: model, Push: p, V: v, Tools: toolsFromEnv(), Mem: openMemory(stateDir), steward: openSteward(stateDir), usage: openUsage(stateDir), sched: openSchedules(stateDir), ext: openExt(stateDir), PC: openComputers(stateDir), Prefs: prefs, subs: map[chan Event]struct{}{}, ctx: ctx, wake: make(chan struct{}, 1), running: map[string]bool{}, seen: map[string]string{}, Now: time.Now}
+	s.owner = opt.OwnerName
 	s.Out = outbound.NewRouter(outbound.Switch{Resolve: s.mailer})
 	s.routes()
 	s.connectorRoutes()
+	s.memoryRoutes()
+	s.usageRoutes()
+	s.extRoutes()
+	s.uploadRoutes()
+	s.searchRoutes()
+	s.scheduleRoutes()
+	s.computerRoutes()
 	s.sync()
 	go s.watch()
 	if opt.RunTurns && !store.ReadOnly() {
 		s.recoverInterrupted()
 		go s.runLoop()
-		if Env("BRIEF_LOOP") != "off" {
+		go s.scheduleLoop()
+		if Env("BRIEF_LOOP") != "off" && !opt.NoBriefLoop {
 			go s.briefLoop()
 		}
 	}
@@ -310,11 +343,11 @@ func (s *Service) runBrief(w ledger.Work) {
 	for _, a := range s.activity(15) {
 		fmt.Fprintf(&sb, "- %s\n", a.Text)
 	}
-	text := fmt.Sprintf("Chào Darren. %d agent đang hoạt động, %d việc cần bạn.", n, len(pend))
+	text := fmt.Sprintf("Chào "+s.ownerName()+". %d agent đang hoạt động, %d việc cần bạn.", n, len(pend))
 	run := ledger.DirectRun{Runtime: s.AI.Runtime(), Kind: "brief"}
 	if s.AI.Configured() {
 		c, cancel := context.WithTimeout(s.ctx, 90*time.Second)
-		out, err := s.AI.Stream(c, []ChatMsg{
+		out, err := s.stream(c, w.BotID, "brief", []ChatMsg{
 			{"system", `Bạn viết bản tin sáng cho Darren từ trạng thái các agent. Trả về DUY NHẤT JSON: {"text":"1-2 câu chào và tóm tắt","items":["tối đa 5 dòng ngắn, ưu tiên việc cần Darren duyệt"]}. Tiếng Việt. Không bịa dữ kiện ngoài dữ liệu.`},
 			{"user", sb.String()},
 		}, func(string) {})
@@ -599,19 +632,20 @@ func (s *Service) routes() {
 		v := s.view()
 		id := r.PathValue("id")
 		if _, ok := v.channels[id]; ok {
-			writeJSON(w, 200, v.groupMessages(id, 200))
+			writeJSON(w, 200, s.decorate(v.groupMessages(id, 200)))
 			return
 		}
 		if _, ok := v.bot(id); !ok {
 			fail(w, ErrNotFound)
 			return
 		}
-		writeJSON(w, 200, v.messages(id, 200))
+		writeJSON(w, 200, s.decorate(v.messages(id, 200)))
 	})
 	m.HandleFunc("POST /app/api/agents/{id}/messages", func(w http.ResponseWriter, r *http.Request) {
 		var in struct {
 			Text  string `json:"text"`
 			Nonce string `json:"clientNonce"`
+			Ref   string `json:"ref"` // another chat to add as context (DS Bot "Reference a chat")
 		}
 		if err := decode(r, &in); err != nil {
 			fail(w, err)
@@ -623,7 +657,12 @@ func (s *Service) routes() {
 			return
 		}
 		id := r.PathValue("id")
-		text := clean(in.Text, 4000)
+		if utf8.RuneCountInString(in.Text) > maxMsgRunes || len(in.Text) > 32000 {
+			// never silently cut what the owner wrote (dogfood 2026-10-23)
+			writeJSON(w, http.StatusRequestEntityTooLarge, map[string]any{"error": "too_long", "max": maxMsgRunes})
+			return
+		}
+		text := clean(in.Text, maxMsgRunes)
 		if text == "" {
 			fail(w, ErrInvalid)
 			return
@@ -631,6 +670,9 @@ func (s *Service) routes() {
 		nonce := in.Nonce
 		if len(nonce) < 8 || len(nonce) > 100 {
 			nonce = newID("aurora-")
+		}
+		if in.Ref != "" && in.Ref != r.PathValue("id") {
+			text += s.view().refBlock(in.Ref)
 		}
 		if isGroupID(id) {
 			msg, err := s.sendGroup(id, text, nonce)
@@ -699,6 +741,10 @@ func (s *Service) routes() {
 			switch {
 			case in.Decision == "declined":
 				a.Outcome = "Ok, mình giữ lại “" + a.Title + "” và không làm gì thêm."
+			case a.Kind == "computer":
+				if s.PC == nil {
+					a.Outcome = "Máy tính của bot đang tắt trên máy chủ nên lệnh chưa chạy."
+				}
 			case !s.hasChannel(a.Kind) || a.To == "":
 				a.Outcome = "Đã ghi nhận bạn duyệt “" + a.Title + "”. Kênh gửi ra ngoài chưa được kết nối nên mình chưa gửi gì; bản đã duyệt được lưu để gửi khi kênh sẵn sàng."
 			}
@@ -716,7 +762,10 @@ func (s *Service) routes() {
 			verb := map[string]string{"approved": "Bạn duyệt", "declined": "Bạn hoãn"}[ap.State]
 			s.record(work.BotID, work.RequestID, "decision", verb+" “"+ap.Title+"” của "+s.botName(work.BotID))
 		}
-		if ap := work.Direct.Approval; in.Decision == "approved" && s.hasChannel(ap.Kind) && ap.To != "" {
+		if ap := work.Direct.Approval; in.Decision == "approved" && ap.Kind == "computer" && s.PC != nil {
+			s.runApprovedCommand(work)
+			work, _ = s.L.Get(work.RequestID)
+		} else if in.Decision == "approved" && s.hasChannel(ap.Kind) && ap.To != "" {
 			work = s.deliver(work)
 		}
 		s.sync()
@@ -984,3 +1033,11 @@ func (s *Service) events(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 }
+
+// maxMsgRunes bounds one chat message (the ledger caps its text at 32 KB).
+const maxMsgRunes = 10000
+
+// Wait blocks until running turns and background reviews have returned
+// (after the service context is cancelled), so shutdown and tests never
+// race their last writes into the state directory.
+func (s *Service) Wait() { s.bg.Wait() }

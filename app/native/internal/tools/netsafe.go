@@ -2,8 +2,11 @@ package tools
 
 import (
 	"net"
+	"net/http"
+	"net/url"
 	"regexp"
 	"strings"
+	"time"
 )
 
 // isPublicAddress and RequestedURLs are ported from CopilotKit/OpenDots
@@ -61,4 +64,26 @@ func RequestedURLs(prompt string) []string {
 		}
 	}
 	return out
+}
+
+// SafeClient is an HTTP client whose dialer refuses loopback, private and
+// link-local addresses (redirects re-dial, so they are checked too). Owner
+// configured endpoints (model providers, MCP servers, the bot browser) use it
+// in hosted mode so a URL can never reach the server's own network.
+func SafeClient(timeout time.Duration) *http.Client {
+	d := &net.Dialer{Timeout: 10 * time.Second, Control: blockPrivate}
+	return &http.Client{Timeout: timeout, Transport: &http.Transport{DialContext: d.DialContext, TLSHandshakeTimeout: 10 * time.Second, MaxResponseHeaderBytes: 64 << 10}}
+}
+
+// PublicURL reports whether raw is an http(s) URL without credentials whose
+// literal host is not a private address (names are re-checked at dial time).
+func PublicURL(raw string, allowHTTP bool) bool {
+	u, err := url.Parse(raw)
+	if err != nil || u.User != nil || u.Hostname() == "" || (u.Scheme != "https" && !(allowHTTP && u.Scheme == "http")) {
+		return false
+	}
+	if ip := net.ParseIP(u.Hostname()); ip != nil && !isPublicAddress(ip) {
+		return false
+	}
+	return !strings.EqualFold(u.Hostname(), "localhost")
 }

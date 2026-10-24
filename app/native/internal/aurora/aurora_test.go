@@ -77,9 +77,13 @@ func scriptedAI(t *testing.T, replies ...string) *httptest.Server {
 		}
 		n++
 		w.Header().Set("Content-Type", "text/event-stream")
+		rep, cut := strings.CutSuffix(rep, "<<CUT>>") // provider stops at max_tokens
 		for _, part := range strings.SplitAfter(rep, " ") {
 			fmt.Fprintf(w, "data: {\"choices\":[{\"delta\":{\"content\":%q}}]}\n\n", part)
 			w.(http.Flusher).Flush()
+		}
+		if cut {
+			fmt.Fprint(w, "data: {\"choices\":[{\"delta\":{},\"finish_reason\":\"length\"}]}\n\n")
 		}
 		fmt.Fprint(w, "data: [DONE]\n\n")
 	}))
@@ -100,6 +104,7 @@ func newSvcIn(t *testing.T, dir string) (*Service, *ledger.Store) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	t.Cleanup(func() { cancel(); svc.Wait() }) // join running turns before the temp dir goes
 	return svc, st
 }
 
@@ -387,7 +392,7 @@ func TestGroupChatFansOutToMembers(t *testing.T) {
 	if r.StatusCode != 201 || g.Kind != "group" || len(g.Members) != 2 {
 		t.Fatalf("create %d %+v", r.StatusCode, g)
 	}
-	if r := post(t, srv.URL+"/app/api/agents/"+g.ID+"/messages", `{"text":"Lên kế hoạch ra mắt"}`); r.StatusCode != 202 {
+	if r := post(t, srv.URL+"/app/api/agents/"+g.ID+"/messages", `{"text":"@tất cả lên kế hoạch ra mắt"}`); r.StatusCode != 202 {
 		t.Fatal(r.StatusCode)
 	}
 	for i := 0; i < 300; i++ {
