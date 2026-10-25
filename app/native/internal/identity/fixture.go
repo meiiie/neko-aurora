@@ -226,6 +226,20 @@ func (a *Authority) Hold(p VerifiedPrincipal) (func(), error) {
 	}
 	return a.mu.Unlock, nil
 }
+
+func (a *Authority) HoldAll(principals []VerifiedPrincipal) (func(), error) {
+	if a == nil || len(principals) == 0 {
+		return nil, ErrUnauthenticated
+	}
+	a.mu.Lock()
+	for _, p := range principals {
+		if !a.validLocked(p) {
+			a.mu.Unlock()
+			return nil, ErrUnauthenticated
+		}
+	}
+	return a.mu.Unlock, nil
+}
 func Binding(p VerifiedPrincipal) string {
 	raw, _ := json.Marshal(p)
 	h := sha256.Sum256(raw)

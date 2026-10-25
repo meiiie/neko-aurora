@@ -131,6 +131,9 @@ func (s *Store) resolveRoute(text string) (string, string, error) {
 	return "", "", ErrNotFound
 }
 func (s *Store) validRoute(w Work) bool {
+	if w.PeerMessageID != "" {
+		return w.SourceBotID == "" && w.RoutedAlias == "" && s.validPeerWork(w)
+	}
 	if w.SourceBotID == "" {
 		return w.RoutedAlias == ""
 	}

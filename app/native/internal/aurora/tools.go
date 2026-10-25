@@ -137,7 +137,7 @@ type toolRun struct {
 // order so footnotes stay deterministic — the same ordering guarantee as
 // OpenMuse's serial checkpoint queue (CopilotKit/openmuse model.ts, MIT).
 func (s *Service) runTools(ctx context.Context, w ledger.Work, tc *toolCtx, calls []toolCall) {
-	if s.Tools == nil || len(calls) == 0 {
+	if len(calls) == 0 {
 		return
 	}
 	cur, _ := s.L.Get(w.RequestID)
@@ -152,7 +152,7 @@ func (s *Service) runTools(ctx context.Context, w ledger.Work, tc *toolCtx, call
 		dup := false
 		if cur.Direct != nil { // same tool+arg already ran this turn: reuse its result, don't refetch
 			for _, t := range cur.Direct.Tools {
-				if t.Name == c.name && t.Arg == displayArg(c) && t.Status == "done" && !isComputerTool(c.name) {
+				if t.Name == c.name && t.Arg == displayArg(c) && t.Status == "done" && !isComputerTool(c.name) && !isNetworkTool(c.name) && !isCloudTool(c.name) {
 					dup = true
 				}
 			}
@@ -185,7 +185,15 @@ func (s *Service) runTools(ctx context.Context, w ledger.Work, tc *toolCtx, call
 			t0 := time.Now()
 			tctx, cancel := context.WithTimeout(ctx, 25*time.Second)
 			defer cancel()
-			if cp := capOf(x.call.name); cp != "" && s.ext != nil && !s.ext.on(w.BotID, cp) {
+			if s.networkPeerWork(w) && !networkPeerToolAllowed(x.call.name) {
+				x.err = errors.New("thư của agent không cấp quyền thay đổi cấu hình, bí mật hoặc thực hiện hành động thay người dùng")
+			} else if isNetworkTool(x.call.name) {
+				x.res, x.err = s.runNetworkTool(tctx, w, x.call)
+			} else if isCloudTool(x.call.name) {
+				x.res, x.err = s.runCloudTool(tctx, w, tc, x.call)
+			} else if s.Tools == nil {
+				x.err = errors.New("công cụ dữ liệu đang tắt")
+			} else if cp := capOf(x.call.name); cp != "" && s.ext != nil && !s.ext.on(w.BotID, cp) {
 				x.err = errors.New("Darren đã tắt khả năng " + capLabel[cp] + " của bot này")
 			} else if strings.HasPrefix(x.call.name, "vault_") {
 				x.res, x.err = s.runVault(w, tc, x.call)
@@ -288,6 +296,15 @@ func (s *Service) ack(w ledger.Work, text string) {
 // our own messages ("không tìm thấy đoạn old…") and say how to fix the call;
 // collapsing them to "lỗi mạng" left the bot retrying blind (live run 9).
 func toolErr(name string, err error) string {
+	if errors.Is(err, errZaloCloudOnly) {
+		return err.Error()
+	}
+	if isCloudTool(name) {
+		return clean(err.Error(), 300)
+	}
+	if isNetworkTool(name) {
+		return networkToolError(err)
+	}
 	if isComputerTool(name) && !errors.Is(err, context.DeadlineExceeded) {
 		return clean(err.Error(), 300)
 	}

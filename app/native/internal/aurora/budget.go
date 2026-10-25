@@ -45,6 +45,9 @@ const (
 // continuation. ok=false: still within budget, not a computer task, or the
 // request already used its continuations (then the turn finishes normally).
 func (s *Service) checkpoint(w ledger.Work, start time.Time) (directives, bool) {
+	if s.networkPeerWork(w) {
+		return directives{}, false
+	}
 	if time.Since(start) < turnBudget || !computerTask(w) || s.PC == nil || s.pcSnap(w.BotID).stuck != "" {
 		return directives{}, false
 	}
@@ -121,6 +124,9 @@ for f in sys.argv[1:]: compile(open(f, encoding="utf-8").read(), f, "exec")' `
 // goes on as a new turn (bounded by maxResumes); an empty reply becomes a
 // short honest status instead of a blank bubble.
 func (s *Service) unfinished(w ledger.Work, d directives) (directives, bool) {
+	if s.networkPeerWork(w) {
+		return d, false
+	}
 	if !computerTask(w) || s.PC == nil || len(d.Choices) > 0 || d.Secret != nil {
 		return d, false
 	}

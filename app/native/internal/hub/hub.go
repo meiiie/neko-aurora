@@ -32,6 +32,7 @@ import (
 
 	"nekoaurora.local/native/internal/aurora"
 	"nekoaurora.local/native/internal/computer"
+	"nekoaurora.local/native/internal/identity"
 	"nekoaurora.local/native/internal/ledger"
 	"nekoaurora.local/native/internal/web"
 )
@@ -52,6 +53,8 @@ type Config struct {
 	Google  *OAuth
 	Apple   *OAuth
 	Now     func() time.Time
+	// CloudBrowserEmails is an exact, server-only hosted pilot allowlist.
+	CloudBrowserEmails map[string]bool
 }
 
 // ConfigFromEnv reads hosted-mode settings; it fails closed without a secret.
@@ -68,6 +71,7 @@ func ConfigFromEnv(dir string) (Config, error) {
 		Plans:      map[string]int{"free": envInt("AURORA_PLAN_FREE_DAILY", 50), "pro": envInt("AURORA_PLAN_PRO_DAILY", 1000)},
 		DefaultPln: envOr("AURORA_DEFAULT_PLAN", "free"), MaxUsers: envInt("AURORA_MAX_USERS", 500), Now: time.Now}
 	c.Mail = MailerFromEnv(filepath.Join(dir, "hub", "dev-mail"))
+	c.CloudBrowserEmails = cloudBrowserEmails(os.Getenv("AURORA_CLOUD_BROWSER_EMAILS"))
 	if os.Getenv("AURORA_DEV_SHOW_CODE") == "1" {
 		for _, e := range strings.Split(os.Getenv("AURORA_DEV_EMAILS"), ",") {
 			if e, ok := validEmail(e); ok {
@@ -113,6 +117,7 @@ type Hub struct {
 	mu      sync.Mutex
 	tenants map[string]*tenant
 	opening map[string]chan struct{}
+	retired map[string]bool // deletion admitted; already authenticated requests cannot reopen it
 	codes   *codeStore
 	mux     *http.ServeMux
 }
@@ -133,11 +138,18 @@ func New(ctx context.Context, cfg Config) (*Hub, error) {
 	if cfg.MaxUsers == 0 {
 		cfg.MaxUsers = 500
 	}
+	allowed := map[string]bool{}
+	for email, on := range cfg.CloudBrowserEmails {
+		if normalized, ok := validEmail(email); ok && on {
+			allowed[normalized] = true
+		}
+	}
+	cfg.CloudBrowserEmails = allowed
 	us, err := openUsers(filepath.Join(cfg.Dir, "hub", "users.json"))
 	if err != nil {
 		return nil, err
 	}
-	h := &Hub{cfg: cfg, ctx: ctx, users: us, tenants: map[string]*tenant{}, codes: newCodes(), mux: http.NewServeMux()}
+	h := &Hub{cfg: cfg, ctx: ctx, users: us, tenants: map[string]*tenant{}, retired: map[string]bool{}, codes: newCodes(), mux: http.NewServeMux()}
 	h.routes()
 	return h, nil
 }
@@ -156,6 +168,10 @@ func (h *Hub) vaultKey(uid string) []byte {
 // every other request; callers for the same account wait on its gate.
 func (h *Hub) tenant(uid string) (*tenant, error) {
 	h.mu.Lock()
+	if h.retired[uid] {
+		h.mu.Unlock()
+		return nil, errors.New("account deletion pending")
+	}
 	if t := h.tenants[uid]; t != nil {
 		h.mu.Unlock()
 		return t, nil
@@ -206,7 +222,15 @@ func (h *Hub) openTenant(uid string) (*tenant, error) {
 		return nil, err
 	}
 	ctx, cancel := context.WithCancel(h.ctx)
-	svc, err := aurora.New(ctx, st, filepath.Join(dir, "aurora"), aurora.Options{RunTurns: true, VaultKey: h.vaultKey(uid), NoBriefLoop: true,
+	u, known := h.users.get(uid)
+	svc, err := aurora.New(ctx, st, filepath.Join(dir, "aurora"), aurora.Options{RunTurns: true, VaultKey: h.vaultKey(uid), NoBriefLoop: true, DisableCloud: !known || !h.cfg.CloudBrowserEmails[strings.ToLower(strings.TrimSpace(u.Email))],
+		NetworkAdmission: func(messageID string) error {
+			u, ok := h.users.get(uid)
+			if !ok {
+				return errors.New("network_identity_unavailable")
+			}
+			return h.users.reserveNetwork(uid, messageID, h.cfg.Now(), h.cfg.Plans[u.Plan])
+		},
 		OwnerName: func() string { u, _ := h.users.get(uid); return u.Name }})
 	if err != nil {
 		cancel()
@@ -215,6 +239,9 @@ func (h *Hub) openTenant(uid string) (*tenant, error) {
 	}
 	t := &tenant{store: st, svc: svc, stop: cancel}
 	svc.OnDeleteAccount = func() error {
+		h.mu.Lock()
+		h.retired[uid] = true
+		h.mu.Unlock()
 		go func() { time.Sleep(300 * time.Millisecond); h.deleteUser(uid) }()
 		return nil
 	}
@@ -235,6 +262,32 @@ func (h *Hub) close(uid string) {
 
 // deleteUser erases a workspace and its account (App Store 5.1.1(v)).
 func (h *Hub) deleteUser(uid string) {
+	if _, exists := h.users.get(uid); !exists {
+		return
+	}
+	h.mu.Lock()
+	t, confirmed := h.tenants[uid], h.retired[uid]
+	h.mu.Unlock()
+	if !confirmed {
+		var err error
+		if t == nil {
+			t, err = h.tenant(uid)
+		}
+		if err != nil {
+			log.Print("hub: account deletion pending; workspace unavailable")
+			return
+		}
+		ctx, cancel := context.WithTimeout(context.Background(), 40*time.Second)
+		err = t.svc.PurgeCloudForDeletion(ctx)
+		cancel()
+		if err != nil {
+			log.Print("hub: account deletion pending; browser cleanup unavailable")
+			return
+		}
+		h.mu.Lock()
+		h.retired[uid] = true
+		h.mu.Unlock()
+	}
 	h.close(uid)
 	if os.Getenv("AURORA_COMPUTER") == "railway" { // the user's VMs go too
 		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
@@ -243,6 +296,10 @@ func (h *Hub) deleteUser(uid string) {
 	}
 	if err := os.RemoveAll(h.userDir(uid)); err != nil {
 		log.Printf("hub: delete workspace failed: %v", err)
+		h.mu.Lock()
+		delete(h.retired, uid)
+		h.mu.Unlock()
+		return
 	}
 	h.users.remove(uid)
 }
@@ -365,6 +422,9 @@ func metered(r *http.Request) bool {
 		return false
 	}
 	p := r.URL.Path
+	if strings.HasPrefix(p, "/app/api/network/") {
+		return false
+	}
 	return strings.HasSuffix(p, "/messages") || p == "/app/api/brief"
 }
 
@@ -392,6 +452,7 @@ func (h *Hub) api(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, 503, map[string]string{"error": "workspace_unavailable"})
 		return
 	}
+	r = r.WithContext(identity.WithRequestIdentity(r.Context(), identity.RequestIdentity{ActorID: u.ID}))
 	t.svc.ServeHTTP(w, r)
 }
 

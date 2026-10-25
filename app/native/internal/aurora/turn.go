@@ -72,20 +72,40 @@ type toolReq struct {
 	Old     string `json:"old,omitempty"`    // computer_edit_file: exact text to replace (once)
 	New     string `json:"new,omitempty"`
 	// extras: MCP, bot create/update, image questions
-	Server string          `json:"server,omitempty"`
-	Tool   string          `json:"tool,omitempty"`
-	Args   json.RawMessage `json:"args,omitempty"`
-	Bot    string          `json:"bot,omitempty"`
-	Desc   string          `json:"desc,omitempty"`
-	Target string          `json:"target,omitempty"`
-	Model  string          `json:"model,omitempty"`
-	Think  *bool           `json:"thinking,omitempty"`
-	Folder *string         `json:"folder,omitempty"`
-	Item   string          `json:"item,omitempty"` // vault_use: Vault item id
+	Server         string                     `json:"server,omitempty"`
+	Tool           string                     `json:"tool,omitempty"`
+	Args           json.RawMessage            `json:"args,omitempty"`
+	Bot            string                     `json:"bot,omitempty"`
+	Desc           string                     `json:"desc,omitempty"`
+	Target         string                     `json:"target,omitempty"`
+	Model          string                     `json:"model,omitempty"`
+	Think          *bool                      `json:"thinking,omitempty"`
+	Folder         *string                    `json:"folder,omitempty"`
+	Item           string                     `json:"item,omitempty"` // vault_use: Vault item id
+	ToSessionID    string                     `json:"toSessionId,omitempty"`
+	MessageID      string                     `json:"messageId,omitempty"`
+	Text           string                     `json:"text,omitempty"`
+	ReplyTo        string                     `json:"replyTo,omitempty"`
+	Wake           *bool                      `json:"wake,omitempty"`
+	Attachments    []ledger.NetworkAttachment `json:"attachments,omitempty"`
+	CloudKind      string                     `json:"kind,omitempty"`
+	CloudEpoch     uint64                     `json:"epoch,omitempty"`
+	ObservationID  string                     `json:"observationId,omitempty"`
+	TargetID       string                     `json:"targetId,omitempty"`
+	Key            string                     `json:"key,omitempty"`
+	DeltaY         float64                    `json:"deltaY,omitempty"`
+	ExpectedOrigin string                     `json:"expectedOrigin,omitempty"`
 }
 
 func validTool(t toolReq) bool {
+	if isCloudTool(t.Name) {
+		return true
+	}
 	switch t.Name {
+	case "network_list_sessions", "network_check_inbox", "network_message_status", "network_send_message":
+		// Keep recognized calls so the adapter can return field errors to the
+		// model instead of silently finishing a turn with no message.
+		return true
 	case "gold_price", "computer_list":
 		return true
 	case "memory_recall", "skill_load":
@@ -266,6 +286,7 @@ func (s *Service) runLoop() {
 		case <-t.C:
 		case <-s.wake:
 		}
+		s.networkDispatch()
 		snap := s.L.Snapshot()
 		v := newView(snap)
 		for botID, l := range v.allBot {
@@ -385,7 +406,26 @@ func (s *Service) sweepLeases() {
 func (s *Service) history(botID, current string) []ChatMsg {
 	v := newView(s.L.Snapshot())
 	b, _ := v.bot(botID)
-	msgs := []ChatMsg{{Role: "system", Content: fmt.Sprintf(systemPrompt, b.Name, v.desc(b)) + memoryPrompt(s.Mem.List(botID)) + teamPrompt(s.Mem.List(teamKey)) + s.computerNote(botID) + s.extNote(botID) + clockNote(time.Now())}}
+	base := fmt.Sprintf(systemPrompt, b.Name, v.desc(b)) + networkProvenancePrompt + networkToolsPrompt + clockNote(time.Now())
+	peer := false
+	if cw, err := s.L.Get(current); err == nil {
+		peer = s.networkPeerWork(cw)
+	}
+	if !peer {
+		base += memoryPrompt(s.Mem.List(botID)) + teamPrompt(s.Mem.List(teamKey)) + s.computerNote(botID) + s.extNote(botID)
+		if s.Cloud != nil {
+			base += cloudToolsPrompt
+		}
+	}
+	msgs := []ChatMsg{{Role: "system", Content: base}}
+	if cw, err := s.L.Get(current); err == nil {
+		if context := s.networkFYIContext(cw); context != "" {
+			msgs = append(msgs, ChatMsg{Role: "user", Content: context})
+		}
+		if context := s.networkHumanFilesContext(cw); context != "" {
+			msgs = append(msgs, ChatMsg{Role: "user", Content: context})
+		}
+	}
 	if cw, err := s.L.Get(current); err == nil && isEnglish(cw.Text) {
 		// the owner wrote English: the Vietnamese-first prompt must not win
 		msgs[0].Content += "\nLANGUAGE: the user's latest message is in English. Reply entirely in natural English (keep [n] citations and directive lines as specified)."
@@ -399,7 +439,11 @@ func (s *Service) history(botID, current string) []ChatMsg {
 	}
 	for _, w := range l {
 		if w.Direct == nil || w.Direct.Kind == "" || w.Direct.Kind == "computer" {
-			msgs = append(msgs, ChatMsg{"user", w.Text})
+			input := w.Text
+			if s.networkPeerWork(w) {
+				input = s.networkPeerInput(w)
+			}
+			msgs = append(msgs, ChatMsg{"user", input})
 		}
 		if w.RequestID == current {
 			break
@@ -460,6 +504,7 @@ func (s *Service) call(ctx context.Context, w ledger.Work, msgs []ChatMsg) (dire
 	flush()
 	cut := strings.Contains(full, truncMark)
 	d := ParseDirectives(strings.ReplaceAll(full, truncMark, ""))
+	s.networkFilterDirectives(w, &d)
 	d.Cut = cut
 	return d, err
 }
@@ -475,7 +520,7 @@ func (s *Service) runWork(w ledger.Work) {
 		s.runBrief(w)
 		return
 	}
-	if s.PC != nil && wantsComputer.MatchString(stripRef(w.Text)) {
+	if s.PC != nil && !s.networkPeerWork(w) && wantsComputer.MatchString(stripRef(w.Text)) {
 		s.PC.Warm(w.BotID) // boot the bot's VM while the model plans (cold start ~10-30 s on Railway)
 	}
 	run := ledger.DirectRun{Runtime: s.AI.Runtime(), Model: s.AI.ModelName(), LeaseUntil: s.leaseUntil()}
@@ -492,8 +537,17 @@ func (s *Service) runWork(w ledger.Work) {
 	if err != nil {
 		return
 	}
+	if err := s.networkBindContext(w); err != nil {
+		_, _ = s.L.DirectFinish(w.RequestID, w.Epoch, "failed", "network_context_unavailable", nil)
+		s.sync()
+		return
+	}
 	name := s.botName(w.BotID)
-	s.record(w.BotID, w.RequestID, "message", "Bạn giao cho "+name+": "+w.Text)
+	if s.networkPeerWork(w) {
+		s.record(w.BotID, w.RequestID, "message", name+" nhận tin từ agent (ngữ cảnh không đáng tin): "+w.Text)
+	} else {
+		s.record(w.BotID, w.RequestID, "message", "Bạn giao cho "+name+": "+w.Text)
+	}
 	s.agui(AGUIEvent{Type: RUN_STARTED, ThreadID: w.BotID, RunID: w.RequestID})
 	ctx, cancel := context.WithTimeout(s.ctx, turnBudget+turnSlack)
 	defer cancel()
@@ -557,7 +611,7 @@ func (s *Service) runWork(w ledger.Work) {
 		}
 		d.Choices = choices
 	})
-	if appr != nil && appr.Kind == "computer" {
+	if appr != nil && appr.Kind == "computer" && !s.networkPeerWork(w) {
 		s.supersedeCommands(w.BotID, w.RequestID)
 	}
 	s.endDraft(w)
@@ -668,7 +722,9 @@ func promiseOnly(d directives) bool {
 func (s *Service) runTurn(ctx context.Context, w ledger.Work) (*Approval, []string, error) {
 	start := time.Now()
 	tc := &toolCtx{}
-	defer s.saveResearch(w.BotID, tc)
+	if !s.networkPeerWork(w) {
+		defer s.saveResearch(w.BotID, tc)
+	}
 	if s.absorbed(w.RequestID) {
 		// Already folded into the previous run (shown above its answer):
 		// finish silently instead of a second, redundant reply.
@@ -686,7 +742,7 @@ func (s *Service) runTurn(ctx context.Context, w ledger.Work) (*Approval, []stri
 	var err error
 	followUp := strings.HasPrefix(w.ClientNonce, "computer-") // tool output must never trigger planning
 	var resumed []ledger.DirectStep
-	if !followUp {
+	if !followUp && !s.networkPeerWork(w) {
 		s.newRequest(w.BotID, stripRef(w.Text), computerTask(w))
 	}
 	if cp := w.ResumeFrom; cp != nil && !followUp && len(cp.Plan) >= 2 {
@@ -728,7 +784,7 @@ func (s *Service) runTurn(ctx context.Context, w ledger.Work) (*Approval, []stri
 		rounds = 8 // build loop: write file, list, run, verify
 	}
 	for attempt := 0; ; attempt++ {
-		for round := 0; err == nil && len(d.Tools) > 0 && round < rounds && s.Tools != nil; round++ {
+		for round := 0; err == nil && len(d.Tools) > 0 && round < rounds && (s.Tools != nil || hasNetworkTool(d.Tools) || hasCloudTool(d.Tools)); round++ {
 			s.publish("draft_end", map[string]string{"id": w.RequestID, "agentId": threadOf(w)})
 			calls := callsOf(d.Tools)
 			if cur, _ := s.L.Get(w.RequestID); cur.Direct != nil && cur.Direct.Ack == "" {
@@ -751,7 +807,7 @@ func (s *Service) runTurn(ctx context.Context, w ledger.Work) (*Approval, []stri
 		if err != nil || attempt >= 3 {
 			break
 		}
-		if d.Approval != nil && (d.Approval.Kind == "computer" || d.Approval.Kind == "vault") || d.Text == checkpointText || d.Stop {
+		if d.Approval != nil && (d.Approval.Kind == "computer" || d.Approval.Kind == "vault" || d.Approval.Kind == "cloud") || d.Text == checkpointText || d.Stop {
 			break
 		}
 		nudge := ""
@@ -794,7 +850,7 @@ func (s *Service) runTurn(ctx context.Context, w ledger.Work) (*Approval, []stri
 		// discard the draft and answer once more with the new instruction.
 		s.publish("draft_end", map[string]string{"id": w.RequestID, "agentId": threadOf(w)})
 		d, err = s.call(ctx, w, tc.inject(s.history(w.BotID, w.RequestID)))
-		if err == nil && len(d.Tools) > 0 && s.Tools != nil {
+		if err == nil && len(d.Tools) > 0 && (s.Tools != nil || hasNetworkTool(d.Tools)) {
 			s.publish("draft_end", map[string]string{"id": w.RequestID, "agentId": threadOf(w)})
 			s.runTools(ctx, w, tc, callsOf(d.Tools))
 			d, err = s.call(ctx, w, append(tc.inject(s.history(w.BotID, w.RequestID)), ChatMsg{Role: "system", Content: finalNudge}))
@@ -806,12 +862,14 @@ func (s *Service) runTurn(ctx context.Context, w ledger.Work) (*Approval, []stri
 	s.fixScript(ctx, w, &d)
 	s.rememberD(w, d)
 	s.handOff(w, d.Handoffs)
-	s.addSchedules(w, d.Schedules)
-	s.reviewMemory(w, d.Memory)
+	if !s.networkPeerWork(w) {
+		s.addSchedules(w, d.Schedules)
+		s.reviewMemory(w, d.Memory)
+	}
 	if len(d.Tools) > 0 { // tools exhausted or disabled: never leave a bare TOOL line
 		d.Text = strings.TrimSpace(d.Text + "\n(Mình chưa lấy thêm được dữ liệu, nên không đưa số liệu chưa kiểm chứng.)")
 	}
-	if d.Secret != nil {
+	if d.Secret != nil && !s.networkPeerWork(w) {
 		sec := *d.Secret
 		s.update(w.RequestID, func(r *ledger.DirectRun) { r.Secret = &sec })
 		s.record(w.BotID, w.RequestID, "secret", "Xin bí mật "+sec.Name)
@@ -921,7 +979,7 @@ func (s *Service) verifyFinal(ctx context.Context, w ledger.Work, tc *toolCtx, d
 	if err != nil {
 		return
 	}
-	for r := 0; len(nd.Tools) > 0 && r < 4 && s.Tools != nil; r++ { // it may go back to work (file writes, a command card)
+	for r := 0; len(nd.Tools) > 0 && r < 4 && (s.Tools != nil || hasNetworkTool(nd.Tools)); r++ { // it may go back to work (file writes, a command card)
 		s.publish("draft_end", map[string]string{"id": w.RequestID, "agentId": threadOf(w)})
 		s.runTools(ctx, w, tc, callsOf(nd.Tools))
 		if tc.pendingCmd != "" {
@@ -943,7 +1001,7 @@ func (s *Service) stepCall(ctx context.Context, w ledger.Work, tc *toolCtx, prom
 		return append(append(tc.inject(s.history(w.BotID, w.RequestID)), ChatMsg{Role: "user", Content: prompt}), extra...)
 	}
 	d, err := s.ask(ctx, w, tc, func() []ChatMsg { return mk() })
-	for r := 0; err == nil && len(d.Tools) > 0 && r < 4 && s.Tools != nil; r++ {
+	for r := 0; err == nil && len(d.Tools) > 0 && r < 4 && (s.Tools != nil || hasNetworkTool(d.Tools)); r++ {
 		s.publish("draft_end", map[string]string{"id": w.RequestID, "agentId": threadOf(w)})
 		s.runTools(ctx, w, tc, callsOf(d.Tools))
 		if tc.pendingCmd != "" {
@@ -954,7 +1012,7 @@ func (s *Service) stepCall(ctx context.Context, w ledger.Work, tc *toolCtx, prom
 	if err == nil && s.narratedOnly(w, d) {
 		s.publish("draft_end", map[string]string{"id": w.RequestID, "agentId": threadOf(w)})
 		d, err = s.ask(ctx, w, tc, func() []ChatMsg { return mk(ChatMsg{Role: "system", Content: directivesOnly}) })
-		for r := 0; err == nil && len(d.Tools) > 0 && r < 4 && s.Tools != nil; r++ {
+		for r := 0; err == nil && len(d.Tools) > 0 && r < 4 && (s.Tools != nil || hasNetworkTool(d.Tools)); r++ {
 			s.publish("draft_end", map[string]string{"id": w.RequestID, "agentId": threadOf(w)})
 			s.runTools(ctx, w, tc, callsOf(d.Tools))
 			if tc.pendingCmd != "" {
@@ -972,8 +1030,10 @@ func (s *Service) stepCall(ctx context.Context, w ledger.Work, tc *toolCtx, prom
 	}
 	s.rememberD(w, d)
 	s.handOff(w, d.Handoffs)
-	s.addSchedules(w, d.Schedules)
-	s.reviewMemory(w, d.Memory)
+	if !s.networkPeerWork(w) {
+		s.addSchedules(w, d.Schedules)
+		s.reviewMemory(w, d.Memory)
+	}
 	d.Tools, d.Plan, d.Memory = nil, nil, ""
 	return d, err
 }
@@ -1147,7 +1207,7 @@ func callsOf(ts []toolReq) []toolCall {
 			out = append(out, toolCall{t.Name, computerArg(t)})
 			continue
 		}
-		if extArg(t.Name) || strings.HasPrefix(t.Name, "vault_") {
+		if isNetworkTool(t.Name) || isCloudTool(t.Name) || extArg(t.Name) || strings.HasPrefix(t.Name, "vault_") {
 			b, _ := json.Marshal(t)
 			out = append(out, toolCall{t.Name, string(b)})
 			continue
@@ -1158,6 +1218,9 @@ func callsOf(ts []toolReq) []toolCall {
 }
 
 func (s *Service) rememberD(w ledger.Work, d directives) {
+	if s.networkPeerWork(w) {
+		return
+	}
 	if d.Form != nil && s.ext != nil {
 		s.ext.setForm(w.RequestID, d.Form)
 	}
@@ -1178,6 +1241,9 @@ func (s *Service) rememberD(w ledger.Work, d directives) {
 }
 
 func (s *Service) remember(w ledger.Work, text string) {
+	if s.networkPeerWork(w) {
+		return
+	}
 	if text != "" && s.Mem.Remember(w.BotID, text) {
 		s.record(w.BotID, w.RequestID, "step", "Đã ghi nhớ: "+clean(text, 120))
 	}

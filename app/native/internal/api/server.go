@@ -140,6 +140,11 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if s.aurora != nil && strings.HasPrefix(r.URL.Path, "/app/api/") {
+		actor := identity.RequestIdentity{ActorID: "local-owner"}
+		if s.fixture != nil {
+			actor.ActorID, actor.Principal = principal.ActorID, &principal
+		}
+		r = r.WithContext(identity.WithRequestIdentity(r.Context(), actor))
 		s.aurora.ServeHTTP(w, r)
 		return
 	}

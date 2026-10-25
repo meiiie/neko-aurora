@@ -19,6 +19,8 @@
 - [Product gap matrix](../app/docs/product-gap-matrix-20261011.md).
 - [Desktop instance contract](../app/docs/desktop-local-instance-20261012.md).
 - [Core instructions](../core/AGENTS.md) và [Core testing](../core/docs/process/TESTING.md).
+- [Giao tiếp agent: cách dùng, hợp đồng và giới hạn](../app/docs/agent-network-20261025.md).
+- [Máy tính cloud: worker riêng, Vault và phạm vi kiểm chứng](../app/docs/cloud-browser-20261025.md).
 - [Wiii overlay/base manifest](../migration/wiii-integration.json).
 - [Source provenance manifest](../migration/source-manifest.json).
 

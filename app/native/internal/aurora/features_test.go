@@ -97,12 +97,17 @@ func TestGroupRoutingAndHandoff(t *testing.T) {
 	waitGroup(svc, g.ID)
 	time.Sleep(100 * time.Millisecond)
 	waitGroup(svc, g.ID)
-	msgs := svc.view().groupMessages(g.ID, 0)
-	var users, fromMain, fromOther int
+	msgs := svc.decorate(svc.view().groupMessages(g.ID, 0))
+	var users, peers, fromMain, fromOther int
 	for _, m := range msgs {
 		switch {
 		case m.Role == "user":
 			users++
+		case m.Role == "peer":
+			peers++
+			if m.Origin != "agent" || m.From != main.ID || m.FromName == "" || m.PeerMessageID == "" || !strings.Contains(m.Text, "Phân tích file doanh thu") {
+				t.Fatalf("handoff lost peer provenance: %+v", m)
+			}
 		case m.From == main.ID && m.Role == "agent":
 			fromMain++
 		case m.From == other.ID && m.Role == "agent":
@@ -115,8 +120,8 @@ func TestGroupRoutingAndHandoff(t *testing.T) {
 	for _, m := range msgs {
 		t.Logf("%s %s %q", m.Role, m.From, m.Text)
 	}
-	if users != 1 || fromMain != 1 || fromOther != 1 {
-		t.Fatalf("users=%d main=%d other=%d", users, fromMain, fromOther)
+	if users != 1 || peers != 1 || fromMain != 1 || fromOther != 1 {
+		t.Fatalf("users=%d peers=%d main=%d other=%d", users, peers, fromMain, fromOther)
 	}
 	// a direct @mention skips the router
 	c := svc.view().channels[g.ID]

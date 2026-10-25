@@ -58,6 +58,16 @@ func computerArg(t toolReq) string {
 
 // displayArg is what the tool card shows (never a whole file body).
 func displayArg(c toolCall) string {
+	if isCloudTool(c.name) {
+		var in toolReq
+		_ = json.Unmarshal([]byte(c.arg), &in)
+		return clean(strings.TrimSpace(in.CloudKind+" "+in.TargetID), 120)
+	}
+	if isNetworkTool(c.name) {
+		var in networkToolArgs
+		_ = json.Unmarshal([]byte(c.arg), &in)
+		return clean(first(in.ToSessionID, in.MessageID), 120)
+	}
 	if strings.HasPrefix(c.name, "vault_") {
 		var x toolReq
 		_ = json.Unmarshal([]byte(c.arg), &x)

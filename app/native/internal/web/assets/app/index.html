@@ -17,11 +17,15 @@
 <link rel="stylesheet" href="/app/aurora/fonts.css">
 <link rel="stylesheet" href="/app/aurora/aurora.css">
 <link rel="stylesheet" href="/app/style.css">
+<link rel="stylesheet" href="/app/network.css">
+<link rel="stylesheet" href="/app/cloud.css">
 <script src="/app/theme.js"></script>
 <script src="/app/i18n.js"></script>
   <script src="/app/md.js"></script><script src="/app/ux.js"></script>
 <script src="/app/aurora/icons.js" defer></script>
 <script src="/app/aurora/brands.js" defer></script>
+<script src="/app/network.js" defer></script>
+<script src="/app/cloud.js" defer></script>
 <script src="/app/app.js" defer></script>
 </head>
 <body>
@@ -30,6 +34,8 @@
     <header class="top">
       <button class="me" id="meBtn" aria-label="Cài đặt"><img src="/app/icon.svg" alt="" width="36" height="36"></button>
       <div class="spacer"></div>
+      <button class="network-entry" id="networkBtn" type="button" aria-haspopup="dialog" aria-expanded="false" aria-controls="networkDialog"><span id="networkIcon" aria-hidden="true"></span><span>Giao tiếp agent</span><span class="network-count hidden" id="networkUnread"></span></button>
+      <button class="icon-btn cloud-entry" id="cloudBtn" type="button" aria-label="Máy tính cloud của bot" title="Máy tính cloud" aria-haspopup="dialog" aria-expanded="false" aria-controls="cloudDialog"><span id="cloudIcon" aria-hidden="true">☁</span></button>
       <button class="round" id="newBtn" aria-label="Tạo mới" aria-haspopup="menu"></button>
     </header>
     <div class="scroll" id="listScroll">
@@ -142,6 +148,67 @@
   <aside class="sheet themes hidden" id="themes" aria-label="Giao diện"><div class="grip"></div><header class="sheet-top"><span class="w44"></span><b>Giao diện</b><button class="text-btn" id="closeThemes">Xong</button></header><div class="scroll" id="themeList"></div></aside>
   <section class="login hidden" id="login" aria-label="Đăng nhập chủ sở hữu"><form id="loginForm"><img id="loginMark" class="login-mark" src="/app/icon-192.png" width="72" height="72" alt="" aria-hidden="true"><h1>Neko Aurora</h1><p class="sub">Nhập mã chủ sở hữu để mở.</p><input id="loginCode" type="password" autocomplete="current-password" placeholder="Mã chủ sở hữu" aria-label="Mã chủ sở hữu"><button class="pill wide">Mở</button></form></section>
   <div class="toast" id="toast" role="status"></div>
+  <dialog class="network-dialog" id="networkDialog" aria-labelledby="networkTitle" aria-describedby="networkIntro">
+    <header class="network-top"><div><h1 id="networkTitle">Giao tiếp agent</h1><p id="networkIntro">Gửi thông tin hoặc đánh thức một phiên agent trong không gian của bạn.</p></div><button class="icon-btn" id="networkClose" type="button" aria-label="Đóng giao tiếp agent">×</button></header>
+    <div class="network-notice" id="networkNotice" role="status" aria-live="polite"></div>
+    <div class="network-layout">
+      <aside class="network-directory" aria-label="Danh bạ agent">
+        <div class="network-directory-head"><h2>Danh bạ</h2><button class="network-text-btn" id="networkRefresh" type="button">Làm mới</button></div>
+        <label class="network-search"><span id="networkSearchIcon" aria-hidden="true"></span><input id="networkSearch" type="search" placeholder="Tìm tên hoặc bí danh" aria-label="Tìm phiên agent" autocomplete="off"></label>
+        <p class="network-caption" id="networkDirectoryCount"></p>
+        <ul class="network-sessions" id="networkSessions"></ul>
+        <p class="network-empty" id="networkNoSessions">Đang tải danh bạ…</p>
+      </aside>
+      <section class="network-mailbox" aria-labelledby="networkMailboxTitle">
+        <header class="network-mailbox-head"><div><h2 id="networkMailboxTitle" data-noi18n>Hộp thư</h2><p id="networkSessionMeta" data-noi18n></p></div><span class="network-mail-count" id="networkMailCount"></span></header>
+        <ol class="network-messages" id="networkMessages" aria-label="Tin nhắn giao tiếp agent"></ol>
+        <p class="network-empty" id="networkNoMessages">Chọn một phiên để xem hộp thư.</p>
+        <form class="network-composer" id="networkComposer">
+          <label class="network-target-label" for="networkTarget">Gửi tới</label><select id="networkTarget" required aria-label="Phiên nhận tin"><option value="">Chọn phiên agent</option></select>
+          <label class="network-sr-only" for="networkText">Nội dung tin nhắn</label><textarea id="networkText" rows="3" placeholder="Nêu thông tin hoặc việc bạn muốn agent làm…" aria-describedby="networkTextCount networkWakeHint" required></textarea>
+          <div class="network-compose-meta"><span id="networkTextCount">0 byte</span><span id="networkFileLimits"></span></div>
+          <ul class="network-draft-files" id="networkDraftFiles" aria-label="File đính kèm"></ul>
+          <fieldset class="network-send-mode"><legend class="network-sr-only">Cách gửi</legend><label><input type="radio" name="networkMode" value="fyi" checked><span>FYI · chỉ gửi thông tin</span></label><label><input type="radio" name="networkMode" value="wake"><span>Đánh thức agent</span></label></fieldset>
+          <p class="network-caption network-wake-hint" id="networkWakeHint">FYI lưu vào hộp thư, không bắt đầu lượt mô hình. Agent có thể nhận thông tin ở lượt sau.</p>
+          <p class="network-form-error hidden" id="networkFormError" role="alert"></p>
+          <div class="network-composer-actions"><button class="network-file-btn" id="networkPickFiles" type="button"><span id="networkFileIcon" aria-hidden="true"></span>Đính kèm văn bản</button><input type="file" id="networkFiles" multiple accept=".txt,.md,.csv,.json,.log,.yaml,.yml,.xml,.toml,.ini,.js,.ts,.py,.go,.rs,.html,.css,text/*,application/json" hidden><button class="network-send-btn" id="networkSend" type="submit" disabled>Gửi FYI</button></div>
+        </form>
+      </section>
+    </div>
+  </dialog>
+  <dialog class="cloud-dialog" id="cloudDialog" aria-labelledby="cloudTitle" aria-describedby="cloudIntro">
+    <header class="cloud-top"><div><h1 id="cloudTitle">Máy tính cloud</h1><p id="cloudIntro">Trình duyệt riêng của bot chạy trên cloud. Bạn xem và can thiệp tại đây.</p></div><button class="icon-btn" id="cloudDismiss" type="button" aria-label="Đóng cửa sổ máy tính cloud">×</button></header>
+    <div class="cloud-toolbar">
+      <label for="cloudBot">Bot</label><select id="cloudBot"><option value="">Chọn bot</option></select>
+      <button class="cloud-button" id="cloudRefresh" type="button">Quan sát mới</button>
+      <span class="cloud-badge" id="cloudStatus" role="status">Chưa tải trạng thái</span>
+    </div>
+    <p class="cloud-notice" id="cloudNotice" role="status" aria-live="polite"></p>
+    <div class="cloud-uncertain hidden" id="cloudUncertain" role="alert"><p id="cloudUncertainText"></p><details><summary>Mã yêu cầu đang giữ</summary><code id="cloudPendingIds" data-noi18n></code></details><button class="cloud-button" id="cloudResolve" type="button" disabled>Tôi đã kiểm tra trang · cho phép thao tác mới</button></div>
+    <div class="cloud-layout">
+      <section class="cloud-display" aria-labelledby="cloudScreenTitle">
+        <div class="cloud-screen-head"><div><h2 id="cloudScreenTitle">Màn hình riêng</h2><p id="cloudPage" data-noi18n>Chưa mở trình duyệt</p></div><div class="cloud-screen-tools"><span class="cloud-badge" id="cloudAuth">Đăng nhập chưa xác minh</span><button class="cloud-button" id="cloudExpand" type="button" aria-haspopup="dialog" aria-controls="cloudZoom" aria-expanded="false" disabled>Phóng to màn hình</button></div></div>
+        <div class="cloud-screen">
+          <button class="cloud-frame-pick hidden" id="cloudFramePick" type="button" aria-label="Chọn một điểm trên màn hình cloud" aria-describedby="cloudPointHint" disabled><img id="cloudFrame" alt="Màn hình trình duyệt cloud chỉ dành cho chủ sở hữu" draggable="false"></button>
+          <div class="cloud-screen-empty" id="cloudFrameEmpty"><span aria-hidden="true">▱</span><p id="cloudFrameMessage">Chọn bot để xem trạng thái máy cloud.</p></div>
+        </div>
+        <p class="cloud-caption" id="cloudPointHint">Khi bạn giữ điều khiển, chọn điểm trên ảnh rồi bấm tại tọa độ bên cạnh. QR và ảnh chỉ được tải trong phiên chủ sở hữu.</p>
+        <details class="cloud-observation"><summary>Nội dung quan sát dạng văn bản</summary><pre id="cloudObservation" data-noi18n>Chưa có quan sát.</pre></details>
+      </section>
+      <aside class="cloud-controls" aria-label="Điều khiển máy tính cloud">
+        <section class="cloud-section" aria-labelledby="cloudControlTitle"><h2 id="cloudControlTitle">Quyền điều khiển</h2><p class="cloud-caption" id="cloudControlState">Chưa tải trạng thái.</p><div class="cloud-actions"><button class="cloud-button primary" id="cloudOpen" type="button" disabled>Mở trình duyệt</button><button class="cloud-button" id="cloudTake" type="button" disabled>Nhận điều khiển</button><button class="cloud-button" id="cloudPause" type="button" disabled>Tạm dừng agent</button><button class="cloud-button" id="cloudResume" type="button" aria-describedby="cloudGrantHint" disabled>Cho phép agent dùng hồ sơ này</button><button class="cloud-button danger" id="cloudStop" type="button" disabled>Đóng trình duyệt cloud</button></div><p class="cloud-caption" id="cloudGrantHint">Quyền dùng hồ sơ không xác minh danh tính Zalo hoặc xác nhận đăng nhập thành công.</p><p class="cloud-caption">Đóng trình duyệt vẫn giữ hồ sơ trên cloud. Đóng cửa sổ này chỉ ẩn màn hình.</p></section>
+        <form class="cloud-section" id="cloudNavigate"><label class="cloud-label" for="cloudUrl">Địa chỉ Zalo</label><div class="cloud-inline"><input id="cloudUrl" type="url" value="https://chat.zalo.me/" autocomplete="off" spellcheck="false" maxlength="2048" required><button class="cloud-button" id="cloudGo" type="submit" disabled>Mở trang</button></div></form>
+        <form class="cloud-section" id="cloudTargetForm" autocomplete="off"><h2>Thao tác trực tiếp</h2><label class="cloud-label" for="cloudTarget">Phần tử trong quan sát hiện tại</label><select id="cloudTarget" disabled><option value="">Quan sát mới để chọn phần tử</option></select><div class="cloud-actions"><button class="cloud-button" id="cloudClick" type="button" disabled>Bấm phần tử</button></div><label class="cloud-label" for="cloudText">Văn bản, mật khẩu hoặc mã · gửi thẳng tới trình duyệt</label><input id="cloudText" type="password" autocomplete="off" autocapitalize="off" spellcheck="false" maxlength="16384" data-1p-ignore data-lpignore="true" aria-describedby="cloudTextHint" disabled><p class="cloud-caption" id="cloudTextHint">Mục nhập được che, không đưa vào chat hoặc lưu trên thiết bị. Điền không tự bấm đăng nhập hay gửi tin.</p><button class="cloud-button" id="cloudFill" type="submit" disabled>Điền vào phần tử</button><label class="cloud-label" for="cloudKey">Phím</label><div class="cloud-inline"><select id="cloudKey" disabled><option value="Enter">Enter</option><option value="Tab">Tab</option><option value="Escape">Escape</option><option value="Backspace">Backspace</option><option value="ArrowUp">Mũi tên lên</option><option value="ArrowDown">Mũi tên xuống</option><option value="PageUp">Page Up</option><option value="PageDown">Page Down</option></select><button class="cloud-button" id="cloudPress" type="button" disabled>Nhấn phím</button></div></form>
+        <form class="cloud-section" id="cloudPointForm"><h2>Vị trí trên ảnh</h2><div class="cloud-coordinates"><label for="cloudX">X<input id="cloudX" type="number" min="0" step="1" inputmode="numeric" disabled></label><label for="cloudY">Y<input id="cloudY" type="number" min="0" step="1" inputmode="numeric" disabled></label><button class="cloud-button" id="cloudPoint" type="submit" disabled>Bấm tại tọa độ</button></div><p class="cloud-caption" id="cloudPointState">Chưa chọn điểm.</p><div class="cloud-actions"><button class="cloud-button" id="cloudScrollUp" type="button" disabled>Cuộn lên</button><button class="cloud-button" id="cloudScrollDown" type="button" disabled>Cuộn xuống</button></div></form>
+        <form class="cloud-section" id="cloudVaultForm"><div class="cloud-section-head"><h2>Dùng Vault</h2><button class="cloud-text-button" id="cloudVaultRefresh" type="button">Làm mới</button></div><label class="cloud-label" for="cloudVaultItem">Mục đăng nhập</label><select id="cloudVaultItem" disabled><option value="">Đang tải mục đăng nhập…</option></select><dl class="cloud-vault-review"><div><dt>Trang đã lưu</dt><dd id="cloudVaultSite" data-noi18n>—</dd></div><div><dt>Trang hiện tại</dt><dd id="cloudVaultOrigin" data-noi18n>—</dd></div></dl><label class="cloud-confirm"><input id="cloudVaultConfirm" type="checkbox" disabled><span>Tôi cho phép điền mục này vào đúng trang hiện tại, chỉ trong lần này.</span></label><button class="cloud-button" id="cloudVaultFill" type="submit" disabled>Duyệt &amp; điền lần này</button><p class="cloud-caption" id="cloudVaultHint">Chỉ tải tên và trang của mục đăng nhập. Giá trị thật được điền trên cloud, không tự gửi form.</p></form>
+      </aside>
+    </div>
+    <footer class="cloud-privacy">Phiên đăng nhập được giữ trong hồ sơ riêng của bot. Aurora không dùng hồ sơ trình duyệt cá nhân trên máy của bạn. “Đã chuyển thao tác” không xác nhận đăng nhập hay gửi tin thành công.</footer>
+    <dialog class="cloud-zoom" id="cloudZoom" aria-labelledby="cloudZoomTitle" aria-describedby="cloudZoomHint">
+      <header class="cloud-zoom-top"><div><h2 id="cloudZoomTitle">Màn hình mở rộng</h2><p id="cloudZoomHint">Chỉ xem · ảnh mới tiếp tục cập nhật. Chọn 100% để đọc QR ở kích thước gốc; thao tác vẫn ở cửa sổ điều khiển.</p></div><button class="cloud-button" id="cloudZoomNative" type="button" aria-pressed="false" aria-label="Hiện ảnh ở kích thước gốc 100%">100%</button><button class="icon-btn" id="cloudZoomClose" type="button" aria-label="Thu gọn màn hình mở rộng">×</button></header>
+      <div class="cloud-zoom-stage" id="cloudZoomStage" tabindex="0" role="region" aria-label="Ảnh mở rộng; dùng phím mũi tên hoặc Page Down để cuộn ở 100%"><img id="cloudZoomFrame" alt="Màn hình riêng mở rộng, chỉ xem" draggable="false"></div>
+    </dialog>
+  </dialog>
 </div>
 </body>
 </html>

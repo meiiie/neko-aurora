@@ -327,7 +327,7 @@ func (s *Service) memoryRoutes() {
 // (DirectRun.Steered), so the thread shows it before the rewritten answer
 // and the queued turn later only confirms.
 func (s *Service) steer(w ledger.Work, tc *toolCtx) bool {
-	if threadOf(w) != w.BotID {
+	if threadOf(w) != w.BotID || w.PeerMessageID != "" {
 		return false
 	}
 	got := false
@@ -367,7 +367,7 @@ func (s *Service) inbox(w ledger.Work) []ledger.Work {
 			after = true
 			continue
 		}
-		if after && eligible(q) && !strings.HasPrefix(q.ClientNonce, "brief-") && !strings.HasPrefix(q.ClientNonce, "computer-") && taken[q.RequestID] == "" {
+		if after && q.PeerMessageID == "" && eligible(q) && !strings.HasPrefix(q.ClientNonce, "brief-") && !strings.HasPrefix(q.ClientNonce, "computer-") && taken[q.RequestID] == "" {
 			out = append(out, q)
 		}
 	}
