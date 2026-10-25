@@ -74,23 +74,26 @@ type Plan struct {
 type Approval = ledger.DirectApproval
 
 type Message struct {
-	ID       string                `json:"id"`
-	TaskID   string                `json:"taskId"`
-	AgentID  string                `json:"agentId"`
-	Role     string                `json:"role"` // user|agent|system
-	Text     string                `json:"text"`
-	Approval *Approval             `json:"approval,omitempty"`
-	Plan     *Plan                 `json:"plan,omitempty"`
-	Choices  []string              `json:"choices,omitempty"`
-	Secret   *ledger.DirectSecret  `json:"secret,omitempty"`
-	Tools    []ledger.DirectTool   `json:"tools,omitempty"`
-	Sources  []ledger.DirectSource `json:"sources,omitempty"`
-	Queued   bool                  `json:"queued,omitempty"`
-	Ref      string                `json:"ref,omitempty"`      // name of a chat attached as context
-	From     string                `json:"from,omitempty"`     // speaking bot, in group threads
-	Thinking string                `json:"thinking,omitempty"` // folded model reasoning (thinking toggle)
-	Form     *form                 `json:"form,omitempty"`     // interactive form card
-	Created  time.Time             `json:"t"`
+	ID            string                `json:"id"`
+	TaskID        string                `json:"taskId"`
+	AgentID       string                `json:"agentId"`
+	Role          string                `json:"role"` // user|agent|system
+	Text          string                `json:"text"`
+	Approval      *Approval             `json:"approval,omitempty"`
+	Plan          *Plan                 `json:"plan,omitempty"`
+	Choices       []string              `json:"choices,omitempty"`
+	Secret        *ledger.DirectSecret  `json:"secret,omitempty"`
+	Tools         []ledger.DirectTool   `json:"tools,omitempty"`
+	Sources       []ledger.DirectSource `json:"sources,omitempty"`
+	Queued        bool                  `json:"queued,omitempty"`
+	Ref           string                `json:"ref,omitempty"`  // name of a chat attached as context
+	From          string                `json:"from,omitempty"` // speaking bot, in group threads
+	Origin        string                `json:"origin,omitempty"`
+	FromName      string                `json:"fromName,omitempty"`
+	PeerMessageID string                `json:"peerMessageId,omitempty"`
+	Thinking      string                `json:"thinking,omitempty"` // folded model reasoning (thinking toggle)
+	Form          *form                 `json:"form,omitempty"`     // interactive form card
+	Created       time.Time             `json:"t"`
 }
 
 type Brief struct {

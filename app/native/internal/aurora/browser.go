@@ -12,6 +12,7 @@ import (
 	"errors"
 	"io"
 	"net/http"
+	"net/url"
 	"os"
 	"os/exec"
 	"strings"
@@ -19,6 +20,17 @@ import (
 
 	"nekoaurora.local/native/internal/tools"
 )
+
+var errZaloCloudOnly = errors.New("Zalo chỉ dùng trình duyệt đám mây riêng; mở bảng Trình duyệt đám mây hoặc dùng cloud_browser_observe/cloud_browser_vault")
+
+func isZaloURL(raw string) bool {
+	u, err := url.Parse(raw)
+	if err != nil {
+		return false
+	}
+	host := strings.TrimSuffix(strings.ToLower(u.Hostname()), ".")
+	return host == "zalo.me" || strings.HasSuffix(host, ".zalo.me") || host == "zaloapp.com" || strings.HasSuffix(host, ".zaloapp.com")
+}
 
 func browserBin() string {
 	if v := Env("BROWSER"); v != "" {
@@ -33,6 +45,9 @@ func browserBin() string {
 }
 
 func (s *Service) browserOpen(ctx context.Context, raw string) (tools.Result, error) {
+	if isZaloURL(raw) {
+		return tools.Result{}, errZaloCloudOnly
+	}
 	if !tools.PublicURL(raw, true) { // the model picks this URL: never loopback/private, even on the desktop
 		return tools.Result{}, errors.New("chỉ mở được địa chỉ web công khai (https)")
 	}

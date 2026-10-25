@@ -11,6 +11,7 @@ import (
 	"sync"
 	"time"
 
+	"nekoaurora.local/native/internal/identity"
 	"nekoaurora.local/native/internal/web"
 )
 
@@ -79,6 +80,7 @@ func (s *Server) servePublicAurora(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if s.aurora != nil && strings.HasPrefix(path, "/app/api/") {
+		r = r.WithContext(identity.WithRequestIdentity(r.Context(), identity.RequestIdentity{ActorID: "local-owner"}))
 		s.aurora.ServeHTTP(w, r)
 		return
 	}

@@ -50,6 +50,7 @@ type Input struct {
 	Lane        string `json:"lane"`
 }
 type Work struct {
+	PeerMessageID              string                      `json:"peerMessageId,omitempty"`
 	CoreProfileGroupBinding    *CoreProfileGroupBinding    `json:"coreProfileGroupBinding,omitempty"`
 	CoreProfileSelection       *CoreProfileSelection       `json:"coreProfileSelection,omitempty"`
 	CoreProfilePin             *CoreProfilePin             `json:"coreProfilePin,omitempty"`
@@ -112,6 +113,7 @@ type Work struct {
 	ResumeFrom                 *DirectRun                  `json:"resumeFrom,omitempty"` // checkpoint kept by DirectResume
 }
 type Event struct {
+	Network                        *NetworkEvent               `json:"network,omitempty"`
 	CoreProfile                    *CoreProfileEvent           `json:"coreProfile,omitempty"`
 	ReportDeliverySelectionVersion int                         `json:"reportDeliverySelectionVersion,omitempty"`
 	ReportDelivery                 *ReportDelivery             `json:"reportDelivery,omitempty"`
@@ -175,6 +177,12 @@ type record struct {
 	Digest   string `json:"digest"`
 }
 type Store struct {
+	networkSessions          map[string]NetworkSession
+	networkMessages          map[string]NetworkMessage
+	networkNonces            map[string]Event
+	networkWork              map[string]string
+	networkContext           map[string]string
+	networkReads             map[string]string
 	documentExtractor        DocumentExtractor
 	coreProfiles             CoreProfileService
 	coreProfileInspections   map[string]CoreProfileInspectionConsent
@@ -291,6 +299,12 @@ func openStore(dir string, readOnly, inspect bool) (*Store, error) {
 	}
 	s := &Store{file: file, lock: lock, work: map[string]Work{}, nonces: map[string]string{}, dir: dir, runtime: "core_unavailable", bots: append([]Bot{}, bots...), botNonces: map[string]string{}, channels: map[string]Channel{}, channelNonces: map[string]Event{}, projects: map[string]Project{}, uploads: map[string]UploadedFile{}, productNonces: map[string]Event{}, adapters: map[string]AdapterSession{}, adapterNonces: map[string]Event{}}
 	s.readOnly = readOnly
+	s.networkSessions = map[string]NetworkSession{}
+	s.networkMessages = map[string]NetworkMessage{}
+	s.networkNonces = map[string]Event{}
+	s.networkWork = map[string]string{}
+	s.networkContext = map[string]string{}
+	s.networkReads = map[string]string{}
 	s.reportDeliveries = map[string]ReportDelivery{}
 	s.reportDeliveryNonces = map[string]string{}
 	if readOnly {
@@ -332,6 +346,12 @@ func openStore(dir string, readOnly, inspect bool) (*Store, error) {
 	}
 	if err = s.openSyncIdentity(); err != nil {
 		s.syncID = ""
+	}
+	for _, session := range s.networkSessions {
+		if session.InstanceID != s.syncID {
+			s.Close()
+			return nil, ErrCorrupt
+		}
 	}
 	return s, nil
 }
@@ -411,6 +431,9 @@ func validReplay(s *Store, e Event) bool {
 	return validReplayWithArchive(s, e, false)
 }
 func validReplayWithArchive(s *Store, e Event, linkedControl bool) bool {
+	if e.Network != nil || strings.HasPrefix(e.Type, "network.") {
+		return s.validNetworkEvent(e)
+	}
 	if e.Type == "adapter.reply_clear_checkpoint" {
 		return s.validAdapterReplyClearEvent(e)
 	}
@@ -528,6 +551,9 @@ func validReplayWithArchive(s *Store, e Event, linkedControl bool) bool {
 	}
 	switch e.Type {
 	case "work.accepted":
+		if !s.validPeerWork(w) {
+			return false
+		}
 		if !s.validCoreProfileIntake(w) {
 			return false
 		}
@@ -615,6 +641,10 @@ func validReplayWithArchive(s *Store, e Event, linkedControl bool) bool {
 	}
 }
 func (s *Store) apply(e Event) {
+	if e.Network != nil {
+		s.applyNetwork(e)
+		return
+	}
 	if e.Aurora != nil {
 		s.applyAurora(e)
 		return
@@ -782,6 +812,9 @@ func (s *Store) apply(e Event) {
 		return
 	}
 	s.work[e.Work.RequestID] = copyWork(e.Work)
+	if e.Work.PeerMessageID != "" {
+		s.networkWork[e.Work.PeerMessageID] = e.Work.RequestID
+	}
 	s.nonces[workNonceKey(e.Work)] = e.Work.RequestID
 	e.Work = copyWork(e.Work)
 	s.events = append(s.events, e)
@@ -884,6 +917,9 @@ func (s *Store) acceptLocked(in Input, account *connections.Pin, channelID strin
 	if len(options) > 0 {
 		scope = options[0]
 	}
+	if strings.HasPrefix(in.ClientNonce, "network-") && scope.peerMessageID == "" {
+		return Work{}, false, ErrInvalid
+	}
 	if err := s.validInput(in); err != nil {
 		return Work{}, false, err
 	}
@@ -943,13 +979,17 @@ func (s *Store) acceptLocked(in Input, account *connections.Pin, channelID strin
 		return Work{}, false, err
 	}
 	w := Work{RequestID: req, SourceMessageID: msg, OwnerUserID: "local-owner", SpaceID: "local-space", BotID: in.BotID, ConversationID: "conversation-" + in.BotID, ClientNonce: in.ClientNonce, Text: in.Text, Lane: in.Lane, Status: "waiting_host", DesiredState: "running", Epoch: 1, BotConfigRevision: 1, CreatedAt: time.Now().UTC().Format(time.RFC3339Nano), CreatedSequence: uint64(len(s.events) + 1)}
+	w.PeerMessageID = scope.peerMessageID
+	if scope.peerMessageID != "" {
+		w.CreatedAt = s.clock().UTC().Format(time.RFC3339Nano)
+	}
 	w.RequesterPin = copyRequester(scope.requester)
 	if scope.CoreProfileSelection != nil {
 		w.CreatedAt = s.clock().UTC().Format(time.RFC3339Nano)
 		selection := *scope.CoreProfileSelection
 		w.CoreProfileSelection = &selection
 	}
-	if target, alias, err := s.resolveRoute(in.Text); err != nil {
+	if target, alias, err := s.resolvePeerRoute(in.Text, scope.peerMessageID); err != nil {
 		return Work{}, false, err
 	} else if target != "" && target != in.BotID {
 		w.SourceBotID = in.BotID

@@ -85,6 +85,9 @@ func (s *Service) runVault(w ledger.Work, tc *toolCtx, c toolCall) (tools.Result
 	}
 	u := vaultUse{Item: it.ID}
 	if t.URL != "" {
+		if isZaloURL(t.URL) {
+			return tools.Result{}, errZaloCloudOnly
+		}
 		if !fillURLOK(t.URL) {
 			return tools.Result{}, errors.New("chỉ điền vào trang web công khai (https)")
 		}
@@ -106,6 +109,12 @@ func (s *Service) runVault(w ledger.Work, tc *toolCtx, c toolCall) (tools.Result
 
 // parked ends a turn on the approval card of a parked command or Vault use.
 func (s *Service) parked(tc *toolCtx, cmdText string) directives {
+	if strings.HasPrefix(tc.pendingCmd, parkedCloud) {
+		if ap := s.cloudApproval(strings.TrimPrefix(tc.pendingCmd, parkedCloud)); ap != nil {
+			return directives{Text: "Bạn xem và duyệt thao tác trình duyệt đám mây trên thẻ nhé. Thao tác chưa chạy.", Approval: ap}
+		}
+		return directives{Text: "Đề xuất trình duyệt không còn hợp lệ; thao tác chưa chạy."}
+	}
 	if strings.HasPrefix(tc.pendingCmd, parkedVault) {
 		if ap := s.vaultApproval(strings.TrimPrefix(tc.pendingCmd, parkedVault)); ap != nil {
 			return directives{Text: "Việc này cần dùng một mục trong Vault của bạn. Bạn xem và duyệt trên thẻ nhé, mình không thấy giá trị thật.", Approval: ap}
@@ -187,6 +196,10 @@ func (s *Service) runVaultUse(w ledger.Work) {
 	ap := *w.Direct.Approval
 	var u vaultUse
 	_ = json.Unmarshal([]byte(ap.Use), &u)
+	if isZaloURL(u.URL) {
+		s.setDelivery(w.RequestID, ledger.DirectDelivery{Status: "failed", Detail: "zalo_cloud_required"}, "Zalo cần trình duyệt đám mây riêng. Thao tác cũ chưa chạy; mở bảng đám mây để đăng nhập hoặc tạo đề xuất mới.")
+		return
+	}
 	it, ok := s.V.Item(u.Item)
 	vals, ok2 := s.fillValues(u.Item)
 	if !ok || !ok2 {

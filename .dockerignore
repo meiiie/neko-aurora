@@ -1,5 +1,13 @@
 .git
 **/node_modules
 **/.state
+**/.build
+**/.env
+**/.env.*
+**/*.key
+**/*.pem
+**/*.log
+**/coverage
+reference
 wiii
 migration

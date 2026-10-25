@@ -205,7 +205,11 @@ func (s *Service) groupHistory(v *view, b ledger.Bot, cur ledger.Work, msgs []Ch
 	for _, w := range l {
 		if base := groupBase(w.ClientNonce); !seen[base] {
 			seen[base] = true
-			msgs = append(msgs, ChatMsg{"user", w.Text})
+			input := w.Text
+			if s.networkPeerWork(w) {
+				input = s.networkPeerInput(w)
+			}
+			msgs = append(msgs, ChatMsg{"user", input})
 		}
 		if w.RequestID == cur.RequestID {
 			continue
@@ -222,8 +226,12 @@ func (s *Service) groupHistory(v *view, b ledger.Bot, cur ledger.Work, msgs []Ch
 		}
 	}
 	// the current turn's owner message must be last
+	currentInput := cur.Text
+	if s.networkPeerWork(cur) {
+		currentInput = s.networkPeerInput(cur)
+	}
 	for i := len(msgs) - 1; i > 0; i-- {
-		if msgs[i].Role == "user" && msgs[i].Content == cur.Text {
+		if msgs[i].Role == "user" && msgs[i].Content == currentInput {
 			m := msgs[i]
 			msgs = append(append(msgs[:i:i], msgs[i+1:]...), m)
 			break
@@ -390,7 +398,24 @@ func (s *Service) handOff(w ledger.Work, hs []handoff) {
 			n++
 		}
 	}
-	from, _ := v.bot(w.BotID)
+	scope := s.networkWorkScope(w)
+	if err := s.networkEnsureSessions(scope); err != nil {
+		log.Printf("aurora: handoff directory unavailable: %v", err)
+		return
+	}
+	directory, err := s.L.NetworkDirectory(scope)
+	if err != nil {
+		return
+	}
+	// The ledger also enforces the causal root's global loop budget. Here
+	// keep the existing local handoff cap before adding another envelope.
+	if snapshot, err := s.L.NetworkSnapshot(scope); err == nil {
+		for _, message := range snapshot.Messages {
+			if message.SourceWorkID == w.RequestID && message.Wake {
+				n++
+			}
+		}
+	}
 	for _, h := range hs {
 		to, ok := v.memberByName(c, h.To)
 		if !ok || to == w.BotID {
@@ -401,12 +426,24 @@ func (s *Service) handOff(w ledger.Work, hs []handoff) {
 			s.record(w.BotID, w.RequestID, "step", "Đã đủ số lần chuyển việc cho tin này")
 			return
 		}
-		rev := c.Revision
-		text := "[" + displayName(from) + " chuyển cho bạn trong nhóm]: " + h.Text
-		if _, _, err := s.L.AcceptProduct(ledger.Input{BotID: to, ClientNonce: newID(handoffPrefix), Text: text}, ledger.SubmissionScope{ChannelID: c.ID, ExpectedChannelRevision: &rev}); err == nil {
-			n++
+		toSession := ""
+		for _, session := range directory {
+			if session.BotID == to && session.ConversationID == c.ID && session.DeviceID == "server" {
+				toSession = session.ID
+				break
+			}
+		}
+		if toSession == "" {
+			continue
+		}
+		message, duplicate, err := s.L.SendNetworkMessage(ledger.NetworkMessageInput{ToSessionID: toSession, Text: h.Text, Wake: true, ClientNonce: networkOperationNonce(w, toSession, h.Text, true, "", nil), Scope: scope})
+		if err == nil {
+			if !duplicate {
+				n++
+			}
 			tb, _ := v.bot(to)
 			s.record(w.BotID, w.RequestID, "step", "Đã chuyển cho "+displayName(tb)+": "+clean(h.Text, 100))
+			s.publish("network_changed", map[string]string{"id": message.ID})
 		} else {
 			log.Printf("aurora: handoff to %s failed: %v", to, err)
 		}

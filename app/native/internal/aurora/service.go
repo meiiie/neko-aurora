@@ -15,6 +15,7 @@ import (
 	"unicode"
 	"unicode/utf8"
 
+	"nekoaurora.local/native/internal/cloudbrowser"
 	"nekoaurora.local/native/internal/computer"
 	"nekoaurora.local/native/internal/ledger"
 	"nekoaurora.local/native/internal/outbound"
@@ -31,27 +32,29 @@ type Event struct {
 // no bot, message or task model: agents are ledger bots, messages are ledger
 // work items, plans and approvals are journaled on that work.
 type Service struct {
-	bg       sync.WaitGroup // turn runners and post-turn reviews; Wait() joins them on shutdown
-	sendRate rate
-	L        *ledger.Store
-	AI       Model
-	Push     *Pusher
-	Out      *outbound.Router
-	Prefs    *Prefs
-	V        *vault.Vault
-	Tools    *tools.Kit
-	Mem      *memStore
-	steward  *steward
-	usage    *usageLog
-	ext      *extStore
-	sched    *schedStore
-	PC       *computer.Manager // per-bot sandboxed computers (nil = off)
-	mux      *http.ServeMux
-	pcb      pcBook // bot computer build state (build.go)
-	mu       sync.Mutex
-	subs     map[chan Event]struct{}
-	ctx      context.Context
-	wake     chan struct{}
+	bg            sync.WaitGroup // turn runners and post-turn reviews; Wait() joins them on shutdown
+	sendRate      rate
+	L             *ledger.Store
+	AI            Model
+	Push          *Pusher
+	Out           *outbound.Router
+	Prefs         *Prefs
+	V             *vault.Vault
+	Tools         *tools.Kit
+	Mem           *memStore
+	steward       *steward
+	usage         *usageLog
+	ext           *extStore
+	sched         *schedStore
+	PC            *computer.Manager    // per-bot sandboxed computers (nil = off)
+	Cloud         *cloudbrowser.Client // isolated persistent cloud browser; nil fails closed
+	cloudStateDir string
+	mux           *http.ServeMux
+	pcb           pcBook // bot computer build state (build.go)
+	mu            sync.Mutex
+	subs          map[chan Event]struct{}
+	ctx           context.Context
+	wake          chan struct{}
 
 	running map[string]bool // botID → turn in flight
 	seen    map[string]string
@@ -59,8 +62,11 @@ type Service struct {
 	syncMu  sync.Mutex
 	briefM  sync.Mutex
 	// Now is overridable in tests.
-	Now   func() time.Time
-	owner func() string
+	Now              func() time.Time
+	owner            func() string
+	networkRunTurns  bool
+	networkAdmission func(string) error
+	networkFailures  map[string]string
 	// OnDeleteAccount, when set, erases every bot, message, secret and backup
 	// on this server (the host wipes the state directory and restarts fresh).
 	OnDeleteAccount func() error
@@ -77,7 +83,10 @@ type Options struct {
 	// user's own name; single-owner default "Darren").
 	OwnerName func() string
 	// NoBriefLoop skips the scheduled morning brief (hosted workspaces).
-	NoBriefLoop bool
+	NoBriefLoop      bool
+	NetworkAdmission func(messageID string) error
+	// DisableCloud is a server-side hosted pilot admission decision.
+	DisableCloud bool
 }
 
 func New(ctx context.Context, store *ledger.Store, stateDir string, opt Options) (*Service, error) {
@@ -116,6 +125,11 @@ func New(ctx context.Context, store *ledger.Store, stateDir string, opt Options)
 	log.SetOutput(vault.LogWriter(os.Stderr)) // redacts with every open vault (hosted: one per user)
 	s := &Service{L: store, AI: model, Push: p, V: v, Tools: toolsFromEnv(), Mem: openMemory(stateDir), steward: openSteward(stateDir), usage: openUsage(stateDir), sched: openSchedules(stateDir), ext: openExt(stateDir), PC: openComputers(stateDir), Prefs: prefs, subs: map[chan Event]struct{}{}, ctx: ctx, wake: make(chan struct{}, 1), running: map[string]bool{}, seen: map[string]string{}, Now: time.Now}
 	s.owner = opt.OwnerName
+	s.cloudStateDir = stateDir
+	if !store.ReadOnly() && !opt.DisableCloud {
+		s.Cloud = openCloudBrowser(stateDir)
+	}
+	s.networkRunTurns, s.networkAdmission, s.networkFailures = opt.RunTurns, opt.NetworkAdmission, map[string]string{}
 	s.Mem.mask = v.Redact
 	s.Out = outbound.NewRouter(outbound.Switch{Resolve: s.mailer})
 	s.routes()
@@ -128,6 +142,16 @@ func New(ctx context.Context, store *ledger.Store, stateDir string, opt Options)
 	s.searchRoutes()
 	s.scheduleRoutes()
 	s.computerRoutes()
+	s.networkRoutes()
+	s.cloudRoutes()
+	if s.networkRunnable() {
+		if err := s.networkEnsureSessions(ledger.NetworkReadScope{}); err != nil {
+			return nil, err
+		}
+	}
+	if !store.ReadOnly() {
+		s.recoverCloudApprovals()
+	}
 	s.sync()
 	go s.watch()
 	if opt.RunTurns && !store.ReadOnly() {
@@ -178,6 +202,9 @@ func (s *Service) sync() {
 	}
 	first := len(s.seen) == 0
 	s.seenSeq = snap.Sequence
+	if !first {
+		s.publish("network_changed", map[string]bool{"changed": true})
+	}
 	v := newView(snap)
 	next := map[string]string{}
 	for _, b := range snap.Bots {
@@ -194,7 +221,7 @@ func (s *Service) sync() {
 		if s.seen["a:"+b.ID] != string(j) && !first {
 			s.publish("agent", a)
 		}
-		for _, m := range v.messages(b.ID, 0) {
+		for _, m := range s.networkDecorateMessages(v.messages(b.ID, 0)) {
 			j, _ := json.Marshal(m)
 			next["m:"+m.ID] = string(j)
 			if s.seen["m:"+m.ID] != string(j) && !first {
@@ -209,7 +236,7 @@ func (s *Service) sync() {
 		if s.seen["a:"+c.ID] != string(j) && !first {
 			s.publish("agent", a)
 		}
-		for _, m := range v.groupMessages(c.ID, 0) {
+		for _, m := range s.networkDecorateMessages(v.groupMessages(c.ID, 0)) {
 			j, _ := json.Marshal(m)
 			next["m:"+m.ID] = string(j)
 			if s.seen["m:"+m.ID] != string(j) && !first {
@@ -724,12 +751,26 @@ func (s *Service) routes() {
 			return
 		}
 		id := strings.TrimSuffix(r.PathValue("id"), ":plan")
+		if current, err := s.L.Get(id); err == nil && current.Direct != nil && current.Direct.Approval != nil && current.Direct.Approval.Kind == "cloud" {
+			if _, err := s.cloudOwner(r); err != nil {
+				cloudFail(w, err)
+				return
+			}
+			if in.Body != nil || in.Subject != nil {
+				cloudFail(w, ErrInvalid)
+				return
+			}
+			if _, err := s.cloudApprovedProposal(current, current.Direct.Approval); err != nil {
+				cloudFail(w, err)
+				return
+			}
+		}
 		work, err := s.L.DirectDecide(id, func(a *ledger.DirectApproval, d *ledger.DirectRun) error {
 			if a.State != "pending" {
 				return ErrConflict
 			}
 			// edit-before-approve: the owner's edits replace the draft atomically
-			if in.Body != nil && a.Kind == "vault" {
+			if in.Body != nil && (a.Kind == "vault" || a.Kind == "cloud") {
 				return ErrInvalid // a Vault use is approved as shown, never edited
 			}
 			if in.Body != nil {
@@ -747,6 +788,7 @@ func (s *Service) routes() {
 			case in.Decision == "declined":
 				a.Outcome = "Ok, mình giữ lại “" + a.Title + "” và không làm gì thêm."
 			case a.Kind == "vault":
+			case a.Kind == "cloud":
 			case a.Kind == "computer":
 				if s.PC == nil {
 					a.Outcome = "Máy tính của bot đang tắt trên máy chủ nên lệnh chưa chạy."
@@ -768,7 +810,12 @@ func (s *Service) routes() {
 			verb := map[string]string{"approved": "Bạn duyệt", "declined": "Bạn hoãn"}[ap.State]
 			s.record(work.BotID, work.RequestID, "decision", verb+" “"+ap.Title+"” của "+s.botName(work.BotID))
 		}
-		if ap := work.Direct.Approval; in.Decision == "approved" && ap.Kind == "vault" {
+		if ap := work.Direct.Approval; in.Decision == "approved" && ap.Kind == "cloud" {
+			ctx, cancel := cloudTimeout(r.Context())
+			s.runApprovedCloud(ctx, work)
+			cancel()
+			work, _ = s.L.Get(work.RequestID)
+		} else if in.Decision == "approved" && ap.Kind == "vault" {
 			s.runVaultUse(work)
 			work, _ = s.L.Get(work.RequestID)
 		} else if in.Decision == "approved" && ap.Kind == "computer" && s.PC != nil {
@@ -816,6 +863,13 @@ func (s *Service) routes() {
 		}
 		if s.OnDeleteAccount == nil {
 			writeJSON(w, 501, map[string]string{"error": "delete_unavailable"})
+			return
+		}
+		ctx, cancel := cloudTimeout(r.Context())
+		err := s.PurgeCloudForDeletion(ctx)
+		cancel()
+		if err != nil {
+			writeJSON(w, 503, map[string]any{"error": "cloud_browser_cleanup_pending", "pending": true})
 			return
 		}
 		if err := s.OnDeleteAccount(); err != nil {
@@ -954,7 +1008,7 @@ func (s *Service) supersede(botID string) {
 func (s *Service) userMentioned(botID, needle string) bool {
 	n := strings.ToLower(needle)
 	for _, w := range s.view().allBot[botID] {
-		if (w.Direct == nil || w.Direct.Kind == "") && strings.Contains(strings.ToLower(w.Text), n) {
+		if !s.networkPeerWork(w) && (w.Direct == nil || w.Direct.Kind == "") && strings.Contains(strings.ToLower(w.Text), n) {
 			return true
 		}
 	}

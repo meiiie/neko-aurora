@@ -1,0 +1,58 @@
+name: aurora-browser
+
+services:
+  browser:
+    image: neko-aurora-browser:dev
+    build: .
+    container_name: aurora-browser-worker
+    environment:
+      AURORA_CLOUD_BROWSER_KEY: ${AURORA_CLOUD_BROWSER_KEY:-}
+      DATA_DIR: /data
+      PORT: "8080"
+    volumes:
+      - browser-data:/data
+    networks:
+      cloud:
+        aliases:
+          - browser.aurora.internal
+    restart: unless-stopped
+    stop_grace_period: 45s
+    shm_size: 256mb
+    mem_limit: 1g
+    cpus: 1.0
+    pids_limit: 512
+    read_only: true
+    tmpfs:
+      - /tmp:size=256m,mode=1777
+    security_opt:
+      - no-new-privileges:true
+      - seccomp=./seccomp.playwright.json
+
+  acceptance:
+    profiles: [acceptance]
+    image: neko-aurora-browser:dev
+    build: .
+    command: [node, --test, tests/cloud-browser-live.mjs]
+    environment:
+      AURORA_FIXTURE_PHASE: ${AURORA_FIXTURE_PHASE:-}
+      DATA_DIR: /data
+    volumes:
+      - fixture-data:/data
+    network_mode: none
+    shm_size: 256mb
+    mem_limit: 1g
+    cpus: 1.0
+    pids_limit: 512
+    read_only: true
+    tmpfs:
+      - /tmp:size=256m,mode=1777
+    security_opt:
+      - no-new-privileges:true
+      - seccomp=./seccomp.playwright.json
+
+volumes:
+  browser-data:
+  fixture-data:
+
+networks:
+  cloud:

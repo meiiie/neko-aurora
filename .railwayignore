@@ -1,0 +1,17 @@
+.git
+**/.git
+**/node_modules
+**/.state
+**/.build
+**/.checkpoints
+**/.env
+**/.env.*
+**/*.key
+**/*.pem
+**/*.log
+**/target
+**/dist
+**/coverage
+reference
+wiii
+migration
