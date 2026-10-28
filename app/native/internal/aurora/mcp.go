@@ -38,6 +38,7 @@ type mcpConn struct {
 	id            atomic.Int64
 	mu            sync.Mutex
 	waiting       map[int64]chan json.RawMessage
+	lifetime      context.Context
 	cancel        context.CancelFunc
 	closed        chan struct{}
 	toolsRevision atomic.Uint64
@@ -167,6 +168,18 @@ func (s *Service) mcpConnect(ctx context.Context, bot string, srv mcpServer) (*m
 		return nil, err
 	}
 	defer unlock()
+	if s.ctx != nil && s.ctx.Err() != nil {
+		return nil, s.ctx.Err()
+	}
+	if s.ext != nil {
+		current, ok := s.mcpServerOf(bot, srv.Name)
+		if !ok || current != srv {
+			mcps.mu.Lock()
+			mcps.dropLocked(k)
+			mcps.mu.Unlock()
+			return nil, errors.New("cấu hình MCP đã thay đổi; tải lại trước khi kết nối")
+		}
+	}
 	hdr := ""
 	if srv.Secret != "" && s.V != nil {
 		hdr, _ = s.V.Get(srv.Secret)
@@ -204,7 +217,12 @@ func (s *Service) mcpConnect(ctx context.Context, bot string, srv mcpServer) (*m
 		s.mcpFailed(bot, srv, nil, err)
 		return nil, err
 	}
-	c = &mcpConn{srv: srv, hdr: hdr, client: extHTTP(), waiting: map[int64]chan json.RawMessage{}}
+	parent := s.ctx
+	if parent == nil {
+		parent = context.Background()
+	}
+	lifetime, cancel := context.WithCancel(parent)
+	c = &mcpConn{srv: srv, hdr: hdr, client: extHTTP(), waiting: map[int64]chan json.RawMessage{}, lifetime: lifetime, cancel: cancel}
 	c.client.Timeout = 0 // the SSE stream stays open; each call has its own deadline
 	c.client.CheckRedirect = func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }
 	if strings.HasSuffix(strings.TrimRight(srv.URL, "/"), "/sse") {
@@ -241,12 +259,27 @@ func (c *mcpConn) close() {
 }
 
 func (c *mcpConn) ended() bool {
+	if c.lifetime != nil && c.lifetime.Err() != nil {
+		return true
+	}
 	select {
 	case <-c.closed:
 		return true
 	default:
 		return false
 	}
+}
+
+func (c *mcpConn) requestContext(parent context.Context) (context.Context, context.CancelFunc) {
+	ctx, cancel := context.WithCancel(parent)
+	if c.lifetime == nil {
+		return ctx, cancel
+	}
+	if c.lifetime.Err() != nil {
+		cancel()
+	}
+	stop := context.AfterFunc(c.lifetime, cancel)
+	return ctx, func() { stop(); cancel() }
 }
 
 func (c *mcpConn) headers(r *http.Request) {
@@ -263,11 +296,17 @@ func (c *mcpConn) headers(r *http.Request) {
 }
 
 func (c *mcpConn) openSSE(handshake, parent context.Context) error {
+	if err := handshake.Err(); err != nil {
+		c.close()
+		return err
+	}
 	if parent == nil {
 		parent = context.Background()
 	}
-	ctx, cancel := context.WithCancel(parent)
-	c.cancel = cancel
+	if c.lifetime == nil {
+		c.lifetime, c.cancel = context.WithCancel(parent)
+	}
+	ctx, cancel := c.lifetime, c.cancel
 	stop := context.AfterFunc(handshake, cancel)
 	defer stop()
 	timer := time.AfterFunc(15*time.Second, cancel)
@@ -394,6 +433,14 @@ func (c *mcpConn) deliver(b []byte) {
 }
 
 func (c *mcpConn) notify(ctx context.Context, method string) error {
+	if c.ended() {
+		return errors.New("máy chủ MCP đã đóng kết nối")
+	}
+	ctx, cancel := c.requestContext(ctx)
+	defer cancel()
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	body, _ := json.Marshal(map[string]any{"jsonrpc": "2.0", "method": method})
 	u := first(c.post, c.srv.URL)
 	req, err := http.NewRequestWithContext(ctx, "POST", u, bytes.NewReader(body))
@@ -405,8 +452,14 @@ func (c *mcpConn) notify(ctx context.Context, method string) error {
 	if err != nil {
 		return err
 	}
-	io.Copy(io.Discard, io.LimitReader(res.Body, 1<<16))
+	_, readErr := io.Copy(io.Discard, io.LimitReader(res.Body, 1<<16))
 	res.Body.Close()
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	if readErr != nil {
+		return errors.New("MCP: chưa đọc được đầy đủ xác nhận")
+	}
 	if res.StatusCode < 200 || res.StatusCode >= 300 {
 		return mcpHTTPFailure(res)
 	}
@@ -414,6 +467,11 @@ func (c *mcpConn) notify(ctx context.Context, method string) error {
 }
 
 func (c *mcpConn) call(ctx context.Context, method string, params any, out any) error {
+	ctx, cancel := c.requestContext(ctx)
+	defer cancel()
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	if c.ended() {
 		return errors.New("máy chủ MCP đã đóng kết nối")
 	}
