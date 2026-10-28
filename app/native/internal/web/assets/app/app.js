@@ -47,13 +47,14 @@ let listQueued=false;const renderListSoon=()=>{if(listQueued)return;listQueued=t
 let stateRequest=0;const messageLoads=new Map();
 async function loadState(){
  const request=++stateRequest;let st;
- try{st=await api("/state")}catch(e){if(request===stateRequest)throw e;return}
+ try{st=await api("/state")}catch(e){if(request!==stateRequest)return;if(e.status===401)await expiredState(request);throw e}
  if(request!==stateRequest)return;
  const changed=S.workspaceId&&S.workspaceId!==st.workspaceId;
  if(changed){S.msgs={};S.drafts={};messageLoads.clear();nodeCache.clear();resetVault();closeThread();closeCtx();if(sheetOpen)closeSheet(true)}
- S.workspaceId=st.workspaceId;bindOutbox();S.agents=st.agents;S.pending=st.pending;S.brief=st.brief;S.ai=st.ai;S.vapid=st.vapidPublicKey;S.outbound=st.outbound||{};S.secrets=st.secrets||[];S.pushSubs=st.pushSubscriptions|0;seedSeen();renderList();
+ $("#login").classList.add("hidden");S.workspaceId=st.workspaceId;bindOutbox();S.agents=st.agents;S.pending=st.pending;S.brief=st.brief;S.ai=st.ai;S.vapid=st.vapidPublicKey;S.outbound=st.outbound||{};S.secrets=st.secrets||[];S.pushSubs=st.pushSubscriptions|0;seedSeen();renderList();
  if(changed&&es)connect();
  if(cur){const a=byId(cur.id);if(a){cur=a;await loadMsgs(a.id)}}
+ return request===stateRequest;
 }
 async function loadMsgs(id){
  const cache=S.msgs,request={};messageLoads.set(id,request);
@@ -662,7 +663,14 @@ $("#composer").onsubmit=async e=>{e.preventDefault();stopVoice();const v=inp.val
 inp.onkeydown=e=>{if(e.key==="Enter"&&!e.shiftKey&&!e.isComposing){e.preventDefault();$("#composer").requestSubmit()}};
 document.addEventListener("visibilitychange",()=>{if(!document.hidden&&es)loadState().catch(()=>{})});
 if("serviceWorker"in navigator)navigator.serviceWorker.register("/app/sw.js",{scope:"/app/"}).then(r=>r.pushManager?.getSubscription()).then(s=>{if(s)pushOn=true}).catch(()=>{});
-function boot(){return loadState().then(()=>{$("#login").classList.add("hidden");if(!es)connect();const h=location.hash.slice(1);if(h)openThread(h)}).catch(async e=>{if(e.status===401){const c=await fetch("/app/auth/config").then(r=>r.ok?r.json():null).catch(()=>null);if(c&&c.hosted){location.replace("/app/signin.html");return}$("#login").classList.remove("hidden")}else toast("Không kết nối được máy chủ")})}
+async function expiredState(request){
+ resetVault();closeThread();closeCtx();if(sheetOpen)closeSheet(true);messageLoads.clear();nodeCache.clear();document.querySelectorAll("input[data-secret]").forEach(i=>{i.value=""});
+ const config=await fetch("/app/auth/config",{credentials:"same-origin",cache:"no-store",signal:AbortSignal.timeout?AbortSignal.timeout(15000):undefined}).then(r=>r.ok?r.json():null).catch(()=>null);
+ if(request!==stateRequest)return;
+ if(config&&config.hosted){location.replace("/app/signin.html");return}
+ $("#login").classList.remove("hidden");
+}
+function boot(){return loadState().then(applied=>{if(!applied)return;if(!es)connect();const h=location.hash.slice(1);if(h)openThread(h)}).catch(e=>{if(e.status!==401)toast("Không kết nối được máy chủ")})}
 let logging=false;$("#loginForm").onsubmit=async e=>{e.preventDefault();if(logging)return;logging=true;try{const r=await fetch("/app/login",{method:"POST",credentials:"same-origin",headers:{"Content-Type":"application/json"},body:JSON.stringify({code:$("#loginCode").value})});if(!r.ok){toast(r.status===429?"Thử quá nhiều lần, đợi 5 phút":"Mã không đúng");return}$("#loginCode").value="";await boot()}catch{toast("Không kết nối được")}finally{logging=false}};
 boot();
 // ---------- Aurora icons (Lucide, ISC) + haptics ----------
@@ -949,10 +957,19 @@ function vaultDetail(it){const box=el("div","vault-det"),scope=S.workspaceId,vie
  bar.append(eye,ed,del);box.append(bar);if(sh)box.append(el("small","hint","Tự ẩn sau 30 giây. Lần xem này được ghi vào lịch sử."));return box}
 $("#closeVault").onclick=()=>closeSheet(true);
 // in-chat Vault form card: the bot asked to save a card/login/details; values go straight to the vault
-function vaultCard(m){const x=m.secret,t=x.vault,key="vault-saved:"+m.id,saved=localStorage.getItem(key),c=el("div","secret vault-card"+(saved?" saved":""));c.dataset.id=m.id;c.dataset.name=x.name;
+const vaultSaved=new Set();
+function vaultCardSaved(key){
+ if(vaultSaved.has(key))return true;
+ try{const raw=localStorage.getItem(key);if(!raw||raw.length>1024)return false;const saved=JSON.parse(raw);if(saved?.version!==1||typeof saved.itemId!=="string"||!/^[a-f0-9]{8,32}$/.test(saved.itemId))return false;vaultSaved.add(key);return true}catch{return false}
+}
+function rememberVaultCard(key,it){
+ vaultSaved.add(key);
+ try{if(!it||typeof it.id!=="string"||!/^[a-f0-9]{8,32}$/.test(it.id))return false;localStorage.setItem(key,JSON.stringify({version:1,itemId:it.id}));return true}catch{return false}
+}
+function vaultCard(m){const x=m.secret,t=x.vault,scope=S.workspaceId,key="aurora.vault.saved.v1."+encodeURIComponent(JSON.stringify([scope,m.agentId,m.taskId||"",m.id,t])),saved=vaultCardSaved(key),c=el("div","secret vault-card"+(saved?" saved":""));c.dataset.id=m.id;c.dataset.name=x.name;
  const top=el("div","sec-top");top.append(I(VT[t]?VT[t][0]:"lock",18),el("b",0,x.label||VT[t][1]),el("code",0,"Vault"));c.append(top);if(x.desc)c.append(el("p","sec-desc",x.desc));
- if(saved){const d=el("div","sec-done");d.append(I("check",16),el("span",0,"Đã lưu vào Vault · "+saved));c.append(d);return c}
- c.append(vaultForm(t,null,it=>{localStorage.setItem(key,vSub(it)||it.label);nodeCache.delete(m.id);renderThread()},{task:m.taskId,label:x.label,site:x.site}));return c}
+ if(saved){const d=el("div","sec-done");d.append(I("check",16),el("span",0,"Đã lưu vào Vault"));const view=el("button","pill ghost","Xem Vault");view.onclick=()=>{if(scope===S.workspaceId)openVault()};c.append(d,view);return c}
+ c.append(vaultForm(t,null,it=>{const persisted=rememberVaultCard(key,it);nodeCache.delete(m.id);renderThread();if(!persisted)toast("Đã lưu vào Vault. Thiết bị chưa nhớ được trạng thái thẻ.")},{task:m.taskId,label:x.label,site:x.site}));return c}
 {const _rs3=renderSettings;renderSettings=function(){_rs3();const B=$("#settingsBody");const c=card("Bảo mật",cell("shield-check","Vault",{id:"openVault",sub:"Thẻ, đăng nhập, thông tin cá nhân · mã hoá",onClick:()=>openVault()}));const u=$("#openUsage");const g=u&&u.closest(".card-group");g?g.after(c):B.append(c)}}
 window.__AURORA=Object.assign(window.__AURORA||{},{openVault});
 })();

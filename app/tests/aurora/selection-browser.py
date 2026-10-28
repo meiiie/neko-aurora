@@ -5,6 +5,7 @@ from urllib.parse import urlsplit
 from playwright.sync_api import expect,sync_playwright
 ROOT=Path(__file__).resolve().parents[3]
 OUT=ROOT/'.audit/2026-10-28-selection';OUT.mkdir(parents=True,exist_ok=True)
+class Server(http.server.ThreadingHTTPServer):request_queue_size=64
 class Handler(http.server.SimpleHTTPRequestHandler):
  def log_message(self,*_):pass
 class Fixture:
@@ -18,7 +19,7 @@ class Fixture:
    data=[{'id':'m1','taskId':'t1','agentId':'bot-a','role':'agent','text':'Đây là **đoạn cần chọn** với tiếng Việt và 👩🏽‍💻.\n\nDòng hai giữ nguyên.','t':'2026-10-28T04:00:00Z'},{'id':'m2','taskId':'t2','agentId':'bot-a','role':'user','text':'Tin của tôi','t':'2026-10-28T04:01:00Z'},{'id':'long','taskId':'long','agentId':'bot-a','role':'agent','text':'x'*2100,'t':'2026-10-28T04:02:00Z'}] if 'bot-a' in p else []
   route.fulfill(status=200,content_type='application/json',body=json.dumps(data))
 def check(s):print('PASS '+s,flush=True)
-server=http.server.ThreadingHTTPServer(('127.0.0.1',0),functools.partial(Handler,directory=str(ROOT/'app/native/internal/web/assets')))
+server=Server(('127.0.0.1',0),functools.partial(Handler,directory=str(ROOT/'app/native/internal/web/assets')))
 threading.Thread(target=server.serve_forever,daemon=True).start()
 try:
  with sync_playwright() as p:
