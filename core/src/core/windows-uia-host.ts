@@ -11,6 +11,11 @@ const WINDOWS_POWERSHELL = process.platform === "win32"
   : null;
 const WINDOWS_TASKKILL = process.platform === "win32" ? resolveWindowsSystemExecutable("taskkill.exe") : null;
 
+// Inbox taskkill /T can take over five seconds even when it succeeds (5.35–5.63s
+// on the Windows acceptance host). This bounds teardown only; request/abort
+// deadlines stay independent and replacement hosts still require both receipts.
+const TREE_TEARDOWN_MS = 10_000;
+
 export interface UiaRequest {
   action: string;
   window?: string;
@@ -134,7 +139,7 @@ export class ResidentUiaHost {
       const timer = setTimeout(() => {
         child.removeListener("close", onClose);
         resolve(false);
-      }, 5_000);
+      }, TREE_TEARDOWN_MS);
       child.once("close", onClose);
     });
     let treeKilled = true;
@@ -146,7 +151,7 @@ export class ResidentUiaHost {
             windowsHide: true, stdio: "ignore",
           });
         } catch { resolve(false); return; }
-        const timer = setTimeout(() => { try { killer.kill(); } catch {} resolve(false); }, 5_000);
+        const timer = setTimeout(() => { try { killer.kill(); } catch {} resolve(false); }, TREE_TEARDOWN_MS);
         killer.once("error", () => { clearTimeout(timer); resolve(false); });
         killer.once("close", (code) => { clearTimeout(timer); resolve(code === 0); });
       }));
@@ -165,7 +170,7 @@ export class ResidentUiaHost {
       try {
         if (child.pid && process.platform === "win32" && WINDOWS_TASKKILL) {
           spawnSync(WINDOWS_TASKKILL, ["/pid", String(child.pid), "/t", "/f"], {
-            windowsHide: true, stdio: "ignore", timeout: 5_000,
+            windowsHide: true, stdio: "ignore", timeout: TREE_TEARDOWN_MS,
           });
         } else {
           child.kill();

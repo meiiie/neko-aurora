@@ -156,12 +156,12 @@ test.skipIf(!prebuiltExecutable)("a one-line-install binary carries its built-in
   expect(existsSync(join(f.home, ".neko-core", "skills"))).toBe(false);
 }, { timeout: 20_000 });
 
-test("active source-launch documentation never recommends the pre-trust Bun entry", () => {
+test("source-launch documentation and archived Core CI never recommend the pre-trust Bun entry", () => {
   const active = [
     "AGENTS.md", "CLAUDE.md", "CONTRIBUTING.md", "README.md", "BENCHMARK-REPORT.md",
     "docs/EXTENDING.md", "docs/process/ARCHITECTURE.md", "docs/process/RELEASE.md",
     "docs/process/RULES.md", "docs/process/TESTING.md", "docs/process/WEB.md",
-    ".github/workflows/ci.yml",
+    "../migration/disabled-workflows/core/ci.yml",
     "skills/procurement/SKILL.md", "skills/tui-self-test/SKILL.md",
     "scripts/selftest.sh", "scripts/stresstest.sh",
   ];

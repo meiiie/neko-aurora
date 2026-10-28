@@ -10,8 +10,11 @@
  */
 import { spawn } from "node:child_process";
 import { existsSync, mkdirSync, readFileSync } from "node:fs";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 
+import { executableOnPath } from "../core/sandbox.ts";
+import { minimalWindowsSystemEnv, resolveWindowsSystemExecutable } from "../shared/windows-system.ts";
+import { scrubChildEnv } from "../shared/child-env.ts";
 import { atomicWriteFileSync } from "../shared/atomic.ts";
 import { homeDir } from "../shared/home.ts";
 import { loadPrefs } from "./prefs.ts";
@@ -19,7 +22,7 @@ import { loadPrefs } from "./prefs.ts";
 import { isJsonNumber } from "../shared/wire.ts";
 
 const CACHE_TTL_MS = 7 * 24 * 3600 * 1000; // monitors rarely change; re-probe weekly
-const cachePath = () => join(homeDir(), ".neko-core", ".display.json");
+const cachePath = (home = homeDir()) => join(home, ".neko-core", ".display.json");
 
 export const clampFps = (n: number): number => Math.min(240, Math.max(30, Math.round(n)));
 
@@ -46,52 +49,68 @@ export function cachedRefreshRate(now = Date.now()): number | null {
   }
 }
 
-function saveCache(hz: number): void {
+function saveCache(hz: number, home: string): void {
   try {
-    mkdirSync(join(homeDir(), ".neko-core"), { recursive: true });
-    atomicWriteFileSync(cachePath(), JSON.stringify({ hz, at: Date.now() }));
+    mkdirSync(join(home, ".neko-core"), { recursive: true });
+    atomicWriteFileSync(cachePath(home), JSON.stringify({ hz, at: Date.now() }));
   } catch { /* best-effort */ }
 }
 
 /** Run a probe command, resolve its stdout (or null on any failure/timeout). Never throws. */
-function probe(cmd: string, args: string[], timeoutMs = 4000): Promise<string | null> {
+function probe(cmd: string, args: string[], signal?: AbortSignal, timeoutMs = 4000): Promise<string | null> {
+  if (signal?.aborted) return Promise.resolve(null);
+  const executable = process.platform === "win32"
+    ? resolveWindowsSystemExecutable("WindowsPowerShell\\v1.0\\powershell.exe")
+    : executableOnPath(cmd, process.env.PATH ?? "", process.cwd());
+  if (!executable) return Promise.resolve(null);
   return new Promise((resolve) => {
     try {
-      // windowsHide: a console child (powershell) attaching to OUR console can clobber the shared console
-      // title, which ConPTY syncs to the tab - wiping the branded title. Hidden = no console = no clobber.
-      const child = spawn(cmd, args, { stdio: ["ignore", "pipe", "ignore"], windowsHide: true });
-      let out = "";
-      const timer = setTimeout(() => { try { child.kill(); } catch { /* */ } resolve(null); }, timeoutMs);
-      child.stdout.on("data", (d) => { out += String(d); });
-      child.on("close", () => { clearTimeout(timer); resolve(out); });
-      child.on("error", () => { clearTimeout(timer); resolve(null); });
-    } catch {
-      resolve(null);
-    }
+      const child = spawn(executable, args, {
+        cwd: dirname(executable), stdio: ["ignore", "pipe", "ignore"], windowsHide: true,
+        env: process.platform === "win32" ? minimalWindowsSystemEnv() : scrubChildEnv(process.env),
+      });
+      let out = "", cancelled = false;
+      const finish = (value: string | null) => {
+        clearTimeout(timer); signal?.removeEventListener("abort", stop); resolve(value);
+      };
+      const stop = () => {
+        cancelled = true;
+        try { child.kill(); } catch { /* close/error still owns the process result */ }
+        finish(null);
+      };
+      const timer = setTimeout(stop, timeoutMs);
+      child.stdout.on("data", (d) => { out += String(d); if (out.length > 65536) stop(); });
+      child.once("close", (code) => finish(!cancelled && code === 0 ? out : null));
+      child.once("error", () => finish(null));
+      signal?.addEventListener("abort", stop, { once: true });
+      if (signal?.aborted) stop();
+    } catch { resolve(null); }
   });
 }
 
 /** Detect the display's refresh rate (async, subprocess, cached on success). Null when undetectable. */
-export async function detectRefreshRate(): Promise<number | null> {
+export async function detectRefreshRate(signal?: AbortSignal, runProbe = probe): Promise<number | null> {
+  if (signal?.aborted) return null;
+  const home = homeDir();
   let hz: number | null = null;
   if (process.platform === "win32") {
-    const out = await probe("powershell", ["-NoProfile", "-NonInteractive", "-Command",
-      "(Get-CimInstance Win32_VideoController | Where-Object {$_.CurrentRefreshRate -gt 0} | Select-Object -First 1 -ExpandProperty CurrentRefreshRate)"]);
+    const out = await runProbe("powershell", ["-NoProfile", "-NonInteractive", "-Command",
+      "(Get-CimInstance Win32_VideoController | Where-Object {$_.CurrentRefreshRate -gt 0} | Select-Object -First 1 -ExpandProperty CurrentRefreshRate)"], signal);
     const n = out ? parseInt(out.trim(), 10) : NaN;
     if (Number.isFinite(n)) hz = n;
   } else if (process.platform === "darwin") {
-    const out = await probe("system_profiler", ["SPDisplaysDataType"]);
+    const out = await runProbe("system_profiler", ["SPDisplaysDataType"], signal);
     const m = out && /(\d+)\s*Hz/.exec(out);
     if (m) hz = parseInt(m[1], 10);
   } else {
-    const out = await probe("xrandr", ["--current"]);
+    const out = await runProbe("xrandr", ["--current"], signal);
     // The active mode line carries a '*' on the current rate, e.g. "1920x1080 144.00*+ 60.00".
     const m = out && /(\d+(?:\.\d+)?)\s*\*/.exec(out);
     if (m) hz = Math.round(parseFloat(m[1]));
   }
-  if (hz == null || hz < 30 || hz > 360) return null;
+  if (signal?.aborted || hz == null || hz < 30 || hz > 360) return null;
   hz = normalizeHz(hz);
-  saveCache(hz);
+  saveCache(hz, home);
   return hz;
 }
 

@@ -3,7 +3,7 @@ import { readFileSync } from "node:fs";
 
 const windows = readFileSync("install.ps1", "utf8");
 const unix = readFileSync("install.sh", "utf8");
-const release = readFileSync(".github/workflows/release.yml", "utf8");
+const release = readFileSync(new URL("../../migration/disabled-workflows/core/release.yml", import.meta.url), "utf8");
 
 test("one-line installers hand optional browser setup to the installed Neko app", () => {
   for (const installer of [windows, unix]) {
@@ -56,7 +56,7 @@ test("Unix one-line installer stages and verifies v0.10+ before atomic rename", 
   expect(replace).toBeGreaterThan(version);
 });
 
-test("release workflow publishes one SHA-256 sidecar with every platform binary", () => {
+test("archived Core release workflow publishes one SHA-256 sidecar with every platform binary", () => {
   expect(release).toContain('"${{ matrix.asset }}.sha256"');
   expect(release).toContain('sha256sum "${{ matrix.asset }}"');
   expect(release).toContain('shasum -a 256 "${{ matrix.asset }}"');
@@ -66,7 +66,7 @@ test("release workflow publishes one SHA-256 sidecar with every platform binary"
   expect(release).toContain('"${{ matrix.asset }}.zip"');
 });
 
-test("release workflow keeps a tag draft until the complete asset set exists", () => {
+test("archived Core release workflow keeps a tag draft until the complete asset set exists", () => {
   const createDraft = release.indexOf("--draft --generate-notes");
   const uploadBinary = release.indexOf('gh release upload "$GITHUB_REF_NAME" "${assets[@]}"');
   const publish = release.indexOf('--draft=false --latest');

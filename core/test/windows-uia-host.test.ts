@@ -78,6 +78,18 @@ test("queued request waits for teardown published between microtasks", async () 
   expect(started).toBe(1);
 });
 
+test("unconfirmed resident teardown blocks every replacement request", async () => {
+  const host = new ResidentUiaHost(script);
+  let started = 0;
+  Reflect.set(host, "requestNow", async () => { started++; return { id: 1, ok: true }; });
+  const failed = Promise.reject(new Error("resident Windows host teardown was not confirmed"));
+  failed.catch(() => {});
+  Reflect.set(host, "teardown", failed);
+  await expect(host.request({ action: "ping" })).rejects.toThrow("teardown was not confirmed");
+  await expect(host.request({ action: "ping" })).rejects.toThrow("teardown was not confirmed");
+  expect(started).toBe(0);
+});
+
 async function waitForUiaText(read: () => Promise<string>, needle: string, timeoutMs = 25_000): Promise<string> {
   const deadline = Date.now() + timeoutMs;
   let last = "";
@@ -235,8 +247,7 @@ $w.Content=$p
     expect((await host.request({ action: "invoke", window: title, name: "Resident probe button" })).output).toContain("invoked");
     expect((await host.request({ action: "get", window: title, name: "Resident probe input" })).output).toContain("Invoked");
   } finally {
-    await host.dispose();
-    await stopWpfFixture(form);
+    try { await host.dispose(); } finally { await stopWpfFixture(form); }
   }
 }, 90_000);
 
@@ -284,8 +295,7 @@ $w.Content=$script:panel
     expect(watched).toMatch(/state=[a-f0-9]{12}/);
     expect(watched).toContain("Repeated message");
   } finally {
-    await host.dispose();
-    await stopWpfFixture(form);
+    try { await host.dispose(); } finally { await stopWpfFixture(form); }
   }
 }, 90_000);
 
