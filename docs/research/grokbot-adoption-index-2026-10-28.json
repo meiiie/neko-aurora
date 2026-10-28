@@ -1078,7 +1078,9 @@
       "connectionLifetimeEvidence": "docs/research/grokbot-mcp-lifetime-2026-10-28.md",
       "connectionLifetimeCodeCommit": "b8975cc255e8530e51bb648b1c66671f6f0d342e",
       "auroraOAuthEvidence": "docs/research/grokbot-mcp-oauth-flow-2026-10-28.md",
-      "auroraOAuthCodeCommit": "339d1b7fdde8f18d02176a5c3398c255cf4445ab"
+      "auroraOAuthCodeCommit": "339d1b7fdde8f18d02176a5c3398c255cf4445ab",
+      "coreMCPRecoveryEvidence": "docs/research/grokbot-core-mcp-refresh-recovery-2026-10-28.md",
+      "coreMCPRecoveryCodeCommit": "da2c00ca3cb8786e5133ad9a61d53b052d64abb3"
     },
     {
       "id": "0.77.0-Fixed-14",
@@ -4951,7 +4953,9 @@
       "connectionLifetimeEvidence": "docs/research/grokbot-mcp-lifetime-2026-10-28.md",
       "connectionLifetimeCodeCommit": "b8975cc255e8530e51bb648b1c66671f6f0d342e",
       "auroraOAuthEvidence": "docs/research/grokbot-mcp-oauth-flow-2026-10-28.md",
-      "auroraOAuthCodeCommit": "339d1b7fdde8f18d02176a5c3398c255cf4445ab"
+      "auroraOAuthCodeCommit": "339d1b7fdde8f18d02176a5c3398c255cf4445ab",
+      "coreMCPRecoveryEvidence": "docs/research/grokbot-core-mcp-refresh-recovery-2026-10-28.md",
+      "coreMCPRecoveryCodeCommit": "da2c00ca3cb8786e5133ad9a61d53b052d64abb3"
     },
     {
       "id": "0.70.2-Fixed-3",
