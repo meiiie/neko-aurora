@@ -573,11 +573,13 @@ async function enableNotify(){if(!("Notification"in window)||!("serviceWorker"in
  else toast("Bật thông báo khi app đang mở");notifOn=true}
 // ---------- voice input (Web Speech API where supported) ----------
 const SR=window.SpeechRecognition||window.webkitSpeechRecognition;let rec=null;
-function stopVoice(){if(rec){try{rec.stop()}catch{}rec=null;$("#micBtn").classList.remove("on")}}
+function syncVoice(){const b=$("#micBtn");b.classList.toggle("on",!!rec);b.setAttribute("aria-pressed",String(!!rec));b.setAttribute("aria-label",rec?"Dừng nhập giọng nói":"Nói để nhập")}
+function stopVoice(){const previous=rec;rec=null;syncVoice();if(previous)try{previous.stop()}catch{}}
+syncVoice();
 if(!SR)$("#micBtn").classList.add("hidden");
-$("#micBtn").onclick=()=>{if(rec){stopVoice();return}if(!cur)return;rec=new SR();rec.lang="vi-VN";rec.interimResults=true;rec.continuous=false;const base=inp.value?inp.value+" ":"",activeRec=rec,target=cur.id,scope=S.workspaceId;
- rec.onresult=e=>{if(rec!==activeRec||cur?.id!==target||S.workspaceId!==scope)return;let t="";for(const r of e.results)t+=r[0].transcript;inp.value=base+t;inp.oninput()};rec.onend=()=>{if(rec===activeRec){rec=null;$("#micBtn").classList.remove("on")}};rec.onerror=e=>{if(rec===activeRec)toast(e.error==="not-allowed"?"Chưa cho phép micro":"Không nghe được, thử lại")};
- try{rec.start();$("#micBtn").classList.add("on")}catch{rec=null}};
+$("#micBtn").onclick=()=>{if(rec){stopVoice();return}if(!cur)return;try{rec=new SR()}catch{toast("Không nghe được, thử lại");return}rec.lang=window.__I18N?.lang==="en"?"en-US":"vi-VN";rec.interimResults=true;rec.continuous=false;const base=inp.value+(inp.value&&!/\s$/.test(inp.value)?" ":""),activeRec=rec,target=cur.id,scope=S.workspaceId;let owned=inp.value;
+ rec.onresult=e=>{if(rec!==activeRec||cur?.id!==target||S.workspaceId!==scope)return;if(inp.value!==owned){stopVoice();return}let t="";for(const r of e.results)t+=r[0].transcript;inp.value=owned=base+t;inp.oninput()};rec.onend=()=>{if(rec===activeRec){rec=null;syncVoice()}};rec.onerror=e=>{if(rec===activeRec){stopVoice();toast(e.error==="not-allowed"||e.error==="service-not-allowed"?"Chưa cho phép micro":"Không nghe được, thử lại")}};
+ try{rec.start();syncVoice()}catch{stopVoice();toast("Không nghe được, thử lại")}};
 // ---------- themes ----------
 const THEMES=[{id:"auto",name:"Theo thiết bị",sub:"Sáng hoặc tối theo cài đặt máy · mặc định",sw:["#f7f7f7","#000000","#f5f5f5"],tc:""},{id:"light",name:"Sáng",sub:"Xám trung tính, nút đen",sw:["#f7f7f7","#ffffff","#0d0d0d"],tc:"#f7f7f7"},{id:"dark",name:"Tối",sub:"Nền đen, chữ trắng",sw:["#000000","#1c1c1e","#f5f5f5"],tc:"#000000"},{id:"cream",name:"Kem Aurora",sub:"Kem sáng, khăn đỏ",sw:["#f4efe4","#e0261f","#17130e"],tc:"#f4efe4"},{id:"gold",name:"Đen vàng",sub:"Nền đen, điểm vàng · tối",sw:["#0d0c0a","#d4a72c","#f5ecd7"],tc:"#0d0c0a"},{id:"blue",name:"Trắng xanh",sub:"Nền trắng, điểm xanh · sáng",sw:["#f5f8fc","#1d5fd1","#0f1b2d"],tc:"#f5f8fc"}];
 const curTheme=()=>{try{const t=localStorage.getItem("neko-aurora-theme");return THEMES.some(x=>x.id===t)?t:"auto"}catch{return"auto"}};
@@ -655,7 +657,7 @@ addEventListener("popstate",()=>{if(skipPop){skipPop=false;return}closeMenu();if
 $("#search").oninput=e=>{filter=e.target.value;renderList()};
 $("#search").onkeydown=e=>{if(e.key==="Enter")e.target.blur()};
 // Grok-style composer: one line inline with mic/send; once text wraps, the field takes the full width and the buttons drop to a row below.
-const inp=$("#input"),ask=inp.parentElement;inp.oninput=()=>{const was=ask.classList.contains("multi");if(!inp.value)ask.classList.remove("multi");inp.style.height="auto";if(!was&&inp.value&&inp.scrollHeight>52)ask.classList.add("multi");inp.style.height="auto";inp.style.height=Math.min(160,inp.scrollHeight)+"px";setSendMode();saveComposerDraft()};
+const inp=$("#input"),ask=inp.parentElement;inp.oninput=e=>{if(e&&rec)stopVoice();const was=ask.classList.contains("multi");if(!inp.value)ask.classList.remove("multi");inp.style.height="auto";if(!was&&inp.value&&inp.scrollHeight>52)ask.classList.add("multi");inp.style.height="auto";inp.style.height=Math.min(160,inp.scrollHeight)+"px";setSendMode();saveComposerDraft()};
 $("#composer").onsubmit=async e=>{e.preventDefault();stopVoice();const v=inp.value;if(!v.trim()){if(SR)$("#micBtn").click();else inp.focus();return}inp.value="";inp.style.height="";ask.classList.remove("multi");justSent=true;setSendMode();if(!sendMsg(v)){inp.value=v;inp.oninput()}};
 inp.onkeydown=e=>{if(e.key==="Enter"&&!e.shiftKey&&!e.isComposing){e.preventDefault();$("#composer").requestSubmit()}};
 document.addEventListener("visibilitychange",()=>{if(!document.hidden&&es)loadState().catch(()=>{})});
