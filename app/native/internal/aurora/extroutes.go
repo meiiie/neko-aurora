@@ -458,8 +458,8 @@ func (s *Service) extRoutes() {
 		writeJSON(w, 200, map[string]bool{"ok": true})
 	})
 	m.HandleFunc("POST /app/api/agents/{id}/memory/ask", func(w http.ResponseWriter, r *http.Request) {
-		if s.Mem.loadErr != nil {
-			writeJSON(w, 500, map[string]string{"error": "memory_store_unavailable"})
+		_, ok := s.memoryRequest(w, r)
+		if !ok {
 			return
 		}
 		var in struct {
@@ -489,8 +489,8 @@ func (s *Service) extRoutes() {
 		writeJSON(w, 200, map[string]string{"answer": strings.TrimSpace(out)})
 	})
 	m.HandleFunc("POST /app/api/agents/{id}/memory/summarize", func(w http.ResponseWriter, r *http.Request) {
-		if s.Mem.loadErr != nil {
-			writeJSON(w, 500, map[string]string{"error": "memory_store_unavailable"})
+		revision, ok := s.memoryRequest(w, r)
+		if !ok {
 			return
 		}
 		var in struct {
@@ -516,16 +516,16 @@ func (s *Service) extRoutes() {
 				fail(w, ErrInvalid)
 				return
 			}
-			if err := s.Mem.Replace(key, list, "owner"); err != nil {
+			if err := s.Mem.Replace(key, list, "owner", revision...); err != nil {
 				failMemoryWrite(w, err)
 				return
 			}
 			writeJSON(w, 200, map[string]any{"items": s.Mem.List(key)})
 			return
 		}
-		items := s.Mem.List(key)
+		items, _, sourceRevision, _ := s.Mem.snapshot(key)
 		if len(items) < 2 {
-			writeJSON(w, 200, map[string]any{"proposal": []string{}})
+			writeJSON(w, 200, map[string]any{"proposal": []string{}, "revision": sourceRevision})
 			return
 		}
 		if !s.admitUtility(w) {
@@ -538,7 +538,7 @@ func (s *Service) extRoutes() {
 			writeJSON(w, 502, map[string]string{"error": "ai_failed"})
 			return
 		}
-		writeJSON(w, 200, map[string]any{"proposal": parseList(out), "before": len(items)})
+		writeJSON(w, 200, map[string]any{"proposal": parseList(out), "before": len(items), "revision": sourceRevision})
 	})
 }
 

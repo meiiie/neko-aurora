@@ -110,6 +110,9 @@ func (ms *memStore) applyImport(bot, revision string, items []string) error {
 
 func (s *Service) memoryImportRoutes() {
 	validBot := func(w http.ResponseWriter, r *http.Request) bool {
+		if _, ok := s.memoryRequest(w, r); !ok {
+			return false
+		}
 		if s.L.ReadOnly() {
 			fail(w, ledger.ErrConflict)
 			return false

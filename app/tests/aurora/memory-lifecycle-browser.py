@@ -1,16 +1,17 @@
 """Memory panel ownership and mutation feedback in real Chrome with loopback fixtures."""
-import functools,http.server,json,os,threading,time
+import functools,hashlib,http.server,json,os,threading,time
 from pathlib import Path
-from urllib.parse import urlsplit
+from urllib.parse import urlsplit,parse_qs
 from playwright.sync_api import expect,sync_playwright
 ROOT=Path(__file__).resolve().parents[3]
-OUT=ROOT/'.audit/2026-10-29-memory-lifecycle';OUT.mkdir(exist_ok=True)
+OUT=ROOT/'.audit/2026-10-29-memory-revisions';OUT.mkdir(exist_ok=True)
 class Server(http.server.ThreadingHTTPServer):request_queue_size=64
 class Handler(http.server.SimpleHTTPRequestHandler):
     def log_message(self,*_):pass
 class Fixture:
     def __init__(self):
-        self.scope='memory-owner-a';self.text='Initial fact';self.hold=None;self.pending=[];self.calls=[];self.fail=None;self.fail_after_save=False
+        self.scope='memory-owner-a';self.text='Initial fact';self.hold=None;self.pending=[];self.calls=[];self.fail=None;self.fail_after_save=False;self.queries=[];self.bad_response=False;self.lose_save=False;self.team=[]
+    def revision(self):return hashlib.sha256(self.text.encode()).hexdigest()
     def route(self,r):
         req=r.request;path=urlsplit(req.url).path.removeprefix('/app/api');data={};kind=None;status=200
         if path=='/state':data=dict(workspaceId=self.scope,agents=[dict(id='bot-a',name='Chat A',status='idle',av=dict(shape=0,color=4)),dict(id='bot-b',name='Chat B',status='idle',av=dict(shape=1,color=2))],pending=[],ai={},secrets=[],outbound={})
@@ -19,18 +20,26 @@ class Fixture:
         elif path=='/schedules':data={'schedules':[]}
         elif '/memory' in path:
             body=req.post_data_json if req.method=='POST' else None
-            self.calls.append((path,req.method,body))
-            if req.method=='GET':kind='read';data={'items':[{'text':self.text,'at':'2026-10-28T04:00:00Z'}],'team':[],'journal':[{'op':'edit','after':self.text,'before':'Phiên bản trước','by':'owner','at':'2026-10-28T04:00:00Z'}]}
+            self.calls.append((path,req.method,body));query=parse_qs(urlsplit(req.url).query);self.queries.append((path,req.method,query))
+            if req.method=='GET':kind='read';data={'items':[{'text':self.text,'at':'2026-10-28T04:00:00Z'}],'team':self.team,'workspaceId':self.scope if not self.bad_response else 'wrong-response-scope','revision':self.revision(),'teamRevision':'b'*64,'journal':[{'op':'edit','after':self.text,'before':'Phiên bản trước','by':'owner','at':'2026-10-28T04:00:00Z'}]}
             elif path.endswith('/ask'):kind='ask';data={'answer':'Phiên bản trả lời cũ'}
-            elif path.endswith('/summarize'):kind='apply' if body.get('apply') else 'summary';data={'proposal':['Phiên bản đề xuất'],'before':2}
+            elif path.endswith('/summarize'):
+                kind='apply' if body.get('apply') else 'summary';data={'proposal':['Phiên bản đề xuất'],'before':2,'revision':self.revision()}
+                if kind=='apply' and query.get('revision')!=[self.revision()]:status=409
             elif path.endswith('/import/preview'):kind='preview';data={'items':['Phiên bản nhập'],'remaining':29,'duplicates':0,'rejected':0,'revision':'fixture-rev'}
             elif path.endswith('/import'):kind='import';data={'added':1}
             elif req.method=='DELETE':kind='delete';data={'ok':True}
             else:
                 kind='save';data={'ok':True}
-                if self.fail!='save':self.text=body['text']
+                expected='b'*64 if body.get('team') else self.revision()
+                if self.fail!='save' and query.get('revision')==[expected]:
+                    if body.get('team'):self.team=[{'text':body['text'],'at':'2026-10-28T04:00:00Z'}]
+                    else:self.text=body['text']
+                elif self.fail!='save':status=409
                 if self.fail_after_save:self.fail='read'
             if self.fail==kind:status=500
+            if query.get('workspaceId')!=[self.scope]:status=409
+        if kind=='save' and self.lose_save and status==200:self.lose_save=False;r.abort('failed');return
         if kind and self.hold==kind:self.pending.append((r,status,json.dumps(data)));return
         r.fulfill(status=status,content_type='application/json',body=json.dumps(data))
 
@@ -97,6 +106,28 @@ try:
             close_mem();fx.fail='read';open_mem();expect(body.locator('.memory-load-status')).to_contain_text('Chưa tải được bộ nhớ');page.screenshot(path=str(OUT/'memory-error-mobile.png'));fx.fail=None;body.get_by_role('button',name='Tải lại bộ nhớ',exact=True).focus();page.keyboard.press('Enter');expect(fact).to_have_text('Other workspace fact')
             fact.locator('..').focus();page.keyboard.press('Enter');expect(draft).to_be_visible();draft.fill('Keyboard edit');save();expect(fact).to_have_text('Keyboard edit')
             check('initial load retry and row editing work from the keyboard')
+            switched=next(i for i,x in enumerate(fx.queries) if x[2].get('workspaceId')==['memory-owner-b'])
+            assert all(q.get('workspaceId')==['memory-owner-a' if n<switched else 'memory-owner-b'] for n,(_,_,q) in enumerate(fx.queries))
+            check('memory reads, asks, imports and mutations carry their originating workspace')
+            edit('Keep conflicted draft');fx.text='Remote fact changed';save();expect(draft).to_have_value('Keep conflicted draft');expect(body.locator('.mem-it.editing .mem-action-status')).to_contain_text('Bộ nhớ đã thay đổi')
+            before=len([c for c in fx.calls if c[1]!='GET']);body.get_by_role('button',name='Tải lại bộ nhớ',exact=True).click();expect(fact).to_have_text('Remote fact changed');expect(body.locator('.memory-recovery-draft textarea')).to_have_value('Keep conflicted draft');assert len([c for c in fx.calls if c[1]!='GET'])==before
+            check('stale edit keeps its draft and reloads the server without replaying the mutation')
+            page.screenshot(path=str(OUT/'memory-conflict-recovered-mobile.png'))
+            close_mem();open_mem();body.locator('#memSum').click();expect(body.locator('.mem-prop')).to_be_visible();proposal_rev=fx.revision();summaries=len([c for c in fx.calls if c[0].endswith('/summarize') and c[2]=={}]);fx.text='Changed after proposal';body.locator('.mem-prop').get_by_role('button',name='Áp dụng',exact=True).click()
+            expect(body.locator('.mem-prop .mem-action-status')).to_contain_text('Bộ nhớ đã thay đổi');assert fx.queries[-1][2]['revision']==[proposal_rev];assert len([c for c in fx.calls if c[0].endswith('/summarize') and c[2]=={}])==summaries
+            check('summary apply carries the revision returned with its proposal')
+            close_mem();fx.bad_response=True;open_mem();expect(body.locator('.memory-load-status')).to_be_visible();expect(body.locator('.mem-t')).to_have_count(0);fx.bad_response=False;body.get_by_role('button',name='Tải lại bộ nhớ',exact=True).click();expect(fact).to_have_text('Changed after proposal')
+            check('a mismatched workspace response is rejected before memory renders')
+            edit('Accepted but reply lost');before=len([c for c in fx.calls if c[1]=='POST']);fx.lose_save=True;save();expect(body.locator('.mem-it.editing .mem-action-status')).to_contain_text('Chưa nhận được xác nhận');expect(draft).to_have_value('Accepted but reply lost')
+            body.get_by_role('button',name='Tải lại bộ nhớ',exact=True).click();expect(fact).to_have_text('Accepted but reply lost');expect(body.locator('.memory-recovery-draft textarea')).to_have_value('Accepted but reply lost');assert len([c for c in fx.calls if c[1]=='POST'])==before+1
+            check('an accepted edit with a lost reply reloads once without replay and retains comparison text')
+            close_mem();fx.team=[{'text':'Shared fact','at':'2026-10-28T04:00:00Z'}];open_mem();body.locator('.mem-t').last.click();draft.fill('Shared edit');save();expect(body.locator('.mem-t').last).to_have_text('Shared edit')
+            mutation=next(x for x in reversed(fx.queries) if x[1]=='POST');assert mutation[2]['revision']==['b'*64];assert [x for x in fx.calls if x[1]=='POST'][-1][2]['team'] is True
+            body.locator('.mem-t').last.click();delete=body.locator('.mem-it.editing .danger');delete.click();delete.click();expect(body.locator('.mem-it.editing')).to_have_count(0);mutation=next(x for x in reversed(fx.queries) if x[1]=='DELETE');assert mutation[2]['scope']==['team'] and mutation[2]['revision']==['b'*64]
+            check('shared-memory edit and delete use the team revision and team scope')
+            body.locator('#memInput').fill('Shared addition');body.locator('#memTeam').check();body.locator('.mem-add').first.get_by_role('button',name='Thêm',exact=True).click();expect(body.locator('.mem-t').last).to_have_text('Shared addition');mutation=next(x for x in reversed(fx.queries) if x[1]=='POST');assert mutation[2]['revision']==['b'*64]
+            check('shared-memory add carries the team revision selected by the owner')
+            fx.team=[]
             fx.text='Phiên bản giữ nguyên';close_mem()
             with page.expect_navigation(wait_until='networkidle'):page.evaluate('window.__I18N.set("en")')
             page.locator('#whoBtn').click();expect(page.locator('#prMem .cell-v')).to_contain_text('1');open_mem();expect(fact).to_have_text('Phiên bản giữ nguyên');body.locator('.mem-log summary').click();expect(body.locator('.mem-log li span')).to_have_text('Phiên bản giữ nguyên');expect(body.locator('.mem-log s')).to_have_text('Phiên bản trước')

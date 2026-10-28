@@ -694,6 +694,8 @@ if(CAP&&CAP.PushNotifications){const P=CAP.PushNotifications;P.addListener("regi
 let memView=null;
 const BY={bot:"bot tự ghi",review:"tự nhận ra",owner:"bạn"},OP={add:"Thêm",edit:"Sửa",delete:"Xoá"};
 function resetMemory(){memView=null;const B=$("#memBody");B.querySelectorAll("input,textarea").forEach(n=>{n.value=""});B.replaceChildren();$("#memTitle").textContent="Bộ nhớ"}
+function memoryPath(view,path,revision){return path+(path.includes("?")?"&":"?")+"workspaceId="+encodeURIComponent(view.scope)+(revision===undefined?"":"&revision="+encodeURIComponent(revision))}
+function memoryDraft(view,B){if(!view.recoveryDraft)return;const box=el("section","card pad memory-recovery-draft"),label=el("label",0,"Nội dung cần giữ lại"),text=el("textarea","ext-in"),dismiss=el("button","pill soft","Bỏ bản nháp");text.value=view.recoveryDraft;text.readOnly=true;text.rows=3;text.setAttribute("aria-label","Nội dung cần giữ lại");label.append(text);dismiss.type="button";dismiss.onclick=()=>{view.recoveryDraft="";box.remove()};box.append(label,el("p","caption","Đây là nội dung trước khi tải lại. Bạn có thể sao chép để đối chiếu; chưa có thao tác nào được gửi lại."),dismiss);B.prepend(box)}
 function memoryText(tag,cls,text){const n=el(tag,cls,text);n.dataset.noi18n="";return n}
 function memRow(it,i,team,view,active,mutate){
  const li=el("li","mem-it");li.tabIndex=0;li.setAttribute("role","button");
@@ -706,9 +708,9 @@ function memRow(it,i,team,view,active,mutate){
   for(const n of [del,cancel,save])n.type="button";
   bar.append(del,cancel,save);li.append(ta,bar,status);ta.focus();
   cancel.onclick=e=>{e.stopPropagation();if(active()&&!view.busy)void openMemory(view.bot,true)};
-  save.onclick=e=>{e.stopPropagation();const text=ta.value.trim();if(text)void mutate(()=>api(`/agents/${view.bot}/memory/${i}`,{text,team}),status,"Đã lưu")};
+  save.onclick=e=>{e.stopPropagation();const text=ta.value.trim();if(text)void mutate(()=>api(memoryPath(view,`/agents/${view.bot}/memory/${i}`,team?view.teamRevision:view.revision),{text,team}),status,"Đã lưu")};
   del.onclick=e=>{e.stopPropagation();if(!active()||view.busy)return;if(del.dataset.armed!=="1"){del.dataset.armed="1";del.textContent="Bấm lần nữa để xoá";return}
-   void mutate(async()=>{const r=await fetch(API+`/agents/${view.bot}/memory/${i}${team?"?scope=team":""}`,{method:"DELETE",credentials:"same-origin",signal:AbortSignal.timeout(30000)});if(!r.ok){const e=new Error("memory_delete");e.status=r.status;throw e}},status,"Đã xoá")};
+   void mutate(async()=>{const r=await fetch(API+memoryPath(view,`/agents/${view.bot}/memory/${i}${team?"?scope=team":""}`,team?view.teamRevision:view.revision),{method:"DELETE",credentials:"same-origin",signal:AbortSignal.timeout(30000)});if(!r.ok){const e=new Error("memory_delete");e.status=r.status;throw e}},status,"Đã xoá")};
  };
  li.onclick=start;li.onkeydown=e=>{if(e.target===li&&(e.key==="Enter"||e.key===" ")){e.preventDefault();start()}};
  return li;
@@ -723,27 +725,28 @@ async function openMemory(id,keep=false){
  const latest=()=>current()&&view.request===request;
  B.querySelectorAll("input,textarea,button").forEach(n=>{n.disabled=true});
  let m;
- try{m=await api(`/agents/${id}/memory`);if(!latest())return false;if(!Array.isArray(m.items)||!Array.isArray(m.team)||!Array.isArray(m.journal))throw new Error("invalid_memory_list")}
+ try{m=await api(memoryPath(view,`/agents/${id}/memory`));if(!latest())return false;if(m.workspaceId!==scope||!/^([a-f0-9]{64})$/.test(m.revision)||!/^([a-f0-9]{64})$/.test(m.teamRevision)||!Array.isArray(m.items)||!Array.isArray(m.team)||!Array.isArray(m.journal))throw new Error("invalid_memory_list")}
  catch{
   if(!latest())return false;view.loading=false;
   if(!B.querySelector(".mem-add"))B.replaceChildren();B.querySelector(".memory-load-status")?.remove();
   const notice=el("div","memory-load-status"),retry=el("button","pill soft","Tải lại bộ nhớ");notice.setAttribute("role","status");notice.append(el("p","caption","Chưa tải được bộ nhớ. Hãy thử tải lại."),retry);retry.type="button";
   retry.onclick=async()=>{if(!latest())return;const focused=document.activeElement===retry;retry.disabled=true;if(await openMemory(id,true)&&focused&&current()&&document.activeElement===document.body)$("#memInput")?.focus({preventScroll:true})};B.append(notice);return false;
  }
- view.loading=false;view.busy=false;const render=++view.render;
+ view.loading=false;view.busy=false;view.revision=m.revision;view.teamRevision=m.teamRevision;const render=++view.render;
  const active=()=>current()&&view.render===render&&!view.loading;
  const mutate=async(action,status,message)=>{
   if(!active()||view.busy)return;view.busy=true;
   const controls=Array.from(B.querySelectorAll("input,textarea,button")).map(n=>[n,n.disabled]);controls.forEach(([n])=>{n.disabled=true});status.textContent="Đang lưu…";
   try{await action();if(!active())return;status.textContent=message;toast(message);await openMemory(id,true)}
-  catch{if(!active())return;view.busy=false;controls.forEach(([n,disabled])=>{n.disabled=disabled});status.textContent="Chưa nhận được xác nhận. Nội dung vẫn còn; tải lại bộ nhớ để kiểm tra trước khi thử lại."}
+  catch(error){if(!active())return;view.busy=false;controls.forEach(([n,disabled])=>{n.disabled=disabled});status.replaceChildren(el("span",0,error.status===409?"Bộ nhớ đã thay đổi. Giữ lại nháp và tải lại trước khi sửa tiếp.":"Chưa nhận được xác nhận. Nội dung vẫn còn; tải lại bộ nhớ để kiểm tra trước khi thử lại."));
+   const reload=el("button","pill soft","Tải lại bộ nhớ");reload.type="button";reload.onclick=()=>{if(!active()||view.busy)return;const owner=status.closest(".mem-it,.mem-add,.mem-prop"),input=owner?.querySelector("textarea,input:not([type=checkbox])");view.recoveryDraft=input?.value||Array.from(owner?.querySelectorAll("li")||[]).map(n=>n.textContent).join("\n")||view.recoveryDraft;void openMemory(id,true)};status.append(reload)}
  };
  B.replaceChildren();const a=byId(id),add=el("form","mem-add"),inp=el("input");inp.placeholder="Thêm điều bot nên nhớ…";inp.setAttribute("aria-label","Thêm điều bot nên nhớ…");inp.maxLength=300;inp.id="memInput";
  const sc=el("label","mem-scope"),cb=el("input");cb.type="checkbox";cb.id="memTeam";sc.append(cb,el("span",0,"Cho mọi bot"));const go=el("button","pill","Thêm"),status=el("p","mem-action-status");go.type="submit";status.setAttribute("role","status");add.append(inp,sc,go,status);
- add.onsubmit=e=>{e.preventDefault();const text=inp.value.trim();if(text)void mutate(()=>api(`/agents/${id}/memory`,{text,team:cb.checked}),status,"Đã ghi nhớ")};
+ add.onsubmit=e=>{e.preventDefault();const text=inp.value.trim();if(text)void mutate(()=>api(memoryPath(view,`/agents/${id}/memory`,cb.checked?view.teamRevision:view.revision),{text,team:cb.checked}),status,"Đã ghi nhớ")};
  B.append(add,memSection("Riêng "+(a?a.name:"bot"),m.items,false,"Chưa có gì. Bot tự ghi khi bạn nêu sở thích lâu dài.",view,active,mutate),memSection("Chung cho mọi bot",m.team,true,"Tên, cách xưng hô, ngôn ngữ… áp dụng cho mọi bot.",view,active,mutate));
  if(m.journal.length){const d=el("details","mem-log");d.append(el("summary",0,"Lịch sử thay đổi ("+m.journal.length+")"));const ol=el("ol");m.journal.forEach(c=>{const li=el("li");li.append(el("b",0,(OP[c.op]||c.op)+(c.bot==="_team"?" · chung":"")),memoryText("span",0," "+(c.after||c.before||"")),el("small",0," — "+(BY[c.by]||c.by)+", "+ago(c.at)));if(c.op==="edit"&&c.before)li.append(memoryText("s",0,c.before));ol.append(li)});d.append(ol);B.append(d)}
- B.append(el("p","caption","Bộ nhớ là dữ liệu, không phải lệnh. Không bao giờ lưu mật khẩu hay khoá."));memoryTools(view,B,active,mutate);return true;
+ B.append(el("p","caption","Bộ nhớ là dữ liệu, không phải lệnh. Không bao giờ lưu mật khẩu hay khoá."));memoryTools(view,B,active,mutate);memoryDraft(view,B);return true;
 }
 $("#closeMem").onclick=()=>closeSheet(true);
 // ---------- permission presets ----------
@@ -754,7 +757,7 @@ function presetCard(id,box){api(`/agents/${id}/computer`).then(st=>{const p=st.p
 // ---------- profile hooks ----------
 const _rp=renderProfile;renderProfile=function(){_rp();const a=byId(profId);if(!a)return;const B=$("#profBody");if(isGroup(a)){B.append(card("Ghi nhớ",cell("sparkles","Bộ nhớ nhóm",{id:"prMem",sub:"Điều cả nhóm nhớ, chỉ dùng trong nhóm này",onClick:()=>openMemory(a.id)})));return}schedCard(a.id,B);
  const c=card("Ghi nhớ",cell("sparkles","Bộ nhớ",{id:"prMem",value:"",sub:"Xem, sửa, xoá điều bot nhớ về bạn",onClick:()=>openMemory(a.id)}));const pc=$("#pcBox");pc?B.insertBefore(c,pc):B.append(c);
- api(`/agents/${a.id}/memory`).then(m=>{const v=c.querySelector(".cell-v")||el("span","cell-v");v.textContent=((m.items||[]).length+(m.team||[]).length)+" mục";const ch=c.querySelector(".chev");ch?ch.before(v):c.querySelector(".cell").append(v)}).catch(()=>{});
+ const memoryScope=S.workspaceId;api(memoryPath({scope:memoryScope},`/agents/${a.id}/memory`)).then(m=>{if(S.workspaceId!==memoryScope||!c.isConnected)return;const v=c.querySelector(".cell-v")||el("span","cell-v");v.textContent=((m.items||[]).length+(m.team||[]).length)+" mục";const ch=c.querySelector(".chev");ch?ch.before(v):c.querySelector(".cell").append(v)}).catch(()=>{});
  if(pc)presetCard(a.id,pc)};
 // ---------- usage page ----------
 let usageRange="7";
@@ -879,7 +882,7 @@ const _rs2=renderSettings;renderSettings=function(){_rs2();const B=$("#settingsB
 // memory: ask + summarize
 function memoryTools(view,B,active,mutate){
  const id=view.bot,bar=el("div","mem-tools"),ask=el("button","pill soft","Hỏi bộ nhớ"),sum=el("button","pill soft","Gộp trùng lặp");ask.type=sum.type="button";ask.id="memAsk";sum.id="memSum";bar.append(ask,sum);B.querySelector(".mem-add").after(bar);
- const scopedAPI=async(path,body)=>{if(!active())throw new Error("memory_view_closed");const result=await api(path,body);if(!active())throw new Error("memory_view_closed");return result};
+ const scopedAPI=async(path,body)=>{if(!active())throw new Error("memory_view_closed");const result=await api(memoryPath(view,path),body);if(!active())throw new Error("memory_view_closed");return result};
  if(!isGroup(byId(id)))window.AURORA_MEMORY_IMPORT.mount(bar,id,scopedAPI,added=>{if(active()){toast("Đã nhập "+added+" mục");void openMemory(id,true)}});
  ask.onclick=()=>{
   if(!active()||view.busy||B.querySelector(".mem-q"))return;const f=el("form","mem-add mem-q"),i=el("input"),g=el("button","pill","Hỏi"),status=el("p","mem-action-status");i.placeholder="vd. Bot biết gì về lịch làm việc của mình?";i.setAttribute("aria-label","Câu hỏi về bộ nhớ");status.setAttribute("role","status");f.append(i,g,status);bar.after(f);i.focus();let pending=false;
@@ -887,8 +890,8 @@ function memoryTools(view,B,active,mutate){
  };
  sum.onclick=async()=>{
   if(!active()||view.busy||sum.disabled)return;sum.disabled=true;sum.textContent="Đang gộp…";
-  try{const r=await scopedAPI(`/agents/${id}/memory/summarize`,{});if(!active())return;const L=r.proposal||[];if(!L.length){toast("Không có gì để gộp");return}
-   B.querySelector(".mem-prop")?.remove();const w=el("div","card mem-prop"),ul=el("ul");w.append(el("b",0,"Đề xuất ("+r.before+" → "+L.length+" mục)"));L.forEach(t=>ul.append(memoryText("li",0,t)));const ok=el("button","pill","Áp dụng"),no=el("button","pill soft","Bỏ"),br=el("div","mem-bar"),status=el("p","mem-action-status");ok.type=no.type="button";status.setAttribute("role","status");br.append(no,ok);w.append(ul,br,status);bar.after(w);no.onclick=()=>{if(active()&&!view.busy)w.remove()};ok.onclick=()=>mutate(()=>api(`/agents/${id}/memory/summarize`,{apply:L}),status,"Đã gộp bộ nhớ");
+  try{const r=await scopedAPI(`/agents/${id}/memory/summarize`,{});if(!active())return;if(!/^[a-f0-9]{64}$/.test(r.revision))throw new Error("invalid_memory_proposal");const L=r.proposal||[];if(!L.length){toast("Không có gì để gộp");return}
+   B.querySelector(".mem-prop")?.remove();const w=el("div","card mem-prop"),ul=el("ul");w.append(el("b",0,"Đề xuất ("+r.before+" → "+L.length+" mục)"));L.forEach(t=>ul.append(memoryText("li",0,t)));const ok=el("button","pill","Áp dụng"),no=el("button","pill soft","Bỏ"),br=el("div","mem-bar"),status=el("p","mem-action-status");ok.type=no.type="button";status.setAttribute("role","status");br.append(no,ok);w.append(ul,br,status);bar.after(w);no.onclick=()=>{if(active()&&!view.busy)w.remove()};ok.onclick=()=>mutate(()=>api(memoryPath(view,`/agents/${id}/memory/summarize`,r.revision),{apply:L}),status,"Đã gộp bộ nhớ");
   }catch{if(active())toast("Không gộp được")}finally{if(active()){sum.disabled=false;sum.textContent="Gộp trùng lặp"}}
  };
 }

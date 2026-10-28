@@ -104,7 +104,7 @@ class Fixture:
                 self.memory = [{'id': str(i), 'text': text} for i, text in enumerate(req.post_data_json['items'])]
                 data = {'added': len(self.memory)}
         elif path.endswith('/memory'):
-            data = {'items': self.memory, 'team': [], 'journal': []}
+            data = {'items': self.memory, 'team': [], 'journal': [], 'workspaceId': self.scope, 'revision': 'a'*64, 'teamRevision': 'b'*64}
         elif path == '/schedules':
             data = {'schedules': [self.schedule] if self.schedule else []}
         elif path.startswith('/schedules/') and req.method == 'POST':

@@ -10,10 +10,10 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"fmt"
 	"net/http"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -168,7 +168,7 @@ func (ms *memStore) RememberBy(bot, text, by string) bool {
 	return added && err == nil
 }
 
-func (ms *memStore) rememberBy(bot, text, by string) (bool, error) {
+func (ms *memStore) rememberBy(bot, text, by string, revision ...string) (bool, error) {
 	if ms == nil {
 		return false, ErrNotFound
 	}
@@ -178,6 +178,9 @@ func (ms *memStore) rememberBy(bot, text, by string) (bool, error) {
 	}
 	ms.mu.Lock()
 	defer ms.mu.Unlock()
+	if err := ms.checkRevisionLocked(bot, revision); err != nil {
+		return false, err
+	}
 	old := ms.m[bot]
 	for _, x := range old {
 		if strings.EqualFold(x.Text, text) {
@@ -222,7 +225,7 @@ func (ms *memStore) commitMemoryLocked(bot string, next []memItem, changes []mem
 }
 
 // Edit replaces entry i (owner edits from the memory panel).
-func (ms *memStore) Edit(bot string, i int, text, by string) error {
+func (ms *memStore) Edit(bot string, i int, text, by string, revision ...string) error {
 	if ms == nil {
 		return ErrNotFound
 	}
@@ -232,6 +235,9 @@ func (ms *memStore) Edit(bot string, i int, text, by string) error {
 	}
 	ms.mu.Lock()
 	defer ms.mu.Unlock()
+	if err := ms.checkRevisionLocked(bot, revision); err != nil {
+		return err
+	}
 	old := ms.m[bot]
 	if i < 0 || i >= len(old) {
 		return ErrNotFound
@@ -256,12 +262,15 @@ func (ms *memStore) ForgetBy(bot string, i int, by string) bool {
 	return ms.forgetBy(bot, i, by) == nil
 }
 
-func (ms *memStore) forgetBy(bot string, i int, by string) error {
+func (ms *memStore) forgetBy(bot string, i int, by string, revision ...string) error {
 	if ms == nil {
 		return ErrNotFound
 	}
 	ms.mu.Lock()
 	defer ms.mu.Unlock()
+	if err := ms.checkRevisionLocked(bot, revision); err != nil {
+		return err
+	}
 	old := ms.m[bot]
 	if i < 0 || i >= len(old) {
 		return ErrNotFound
@@ -272,7 +281,7 @@ func (ms *memStore) forgetBy(bot string, i int, by string) error {
 }
 
 func failMemoryWrite(w http.ResponseWriter, err error) {
-	if errors.Is(err, ErrInvalid) || errors.Is(err, ErrNotFound) {
+	if errors.Is(err, ErrInvalid) || errors.Is(err, ErrNotFound) || errors.Is(err, ledger.ErrConflict) {
 		fail(w, err)
 		return
 	}
@@ -324,16 +333,17 @@ func (s *Service) memoryRoutes() {
 		return r.PathValue("id")
 	}
 	s.mux.HandleFunc("GET /app/api/agents/{id}/memory", func(w http.ResponseWriter, r *http.Request) {
-		if s.Mem.loadErr != nil {
-			writeJSON(w, 500, map[string]string{"error": "memory_store_unavailable"})
+		_, ok := s.memoryRequest(w, r)
+		if !ok {
 			return
 		}
 		id := r.PathValue("id")
-		writeJSON(w, 200, map[string]any{"items": s.Mem.List(id), "team": s.Mem.List(teamKey), "journal": s.Mem.Journal(id, 30)})
+		items, team, revision, teamRevision := s.Mem.snapshot(id)
+		writeJSON(w, 200, map[string]any{"workspaceId": s.workspaceID, "items": items, "team": team, "revision": revision, "teamRevision": teamRevision, "journal": s.Mem.Journal(id, 30)})
 	})
 	s.mux.HandleFunc("POST /app/api/agents/{id}/memory", func(w http.ResponseWriter, r *http.Request) {
-		if s.Mem.loadErr != nil {
-			writeJSON(w, 500, map[string]string{"error": "memory_store_unavailable"})
+		revision, ok := s.memoryRequest(w, r)
+		if !ok {
 			return
 		}
 		if s.L.ReadOnly() {
@@ -348,15 +358,15 @@ func (s *Service) memoryRoutes() {
 			fail(w, ErrInvalid)
 			return
 		}
-		if _, err := s.Mem.rememberBy(scope(r, in.Team), in.Text, "owner"); err != nil {
+		if _, err := s.Mem.rememberBy(scope(r, in.Team), in.Text, "owner", revision...); err != nil {
 			failMemoryWrite(w, err)
 			return
 		}
 		writeJSON(w, 200, map[string]bool{"ok": true})
 	})
 	s.mux.HandleFunc("POST /app/api/agents/{id}/memory/{i}", func(w http.ResponseWriter, r *http.Request) {
-		if s.Mem.loadErr != nil {
-			writeJSON(w, 500, map[string]string{"error": "memory_store_unavailable"})
+		revision, ok := s.memoryRequest(w, r)
+		if !ok {
 			return
 		}
 		if s.L.ReadOnly() {
@@ -367,36 +377,36 @@ func (s *Service) memoryRoutes() {
 			Text string `json:"text"`
 			Team bool   `json:"team"`
 		}
-		var i int
 		if err := decode(r, &in); err != nil {
 			fail(w, ErrInvalid)
 			return
 		}
-		if _, err := fmt.Sscan(r.PathValue("i"), &i); err != nil {
+		i, err := strconv.Atoi(r.PathValue("i"))
+		if err != nil {
 			fail(w, ErrNotFound)
 			return
 		}
-		if err := s.Mem.Edit(scope(r, in.Team), i, in.Text, "owner"); err != nil {
+		if err := s.Mem.Edit(scope(r, in.Team), i, in.Text, "owner", revision...); err != nil {
 			failMemoryWrite(w, err)
 			return
 		}
 		writeJSON(w, 200, map[string]bool{"ok": true})
 	})
 	s.mux.HandleFunc("DELETE /app/api/agents/{id}/memory/{i}", func(w http.ResponseWriter, r *http.Request) {
-		if s.Mem.loadErr != nil {
-			writeJSON(w, 500, map[string]string{"error": "memory_store_unavailable"})
+		revision, ok := s.memoryRequest(w, r)
+		if !ok {
 			return
 		}
 		if s.L.ReadOnly() {
 			fail(w, ledger.ErrConflict)
 			return
 		}
-		var i int
-		if _, err := fmt.Sscan(r.PathValue("i"), &i); err != nil {
+		i, err := strconv.Atoi(r.PathValue("i"))
+		if err != nil {
 			fail(w, ErrNotFound)
 			return
 		}
-		if err := s.Mem.forgetBy(scope(r, false), i, "owner"); err != nil {
+		if err := s.Mem.forgetBy(scope(r, false), i, "owner", revision...); err != nil {
 			failMemoryWrite(w, err)
 			return
 		}
@@ -529,12 +539,15 @@ func (s *Service) absorbed(id string) bool { return newView(s.L.Snapshot()).stee
 
 // Replace swaps the whole list for a reviewed summary (memory panel "Gộp"):
 // journaled as one "summarize" change so the log shows before and after.
-func (ms *memStore) Replace(bot string, texts []string, by string) error {
+func (ms *memStore) Replace(bot string, texts []string, by string, revision ...string) error {
 	if ms == nil {
 		return ErrNotFound
 	}
 	ms.mu.Lock()
 	defer ms.mu.Unlock()
+	if err := ms.checkRevisionLocked(bot, revision); err != nil {
+		return err
+	}
 	limit := maxMemPerBot
 	if bot == teamKey {
 		limit = maxTeamMem
