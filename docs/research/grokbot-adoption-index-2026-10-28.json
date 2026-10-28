@@ -991,7 +991,14 @@
       "topics": [
         "chat-navigation"
       ],
-      "coverage": "not-validated"
+      "coverage": "partial-local-validation",
+      "implementation": "workspace-scoped-device-read-markers-with-storage-failure-fallback",
+      "evidence": [
+        "app/tests/aurora/read-state-browser.py",
+        "docs/research/grokbot-read-state-2026-10-28.md"
+      ],
+      "codeCommit": "c684bb995de97b59c4ce26c4ab27bbd0f8a0f26d",
+      "limits": "Device-local browser markers only; no server read API, cross-tab conflict resolution, real phone or multi-device sync acceptance."
     },
     {
       "id": "0.77.0-Fixed-8",
@@ -10162,6 +10169,6 @@
       "coverage": "not-validated"
     }
   ],
-  "note": "Every source bullet is indexed, including fixes and bundled changes. Tags are routing hints, not proof of feature coverage. Eleven entries have narrower local implementations; no complete upstream parity is claimed. Source prose is not redistributed.",
+  "note": "Every source bullet is indexed, including fixes and bundled changes. Tags are routing hints, not proof of feature coverage. Twelve entries have narrower local implementations; no complete upstream parity is claimed. Source prose is not redistributed.",
   "baseCommit": "66376d68691d8bce16b6565c6268c4331802ef57"
 }
