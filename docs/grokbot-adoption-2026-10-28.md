@@ -138,3 +138,6 @@ Bộ nhớ: checkpoint `c29b364e443de370691c6f08909533d9c0c4a31c` thống nhất
 
 
 Mức dùng AI: checkpoint `9fe8014718e5bb06704ccb2b8a70fd87849ad5e3` giữ lần đọc gần nhất theo workspace/khoảng thời gian, có timestamp và thử lại khi lỗi, phục hồi số liệu qua tải lại trang và chặn phản hồi cũ. Full Go 1,961 PASS / 38 SKIP; 81 nhóm trình duyệt liên quan, vet, syntax/assets/build PASS. [Báo cáo khôi phục mức dùng](research/grokbot-usage-recovery-2026-10-29.md) ghi rõ cache trên thiết bị và phạm vi ước tính, không phải hệ thống billing. Index hiện có 21 mục được kiểm chứng cục bộ một phần.
+
+
+Nội dung người dùng khi đổi ngôn ngữ: checkpoint `b0f8acc90ab38e7f7c7705bf061956eb0bacfd5c` giữ nguyên tên bot/nhóm, mô tả, đoạn xem trước và tên mục tùy chỉnh trên các bề mặt chat được kiểm tra. 157 nhóm trình duyệt, 8 kiểm thử Node, syntax/assets/build PASS. [Báo cáo ranh giới nội dung và bản dịch](research/grokbot-content-i18n-2026-10-29.md) ghi rõ phạm vi, lỗi tái hiện và giới hạn; không tăng số mục changelog được kiểm chứng.
