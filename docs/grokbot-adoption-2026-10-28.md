@@ -132,3 +132,6 @@ Bộ nhớ: checkpoint `7cd0cfe417336fb13c42ef37c736d987d248b83a` chỉ xác nh�
 
 
 Bộ nhớ: checkpoint `a07a27955b65114c8c82c956b5debad580211b11` bổ sung workspace và revision cho giao diện, chặn sửa/xóa theo vị trí cũ, gắn đề xuất gộp với dữ liệu nguồn và giữ nháp khi tải lại sau xung đột. Full Go 1.949 PASS / 38 SKIP; 198 nhóm trình duyệt và 8 test Node PASS. [Báo cáo hợp đồng bộ nhớ](research/grokbot-memory-revisions-2026-10-29.md) ghi rõ tương thích client cũ và các phần chưa kiểm chứng; index hiện có 20 mục được kiểm chứng cục bộ một phần.
+
+
+Bộ nhớ: checkpoint `c29b364e443de370691c6f08909533d9c0c4a31c` thống nhất trạng thái đang chờ cho nhập/hỏi/gộp và CRUD trong từng bảng, thêm deadline POST 30/95 giây và giữ nội dung khi mất xác nhận. 204 nhóm trình duyệt, 8 test Node, syntax/assets/build PASS; Go/Core/Rust không đổi. [Bằng chứng thao tác bộ nhớ](research/grokbot-memory-operations-2026-10-29.md) ghi rõ giới hạn timeout và lỗi khởi động fixture chưa tái hiện.
