@@ -1369,7 +1369,15 @@
       "topics": [
         "payments-billing"
       ],
-      "coverage": "not-validated"
+      "coverage": "partial-local-validation",
+      "implementation": "scoped-usage-reading-recovery",
+      "codeCommit": "9fe8014718e5bb06704ccb2b8a70fd87849ad5e3",
+      "evidence": [
+        "docs/research/grokbot-usage-recovery-2026-10-29.md",
+        "app/native/internal/aurora/usage_scope_test.go",
+        "app/tests/aurora/usage-recovery-browser.py"
+      ],
+      "limits": "Estimated AI usage, scoped device-local cached readings, GET recovery and browser reload fixtures only. No billing/provider reconciliation, native relaunch, physical-device or cloud/multi-device acceptance."
     },
     {
       "id": "0.77.0-Fixed-35",
@@ -10237,6 +10245,6 @@
       "coverage": "not-validated"
     }
   ],
-  "note": "Every source bullet is indexed, including fixes and bundled changes. Tags are routing hints, not proof of feature coverage. Twenty entries have narrower local implementations; no complete upstream parity is claimed. Source prose is not redistributed.",
+  "note": "Every source bullet is indexed, including fixes and bundled changes. Tags are routing hints, not proof of feature coverage. Twenty-one entries have narrower local implementations; no complete upstream parity is claimed. Source prose is not redistributed.",
   "baseCommit": "66376d68691d8bce16b6565c6268c4331802ef57"
 }

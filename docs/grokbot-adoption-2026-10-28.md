@@ -52,7 +52,7 @@ Các implementation chính nằm trong [Aurora service](../app/native/internal/a
 
 Mục đổi model để vượt một lần dừng của bộ lọc an toàn không được tiếp nhận. Fallback vì lỗi vận hành không phải cơ chế bỏ qua quyết định an toàn.
 
-Ưu tiên tiếp: contract/acceptance provider và hoàn thiện lưu trữ/transport OAuth Core; lịch/webhook, tài liệu, voice và quyền nhóm. Mỗi mục cần bằng chứng riêng trong index; không tự chuyển trạng thái theo keyword hay theo việc có file tương tự. Hai mươi dòng nguồn hiện có bằng chứng cục bộ một phần; 799 dòng vẫn chưa được ghi nhận có kiểm chứng tương ứng. Thay đổi admission là cải thiện độ bền của Aurora, không tự được tính thành hoàn tất thêm dòng changelog. Chi tiết: [giữ nháp và ảnh theo chat](research/grokbot-composer-drafts-2026-10-28.md), [câu hỏi nhiều bước](research/grokbot-structured-questions-2026-10-28.md), [catalog và hủy chờ MCP](research/grokbot-mcp-refresh-2026-10-28.md), [trích dẫn tin nhắn](research/grokbot-quoted-replies-2026-10-28.md).
+Ưu tiên tiếp: contract/acceptance provider và hoàn thiện lưu trữ/transport OAuth Core; lịch/webhook, tài liệu, voice và quyền nhóm. Mỗi mục cần bằng chứng riêng trong index; không tự chuyển trạng thái theo keyword hay theo việc có file tương tự. Hai mươi mốt dòng nguồn hiện có bằng chứng cục bộ một phần; 798 dòng vẫn chưa được ghi nhận có kiểm chứng tương ứng. Thay đổi admission là cải thiện độ bền của Aurora, không tự được tính thành hoàn tất thêm dòng changelog. Chi tiết: [giữ nháp và ảnh theo chat](research/grokbot-composer-drafts-2026-10-28.md), [câu hỏi nhiều bước](research/grokbot-structured-questions-2026-10-28.md), [catalog và hủy chờ MCP](research/grokbot-mcp-refresh-2026-10-28.md), [trích dẫn tin nhắn](research/grokbot-quoted-replies-2026-10-28.md).
 
 ## Bằng chứng kiểm tra
 
@@ -135,3 +135,6 @@ Bộ nhớ: checkpoint `a07a27955b65114c8c82c956b5debad580211b11` bổ sung work
 
 
 Bộ nhớ: checkpoint `c29b364e443de370691c6f08909533d9c0c4a31c` thống nhất trạng thái đang chờ cho nhập/hỏi/gộp và CRUD trong từng bảng, thêm deadline POST 30/95 giây và giữ nội dung khi mất xác nhận. 204 nhóm trình duyệt, 8 test Node, syntax/assets/build PASS; Go/Core/Rust không đổi. [Bằng chứng thao tác bộ nhớ](research/grokbot-memory-operations-2026-10-29.md) ghi rõ giới hạn timeout và lỗi khởi động fixture chưa tái hiện.
+
+
+Mức dùng AI: checkpoint `9fe8014718e5bb06704ccb2b8a70fd87849ad5e3` giữ lần đọc gần nhất theo workspace/khoảng thời gian, có timestamp và thử lại khi lỗi, phục hồi số liệu qua tải lại trang và chặn phản hồi cũ. Full Go 1,961 PASS / 38 SKIP; 81 nhóm trình duyệt liên quan, vet, syntax/assets/build PASS. [Báo cáo khôi phục mức dùng](research/grokbot-usage-recovery-2026-10-29.md) ghi rõ cache trên thiết bị và phạm vi ước tính, không phải hệ thống billing. Index hiện có 21 mục được kiểm chứng cục bộ một phần.
