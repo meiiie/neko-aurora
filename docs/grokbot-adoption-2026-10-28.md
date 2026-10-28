@@ -41,7 +41,7 @@ Các implementation chính nằm trong [Aurora service](../app/native/internal/a
 | Nhóm | Điểm tích hợp hiện có | Điều kiện để được ghi nhận hoàn thành |
 |---|---|---|
 | Connector, email và reconnect | `aurora/mcp.go`, `connectors.go`, `outbound/`, `connections/` | Đã có foundation MCP cục bộ; còn OAuth/provider-specific lifecycle, schema refresh, fake-provider contract từng dịch vụ rồi acceptance tài khoản được cấp phép. |
-| Chat, nhiều câu hỏi và form | `aurora/view.go`, `groups.go`, PWA | Đã có form theo receipt, fan-out nguyên tử và retry tham chiếu đã pin; còn nhiều câu hỏi có danh tính riêng, quoted reply và giữ nháp/tệp khi đổi chat. |
+| Chat, nhiều câu hỏi và form | `aurora/view.go`, `groups.go`, PWA | Đã có form theo receipt, fan-out nguyên tử, retry tham chiếu đã pin và nháp/tham chiếu/đường dẫn ảnh theo chat; còn nhiều câu hỏi có danh tính riêng, quoted reply và phục hồi upload đang dở sau crash. |
 | Routine, webhook và handoff | `schedule.go`, `network.go`, ledger | Lịch phong phú, webhook có identity, reconnect refresh, nguồn/đích kết quả, hạn mức trigger và restart admission. |
 | Pages, Library và tài liệu | `documents/`, `documentworker/`, `artifacts.go`, UI file | Biên tập/lưu/xuất có version; phục hồi crash; kiểm tra cấu trúc và render nội dung thật, accessibility. |
 | Computer và browser | Rust host, Go computer, cloud-browser | Quyền theo hành động, cancellation, reconnect đúng thiết bị, artifact outcome; kiểm thử crash/unknown outcome và host thật. |
@@ -52,7 +52,7 @@ Các implementation chính nằm trong [Aurora service](../app/native/internal/a
 
 Mục đổi model để vượt một lần dừng của bộ lọc an toàn không được tiếp nhận. Fallback vì lỗi vận hành không phải cơ chế bỏ qua quyết định an toàn.
 
-Ưu tiên tiếp: giữ nháp/tệp theo chat; câu hỏi nhiều bước; lifecycle OAuth/provider thật; lịch/webhook, tài liệu, voice và quyền nhóm. Mỗi mục cần bằng chứng riêng trong index; không tự chuyển trạng thái theo keyword hay theo việc có file tương tự. Tám dòng nguồn hiện có bằng chứng cục bộ một phần; 811 dòng vẫn chưa được ghi nhận có kiểm chứng tương ứng. Thay đổi admission là cải thiện độ bền của Aurora, không tự được tính thành hoàn tất thêm dòng changelog.
+Ưu tiên tiếp: câu hỏi nhiều bước; quoted reply; phục hồi upload đang dở sau crash; lifecycle OAuth/provider thật; lịch/webhook, tài liệu, voice và quyền nhóm. Mỗi mục cần bằng chứng riêng trong index; không tự chuyển trạng thái theo keyword hay theo việc có file tương tự. Chín dòng nguồn hiện có bằng chứng cục bộ một phần; 810 dòng vẫn chưa được ghi nhận có kiểm chứng tương ứng. Thay đổi admission là cải thiện độ bền của Aurora, không tự được tính thành hoàn tất thêm dòng changelog. Chi tiết lượt tiếp theo: [giữ nháp và ảnh theo chat](research/grokbot-composer-drafts-2026-10-28.md).
 
 ## Bằng chứng kiểm tra
 

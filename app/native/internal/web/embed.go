@@ -24,6 +24,7 @@ var contentTypes = map[string]string{
 	"/app/app.js":                "text/javascript; charset=utf-8",
 	"/app/memory-import.js":      "text/javascript; charset=utf-8",
 	"/app/outbox.js":             "text/javascript; charset=utf-8",
+	"/app/composer-drafts.js":    "text/javascript; charset=utf-8",
 	"/app/network.js":            "text/javascript; charset=utf-8",
 	"/app/network.css":           "text/css; charset=utf-8",
 	"/app/cloud.js":              "text/javascript; charset=utf-8",

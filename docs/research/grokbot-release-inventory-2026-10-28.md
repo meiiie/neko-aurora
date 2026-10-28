@@ -4,7 +4,7 @@ Source: [official changelog](https://x.ai/changelog/bot). The captured page cont
 
 The [machine-readable index](grokbot-adoption-index-2026-10-28.json) gives each bullet a release/section/ordinal, source line, SHA256 and routing tags. It deliberately omits the original prose. Source snapshot SHA256: `2867c15909b70226035a2513e38c8905abf91f5849bc4f0b3d8179354c472e4d`.
 
-Coverage is conservative: eight entries have partial local validation, one behavior is intentionally not adopted, and 811 entries have no feature-specific implementation evidence recorded in this change. The two additional connector entries cover only Aurora's remote MCP lifecycle fixtures, not live provider integrations. Existing Aurora capabilities are not automatically credited. See the [implementation and remaining work](../grokbot-adoption-2026-10-28.md).
+Coverage is conservative: nine entries have partial local validation, one behavior is intentionally not adopted, and 810 entries have no feature-specific implementation evidence recorded in these changes. The connector entries cover only Aurora's remote MCP lifecycle fixtures, not live provider integrations. The new attachment entry covers local draft preservation and upload-failure feedback. Existing Aurora capabilities are not automatically credited. See the [implementation and remaining work](../grokbot-adoption-2026-10-28.md).
 
 | Release | Source bullets | Validation |
 |---|---:|---|
@@ -12,7 +12,7 @@ Coverage is conservative: eight entries have partial local validation, one behav
 | [0.75.8](https://x.ai/changelog/bot#v0.75.8) | 19 | No parity claim |
 | [0.75.5](https://x.ai/changelog/bot#v0.75.5) | 25 | No parity claim |
 | [0.75.2](https://x.ai/changelog/bot#v0.75.2) | 77 | 2 partially validated entries |
-| [0.71.2](https://x.ai/changelog/bot#v0.71.2) | 102 | No parity claim |
+| [0.71.2](https://x.ai/changelog/bot#v0.71.2) | 102 | 1 partially validated entry |
 | [0.70.2](https://x.ai/changelog/bot#v0.70.2) | 67 | 1 partially validated entry |
 | [0.68.1](https://x.ai/changelog/bot#v0.68.1) | 16 | No parity claim |
 | [0.68.0](https://x.ai/changelog/bot#v0.68.0) | 15 | No parity claim |

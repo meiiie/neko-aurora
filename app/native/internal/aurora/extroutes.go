@@ -481,18 +481,23 @@ var uploadName = regexp.MustCompile(`[^\p{L}\p{N}._-]+`)
 func (s *Service) uploadRoutes() {
 	s.mux.HandleFunc("POST /app/api/agents/{id}/computer/upload", func(w http.ResponseWriter, r *http.Request) {
 		id := r.PathValue("id")
-		if _, ok := s.view().bot(id); !ok || s.PC == nil {
-			fail(w, ErrNotFound)
-			return
-		}
 		// JSON body (the host's CSRF gate accepts only same-origin JSON):
 		// {"name":"…","data":"<base64>"}
 		var in struct {
-			Name string `json:"name"`
-			Data string `json:"data"`
+			Name        string `json:"name"`
+			Data        string `json:"data"`
+			WorkspaceID string `json:"workspaceId"`
 		}
 		if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 1500<<10)).Decode(&in); err != nil {
 			writeJSON(w, 413, map[string]string{"error": "too_large"})
+			return
+		}
+		if in.WorkspaceID != "" && in.WorkspaceID != s.workspaceID {
+			writeJSON(w, 409, map[string]string{"error": "workspace_changed"})
+			return
+		}
+		if _, ok := s.view().bot(id); !ok || s.PC == nil {
+			fail(w, ErrNotFound)
 			return
 		}
 		b, err := base64.StdEncoding.DecodeString(in.Data)
@@ -501,10 +506,10 @@ func (s *Service) uploadRoutes() {
 			return
 		}
 		name := strings.Trim(uploadName.ReplaceAllString(in.Name, "-"), "-.")
-		if name == "" || len(name) > 80 {
+		if name == "" || len(name) > 60 {
 			name = "anh-" + time.Now().Format("150405") + ".jpg"
 		}
-		p := "uploads/" + name
+		p := "uploads/" + newID("img-") + "-" + name
 		if err := s.PC.WriteFile(id, p, string(b)); err != nil {
 			writeJSON(w, 400, map[string]string{"error": "write_failed"})
 			return
