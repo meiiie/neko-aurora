@@ -141,3 +141,6 @@ Mức dùng AI: checkpoint `9fe8014718e5bb06704ccb2b8a70fd87849ad5e3` giữ lầ
 
 
 Nội dung người dùng khi đổi ngôn ngữ: checkpoint `b0f8acc90ab38e7f7c7705bf061956eb0bacfd5c` giữ nguyên tên bot/nhóm, mô tả, đoạn xem trước và tên mục tùy chỉnh trên các bề mặt chat được kiểm tra. 157 nhóm trình duyệt, 8 kiểm thử Node, syntax/assets/build PASS. [Báo cáo ranh giới nội dung và bản dịch](research/grokbot-content-i18n-2026-10-29.md) ghi rõ phạm vi, lỗi tái hiện và giới hạn; không tăng số mục changelog được kiểm chứng.
+
+
+Vault: checkpoint `13e09e265e2ae36ed973c083ca8f19a30f9adb86` sửa việc cập nhật đồng thời làm mất trường và cập nhật cũ khôi phục mục vừa xóa; từ chối ghi đè mục có dữ liệu hỏng, giữ rollback khi lưu lỗi. Full Go 1,972 PASS / 38 SKIP, 44 nhóm trình duyệt, vet/build PASS. [Báo cáo tính nhất quán khi sửa Vault](research/grokbot-vault-merge-2026-10-29.md) giới hạn rõ bảo vệ trong một tiến trình và phần kiểm chứng còn thiếu.
