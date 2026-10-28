@@ -147,3 +147,6 @@ Vault: checkpoint `13e09e265e2ae36ed973c083ca8f19a30f9adb86` sửa việc cập 
 
 
 Gợi ý sử dụng Vault (0.77.0): checkpoint `f6ebaed0d7ba316d40e804021db3b6b413d484a8` bổ sung nội dung do chủ sở hữu nhập để bot chọn mục, lưu trong payload mã hóa, có sửa/xóa và giữ nháp khi thẻ chat cập nhật. Gợi ý không trở thành trường điền form và mỗi lần dùng vẫn tạo yêu cầu duyệt. Full Go 1,980 PASS / 38 SKIP; 134 nhóm trình duyệt, 8 kiểm thử Node, vet/syntax/assets/build PASS. [Báo cáo gợi ý sử dụng Vault](research/grokbot-vault-hints-2026-10-29.md) ghi rõ contract, phạm vi mô phỏng và kiểm chứng model/provider còn thiếu. Index hiện có 22 mục được kiểm chứng cục bộ một phần.
+
+
+Vòng đời thẻ nhập bí mật: checkpoint `73e92ebd948e717f112dcd984435550ce60089d5` gắn thao tác lưu với workspace/chat gốc, xóa nội dung khi rời màn hình, chặn phản hồi cũ và chỉ khôi phục nháp cho đúng mục. API bí mật áp dụng kiểm tra workspace/body, no-store và chặn xóa ở chế độ chỉ đọc. Full Go 2,005 PASS / 38 SKIP; 121 nhóm trình duyệt và 8 kiểm thử Node PASS. [Báo cáo vòng đời thẻ bí mật](research/grokbot-secret-lifecycle-2026-10-29.md) ghi rõ tương thích caller cũ và giới hạn request đã gửi. Đây là sửa độ tin cậy của Aurora; số mục nguồn được kiểm chứng không tăng.
