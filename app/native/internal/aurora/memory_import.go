@@ -4,6 +4,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"strings"
 	"time"
@@ -32,6 +33,9 @@ func (ms *memStore) safeImportFact(text string) bool {
 }
 
 func (ms *memStore) previewImport(bot, text string) (memoryImportPreview, error) {
+	if ms.loadErr != nil {
+		return memoryImportPreview{}, ms.loadErr
+	}
 	if len(text) > 32768 || !utf8.ValidString(text) {
 		return memoryImportPreview{}, ErrInvalid
 	}
@@ -68,6 +72,9 @@ func (ms *memStore) previewImport(bot, text string) (memoryImportPreview, error)
 }
 
 func (ms *memStore) applyImport(bot, revision string, items []string) error {
+	if ms.loadErr != nil {
+		return ms.loadErr
+	}
 	if len(items) == 0 || len(items) > maxMemPerBot {
 		return ErrInvalid
 	}
@@ -94,15 +101,11 @@ func (ms *memStore) applyImport(bot, revision string, items []string) error {
 		seen[key] = true
 		next = append(next, memItem{Text: text, At: time.Now().UTC().Format(time.RFC3339)})
 	}
-	ms.m[bot] = next
-	if err := ms.save(); err != nil {
-		ms.m[bot] = old
-		return err
-	}
+	changes := make([]memChange, 0, len(items))
 	for _, x := range next[len(old):] {
-		ms.journal(memChange{Bot: bot, Op: "add", After: x.Text, By: "owner-import"})
+		changes = append(changes, memChange{Bot: bot, Op: "add", After: x.Text, By: "owner-import"})
 	}
-	return nil
+	return ms.commitMemoryLocked(bot, next, changes)
 }
 
 func (s *Service) memoryImportRoutes() {
@@ -150,7 +153,11 @@ func (s *Service) memoryImportRoutes() {
 			return
 		}
 		if err := s.Mem.applyImport(r.PathValue("id"), in.Revision, in.Items); err != nil {
-			fail(w, err)
+			if errors.Is(err, ledger.ErrConflict) {
+				fail(w, err)
+			} else {
+				failMemoryWrite(w, err)
+			}
 			return
 		}
 		writeJSON(w, 200, map[string]any{"added": len(in.Items)})

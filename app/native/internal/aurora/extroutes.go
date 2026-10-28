@@ -458,6 +458,10 @@ func (s *Service) extRoutes() {
 		writeJSON(w, 200, map[string]bool{"ok": true})
 	})
 	m.HandleFunc("POST /app/api/agents/{id}/memory/ask", func(w http.ResponseWriter, r *http.Request) {
+		if s.Mem.loadErr != nil {
+			writeJSON(w, 500, map[string]string{"error": "memory_store_unavailable"})
+			return
+		}
 		var in struct {
 			Q     string `json:"q"`
 			Scope string `json:"scope"`
@@ -485,6 +489,10 @@ func (s *Service) extRoutes() {
 		writeJSON(w, 200, map[string]string{"answer": strings.TrimSpace(out)})
 	})
 	m.HandleFunc("POST /app/api/agents/{id}/memory/summarize", func(w http.ResponseWriter, r *http.Request) {
+		if s.Mem.loadErr != nil {
+			writeJSON(w, 500, map[string]string{"error": "memory_store_unavailable"})
+			return
+		}
 		var in struct {
 			Scope string   `json:"scope"`
 			Apply []string `json:"apply"` // the reviewed list to save (owner confirmed)
@@ -499,12 +507,19 @@ func (s *Service) extRoutes() {
 			key = teamKey
 		}
 		if in.Apply != nil {
-			list := parseList(mustJSON(in.Apply))
+			if s.L.ReadOnly() {
+				fail(w, ledger.ErrConflict)
+				return
+			}
+			list := in.Apply
 			if len(list) == 0 {
 				fail(w, ErrInvalid)
 				return
 			}
-			s.Mem.Replace(key, list, "owner")
+			if err := s.Mem.Replace(key, list, "owner"); err != nil {
+				failMemoryWrite(w, err)
+				return
+			}
 			writeJSON(w, 200, map[string]any{"items": s.Mem.List(key)})
 			return
 		}
