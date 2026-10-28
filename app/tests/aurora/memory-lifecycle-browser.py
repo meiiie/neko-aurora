@@ -4,7 +4,7 @@ from pathlib import Path
 from urllib.parse import urlsplit,parse_qs
 from playwright.sync_api import expect,sync_playwright
 ROOT=Path(__file__).resolve().parents[3]
-OUT=ROOT/'.audit/2026-10-29-memory-revisions';OUT.mkdir(exist_ok=True)
+OUT=ROOT/'.audit/2026-10-29-memory-operations';OUT.mkdir(exist_ok=True)
 class Server(http.server.ThreadingHTTPServer):request_queue_size=64
 class Handler(http.server.SimpleHTTPRequestHandler):
     def log_message(self,*_):pass
@@ -55,6 +55,7 @@ try:
         try:
             ctx=browser.new_context(viewport={'width':390,'height':844},locale='vi-VN',service_workers='block',reduced_motion='reduce')
             ctx.add_init_script('window.EventSource=class{addEventListener(){}close(){}}')
+            ctx.add_init_script('window.__deadlines=[];AbortSignal.timeout=ms=>{const controller=new AbortController();window.__deadlines.push({ms,controller});return controller.signal}')
             page=ctx.new_page();fx=Fixture();errors=[];page.on('pageerror',lambda e:errors.append(str(e)));page.route('**/app/api/**',fx.route)
             page.goto(f'http://127.0.0.1:{server.server_port}/app/#bot-a',wait_until='networkidle')
             page.locator('#whoBtn').click();expect(page.locator('#prMem .cell-v')).to_contain_text('1')
@@ -128,6 +129,22 @@ try:
             body.locator('#memInput').fill('Shared addition');body.locator('#memTeam').check();body.locator('.mem-add').first.get_by_role('button',name='Thêm',exact=True).click();expect(body.locator('.mem-t').last).to_have_text('Shared addition');mutation=next(x for x in reversed(fx.queries) if x[1]=='POST');assert mutation[2]['revision']==['b'*64]
             check('shared-memory add carries the team revision selected by the owner')
             fx.team=[]
+            close_mem();open_mem();body.locator('#memImport').click();form=body.locator('.memory-import');form.locator('textarea').fill('Import in progress');fx.hold='preview';form.get_by_role('button',name='Xem trước',exact=True).click();held=pending()
+            expect(body.locator('#memInput')).to_be_disabled();expect(form.locator('textarea')).to_be_disabled();fact.click();expect(draft).to_have_count(0);before=len(fx.calls);form.get_by_role('button',name='Xem trước',exact=True).evaluate('n=>n.click()');assert len(fx.calls)==before
+            assert page.evaluate('window.__deadlines.at(-1).ms')==30000;fx.hold=None;release(held);expect(form.locator('.memory-import-pick')).to_have_count(1);expect(form.locator('textarea')).to_be_enabled();expect(body.locator('#memInput')).to_be_enabled()
+            check('import preview owns the panel until acknowledgement and restores controls')
+            fx.hold='import';form.get_by_role('button',name='Lưu các mục đã chọn',exact=True).click();held=pending();expect(body.locator('#memInput')).to_be_disabled();expect(form.locator('textarea')).to_be_disabled();fact.click();expect(draft).to_have_count(0)
+            before=len([c for c in fx.calls if c[1]=='POST']);assert page.evaluate('window.__deadlines.at(-1).ms')==30000;page.evaluate('window.__deadlines.at(-1).controller.abort(new DOMException("fixture timeout","TimeoutError"))');expect(form.get_by_role('status')).to_contain_text('Chưa nhận được xác nhận');expect(form.locator('textarea')).to_have_value('Import in progress');expect(form.locator('textarea')).to_be_enabled();expect(body.locator('#memInput')).to_be_enabled();assert len([c for c in fx.calls if c[1]=='POST'])==before;fx.hold=None;release(held)
+            check('import timeout retains its text and unlocks the originating panel without replay')
+            form.get_by_role('button',name='Xem trước',exact=True).click();expect(form.locator('.memory-import-pick')).to_have_count(1);form.get_by_role('button',name='Lưu các mục đã chọn',exact=True).click();expect(form).to_have_count(0);expect(body.locator('#memInput')).to_be_enabled()
+            check('explicit preview and apply recover after an uncertain import outcome')
+            body.locator('#memAsk').click();question=body.locator('.mem-q');question.locator('input').fill('Read-only question');fx.hold='ask';question.get_by_role('button',name='Hỏi',exact=True).click();held=pending();expect(body.locator('#memInput')).to_be_disabled();expect(body.locator('#memSum')).to_be_disabled();assert page.evaluate('window.__deadlines.at(-1).ms')==95000
+            close_mem();fx.hold=None;open_mem();edit('New view during old ask');release(held);page.wait_for_timeout(80);expect(draft).to_have_value('New view during old ask');expect(body.locator('.mem-it.editing').get_by_role('button',name='Lưu',exact=True)).to_be_enabled()
+            check('model requests have a longer bounded deadline and cannot lock a later view')
+            close_mem();open_mem();fx.hold='summary';body.locator('#memSum').click();held=pending();expect(body.locator('#memInput')).to_be_disabled();assert page.evaluate('window.__deadlines.at(-1).ms')==95000;before=len([c for c in fx.calls if c[1]=='POST']);page.evaluate('window.__deadlines.at(-1).controller.abort(new DOMException("fixture timeout","TimeoutError"))');expect(body.locator('#memSum')).to_be_enabled();expect(body.locator('#memInput')).to_be_enabled();assert len([c for c in fx.calls if c[1]=='POST'])==before;fx.hold=None;release(held);expect(body.locator('.mem-prop')).to_have_count(0)
+            check('summary timeout restores controls without replaying the model request')
+            edit('Saved before deadline');fx.hold='save';save();held=pending();assert page.evaluate('window.__deadlines.at(-1).ms')==30000;before=len([c for c in fx.calls if c[1]=='POST']);page.evaluate('window.__deadlines.at(-1).controller.abort(new DOMException("fixture timeout","TimeoutError"))');expect(body.locator('.mem-it.editing .mem-action-status')).to_contain_text('Chưa nhận được xác nhận');expect(draft).to_have_value('Saved before deadline');fx.hold=None;body.get_by_role('button',name='Tải lại bộ nhớ',exact=True).click();expect(fact).to_have_text('Saved before deadline');release(held);assert len([c for c in fx.calls if c[1]=='POST'])==before
+            check('CRUD timeout treats an accepted write as unknown and reconciles through GET only')
             fx.text='Phiên bản giữ nguyên';close_mem()
             with page.expect_navigation(wait_until='networkidle'):page.evaluate('window.__I18N.set("en")')
             page.locator('#whoBtn').click();expect(page.locator('#prMem .cell-v')).to_contain_text('1');open_mem();expect(fact).to_have_text('Phiên bản giữ nguyên');body.locator('.mem-log summary').click();expect(body.locator('.mem-log li span')).to_have_text('Phiên bản giữ nguyên');expect(body.locator('.mem-log s')).to_have_text('Phiên bản trước')

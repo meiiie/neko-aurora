@@ -30,7 +30,7 @@ const API="/app/api";let selectionExcerpt=null;
 // iOS shell (Capacitor) native plugins, null in the browser
 const CAP=window.Capacitor&&window.Capacitor.isNativePlatform&&window.Capacitor.isNativePlatform()?window.Capacitor.Plugins:null;
 
-async function api(path,body,retry){const get=body===undefined;let r;try{r=await fetch(API+path,{method:get?"GET":"POST",credentials:"same-origin",cache:"no-store",headers:get?{}:{"Content-Type":"application/json"},body:get?undefined:JSON.stringify(body),signal:(get||path.endsWith("/messages")||path.endsWith("/computer/upload")||path.endsWith("/computer/recover")||path.endsWith("/computer/reset")||path.startsWith("/schedules/")||path.includes("/mcp/oauth/"))&&AbortSignal.timeout?AbortSignal.timeout(get?15000:30000):undefined});
+async function api(path,body,retry){const get=body===undefined,memory=/^\/agents\/[^/]+\/memory(?:\/|\?|$)/.test(path),memoryModel=memory&&/\/memory\/(?:ask|summarize)(?:\?|$)/.test(path)&&!body?.apply;let r;try{r=await fetch(API+path,{method:get?"GET":"POST",credentials:"same-origin",cache:"no-store",headers:get?{}:{"Content-Type":"application/json"},body:get?undefined:JSON.stringify(body),signal:(get||memory||path.endsWith("/messages")||path.endsWith("/computer/upload")||path.endsWith("/computer/recover")||path.endsWith("/computer/reset")||path.startsWith("/schedules/")||path.includes("/mcp/oauth/"))&&AbortSignal.timeout?AbortSignal.timeout(get?15000:memoryModel?95000:30000):undefined});
  // a GET stuck on a container that is shutting down (deploy) or a 503 while the workspace opens: retry once on a fresh connection
  if(get&&!retry&&r.status===503){await new Promise(f=>setTimeout(f,1500));return api(path,body,true)}
  if(!r.ok){const e=new Error(String(r.status));e.status=r.status;e.body=await r.json().catch(()=>null);throw e}return get?await r.json():r.json()}catch(e){if(get&&!retry&&!e.status){await new Promise(f=>setTimeout(f,800));return api(path,body,true)}throw e}}
@@ -882,7 +882,12 @@ const _rs2=renderSettings;renderSettings=function(){_rs2();const B=$("#settingsB
 // memory: ask + summarize
 function memoryTools(view,B,active,mutate){
  const id=view.bot,bar=el("div","mem-tools"),ask=el("button","pill soft","Hỏi bộ nhớ"),sum=el("button","pill soft","Gộp trùng lặp");ask.type=sum.type="button";ask.id="memAsk";sum.id="memSum";bar.append(ask,sum);B.querySelector(".mem-add").after(bar);
- const scopedAPI=async(path,body)=>{if(!active())throw new Error("memory_view_closed");const result=await api(memoryPath(view,path),body);if(!active())throw new Error("memory_view_closed");return result};
+ const scopedAPI=async(path,body)=>{
+  if(!active()||view.busy)throw new Error("memory_view_busy");view.busy=true;
+  const controls=Array.from(B.querySelectorAll("input,textarea,button")).map(n=>[n,n.disabled]);controls.forEach(([n])=>{n.disabled=true});
+  try{const result=await api(memoryPath(view,path),body);if(!active())throw new Error("memory_view_closed");return result}
+  finally{if(active()){view.busy=false;controls.forEach(([n,disabled])=>{n.disabled=disabled})}}
+ };
  if(!isGroup(byId(id)))window.AURORA_MEMORY_IMPORT.mount(bar,id,scopedAPI,added=>{if(active()){toast("Đã nhập "+added+" mục");void openMemory(id,true)}});
  ask.onclick=()=>{
   if(!active()||view.busy||B.querySelector(".mem-q"))return;const f=el("form","mem-add mem-q"),i=el("input"),g=el("button","pill","Hỏi"),status=el("p","mem-action-status");i.placeholder="vd. Bot biết gì về lịch làm việc của mình?";i.setAttribute("aria-label","Câu hỏi về bộ nhớ");status.setAttribute("role","status");f.append(i,g,status);bar.after(f);i.focus();let pending=false;

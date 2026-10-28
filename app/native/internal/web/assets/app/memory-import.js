@@ -44,7 +44,7 @@
                 if (form.isConnected) { input.value = ""; form.remove(); saved(value.added); }
               } catch (error) {
                 if (!form.isConnected) return;
-                status.textContent = error.status === 409 ? "Bộ nhớ đã thay đổi. Bấm Xem trước để kiểm tra lại." : "Chưa lưu được. Nội dung vẫn còn để bạn thử lại.";
+                status.textContent = error.status === 409 ? "Bộ nhớ đã thay đổi. Bấm Xem trước để kiểm tra lại." : "Chưa nhận được xác nhận. Bấm Xem trước để kiểm tra bộ nhớ trước khi lưu lại.";
                 review.replaceChildren(); preview.hidden = false;
               }
             };
