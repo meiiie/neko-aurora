@@ -29,6 +29,7 @@
 <script src="/app/memory-import.js" defer></script>
 <script src="/app/outbox.js" defer></script>
 <script src="/app/composer-drafts.js" defer></script>
+<script src="/app/upload-queue.js" defer></script>
 <script src="/app/question-card.js" defer></script>
 <script src="/app/app.js" defer></script>
 </head>
@@ -63,6 +64,7 @@
     </header>
     <div class="scroll" id="messages"></div>
     <button class="jump hidden" id="jumpBtn" type="button" aria-label="Xuống tin mới nhất"></button>
+    <section id="uploadQueue" class="upload-queue hidden" aria-label="Ảnh chờ tải lên"></section>
     <form class="composer" id="composer">
       <button type="button" class="fab plus" id="plusBtn" aria-label="Thêm" aria-haspopup="menu"></button>
       <div class="ask">

@@ -30,7 +30,7 @@ const API="/app/api";
 // iOS shell (Capacitor) native plugins, null in the browser
 const CAP=window.Capacitor&&window.Capacitor.isNativePlatform&&window.Capacitor.isNativePlatform()?window.Capacitor.Plugins:null;
 
-async function api(path,body,retry){const get=body===undefined;let r;try{r=await fetch(API+path,{method:get?"GET":"POST",credentials:"same-origin",cache:"no-store",headers:get?{}:{"Content-Type":"application/json"},body:get?undefined:JSON.stringify(body),signal:(get||path.endsWith("/messages"))&&AbortSignal.timeout?AbortSignal.timeout(get?15000:30000):undefined});
+async function api(path,body,retry){const get=body===undefined;let r;try{r=await fetch(API+path,{method:get?"GET":"POST",credentials:"same-origin",cache:"no-store",headers:get?{}:{"Content-Type":"application/json"},body:get?undefined:JSON.stringify(body),signal:(get||path.endsWith("/messages")||path.endsWith("/computer/upload"))&&AbortSignal.timeout?AbortSignal.timeout(get?15000:30000):undefined});
  // a GET stuck on a container that is shutting down (deploy) or a 503 while the workspace opens: retry once on a fresh connection
  if(get&&!retry&&r.status===503){await new Promise(f=>setTimeout(f,1500));return api(path,body,true)}
  if(!r.ok){const e=new Error(String(r.status));e.status=r.status;e.body=await r.json().catch(()=>null);throw e}return get?await r.json():r.json()}catch(e){if(get&&!retry&&!e.status){await new Promise(f=>setTimeout(f,800));return api(path,body,true)}throw e}}
@@ -697,7 +697,7 @@ let pendingRef=null,pendingReply=null,draftStorage;try{draftStorage=localStorage
 const composerDrafts=window.AURORA_COMPOSER_DRAFTS.create(draftStorage);let draftSaveWarned=false;
 function storeComposerDraft(scope,id,draft){const saved=composerDrafts.put(scope,id,draft);if(scope===S.workspaceId&&!saved&&!draftSaveWarned){toast("Chưa lưu được nháp trên thiết bị. Nháp còn trong cửa sổ này; hãy sao chép trước khi đóng.");draftSaveWarned=true}else if(saved)draftSaveWarned=false;return saved}
 function saveComposerDraft(){if(cur&&S.workspaceId)storeComposerDraft(S.workspaceId,cur.id,{text:inp.value,ref:pendingRef?.for===cur.id?pendingRef:null,reply:pendingReply?.for===cur.id?pendingReply:null})}
-function restoreComposerDraft(){const d=composerDrafts.get(S.workspaceId,cur.id);inp.value=d.text;setRef(d.ref?{...d.ref,for:cur.id}:null,false);setReply(d.reply?{...d.reply,for:cur.id}:null,false);inp.oninput()}
+function restoreComposerDraft(){refreshUploadQueue();const d=composerDrafts.get(S.workspaceId,cur.id);inp.value=d.text;setRef(d.ref?{...d.ref,for:cur.id}:null,false);setReply(d.reply?{...d.reply,for:cur.id}:null,false);inp.oninput()}
 function setRef(r,persist=true){pendingRef=r;if(persist)saveComposerDraft();const box=$("#refChip");if(box)box.remove();if(!r)return;const c=el("div","ref-chip");c.id="refChip";c.append(el("span",0,"Kèm chat: "+r.name));const x=el("button","text-btn","Bỏ");x.onclick=()=>setRef(null);c.append(x);const comp=$("#composer")||$("#msgInput")?.closest("form")||$("#msgInput")?.parentElement;comp&&comp.parentElement.insertBefore(c,comp)}
 function quotePreview(q){const b=el("blockquote","quoted-message"),who=el("cite",0,q.author),text=el("p",0,q.text);who.dataset.noi18n="";text.dataset.noi18n="";b.setAttribute("aria-label","Tin nhắn được trích dẫn");b.append(who,text);const source=el("button","quote-source text-btn","Tin gốc");source.type="button";source.onclick=()=>jumpToQuote(q.id);b.append(source);if(q.text.length>240||q.text.split("\n").length>4){const more=el("button","quote-expand text-btn","Xem đầy đủ");more.type="button";more.setAttribute("aria-expanded","false");more.onclick=()=>{const open=b.classList.toggle("full");more.textContent=open?"Thu gọn":"Xem đầy đủ";more.setAttribute("aria-expanded",String(open))};b.append(more)}return b}
 function jumpToQuote(id){if(!cur)return;const all=S.msgs[cur.id]||[],index=all.findIndex(m=>m.id===id);if(index<0){toast("Tin gốc nằm ngoài phần lịch sử đang tải. Bản trích dẫn vẫn được giữ.");return}win[cur.id]=Math.max(win[cur.id]||PAGE,all.length-index);stick=false;renderThread();requestAnimationFrame(()=>{const target=[...$("#messages").querySelectorAll(".message-item")].find(n=>n.dataset.messageId===id);if(target){target.focus({preventScroll:true});target.scrollIntoView({block:"center",behavior:"auto"})}})}
@@ -777,7 +777,66 @@ const _om=openMemory;openMemory=async function(id,keep){await _om(id,keep);const
 // images: downscale on the phone, upload into the bot's computer, describe via the vision model
 function shrink(file){return new Promise((ok,bad)=>{const img=new Image();img.onload=()=>{const k=Math.min(1,1600/Math.max(img.width,img.height));const c=document.createElement("canvas");c.width=img.width*k|0;c.height=img.height*k|0;c.getContext("2d").drawImage(img,0,0,c.width,c.height);c.toBlob(b=>b?ok(b):bad(),"image/jpeg",.82)};img.onerror=bad;const fr=new FileReader();fr.onload=()=>{img.src=fr.result};fr.onerror=bad;fr.readAsDataURL(file)})} // data: URL, the CSP allows no blob: images
 $("#pmImg").onclick=()=>{closeMenu();if(!cur||isGroup(cur)){toast("Gửi ảnh trong chat với một bot");return}$("#imgPick").click()};
-$("#imgPick").onchange=async e=>{const f=e.target.files&&e.target.files[0];e.target.value="";if(!f||!cur)return;const target=cur.id,scope=S.workspaceId;saveComposerDraft();try{const b=await shrink(f);const nm=(f.name||"anh").replace(/\.[^.]+$/,"").normalize("NFC").slice(0,50)+".jpg";const data=await new Promise((ok,bad)=>{const fr=new FileReader();fr.onload=()=>ok(String(fr.result).split(",")[1]);fr.onerror=bad;fr.readAsDataURL(b)});if(S.workspaceId!==scope)return;const j=await api(`/agents/${target}/computer/upload`,{name:nm,data,workspaceId:scope});const here=cur?.id===target&&S.workspaceId===scope,d=here?{text:inp.value,ref:pendingRef,reply:pendingReply}:composerDrafts.get(scope,target);d.text=(d.text?d.text+"\n":"Bạn xem ảnh này giúp mình.\n")+"[Ảnh: "+j.path+"]";const saved=storeComposerDraft(scope,target,d);if(here){restoreComposerDraft();inp.focus()}if(S.workspaceId===scope)toast(saved?(here?"Đã tải ảnh lên":"Ảnh đã được thêm vào nháp của chat ban đầu"):"Ảnh đã tải lên. Nháp chưa được lưu trên thiết bị; hãy sao chép trước khi đóng.")}catch{if(S.workspaceId===scope)toast("Không tải được ảnh (tối đa 1 MB sau khi nén). Nháp vẫn được giữ.")}};
+const uploadQueue=window.AURORA_UPLOAD_QUEUE.create(),activeUploads=new Set();let uploadRender=0;
+async function refreshUploadQueue(){
+ const version=++uploadRender,scope=S.workspaceId,target=cur?.id,box=$("#uploadQueue");
+ if(!target||isGroup(cur)){box.replaceChildren();box.classList.add("hidden");return}
+ try{
+  const rows=await uploadQueue.list(scope,target);
+  if(version!==uploadRender||scope!==S.workspaceId||target!==cur?.id)return;
+  const focus=document.activeElement?.closest("[data-upload-action]")?.dataset.uploadAction;
+  box.replaceChildren();box.classList.toggle("hidden",!rows.length);
+  for(const item of rows){
+   const busy=activeUploads.has(item.id),row=el("div","upload-row"),label=el("div","upload-label");row.dataset.uploadId=item.id;
+   const name=el("b",null,item.name);name.dataset.noi18n="";
+   const state=el("small",null,busy?"Đang tải ảnh lên…":item.state==="ready"?"Đã tải lên · chờ chèn vào nháp":item.error||"Ảnh chờ trên thiết bị · bấm Thử lại để tải lên");state.setAttribute("role","status");label.append(name,state);row.append(label);
+   const action=el("button","text-btn",item.state==="ready"?"Chèn vào nháp":"Thử lại");action.type="button";action.disabled=busy;action.dataset.uploadAction=item.id+":retry";
+   action.onclick=()=>{action.disabled=true;if(item.state==="ready")insertUpload(item).catch(()=>toast("Chưa cập nhật được ảnh chờ")).finally(refreshUploadQueue);else transferUpload(item)};
+   const remove=el("button","text-btn","Bỏ");remove.type="button";remove.disabled=busy;remove.setAttribute("aria-label","Bỏ ảnh khỏi hàng đợi");remove.dataset.uploadAction=item.id+":remove";
+   remove.onclick=async()=>{remove.disabled=true;try{await uploadQueue.remove(item)}catch{toast("Chưa bỏ được ảnh khỏi hàng đợi")}finally{refreshUploadQueue()}};
+   row.append(action,remove);box.append(row);
+  }
+  if(focus)Array.from(box.querySelectorAll("[data-upload-action]")).find(x=>x.dataset.uploadAction===focus)?.focus();
+ }catch{if(version===uploadRender){box.replaceChildren(el("small",null,"Chưa đọc được ảnh chờ trên thiết bị. Hãy tải lại trang để thử lại."));box.classList.remove("hidden")}}
+}
+async function insertUpload(item){
+ const here=cur?.id===item.agent&&S.workspaceId===item.scope;
+ const d=here?{text:inp.value,ref:pendingRef,reply:pendingReply}:composerDrafts.get(item.scope,item.agent),token="[Ảnh: "+item.path+"]";
+ if(!d.text.includes(token))d.text=(d.text?d.text+"\n":"Bạn xem ảnh này giúp mình.\n")+token;
+ const saved=storeComposerDraft(item.scope,item.agent,d);
+ if(here){restoreComposerDraft();inp.focus()}
+ if(saved)await uploadQueue.remove(item);
+ if(S.workspaceId===item.scope)toast(saved?(here?"Đã tải ảnh lên":"Ảnh đã được thêm vào nháp của chat ban đầu"):"Ảnh đã tải lên. Nháp chưa được lưu trên thiết bị; ảnh vẫn trong hàng đợi.");
+}
+async function transferUpload(item){
+ if(activeUploads.has(item.id)||S.workspaceId!==item.scope)return;
+ activeUploads.add(item.id);refreshUploadQueue();
+ try{
+  const j=await api(`/agents/${item.agent}/computer/upload`,{name:item.name,data:item.data,workspaceId:item.scope,deduplicate:true});
+  if(typeof j.path!=="string"||!/^uploads\/[\p{L}\p{N}._-]{1,82}$/u.test(j.path))throw Error("invalid_upload_path");
+  const ready=await uploadQueue.change(item,{state:"ready",path:j.path});
+  await insertUpload(ready);
+ }catch(e){
+  const message=e.body?.error==="upload_conflict"?"File trên máy chủ đã đổi. Bỏ ảnh chờ rồi chọn ảnh khác.":e.body?.error==="workspace_changed"?"Tài khoản đã đổi. Quay lại tài khoản ban đầu để thử lại.":e.status===413?"Máy tính của bot đã hết dung lượng. Dọn file rồi thử lại.":"Chưa nhận được xác nhận tải ảnh. Bấm Thử lại; nháp vẫn được giữ.";
+  // A ready receipt must survive a later draft/delete failure.
+  try{const stored=(await uploadQueue.list(item.scope,item.agent)).find(x=>x.id===item.id);if(stored&&stored.state!=="ready")await uploadQueue.change(item,{state:"failed",error:message})}catch{}
+  if(S.workspaceId===item.scope)toast("Không hoàn tất tải ảnh. Nháp vẫn được giữ; kiểm tra hàng đợi ảnh.");
+ }finally{activeUploads.delete(item.id);refreshUploadQueue()}
+}
+$("#imgPick").onchange=async e=>{
+ const f=e.target.files&&e.target.files[0];e.target.value="";if(!f||!cur||isGroup(cur))return;
+ const target=cur.id,scope=S.workspaceId;saveComposerDraft();
+ try{
+  const b=await shrink(f);if(b.size>window.AURORA_UPLOAD_QUEUE.MAX_BYTES)throw Error("bad_image");
+  const name=(f.name||"anh").replace(/\.[^.]+$/,"").normalize("NFC").slice(0,50)+".jpg";
+  const data=await new Promise((ok,bad)=>{const fr=new FileReader();fr.onload=()=>ok(String(fr.result).split(",")[1]);fr.onerror=bad;fr.readAsDataURL(b)});
+  if(S.workspaceId!==scope)return;
+  const item=await uploadQueue.add(scope,target,name,data);
+  refreshUploadQueue();if(S.workspaceId===scope)await transferUpload(item);
+ }catch(e){if(S.workspaceId===scope)toast(e.message==="bad_image"?"Ảnh quá lớn (tối đa 1 MB sau khi nén). Nháp vẫn được giữ.":e.message==="upload_queue_full"?"Hàng đợi ảnh đã đầy. Xử lý hoặc bỏ ảnh chờ rồi chọn lại.":"Chưa lưu được ảnh trên thiết bị. Nháp vẫn được giữ; kiểm tra dung lượng rồi chọn lại ảnh.")}
+};
+addEventListener("focus",()=>{if(cur)refreshUploadQueue()});
+
 // ---------- Vault (cards, logins, personal details) ----------
 // Values live only in the encrypted vault on the server. The list shows
 // metadata; a value is fetched (and logged) only when the owner taps to reveal.

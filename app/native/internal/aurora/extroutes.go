@@ -2,7 +2,9 @@ package aurora
 
 import (
 	"context"
+	"crypto/sha256"
 	"encoding/base64"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"net/http"
@@ -10,6 +12,7 @@ import (
 	"strings"
 	"time"
 
+	"nekoaurora.local/native/internal/computer"
 	"nekoaurora.local/native/internal/ledger"
 	"nekoaurora.local/native/internal/tools"
 	"nekoaurora.local/native/internal/vault"
@@ -493,12 +496,13 @@ func (s *Service) uploadRoutes() {
 			Name        string `json:"name"`
 			Data        string `json:"data"`
 			WorkspaceID string `json:"workspaceId"`
+			Deduplicate bool   `json:"deduplicate"`
 		}
 		if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 1500<<10)).Decode(&in); err != nil {
 			writeJSON(w, 413, map[string]string{"error": "too_large"})
 			return
 		}
-		if in.WorkspaceID != "" && in.WorkspaceID != s.workspaceID {
+		if (in.Deduplicate || in.WorkspaceID != "") && in.WorkspaceID != s.workspaceID {
 			writeJSON(w, 409, map[string]string{"error": "workspace_changed"})
 			return
 		}
@@ -512,6 +516,27 @@ func (s *Service) uploadRoutes() {
 			return
 		}
 		name := strings.Trim(uploadName.ReplaceAllString(in.Name, "-"), "-.")
+		if in.Deduplicate {
+			// Keep the full digest and a stable name within imageAuto's path bound.
+			if name == "" || len(name) > 12 {
+				name = "image.jpg"
+			}
+			hash := sha256.Sum256(b)
+			p := "uploads/i-" + hex.EncodeToString(hash[:]) + "-" + name
+			if err := s.PC.CreateFileOnce(id, p, b); err != nil {
+				status, code := 400, "write_failed"
+				if errors.Is(err, computer.ErrFileConflict) {
+					status, code = 409, "upload_conflict"
+				}
+				if errors.Is(err, computer.ErrQuota) {
+					status, code = 413, "home_quota_exceeded"
+				}
+				writeJSON(w, status, map[string]string{"error": code})
+				return
+			}
+			writeJSON(w, 200, map[string]string{"path": p})
+			return
+		}
 		if name == "" || len(name) > 60 {
 			name = "anh-" + time.Now().Format("150405") + ".jpg"
 		}
