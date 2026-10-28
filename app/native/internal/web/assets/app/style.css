@@ -463,6 +463,10 @@ details.sources[open]>:not(summary),details.think[open]>:not(summary),details.pl
 .mem-scope{display:flex;gap:6px;align-items:center;color:var(--mute);font-size:14px;margin-right:auto}
 .mem-list{list-style:none;padding:0;margin:0}
 .mem-it{padding:12px 16px;position:relative;cursor:pointer}
+.mem-it[role=button]:focus-visible{outline:2px solid currentColor;outline-offset:-3px;border-radius:12px}
+.mem-action-status{flex-basis:100%;font-size:13px;line-height:1.5;margin:8px 0;color:var(--mute)}
+.mem-action-status:empty{display:none}
+.memory-load-status{margin:12px 16px}
 .mem-it+.mem-it::before{content:"";position:absolute;top:0;left:16px;right:0;border-top:.5px solid var(--line)}
 .mem-t{margin:0;font-size:16px;line-height:1.4}
 .mem-m{color:var(--mute);font-size:12px}

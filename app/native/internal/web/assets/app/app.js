@@ -400,9 +400,9 @@ addEventListener("storage",e=>{if(e.key?.startsWith("aurora.outbox.v1.")){bindOu
 const scrim=$("#scrim");let sheetOpen=null,openedAt=0,ghost=0;
 document.addEventListener("click",e=>{if(performance.now()<ghost&&!(sheetOpen&&sheetOpen.contains(e.target))){e.stopImmediatePropagation();e.preventDefault()}},true);
 function openSheet(s){if(sheetOpen)return;closeMenu();openedAt=performance.now();sheetOpen=s;scrim.classList.remove("hidden");s.classList.remove("hidden");s.classList.add("closed");s.offsetHeight;s.classList.remove("closed");buzz("tap")}
-function closeSheet(force){const s=sheetOpen;if(!s||(!force&&performance.now()-openedAt<350))return;if(s===$("#extSheet"))extViewVersion++;if(s===$("#vaultSheet"))resetVault();sheetOpen=null;ghost=performance.now()+400;s.style.transform="";s.classList.add("closed");scrim.classList.add("hidden");document.activeElement?.blur?.();setTimeout(()=>{if(sheetOpen!==s)s.classList.add("hidden")},330)}
+function closeSheet(force){const s=sheetOpen;if(!s||(!force&&performance.now()-openedAt<350))return;if(s===$("#extSheet"))extViewVersion++;if(s===$("#vaultSheet"))resetVault();if(s===$("#memSheet"))resetMemory();sheetOpen=null;ghost=performance.now()+400;s.style.transform="";s.classList.add("closed");scrim.classList.add("hidden");document.activeElement?.blur?.();setTimeout(()=>{if(sheetOpen!==s)s.classList.add("hidden")},330)}
 // swap one sheet for another (settings → connectors / themes)
-function swapSheet(next){const s=sheetOpen;if(s){if(s===$("#extSheet"))extViewVersion++;if(s===$("#vaultSheet"))resetVault();sheetOpen=null;s.classList.add("closed");setTimeout(()=>{if(sheetOpen!==s)s.classList.add("hidden")},330)}openedAt=0;openSheet(next)}
+function swapSheet(next){const s=sheetOpen;if(s){if(s===$("#extSheet"))extViewVersion++;if(s===$("#vaultSheet"))resetVault();if(s===$("#memSheet"))resetMemory();sheetOpen=null;s.classList.add("closed");setTimeout(()=>{if(sheetOpen!==s)s.classList.add("hidden")},330)}openedAt=0;openSheet(next)}
 scrim.onclick=()=>closeSheet();
 document.querySelectorAll(".sheet").forEach(s=>{let y0=null,dy=0;const start=e=>{const sc=e.target.closest(".scroll");if(sc&&sc.scrollTop>0)return;if(e.target.closest("input,textarea"))return;y0=e.touches[0].clientY;dy=0};
  s.addEventListener("touchstart",start,{passive:true});
@@ -691,26 +691,60 @@ if(CAP&&CAP.PushNotifications){const P=CAP.PushNotifications;P.addListener("regi
 // ---------- memory panel, presets, usage, search (DS Bot ideas; Apache-2.0 credit in THIRD_PARTY_NOTICES) ----------
 
 // ---------- memory panel ----------
-let memBot=null;
+let memView=null;
 const BY={bot:"bot tự ghi",review:"tự nhận ra",owner:"bạn"},OP={add:"Thêm",edit:"Sửa",delete:"Xoá"};
-function memRow(it,i,team){const li=el("li","mem-it");const t=el("p","mem-t",it.text);const meta=el("small","mem-m",new Date(it.at).toLocaleDateString("vi-VN"));li.append(t,meta);
- li.onclick=()=>{if(li.classList.contains("editing"))return;li.classList.add("editing");li.innerHTML="";const ta=el("textarea","mem-edit");ta.value=it.text;ta.maxLength=300;ta.rows=3;const bar=el("div","mem-bar");
-  const del=el("button","pill danger","Xoá"),cancel=el("button","pill soft","Huỷ"),save=el("button","pill","Lưu");bar.append(del,cancel,save);li.append(ta,bar);ta.focus();
-  cancel.onclick=e=>{e.stopPropagation();openMemory(memBot,true)};
-  save.onclick=e=>{e.stopPropagation();const v=ta.value.trim();if(!v)return;api(`/agents/${memBot}/memory/${i}`,{text:v,team}).then(()=>{toast("Đã lưu");openMemory(memBot,true)}).catch(()=>toast("Không lưu được (không ghi mật khẩu/khoá)"))};
-  del.onclick=async e=>{e.stopPropagation();if(del.dataset.armed!=="1"){del.dataset.armed="1";del.textContent="Bấm lần nữa để xoá";return}
-   const r=await fetch(API+`/agents/${memBot}/memory/${i}${team?"?scope=team":""}`,{method:"DELETE",credentials:"same-origin"}).catch(()=>null);if(r&&r.ok){toast("Đã xoá");openMemory(memBot,true)}else toast("Không xoá được")}};
- return li}
-function memSection(title,items,team,note){const w=el("section","card-group");w.append(el("h3",0,title+" · "+items.length));const ul=el("ul","card mem-list");
- if(!items.length)ul.append(el("li","mem-empty",note));items.forEach((it,i)=>ul.append(memRow(it,i,team)));w.append(ul);return w}
-async function openMemory(id,keep){memBot=id;const a=byId(id);const B=$("#memBody");if(!keep){B.innerHTML="";B.append(el("p","caption","Đang tải…"));if(sheetOpen)swapSheet($("#memSheet"));else openSheet($("#memSheet"))}
- let m;try{m=await api(`/agents/${id}/memory`)}catch{B.innerHTML="";B.append(el("p","caption","Không tải được bộ nhớ"));return}
- B.innerHTML="";$("#memTitle").textContent="Bộ nhớ · "+(a?a.name:"");
- const add=el("form","mem-add");const inp=el("input");inp.placeholder="Thêm điều bot nên nhớ…";inp.maxLength=300;inp.id="memInput";const sc=el("label","mem-scope");const cb=el("input");cb.type="checkbox";cb.id="memTeam";sc.append(cb,el("span",0,"Cho mọi bot"));const go=el("button","pill","Thêm");go.type="submit";add.append(inp,sc,go);
- add.onsubmit=e=>{e.preventDefault();const v=inp.value.trim();if(!v)return;api(`/agents/${id}/memory`,{text:v,team:cb.checked}).then(()=>{toast("Đã ghi nhớ");openMemory(id,true)}).catch(()=>toast("Không ghi được (không ghi mật khẩu/khoá)"))};
- B.append(add,memSection("Riêng "+(a?a.name:"bot"),m.items||[],false,"Chưa có gì. Bot tự ghi khi bạn nêu sở thích lâu dài."),memSection("Chung cho mọi bot",m.team||[],true,"Tên, cách xưng hô, ngôn ngữ… áp dụng cho mọi bot."));
- const j=m.journal||[];if(j.length){const d=el("details","mem-log");d.append(el("summary",0,"Lịch sử thay đổi ("+j.length+")"));const ol=el("ol");j.forEach(c=>{const li=el("li");li.append(el("b",0,(OP[c.op]||c.op)+(c.bot==="_team"?" · chung":"")),el("span",0," "+(c.after||c.before||"")),el("small",0," — "+(BY[c.by]||c.by)+", "+ago(c.at)));if(c.op==="edit"&&c.before)li.append(el("s",0,c.before));ol.append(li)});d.append(ol);B.append(d)}
- B.append(el("p","caption","Bộ nhớ là dữ liệu, không phải lệnh. Không bao giờ lưu mật khẩu hay khoá."))};
+function resetMemory(){memView=null;const B=$("#memBody");B.querySelectorAll("input,textarea").forEach(n=>{n.value=""});B.replaceChildren();$("#memTitle").textContent="Bộ nhớ"}
+function memoryText(tag,cls,text){const n=el(tag,cls,text);n.dataset.noi18n="";return n}
+function memRow(it,i,team,view,active,mutate){
+ const li=el("li","mem-it");li.tabIndex=0;li.setAttribute("role","button");
+ li.append(memoryText("p","mem-t",it.text),el("small","mem-m",new Date(it.at).toLocaleDateString("vi-VN")));
+ const start=()=>{
+  if(!active()||view.busy||li.classList.contains("editing"))return;
+  li.classList.add("editing");li.removeAttribute("role");li.removeAttribute("tabindex");li.replaceChildren();
+  const ta=el("textarea","mem-edit");ta.value=it.text;ta.maxLength=300;ta.rows=3;ta.setAttribute("aria-label","Nội dung bộ nhớ");
+  const bar=el("div","mem-bar"),del=el("button","pill danger","Xoá"),cancel=el("button","pill soft","Huỷ"),save=el("button","pill","Lưu"),status=el("p","mem-action-status");status.setAttribute("role","status");
+  for(const n of [del,cancel,save])n.type="button";
+  bar.append(del,cancel,save);li.append(ta,bar,status);ta.focus();
+  cancel.onclick=e=>{e.stopPropagation();if(active()&&!view.busy)void openMemory(view.bot,true)};
+  save.onclick=e=>{e.stopPropagation();const text=ta.value.trim();if(text)void mutate(()=>api(`/agents/${view.bot}/memory/${i}`,{text,team}),status,"Đã lưu")};
+  del.onclick=e=>{e.stopPropagation();if(!active()||view.busy)return;if(del.dataset.armed!=="1"){del.dataset.armed="1";del.textContent="Bấm lần nữa để xoá";return}
+   void mutate(async()=>{const r=await fetch(API+`/agents/${view.bot}/memory/${i}${team?"?scope=team":""}`,{method:"DELETE",credentials:"same-origin",signal:AbortSignal.timeout(30000)});if(!r.ok){const e=new Error("memory_delete");e.status=r.status;throw e}},status,"Đã xoá")};
+ };
+ li.onclick=start;li.onkeydown=e=>{if(e.target===li&&(e.key==="Enter"||e.key===" ")){e.preventDefault();start()}};
+ return li;
+}
+function memSection(title,items,team,note,view,active,mutate){const w=el("section","card-group");w.append(el("h3",0,title+" · "+items.length));const ul=el("ul","card mem-list");if(!items.length)ul.append(el("li","mem-empty",note));items.forEach((it,i)=>ul.append(memRow(it,i,team,view,active,mutate)));w.append(ul);return w}
+async function openMemory(id,keep=false){
+ const B=$("#memBody"),sheet=$("#memSheet"),scope=S.workspaceId;
+ if(!scope||keep&&(!memView||memView.bot!==id||memView.scope!==scope||sheetOpen!==sheet))return false;
+ if(!keep){resetMemory();memView={bot:id,scope,request:0,render:0,busy:false,loading:false};B.append(el("p","caption","Đang tải…"));const a=byId(id);$("#memTitle").textContent="Bộ nhớ · "+(a?a.name:"");if(sheetOpen!==sheet){sheetOpen?swapSheet(sheet):openSheet(sheet)}}
+ const view=memView,request=++view.request;view.loading=true;
+ const current=()=>memView===view&&S.workspaceId===scope&&sheetOpen===sheet;
+ const latest=()=>current()&&view.request===request;
+ B.querySelectorAll("input,textarea,button").forEach(n=>{n.disabled=true});
+ let m;
+ try{m=await api(`/agents/${id}/memory`);if(!latest())return false;if(!Array.isArray(m.items)||!Array.isArray(m.team)||!Array.isArray(m.journal))throw new Error("invalid_memory_list")}
+ catch{
+  if(!latest())return false;view.loading=false;
+  if(!B.querySelector(".mem-add"))B.replaceChildren();B.querySelector(".memory-load-status")?.remove();
+  const notice=el("div","memory-load-status"),retry=el("button","pill soft","Tải lại bộ nhớ");notice.setAttribute("role","status");notice.append(el("p","caption","Chưa tải được bộ nhớ. Hãy thử tải lại."),retry);retry.type="button";
+  retry.onclick=async()=>{if(!latest())return;const focused=document.activeElement===retry;retry.disabled=true;if(await openMemory(id,true)&&focused&&current()&&document.activeElement===document.body)$("#memInput")?.focus({preventScroll:true})};B.append(notice);return false;
+ }
+ view.loading=false;view.busy=false;const render=++view.render;
+ const active=()=>current()&&view.render===render&&!view.loading;
+ const mutate=async(action,status,message)=>{
+  if(!active()||view.busy)return;view.busy=true;
+  const controls=Array.from(B.querySelectorAll("input,textarea,button")).map(n=>[n,n.disabled]);controls.forEach(([n])=>{n.disabled=true});status.textContent="Đang lưu…";
+  try{await action();if(!active())return;status.textContent=message;toast(message);await openMemory(id,true)}
+  catch{if(!active())return;view.busy=false;controls.forEach(([n,disabled])=>{n.disabled=disabled});status.textContent="Chưa nhận được xác nhận. Nội dung vẫn còn; tải lại bộ nhớ để kiểm tra trước khi thử lại."}
+ };
+ B.replaceChildren();const a=byId(id),add=el("form","mem-add"),inp=el("input");inp.placeholder="Thêm điều bot nên nhớ…";inp.setAttribute("aria-label","Thêm điều bot nên nhớ…");inp.maxLength=300;inp.id="memInput";
+ const sc=el("label","mem-scope"),cb=el("input");cb.type="checkbox";cb.id="memTeam";sc.append(cb,el("span",0,"Cho mọi bot"));const go=el("button","pill","Thêm"),status=el("p","mem-action-status");go.type="submit";status.setAttribute("role","status");add.append(inp,sc,go,status);
+ add.onsubmit=e=>{e.preventDefault();const text=inp.value.trim();if(text)void mutate(()=>api(`/agents/${id}/memory`,{text,team:cb.checked}),status,"Đã ghi nhớ")};
+ B.append(add,memSection("Riêng "+(a?a.name:"bot"),m.items,false,"Chưa có gì. Bot tự ghi khi bạn nêu sở thích lâu dài.",view,active,mutate),memSection("Chung cho mọi bot",m.team,true,"Tên, cách xưng hô, ngôn ngữ… áp dụng cho mọi bot.",view,active,mutate));
+ if(m.journal.length){const d=el("details","mem-log");d.append(el("summary",0,"Lịch sử thay đổi ("+m.journal.length+")"));const ol=el("ol");m.journal.forEach(c=>{const li=el("li");li.append(el("b",0,(OP[c.op]||c.op)+(c.bot==="_team"?" · chung":"")),memoryText("span",0," "+(c.after||c.before||"")),el("small",0," — "+(BY[c.by]||c.by)+", "+ago(c.at)));if(c.op==="edit"&&c.before)li.append(memoryText("s",0,c.before));ol.append(li)});d.append(ol);B.append(d)}
+ B.append(el("p","caption","Bộ nhớ là dữ liệu, không phải lệnh. Không bao giờ lưu mật khẩu hay khoá."));memoryTools(view,B,active,mutate);return true;
+}
 $("#closeMem").onclick=()=>closeSheet(true);
 // ---------- permission presets ----------
 const PRESETS=[["readonly","Chỉ đọc","Chỉ xem, đọc file; mọi thay đổi chờ bạn duyệt"],["workspace","Máy riêng","Tự làm trên máy riêng của bot, không mạng"],["full","Toàn quyền","Có mạng; gửi ra ngoài vẫn hỏi bạn"]];
@@ -843,10 +877,21 @@ async function openSkills(keep){const {body:B,current}=startExtView("Kỹ năng"
 const _rp2=renderProfile;renderProfile=function(){_rp2();const a=byId(profId);if(!a||isGroup(a))return;const B=$("#profBody");const c=card("AI & công cụ",cell("sparkles","Mô hình, suy nghĩ, kỹ năng, MCP",{id:"prExt",sub:"Thư mục làm việc và các khả năng của bot",onClick:()=>openExt(a.id)}));const m=$("#prMem");const g=m&&m.closest(".card-group");g?g.after(c):B.append(c)};
 const _rs2=renderSettings;renderSettings=function(){_rs2();const B=$("#settingsBody");const c=card("AI",cell("sparkles","Mô hình & nhà cung cấp",{id:"openModels",sub:"GLM mặc định, thêm khoá riêng, mô hình đọc ảnh",onClick:()=>openModels()}),cell("list-checks","Kỹ năng",{id:"openSkills",sub:"Hướng dẫn bot dùng lại cho việc lặp lại",onClick:()=>openSkills()}));const u=$("#openUsage");const g=u&&u.closest(".card-group");g?g.before(c):B.append(c)};
 // memory: ask + summarize
-const _om=openMemory;openMemory=async function(id,keep){await _om(id,keep);const B=$("#memBody");if(memBot!==id||!B.querySelector(".mem-add"))return;const bar=el("div","mem-tools");const ask=el("button","pill soft","Hỏi bộ nhớ");ask.id="memAsk";const sum=el("button","pill soft","Gộp trùng lặp");sum.id="memSum";bar.append(ask,sum);B.querySelector(".mem-add").after(bar);
- if(!isGroup(byId(id)))window.AURORA_MEMORY_IMPORT.mount(bar,id,api,added=>{toast("Đã nhập "+added+" mục");if(memBot===id)openMemory(id,true)});
- ask.onclick=()=>{if(B.querySelector(".mem-q"))return;const f=el("form","mem-add mem-q");const i=el("input");i.placeholder="vd. Bot biết gì về lịch làm việc của mình?";const g=el("button","pill","Hỏi");f.append(i,g);bar.after(f);i.focus();f.onsubmit=e=>{e.preventDefault();if(!i.value.trim())return;g.disabled=true;api(`/agents/${id}/memory/ask`,{q:i.value.trim()}).then(r=>{const p=el("p","mem-ans",r.answer);f.after(p);g.disabled=false}).catch(()=>{g.disabled=false;toast("Không hỏi được")})}};
- sum.onclick=()=>{sum.disabled=true;sum.textContent="Đang gộp…";api(`/agents/${id}/memory/summarize`,{}).then(r=>{sum.disabled=false;sum.textContent="Gộp trùng lặp";const L=r.proposal||[];if(!L.length){toast("Không có gì để gộp");return}const w=el("div","card mem-prop");w.append(el("b",0,"Đề xuất ("+r.before+" → "+L.length+" mục)"));const ul=el("ul");L.forEach(t=>ul.append(el("li",0,t)));const ok=el("button","pill","Áp dụng"),no=el("button","pill soft","Bỏ");const br=el("div","mem-bar");br.append(no,ok);w.append(ul,br);bar.after(w);no.onclick=()=>w.remove();ok.onclick=()=>api(`/agents/${id}/memory/summarize`,{apply:L}).then(()=>{toast("Đã gộp bộ nhớ");openMemory(id,true)}).catch(()=>toast("Không áp dụng được"))}).catch(()=>{sum.disabled=false;sum.textContent="Gộp trùng lặp";toast("Không gộp được")})}};
+function memoryTools(view,B,active,mutate){
+ const id=view.bot,bar=el("div","mem-tools"),ask=el("button","pill soft","Hỏi bộ nhớ"),sum=el("button","pill soft","Gộp trùng lặp");ask.type=sum.type="button";ask.id="memAsk";sum.id="memSum";bar.append(ask,sum);B.querySelector(".mem-add").after(bar);
+ const scopedAPI=async(path,body)=>{if(!active())throw new Error("memory_view_closed");const result=await api(path,body);if(!active())throw new Error("memory_view_closed");return result};
+ if(!isGroup(byId(id)))window.AURORA_MEMORY_IMPORT.mount(bar,id,scopedAPI,added=>{if(active()){toast("Đã nhập "+added+" mục");void openMemory(id,true)}});
+ ask.onclick=()=>{
+  if(!active()||view.busy||B.querySelector(".mem-q"))return;const f=el("form","mem-add mem-q"),i=el("input"),g=el("button","pill","Hỏi"),status=el("p","mem-action-status");i.placeholder="vd. Bot biết gì về lịch làm việc của mình?";i.setAttribute("aria-label","Câu hỏi về bộ nhớ");status.setAttribute("role","status");f.append(i,g,status);bar.after(f);i.focus();let pending=false;
+  f.onsubmit=async e=>{e.preventDefault();if(!active()||view.busy||pending||!i.value.trim())return;pending=true;i.disabled=g.disabled=true;status.textContent="";try{const r=await scopedAPI(`/agents/${id}/memory/ask`,{q:i.value.trim()});if(active()&&f.isConnected)f.after(memoryText("p","mem-ans",r.answer))}catch{if(active())status.textContent="Không hỏi được"}finally{pending=false;if(active())i.disabled=g.disabled=false}};
+ };
+ sum.onclick=async()=>{
+  if(!active()||view.busy||sum.disabled)return;sum.disabled=true;sum.textContent="Đang gộp…";
+  try{const r=await scopedAPI(`/agents/${id}/memory/summarize`,{});if(!active())return;const L=r.proposal||[];if(!L.length){toast("Không có gì để gộp");return}
+   B.querySelector(".mem-prop")?.remove();const w=el("div","card mem-prop"),ul=el("ul");w.append(el("b",0,"Đề xuất ("+r.before+" → "+L.length+" mục)"));L.forEach(t=>ul.append(memoryText("li",0,t)));const ok=el("button","pill","Áp dụng"),no=el("button","pill soft","Bỏ"),br=el("div","mem-bar"),status=el("p","mem-action-status");ok.type=no.type="button";status.setAttribute("role","status");br.append(no,ok);w.append(ul,br,status);bar.after(w);no.onclick=()=>{if(active()&&!view.busy)w.remove()};ok.onclick=()=>mutate(()=>api(`/agents/${id}/memory/summarize`,{apply:L}),status,"Đã gộp bộ nhớ");
+  }catch{if(active())toast("Không gộp được")}finally{if(active()){sum.disabled=false;sum.textContent="Gộp trùng lặp"}}
+ };
+}
 // images: downscale on the phone, upload into the bot's computer, describe via the vision model
 function shrink(file){return new Promise((ok,bad)=>{const img=new Image();img.onload=()=>{const k=Math.min(1,1600/Math.max(img.width,img.height));const c=document.createElement("canvas");c.width=img.width*k|0;c.height=img.height*k|0;c.getContext("2d").drawImage(img,0,0,c.width,c.height);c.toBlob(b=>b?ok(b):bad(),"image/jpeg",.82)};img.onerror=bad;const fr=new FileReader();fr.onload=()=>{img.src=fr.result};fr.onerror=bad;fr.readAsDataURL(file)})} // data: URL, the CSP allows no blob: images
 $("#pmImg").onclick=()=>{closeMenu();if(!cur||isGroup(cur)){toast("Gửi ảnh trong chat với một bot");return}$("#imgPick").click()};
