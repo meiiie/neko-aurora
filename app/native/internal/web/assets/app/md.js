@@ -33,16 +33,23 @@ const indentOf=l=>l.match(/^\s*/)[0].replace(/\t/g,"    ").length;
 function code(node,lang,body){const w=el("div","code");const hd=el("div","code-h");hd.append(el("span","code-lang",lang||"code"));
  const cp=el("button","code-copy","Sao chép");cp.type="button";cp.setAttribute("aria-label","Sao chép mã");cp.onclick=()=>{(navigator.clipboard?navigator.clipboard.writeText(body):Promise.reject()).then(()=>{cp.textContent="Đã chép";setTimeout(()=>cp.textContent="Sao chép",1400);document.dispatchEvent(new CustomEvent("aurora-copied"))}).catch(()=>{})};
  hd.append(cp);const pre=el("pre");pre.tabIndex=0;pre.append(el("code",lang?"lang-"+lang:0,body));w.append(hd,pre);node.append(w)}
+let activeTableViewer=null;
+function closeViewer(restoreFocus=true){activeTableViewer?.close(restoreFocus)}
 function tableCard(node,wrap,table,markdown){
  const card=el("div","table-card"),bar=el("div","table-actions"),status=el("span","table-status");status.setAttribute("role","status");
  const copy=(title,body)=>{const b=el("button","pill soft",title);b.type="button";b.onclick=async()=>{try{await navigator.clipboard.writeText(body());status.textContent="Đã sao chép"}catch{status.textContent="Không sao chép được. Hãy chọn văn bản trong bảng."}};return b};
  bar.append(copy("Sao chép bảng",()=>Array.from(table.rows,row=>Array.from(row.cells,c=>c.textContent.replace(/\t|\n/g," ")).join("\t")).join("\n")),copy("Sao chép Markdown",()=>markdown));
  const expand=el("button","pill soft","Mở rộng bảng");expand.type="button";expand.onclick=()=>{
+  if(!expand.isConnected)return;closeViewer(false);
   const dialog=el("dialog","table-viewer"),head=el("div","table-actions"),body=el("div","table-stage md"),clone=table.cloneNode(true);
   dialog.setAttribute("aria-label","Bảng mở rộng");body.tabIndex=0;body.setAttribute("role","region");body.setAttribute("aria-label","Nội dung bảng, cuộn để xem");
   const zoom=el("button","pill soft","100%"),close=el("button","pill","Đóng bảng");zoom.type=close.type="button";zoom.setAttribute("aria-label","Phóng to bảng");
   let scale=1;zoom.onclick=()=>{scale=scale>=2?1:scale+.25;body.style.setProperty("--table-scale",scale);zoom.textContent=Math.round(scale*100)+"%"};
-  close.onclick=()=>dialog.close();dialog.onclose=()=>{dialog.remove();if(expand.isConnected)expand.focus()};dialog.onclick=e=>{if(e.target===dialog)dialog.close()};
+  let closed=false;const viewer={close(restoreFocus=true){if(closed)return;closed=true;observer.disconnect();if(activeTableViewer===viewer)activeTableViewer=null;if(dialog.open)dialog.close();dialog.remove();if(restoreFocus&&expand.isConnected)expand.focus({preventScroll:true})}};
+  const observer=new MutationObserver(()=>{if(!expand.isConnected)viewer.close(false)});observer.observe(document.body,{childList:true,subtree:true});activeTableViewer=viewer;
+  let backdropDown=false;const outside=e=>{const r=dialog.getBoundingClientRect();return e.clientX<r.left||e.clientX>r.right||e.clientY<r.top||e.clientY>r.bottom};
+  dialog.onpointerdown=e=>{backdropDown=e.target===dialog&&outside(e)};dialog.onpointercancel=()=>{backdropDown=false};
+  close.onclick=()=>viewer.close();dialog.onclose=()=>viewer.close();dialog.oncancel=e=>{e.preventDefault();viewer.close()};dialog.onclick=e=>{if(backdropDown&&e.target===dialog&&outside(e))viewer.close();backdropDown=false};
   head.append(el("strong",0,"Bảng"),zoom,close);body.append(clone);dialog.append(head,body);document.body.append(dialog);dialog.showModal();close.focus();
  };
  bar.append(expand,status);card.append(bar,wrap);node.append(card);
@@ -71,5 +78,5 @@ function blocks(node,lines,src){let i=0;
   const p=el("p"),buf=[l.trim()];i++;while(i<lines.length&&lines[i].trim()&&!startsBlock(lines[i],lines[i+1]))buf.push(lines[i++].trim());
   buf.forEach((b,k)=>{if(k)p.append(el("br"));inline(p,b.replace(/\s{2,}$/,""),src)});node.append(p)}}
 function render(node,text,src,opt){node.classList.add("md");node.replaceChildren();text=String(text||"").replace(/\r\n?/g,"\n");if(opt&&opt.streaming)text=settle(text);blocks(node,text.split("\n"),src)}
-self.AURORA_MD={render,inline};
+self.AURORA_MD={render,inline,closeViewer};
 })();
