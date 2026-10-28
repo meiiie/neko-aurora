@@ -32,6 +32,9 @@ class Fixture:
         self.uploads = []
         self.posts = []
         self.messages = []
+        self.receipts = {}
+        self.offline = False
+        self.lose_response = False
 
     def route(self, route):
         req, data = route.request, {}
@@ -47,8 +50,18 @@ class Fixture:
             else:
                 body = req.post_data_json
                 self.posts.append(body)
-                data = {'id': body['clientNonce']+':u', 'taskId': body['clientNonce'], 'agentId': path.split('/')[2], 'role': 'user', 'text': body['text'], 't': '2026-10-28T04:01:00Z'}
-                self.messages.append(data)
+                if self.offline:
+                    route.abort('internetdisconnected')
+                    return
+                if body['clientNonce'] not in self.receipts:
+                    data = {'id': body['clientNonce']+':u', 'taskId': body['clientNonce'], 'agentId': path.split('/')[2], 'role': 'user', 'text': body['text'], 'answerFor':body.get('answerFor'), 't': '2026-10-28T04:01:00Z'}
+                    self.messages.append(data)
+                    self.receipts[body['clientNonce']] = data
+                data = self.receipts[body['clientNonce']]
+                if self.lose_response:
+                    self.lose_response = False
+                    route.abort('connectionreset')
+                    return
         elif path.endswith('/computer/upload'):
             self.uploads.append(route)
             return
@@ -71,7 +84,7 @@ try:
             chrome = 'C:/Program Files/Google/Chrome/Application/chrome.exe'
         browser = p.chromium.launch(headless=True, executable_path=chrome)
         try:
-            context = browser.new_context(viewport={'width':1280, 'height':900}, service_workers='block')
+            context = browser.new_context(viewport={'width':1280, 'height':900}, locale='vi-VN', service_workers='block')
             context.add_init_script('window.SpeechRecognition=class{constructor(){window.fixtureRec=this}start(){}stop(){}}')
             page = context.new_page()
             fixture, errors = Fixture(), []
@@ -182,6 +195,77 @@ try:
             page.screenshot(path=str(OUT/'composer-mobile.png'))
             assert not errors, errors
             check('mobile viewport retains the other draft with no browser errors')
+
+            fixture.messages.append({'id':'question-fixture', 'taskId':'req-questions-fixture', 'agentId':'bot-a', 'role':'agent', 'text':'Bạn chọn giúp mình nhé.', 't':'2026-10-28T04:02:00Z', 'questions':[
+                {'id':'q1','prompt':'Thời điểm?','options':['Sáng','Chiều']},
+                {'id':'q2','prompt':'Định dạng?','options':['Bảng','Biểu đồ'],'multiple':True},
+                {'id':'q3','prompt':'Nơi nhận?','options':['Tại đây','Email']},
+            ]})
+            page.reload()
+            card=page.locator('.question-card')
+            page.evaluate('window.__I18N.set("en")')
+            expect(card.get_by_role('button',name='Next',exact=True)).to_be_disabled()
+            expect(card.get_by_role('radio',name='Sáng',exact=True)).to_have_count(1)
+            expect(card.get_by_role('radio',name='Light',exact=True)).to_have_count(0)
+            page.evaluate('window.__I18N.set("vi")')
+            check('UI language changes preserve model question wording')
+            expect(card.get_by_role('button',name='Tiếp',exact=True)).to_be_disabled()
+            page.locator('#input').fill('Tôi muốn hỏi thêm trước')
+            page.locator('#composer').evaluate('(form)=>form.requestSubmit()')
+            expect(page.locator('.pending')).to_have_count(0)
+            expect(card).to_contain_text('Câu 1/3')
+            check('ordinary follow-up leaves structured questions unanswered')
+            card.get_by_role('radio',name='Sáng',exact=True).check()
+            card.get_by_role('button',name='Tiếp',exact=True).click()
+            card.get_by_role('checkbox',name='Bảng',exact=True).check()
+            card.get_by_role('checkbox',name='Biểu đồ',exact=True).check()
+            card.get_by_role('button',name='Quay lại',exact=True).click()
+            expect(card.get_by_role('radio',name='Sáng',exact=True)).to_be_checked()
+            card.get_by_role('button',name='Tiếp',exact=True).click()
+            expect(card.get_by_role('checkbox',name='Bảng',exact=True)).to_be_checked()
+            expect(card.get_by_role('checkbox',name='Biểu đồ',exact=True)).to_be_checked()
+            check('step navigation preserves single and multiple selections')
+            card.get_by_role('button',name='Tiếp',exact=True).click()
+            card.get_by_role('button',name='Câu trả lời riêng',exact=True).click()
+            card.get_by_role('textbox',name='Câu trả lời riêng',exact=True).fill('Trong ứng dụng, sau 18 giờ')
+            page.reload()
+            expect(card).to_contain_text('Câu 3/3')
+            expect(card.get_by_role('textbox',name='Câu trả lời riêng',exact=True)).to_have_value('Trong ứng dụng, sau 18 giờ')
+            check('partial structured answer survives full reload')
+            page.wait_for_function('''()=>{const r=document.querySelector('#thread').getBoundingClientRect();return r.left>=0&&r.right<=innerWidth+0.5}''')
+            assert card.evaluate('(el)=>el.scrollWidth<=el.clientWidth+1')
+            assert page.evaluate('document.documentElement.scrollWidth<=innerWidth')
+            page.screenshot(path=str(OUT/'questions-edit-mobile.png'),animations='disabled')
+            check('editable question card fits a 390px viewport')
+            card.get_by_role('button',name='Xem lại',exact=True).click()
+            expect(card).to_contain_text('Bảng; Biểu đồ')
+            expect(card).to_contain_text('Trong ứng dụng, sau 18 giờ')
+            fixture.offline=True
+            card.get_by_role('button',name='Gửi câu trả lời',exact=True).click()
+            expect(card).to_contain_text('Đang chờ xác nhận')
+            assert 'Đã trả lời' not in card.inner_text()
+            page.reload()
+            expect(card).to_contain_text('Đang chờ xác nhận')
+            expect(card).to_contain_text('Bảng; Biểu đồ')
+            check('offline submission remains pending with all answers after reload')
+            fixture.offline=False
+            fixture.lose_response=True
+            expect(page.locator('.pending')).to_have_count(0,timeout=15000)
+            expect(card).to_contain_text('Đã trả lời')
+            accepted=[x for x in fixture.receipts.values() if x.get('answerFor')=='req-questions-fixture']
+            assert len(accepted)==1
+            sent=[x for x in fixture.posts if x.get('answerFor')=='req-questions-fixture']
+            assert len({x['clientNonce'] for x in sent})==1
+            assert sent[-1]['questionAnswers'][1]['selected']==[0,1]
+            assert sent[-1]['questionAnswers'][2]['text']=='Trong ứng dụng, sau 18 giờ'
+            check('lost response reuses the question receipt and complete structured payload')
+            page.screenshot(path=str(OUT/'questions-mobile.png'))
+            assert not errors,errors
+            check('question card has no uncaught browser errors')
+        except Exception:
+            print('BROWSER DIAGNOSTICS', json.dumps(page.evaluate('''()=>({ready:document.readyState,url:location.href,body:document.body.innerText.slice(-800),screens:[...document.querySelectorAll('.screen')].map(e=>({id:e.id,cls:e.className,transform:getComputedStyle(e).transform,bounds:e.getBoundingClientRect().toJSON()})),scripts:[...document.scripts].map(e=>e.src)})''')))
+            page.screenshot(path=str(OUT/'composer-failure.png'))
+            raise
         finally:
             browser.close()
 finally:

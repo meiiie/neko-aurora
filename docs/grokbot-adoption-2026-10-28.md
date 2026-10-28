@@ -28,10 +28,10 @@ Các implementation chính nằm trong [Aurora service](../app/native/internal/a
 ## Giới hạn của phần mới
 
 - Nhập bộ nhớ là thao tác của owner trên một bot, chưa có đọc/export trực tiếp từ tài khoản trợ lý khác. Bộ lọc bí mật dựa trên mẫu và các giá trị Vault đã biết, không phải bảo đảm phát hiện mọi bí mật.
-- Câu hỏi hỗ trợ một nhóm lựa chọn với câu trả lời riêng. Chưa triển khai thẻ nhiều câu hỏi từng bước. Form mới hoàn tất theo receipt; cờ hoàn tất đã lưu bằng phiên bản cũ được giữ để tương thích, không tự suy đoán lại nội dung lịch sử.
+- Câu hỏi hỗ trợ tối đa bốn bước, chọn một/nhiều phương án, câu trả lời riêng, bản nháp theo workspace và xem lại. Câu trả lời đi qua biên nhận journal; mới kiểm chứng bằng model/API fixture và trình duyệt, chưa đánh giá chất lượng model hay thiết bị thật. Form mới hoàn tất theo receipt; cờ hoàn tất đã lưu bằng phiên bản cũ được giữ để tương thích, không tự suy đoán lại nội dung lịch sử.
 - MCP được kiểm tra bằng remote transport giả lập; chưa có OAuth discovery/refresh hay acceptance Gmail/Outlook/GitHub thật. Trạng thái tạm thời nằm trong service đang chạy; restart không phải bằng chứng phục hồi phiên OAuth.
 - Bảng sao chép TSV và Markdown; chưa xuất định dạng Slack rich text, căn dấu thập phân, footnote hay mọi chế độ bảng của nguồn tham khảo.
-- Outbox là dữ liệu trong trình duyệt của thiết bị, không phải cloud sync. Tin đã bị từ chối không tự gửi lại khi đăng nhập hoặc hết quota; người dùng xem lịch sử rồi quyết định. Lượt gửi mới lưu toàn bộ nhóm và biên nhận trong một khung journal; retry giữ người nhận và tham chiếu đã pin kể cả sau restart. Lượt nhóm đã nhận một phần bằng phiên bản cũ vẫn trả conflict. Chi tiết định dạng và giới hạn trong [message admission](research/grokbot-message-admission-2026-10-28.md).
+- Outbox là dữ liệu trong trình duyệt của thiết bị, không phải cloud sync. Tin đã bị từ chối không tự gửi lại khi đăng nhập hoặc hết quota; người dùng xem lịch sử rồi quyết định. Lượt gửi mới lưu toàn bộ nhóm và biên nhận trong một khung journal; retry giữ người nhận và tham chiếu đã pin kể cả sau restart. Lượt nhóm cũ không có biên nhận batch vẫn trả conflict, kể cả khi các lượt thành phần đã được ghi. Chi tiết định dạng và giới hạn trong [message admission](research/grokbot-message-admission-2026-10-28.md).
 - Quota reservation giữ tối thiểu đến lần dọn sau 8 ngày và giới hạn 16.384 mục/workspace; lỗi admission sau reservation giữ lượt đã dành. Không tuyên bố exactly-once cho email, thanh toán hay công cụ bên ngoài.
 - Lịch dùng múi giờ Việt Nam và các kiểu lặp sẵn có. Kiểm tra revision là trên cùng server; chưa kiểm chứng bằng hai điện thoại thật. Occurrence đã chạy cần dừng bằng thao tác trong chat. Dữ liệu lịch vẫn dùng file hiện hữu, không phải bộ điều phối phân tán.
 - PWA là bề mặt đã kiểm tra. Chưa có acceptance Tauri, iOS/Android vật lý, APNs production hay đánh giá chất lượng model.
@@ -41,7 +41,7 @@ Các implementation chính nằm trong [Aurora service](../app/native/internal/a
 | Nhóm | Điểm tích hợp hiện có | Điều kiện để được ghi nhận hoàn thành |
 |---|---|---|
 | Connector, email và reconnect | `aurora/mcp.go`, `connectors.go`, `outbound/`, `connections/` | Đã có foundation MCP cục bộ; còn OAuth/provider-specific lifecycle, schema refresh, fake-provider contract từng dịch vụ rồi acceptance tài khoản được cấp phép. |
-| Chat, nhiều câu hỏi và form | `aurora/view.go`, `groups.go`, PWA | Đã có form theo receipt, fan-out nguyên tử, retry tham chiếu đã pin và nháp/tham chiếu/đường dẫn ảnh theo chat; còn nhiều câu hỏi có danh tính riêng, quoted reply và phục hồi upload đang dở sau crash. |
+| Chat, nhiều câu hỏi và form | `aurora/view.go`, `groups.go`, PWA | Đã có form theo receipt, fan-out nguyên tử, retry tham chiếu đã pin và nháp/tham chiếu/đường dẫn ảnh theo chat; đã bổ sung nhiều câu hỏi có danh tính riêng và biên nhận; còn quoted reply và phục hồi upload đang dở sau crash. |
 | Routine, webhook và handoff | `schedule.go`, `network.go`, ledger | Lịch phong phú, webhook có identity, reconnect refresh, nguồn/đích kết quả, hạn mức trigger và restart admission. |
 | Pages, Library và tài liệu | `documents/`, `documentworker/`, `artifacts.go`, UI file | Biên tập/lưu/xuất có version; phục hồi crash; kiểm tra cấu trúc và render nội dung thật, accessibility. |
 | Computer và browser | Rust host, Go computer, cloud-browser | Quyền theo hành động, cancellation, reconnect đúng thiết bị, artifact outcome; kiểm thử crash/unknown outcome và host thật. |
@@ -52,7 +52,7 @@ Các implementation chính nằm trong [Aurora service](../app/native/internal/a
 
 Mục đổi model để vượt một lần dừng của bộ lọc an toàn không được tiếp nhận. Fallback vì lỗi vận hành không phải cơ chế bỏ qua quyết định an toàn.
 
-Ưu tiên tiếp: câu hỏi nhiều bước; quoted reply; phục hồi upload đang dở sau crash; lifecycle OAuth/provider thật; lịch/webhook, tài liệu, voice và quyền nhóm. Mỗi mục cần bằng chứng riêng trong index; không tự chuyển trạng thái theo keyword hay theo việc có file tương tự. Chín dòng nguồn hiện có bằng chứng cục bộ một phần; 810 dòng vẫn chưa được ghi nhận có kiểm chứng tương ứng. Thay đổi admission là cải thiện độ bền của Aurora, không tự được tính thành hoàn tất thêm dòng changelog. Chi tiết lượt tiếp theo: [giữ nháp và ảnh theo chat](research/grokbot-composer-drafts-2026-10-28.md).
+Ưu tiên tiếp: quoted reply; phục hồi upload đang dở sau crash; lifecycle OAuth/provider thật; lịch/webhook, tài liệu, voice và quyền nhóm. Mỗi mục cần bằng chứng riêng trong index; không tự chuyển trạng thái theo keyword hay theo việc có file tương tự. Chín dòng nguồn hiện có bằng chứng cục bộ một phần; 810 dòng vẫn chưa được ghi nhận có kiểm chứng tương ứng. Thay đổi admission là cải thiện độ bền của Aurora, không tự được tính thành hoàn tất thêm dòng changelog. Chi tiết: [giữ nháp và ảnh theo chat](research/grokbot-composer-drafts-2026-10-28.md), [câu hỏi nhiều bước](research/grokbot-structured-questions-2026-10-28.md).
 
 ## Bằng chứng kiểm tra
 

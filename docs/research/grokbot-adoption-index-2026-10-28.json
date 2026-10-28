@@ -99,7 +99,7 @@
         "chat-navigation"
       ],
       "coverage": "partial-local-validation",
-      "implementation": "explicit-single-question-answer"
+      "implementation": "structured-multistep-questions-with-durable-answer-receipts"
     },
     {
       "id": "0.77.0-New-4",

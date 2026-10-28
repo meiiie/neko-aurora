@@ -232,8 +232,9 @@ function renderThread(){const a=cur;if(!a)return;$("#threadState").textContent=s
   // keyed reuse: a message whose data and context did not change keeps its
   // DOM (no markdown re-parse, open folds and inputs stay as they are)
   const later=m.choices&&m.choices.length?L.some(x=>x.answerFor===m.taskId)||outbox.some(x=>x.answerFor===m.taskId):false;
+  const questionState=m.questions?JSON.stringify([all.some(x=>x.answerFor===m.taskId),outbox.find(x=>x.answerFor===m.taskId&&x.agentId===a.id)||null]):"";
   const formState=m.form?JSON.stringify([all.some(x=>x.formFor===m.taskId),outbox.find(x=>x.formFor===m.taskId&&x.agentId===a.id)||null]):"";
-  const sig=JSON.stringify(m)+"|"+(idx===L.length-1&&!m.text?a.status:"")+"|"+later+"|"+showThink+"|"+formState+"|"+last.v+"|"+prevT;
+  const sig=JSON.stringify(m)+"|"+(idx===L.length-1&&!m.text?a.status:"")+"|"+later+"|"+showThink+"|"+formState+"|"+questionState+"|"+last.v+"|"+prevT;
   const hit=nodeCache.get(m.id);if(hit&&hit.sig===sig){hit.nodes.forEach(n=>frag.append(n));last.v=hit.lastV;prevT=hit.prevT;return}
   const n0=frag.childNodes.length,isNew=!first&&!shownIds.has(m.id)&&!(m.role==="user"&&sentRecently(m.text));if(!first&&!shownIds.has(m.id))seenAt.set(m.id,Date.now());shownIds.add(m.id);if(m.role!=="agent")last.v=null;const t=T(m.t);if(m.role==="user"&&t>0&&(!prevT||t-prevT>15*60e3))frag.append(el("div","daystamp",dayStamp(t)));if(t>0)prevT=t;
   const cp=m.role==="agent"&&AURORA_UX.isCheckpoint(m.text),body=cp?m.text.trim().slice(0,-AURORA_UX.CHECKPOINT.length).trim():m.text;
@@ -245,6 +246,7 @@ function renderThread(){const a=cur;if(!a)return;$("#threadState").textContent=s
   if(m.plan)frag.append(planCard(m));
   if(m.choices&&m.choices.length){const wrap=el("div","choices");const answered=L.some(x=>x.answerFor===m.taskId)||outbox.some(x=>x.answerFor===m.taskId);const choose=text=>sendMsg(text,{answerFor:m.taskId});m.choices.forEach(ch=>{const b=el("button","choice",ch);b.dataset.noi18n="";b.disabled=answered;b.onclick=()=>choose(ch);wrap.append(b)});
    if(!answered){const f=el("form","choice-custom"),input=el("input"),go=el("button","pill soft","Trả lời");input.placeholder="Câu trả lời khác";input.setAttribute("aria-label","Câu trả lời khác");input.maxLength=10000;go.type="submit";f.append(input,go);f.onsubmit=e=>{e.preventDefault();if(choose(input.value))input.value=""};wrap.append(f)}frag.append(wrap)}
+  if(m.questions?.length)frag.append(window.AURORA_QUESTIONS.create({message:m,pending:outbox.find(x=>x.answerFor===m.taskId&&x.agentId===a.id),answered:all.some(x=>x.answerFor===m.taskId),workspaceId:S.workspaceId,storage:draftStorage,send:sendMsg,notice:toast}));
   if(m.form)frag.append(formCard(m));
   if(m.tools&&m.tools.length&&(m.text||m.approval)&&!(a.status==="working"&&idx===L.length-1&&!m.text))frag.append(sourceList(m));
   if(m.approval)frag.append(approvalCard(m));if(m.secret)frag.append(secretCard(m));mark(n0,isNew);nodeCache.set(m.id,{sig,nodes:[...frag.childNodes].slice(n0),lastV:last.v,prevT})});
@@ -304,7 +306,7 @@ const atBottom=b=>b.scrollHeight-b.scrollTop-b.clientHeight<120;let justSent=fal
 let stick=true,stickFor=null;
 const dayStamp=t=>{const d=new Date(t),n=new Date(),y=new Date(n-864e5);const hm=d.toLocaleTimeString("vi-VN",{hour:"2-digit",minute:"2-digit"});return(d.toDateString()===n.toDateString()?"Hôm nay ":d.toDateString()===y.toDateString()?"Hôm qua ":d.toLocaleDateString("vi-VN",{day:"numeric",month:"numeric"})+" ")+hm};
 function syncJump(){const b=$("#messages");$("#jumpBtn").classList.toggle("hidden",atBottom(b))}
-const visible=t=>{const i=t.search(/(^|\n)\s*(APPROVAL|PLAN|CHOICES|TOOL|SECRET):|(APPROVAL|PLAN|CHOICES|TOOL|SECRET):\s*[\[{]/);return(i>=0?t.slice(0,i):t).trim()||"…"};
+const visible=t=>{const i=t.search(/(^|\n)\s*(APPROVAL|PLAN|CHOICES|QUESTIONS|TOOL|SECRET):|(APPROVAL|PLAN|CHOICES|QUESTIONS|TOOL|SECRET):\s*[\[{]/);return(i>=0?t.slice(0,i):t).trim()||"…"};
 // A draft is painted only once it has a letter or digit: a lone "-" or "**"
 // at the start of a streamed step must not flash as its own bubble.
 function shown(d){const t=visible(d.text||"");return Date.now()-(d.t0||0)>=450&&/[\p{L}\p{N}]/u.test(t)&&/\s/.test(t.trim())} // a whole first word, never a lone "Đ"
@@ -335,7 +337,7 @@ const MAX_MSG=10000;
 function sendMsg(text,options={}){const a=cur;text=text.trim();if(!a||!text)return false;
  if([...text].length>MAX_MSG){toast(`Tin quá dài (tối đa ${MAX_MSG.toLocaleString("vi-VN")} ký tự). Chia nhỏ hoặc gửi dạng file nhé.`);return false}
  const ref=!options.answerFor&&!options.formFor&&pendingRef&&pendingRef.for===a.id?pendingRef.id:undefined;
- const it={agentId:a.id,text,ref,workspaceId:S.workspaceId,answerFor:options.answerFor,formFor:options.formFor,formValues:options.formValues,n:options.formFor?"form-"+options.formFor:options.answerFor?"choice-"+options.answerFor:window.AURORA_OUTBOX.nonce(),t:Date.now()};
+ const it={agentId:a.id,text,ref,workspaceId:S.workspaceId,answerFor:options.answerFor,formFor:options.formFor,formValues:options.formValues,questionAnswers:options.questionAnswers,n:options.formFor?"form-"+options.formFor:options.answerFor?"choice-"+options.answerFor:window.AURORA_OUTBOX.nonce(),t:Date.now()};
  if(outbox.some(x=>x.n===it.n))return false;
  try{outboxStore.put(it)}catch{toast("Chưa lưu được tin trên thiết bị. Nội dung vẫn còn; kiểm tra dung lượng lưu trữ rồi thử lại.");return false}
  if(!options.answerFor&&!options.formFor)setRef(null);sent.set(text,Date.now());outbox.push(it);buzz("tap");renderThread();pump();return true}
@@ -344,7 +346,7 @@ function pendingCard(it){const b=el("div","msg mine pending"+(it.shown?"":" ente
  if(it.error){const note=el("p","caption",it.error);note.setAttribute("role","status");b.append(note);const copy=el("button","pill soft","Sao chép nội dung");copy.onclick=async()=>{try{await navigator.clipboard.writeText(it.text);toast("Đã sao chép")}catch{toast("Chưa sao chép được")}};const remove=el("button","pill soft","Bỏ khỏi hàng đợi");remove.onclick=()=>{try{dropOutbox(it);renderThread()}catch{toast("Chưa xóa được tin trên thiết bị")}};b.append(copy,remove)}else b.append(el("span","chip",it.wait?"đang chờ gửi…":"đang gửi…"));return b}
 async function pump(){if(pumping||!S.workspaceId)return;pumping=true;try{for(;;){const it=outbox.find(x=>!x.error);if(!it)break;
   if(Date.now()-it.t>window.AURORA_OUTBOX.MAX_AGE){it.error="Tin đã cũ. Sao chép để xem lại trước khi gửi mới.";try{outboxStore.put(it)}catch{};continue}
-  try{const m=await api(`/agents/${it.agentId}/messages`,{text:it.text,clientNonce:it.n,ref:it.ref,workspaceId:it.workspaceId,answerFor:it.answerFor,formFor:it.formFor});dropOutbox(it);
+  try{const m=await api(`/agents/${it.agentId}/messages`,{text:it.text,clientNonce:it.n,ref:it.ref,workspaceId:it.workspaceId,answerFor:it.answerFor,formFor:it.formFor,questionAnswers:it.questionAnswers});dropOutbox(it);
    if(S.workspaceId!==it.workspaceId)continue;
    if(m&&m.id){const L=S.msgs[it.agentId]||(S.msgs[it.agentId]=[]);if(!L.some(x=>x.id===m.id))L.push(m)}if(cur&&cur.id===it.agentId)renderThread()}
   catch(e){if(S.workspaceId!==it.workspaceId)continue;

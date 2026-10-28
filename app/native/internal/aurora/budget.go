@@ -127,7 +127,7 @@ func (s *Service) unfinished(w ledger.Work, d directives) (directives, bool) {
 	if s.networkPeerWork(w) {
 		return d, false
 	}
-	if !computerTask(w) || s.PC == nil || len(d.Choices) > 0 || d.Secret != nil {
+	if !computerTask(w) || s.PC == nil || len(d.Choices) > 0 || len(d.Questions) > 0 || d.Secret != nil {
 		return d, false
 	}
 	open := s.openItems(w.BotID)

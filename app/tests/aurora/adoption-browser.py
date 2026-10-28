@@ -291,6 +291,10 @@ with sync_playwright() as p:
         page.keyboard.press('Escape')
         check('no uncaught browser errors', not errors)
         print('PASS browser fixture suite; desktop 1280x900 and mobile viewport 390x844')
+    except Exception:
+        print('BROWSER DIAGNOSTICS', json.dumps(page.evaluate('''()=>({ready:document.readyState,url:location.href,body:document.body.innerText.slice(-800),app:!!window.__AURORA,resources:performance.getEntriesByType('resource').map(e=>({name:e.name,duration:e.duration,size:e.transferSize}))})''')))
+        page.screenshot(path=str(OUT/'adoption-failure.png'))
+        raise
     finally:
         browser.close()
         if server:

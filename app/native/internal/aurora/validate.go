@@ -488,7 +488,7 @@ var promiseTailRe = regexp.MustCompile(`(?i)(mình|em|tôi|tớ)\s+(sẽ|giờ|b
 // continueNudge says why a reply without a tool call must not end the turn:
 // open checklist items, or a last paragraph that announces more work.
 func (s *Service) continueNudge(w ledger.Work, d directives) string {
-	if s.PC == nil || len(d.Tools) > 0 || d.Approval != nil || len(d.Choices) > 0 || !computerTask(w) || s.buildExhausted(w.BotID) {
+	if s.PC == nil || len(d.Tools) > 0 || d.Approval != nil || len(d.Choices) > 0 || len(d.Questions) > 0 || !computerTask(w) || s.buildExhausted(w.BotID) {
 		return ""
 	}
 	s.noteImpossible(w.BotID, d.Text)

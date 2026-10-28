@@ -258,8 +258,13 @@ func TestEmailRecipientGuard(t *testing.T) {
 }
 
 func TestSteeringSupersedesAndStop(t *testing.T) {
+	started := make(chan struct{}, 1)
 	slow := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/event-stream")
+		select {
+		case started <- struct{}{}:
+		default:
+		}
 		for i := 0; i < 200; i++ {
 			fmt.Fprintf(w, "data: {\"choices\":[{\"delta\":{\"content\":\"x \"}}]}\n\n")
 			w.(http.Flusher).Flush()
@@ -278,15 +283,28 @@ func TestSteeringSupersedesAndStop(t *testing.T) {
 	defer srv.Close()
 	bot := firstBot(svc)
 	post(t, srv.URL+"/app/api/agents/"+bot+"/messages", `{"text":"việc dài"}`)
-	time.Sleep(400 * time.Millisecond)
-	post(t, srv.URL+"/app/api/agents/"+bot+"/messages", `{"text":"thêm việc"}`)
-	ms := svc.view().messages(bot, 0)
-	if !ms[len(ms)-1].Queued {
-		t.Fatalf("follow-up not marked queued %+v", ms[len(ms)-1])
+	select {
+	case <-started:
+	case <-time.After(5 * time.Second):
+		t.Fatal("initial turn did not reach the model fixture")
+	}
+	r := post(t, srv.URL+"/app/api/agents/"+bot+"/messages", `{"text":"thêm việc"}`)
+	var receipt Message
+	json.NewDecoder(r.Body).Decode(&receipt)
+	r.Body.Close()
+	v := svc.view()
+	found := false
+	for _, m := range v.messages(bot, 0) {
+		if m.Role == "user" && m.TaskID == receipt.TaskID {
+			found = m.Queued || v.steeredBy()[m.TaskID] != ""
+		}
+	}
+	if !found {
+		t.Fatal("follow-up was neither queued nor journaled as absorbed by the running turn")
 	}
 	post(t, srv.URL+"/app/api/agents/"+bot+"/stop", `{}`)
 	waitTask(t, svc, bot)
-	v := svc.view()
+	v = svc.view()
 	b, _ := v.bot(bot)
 	if a := v.agent(b, botPrefs{}); a.Status != "idle" {
 		t.Fatalf("status %s %s", a.Status, a.Snip)

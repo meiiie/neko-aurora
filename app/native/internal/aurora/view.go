@@ -74,28 +74,29 @@ type Plan struct {
 type Approval = ledger.DirectApproval
 
 type Message struct {
-	AnswerFor     string                `json:"answerFor,omitempty"`
-	FormFor       string                `json:"formFor,omitempty"`
-	ID            string                `json:"id"`
-	TaskID        string                `json:"taskId"`
-	AgentID       string                `json:"agentId"`
-	Role          string                `json:"role"` // user|agent|system
-	Text          string                `json:"text"`
-	Approval      *Approval             `json:"approval,omitempty"`
-	Plan          *Plan                 `json:"plan,omitempty"`
-	Choices       []string              `json:"choices,omitempty"`
-	Secret        *ledger.DirectSecret  `json:"secret,omitempty"`
-	Tools         []ledger.DirectTool   `json:"tools,omitempty"`
-	Sources       []ledger.DirectSource `json:"sources,omitempty"`
-	Queued        bool                  `json:"queued,omitempty"`
-	Ref           string                `json:"ref,omitempty"`  // name of a chat attached as context
-	From          string                `json:"from,omitempty"` // speaking bot, in group threads
-	Origin        string                `json:"origin,omitempty"`
-	FromName      string                `json:"fromName,omitempty"`
-	PeerMessageID string                `json:"peerMessageId,omitempty"`
-	Thinking      string                `json:"thinking,omitempty"` // folded model reasoning (thinking toggle)
-	Form          *form                 `json:"form,omitempty"`     // interactive form card
-	Created       time.Time             `json:"t"`
+	AnswerFor     string                  `json:"answerFor,omitempty"`
+	FormFor       string                  `json:"formFor,omitempty"`
+	ID            string                  `json:"id"`
+	TaskID        string                  `json:"taskId"`
+	AgentID       string                  `json:"agentId"`
+	Role          string                  `json:"role"` // user|agent|system
+	Text          string                  `json:"text"`
+	Approval      *Approval               `json:"approval,omitempty"`
+	Plan          *Plan                   `json:"plan,omitempty"`
+	Choices       []string                `json:"choices,omitempty"`
+	Questions     []ledger.DirectQuestion `json:"questions,omitempty"`
+	Secret        *ledger.DirectSecret    `json:"secret,omitempty"`
+	Tools         []ledger.DirectTool     `json:"tools,omitempty"`
+	Sources       []ledger.DirectSource   `json:"sources,omitempty"`
+	Queued        bool                    `json:"queued,omitempty"`
+	Ref           string                  `json:"ref,omitempty"`  // name of a chat attached as context
+	From          string                  `json:"from,omitempty"` // speaking bot, in group threads
+	Origin        string                  `json:"origin,omitempty"`
+	FromName      string                  `json:"fromName,omitempty"`
+	PeerMessageID string                  `json:"peerMessageId,omitempty"`
+	Thinking      string                  `json:"thinking,omitempty"` // folded model reasoning (thinking toggle)
+	Form          *form                   `json:"form,omitempty"`     // interactive form card
+	Created       time.Time               `json:"t"`
 }
 
 type Brief struct {
@@ -187,7 +188,7 @@ func taskStatus(w ledger.Work) TaskStatus {
 	switch {
 	case w.Direct != nil && w.Direct.Approval != nil && w.Direct.Approval.State == "pending":
 		return TaskWaitingApproval
-	case w.Direct != nil && len(w.Direct.Choices) > 0 && w.Status == "completed":
+	case w.Direct != nil && (len(w.Direct.Choices) > 0 || len(w.Direct.Questions) > 0) && w.Status == "completed":
 		return TaskWaitingInput
 	case w.Status == "waiting_host":
 		return TaskQueued
@@ -383,8 +384,8 @@ func workMessages(w ledger.Work, botRunning bool) []*Message {
 		}
 	}
 	reply := visibleText(w.Reply)
-	if reply != "" || d.Approval != nil || len(d.Choices) > 0 || d.Secret != nil || len(d.Tools) > 0 {
-		m := &Message{ID: w.RequestID, TaskID: w.RequestID, AgentID: w.BotID, Role: "agent", Text: reply, Choices: append([]string(nil), d.Choices...), Created: at}
+	if reply != "" || d.Approval != nil || len(d.Choices) > 0 || len(d.Questions) > 0 || d.Secret != nil || len(d.Tools) > 0 {
+		m := &Message{ID: w.RequestID, TaskID: w.RequestID, AgentID: w.BotID, Role: "agent", Text: reply, Choices: append([]string(nil), d.Choices...), Questions: ledger.CopyDirectQuestions(d.Questions), Created: at}
 		if d.Approval != nil {
 			a := *d.Approval
 			m.Approval = &a

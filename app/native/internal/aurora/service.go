@@ -687,12 +687,13 @@ func (s *Service) routes() {
 	})
 	m.HandleFunc("POST /app/api/agents/{id}/messages", func(w http.ResponseWriter, r *http.Request) {
 		var in struct {
-			Text        string `json:"text"`
-			Nonce       string `json:"clientNonce"`
-			Ref         string `json:"ref"` // another chat to add as context (DS Bot "Reference a chat")
-			WorkspaceID string `json:"workspaceId"`
-			AnswerFor   string `json:"answerFor"`
-			FormFor     string `json:"formFor"`
+			Text            string           `json:"text"`
+			Nonce           string           `json:"clientNonce"`
+			Ref             string           `json:"ref"` // another chat to add as context (DS Bot "Reference a chat")
+			WorkspaceID     string           `json:"workspaceId"`
+			AnswerFor       string           `json:"answerFor"`
+			FormFor         string           `json:"formFor"`
+			QuestionAnswers []questionAnswer `json:"questionAnswers"`
 		}
 		if err := decode(r, &in); err != nil {
 			fail(w, err)
@@ -708,16 +709,6 @@ func (s *Service) routes() {
 			return
 		}
 		id := r.PathValue("id")
-		if utf8.RuneCountInString(in.Text) > maxMsgRunes || len(in.Text) > 32000 {
-			// never silently cut what the owner wrote (dogfood 2026-10-23)
-			writeJSON(w, http.StatusRequestEntityTooLarge, map[string]any{"error": "too_long", "max": maxMsgRunes})
-			return
-		}
-		text := clean(in.Text, maxMsgRunes)
-		if text == "" {
-			fail(w, ErrInvalid)
-			return
-		}
 		nonce := in.Nonce
 		if len(nonce) < 8 || len(nonce) > 100 {
 			nonce = newID("aurora-")
@@ -733,13 +724,38 @@ func (s *Service) routes() {
 			fail(w, ErrInvalid)
 			return
 		}
+		answerBot := ""
 		if in.AnswerFor != "" {
 			question, err := s.L.Get(in.AnswerFor)
-			if err != nil || threadOf(question) != id || question.Direct == nil || len(question.Direct.Choices) == 0 || nonce != "choice-"+in.AnswerFor || in.Ref != "" {
+			if err != nil || threadOf(question) != id || question.Direct == nil || len(question.Direct.Choices) == 0 && len(question.Direct.Questions) == 0 || nonce != "choice-"+in.AnswerFor || in.Ref != "" {
 				fail(w, ErrInvalid)
 				return
 			}
-		} else if strings.HasPrefix(nonce, "choice-") {
+			answerBot = question.BotID
+			if len(question.Direct.Questions) > 0 {
+				if question.Status != "completed" {
+					fail(w, ErrInvalid)
+					return
+				}
+				in.Text, err = questionAnswerText(question.Direct.Questions, in.QuestionAnswers)
+				if err != nil {
+					fail(w, err)
+					return
+				}
+			} else if len(in.QuestionAnswers) > 0 {
+				fail(w, ErrInvalid)
+				return
+			}
+		} else if strings.HasPrefix(nonce, "choice-") || len(in.QuestionAnswers) > 0 {
+			fail(w, ErrInvalid)
+			return
+		}
+		if utf8.RuneCountInString(in.Text) > maxMsgRunes || len(in.Text) > 32000 {
+			writeJSON(w, http.StatusRequestEntityTooLarge, map[string]any{"error": "too_long", "max": maxMsgRunes})
+			return
+		}
+		text := clean(in.Text, maxMsgRunes)
+		if text == "" {
 			fail(w, ErrInvalid)
 			return
 		}
@@ -747,7 +763,7 @@ func (s *Service) routes() {
 			fail(w, ErrNotFound)
 			return
 		}
-		works, duplicate, err := s.acceptMessage(id, text, nonce, in.Ref)
+		works, duplicate, err := s.acceptMessage(id, text, nonce, in.Ref, answerBot)
 		if err != nil {
 			fail(w, err)
 			return

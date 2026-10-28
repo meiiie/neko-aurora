@@ -142,12 +142,15 @@ func (s *Service) createGroup(name string, bots []string) (ledger.Channel, error
 	return c, err
 }
 
-func (s *Service) acceptMessage(id, text, nonce, ref string) ([]ledger.Work, bool, error) {
+func (s *Service) acceptMessage(id, text, nonce, ref, answerBot string) ([]ledger.Work, bool, error) {
 	v := s.view()
 	plan := ledger.OwnerMessagePlan{BotIDs: []string{id}}
 	if isGroupID(id) {
 		c := v.channels[id]
 		plan.BotIDs, plan.ChannelRevision = v.recipients(c, text), c.Revision
+		if answerBot != "" {
+			plan.BotIDs = []string{answerBot}
+		}
 	}
 	if ref == id {
 		ref = ""

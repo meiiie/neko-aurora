@@ -30,6 +30,7 @@ Quy tắc:
 - Cuối câu trả lời, bạn có thể thêm các dòng chỉ thị (mỗi loại tối đa một dòng, đúng JSON):
 PLAN: ["bước 1","bước 2"]   ← khi việc gồm nhiều phần (tra nhiều thứ, so sánh rồi viết báo cáo, lên lịch nhiều hạng mục): 3-6 bước ngắn, bước cuối là tổng hợp kết quả; khi đó phần trả lời chỉ cần 1 câu nêu cách làm, chưa tra cứu.
 CHOICES: ["lựa chọn A","lựa chọn B"]   ← khi cần Darren chọn nhanh (2-4 lựa chọn ngắn).
+QUESTIONS: [{"prompt":"Bạn muốn kết quả nào?","options":["Bản tóm tắt","Báo cáo đầy đủ"],"multiple":false}]   ← hỏi 1–4 câu trong một thẻ từng bước; mỗi câu có 2–8 lựa chọn, multiple=true nếu được chọn nhiều. Luôn có câu trả lời riêng. Không dùng cùng CHOICES; chỉ hỏi thông tin thật sự còn thiếu.
 APPROVAL: {"title":"<việc cần duyệt>","kind":"email|send|post|pay|other","to":"<email nếu là email>","subject":"<tiêu đề nếu là email>","body":"<toàn bộ nội dung đã soạn>"}   ← bắt buộc cho mọi hành động ra bên ngoài.
 SECRET: {"name":"TEN_IN_HOA","label":"<tên hiển thị>","desc":"<vì sao cần, lấy ở đâu>"}   ← khi cần Darren cung cấp mật khẩu/khoá API. Darren nhập vào thẻ ẩn, giá trị vào kho bí mật, bạn không bao giờ thấy. Không bao giờ xin Darren dán bí mật vào chat. Khi việc cần một mật khẩu/khoá chưa có, LUÔN thêm dòng SECRET (không chỉ mô tả bằng lời). Mật khẩu ứng dụng Gmail dùng tên GMAIL_APP_PASSWORD.
 TOOL: {"name":"web_search","q":"<truy vấn>"} | {"name":"web_fetch","url":"https://..."} | {"name":"gold_price"} | {"name":"chat_search","q":"<từ khoá>"} (tìm lại điều Darren/bạn đã nói trong các chat cũ, kể cả phần đã bị rút gọn)   ← công cụ đọc dữ liệu thật trên máy chủ. Khi cần số liệu/tin tức hiện tại mà chưa có trong KẾT QUẢ CÔNG CỤ, in dòng TOOL rồi dừng; nhiều tra cứu độc lập (vd. giá từng mặt hàng) thì in tối đa 3 dòng TOOL cùng lúc, hệ thống chạy song song rồi gọi lại bạn.
@@ -40,14 +41,15 @@ MEMORY: {"text":"<một sở thích/bối cảnh lâu dài Darren vừa nói rõ
 - Không bao giờ nhắc tên kỹ thuật của công cụ hay chỉ thị (web_search, web_fetch, gold_price, TOOL…) trong câu trả lời; nói bằng lời thường như "tìm trên web", "đọc trang".
 - Với email: kind là "email", dùng đúng địa chỉ Darren đưa; không lặp lại toàn văn thư ở phần trả lời.`
 
-var gluedDirective = regexp.MustCompile(`([^\s\n])[ \t]*((?:PLAN|CHOICES|APPROVAL|SECRET|TOOL|MEMORY|HANDOFF|SCHEDULE|FORM):\s*[\[{])`)
+var gluedDirective = regexp.MustCompile(`([^\s\n])[ \t]*((?:PLAN|CHOICES|QUESTIONS|APPROVAL|SECRET|TOOL|MEMORY|HANDOFF|SCHEDULE|FORM):\s*[\[{])`)
 
-var directiveRe = regexp.MustCompile(`(?m)^\s*(PLAN|CHOICES|APPROVAL|SECRET|TOOL|MEMORY|HANDOFF|SCHEDULE|FORM):\s*(.+?)\s*$`)
+var directiveRe = regexp.MustCompile(`(?m)^\s*(PLAN|CHOICES|QUESTIONS|APPROVAL|SECRET|TOOL|MEMORY|HANDOFF|SCHEDULE|FORM):\s*(.+?)\s*$`)
 
 type directives struct {
 	Text        string
 	Plan        []string
 	Choices     []string
+	Questions   []ledger.DirectQuestion
 	Approval    *Approval
 	Secret      *ledger.DirectSecret
 	Tools       []toolReq // independent lookups, run in parallel (max 3)
@@ -149,6 +151,7 @@ func ParseDirectives(text string) directives {
 	text = gluedDirective.ReplaceAllString(text, "$1\n$2")
 	// APPROVAL bodies may span lines; handle it first with the dedicated parser.
 	text, d.Approval = SplitApproval(text)
+	text, d.Questions = splitQuestions(text)
 	for _, m := range directiveRe.FindAllStringSubmatch(text, -1) {
 		if m[1] == "TOOL" {
 			var t toolReq
@@ -167,6 +170,12 @@ func ParseDirectives(text string) directives {
 		if m[1] == "FORM" {
 			if f := parseForm(m[2]); f != nil {
 				d.Form = f
+			}
+			continue
+		}
+		if m[1] == "QUESTIONS" {
+			if questions := parseQuestions(m[2]); questions != nil {
+				d.Questions = questions
 			}
 			continue
 		}
@@ -227,6 +236,9 @@ func ParseDirectives(text string) directives {
 		}
 	}
 	d.Text = strings.TrimSpace(directiveRe.ReplaceAllString(text, ""))
+	if len(d.Questions) > 0 {
+		d.Choices = nil
+	}
 	if d.Form != nil && d.Text == "" {
 		d.Text = "Bạn điền giúp mình mấy thông tin này nhé."
 	}
@@ -553,7 +565,7 @@ func (s *Service) runWork(w ledger.Work) {
 	defer cancel()
 	go s.watchCancel(ctx, cancel, w.RequestID)
 	go s.holdLease(ctx, w.RequestID)
-	appr, choices, err := s.runTurn(ctx, w)
+	appr, questions, err := s.runTurn(ctx, w)
 	if err != nil {
 		cur, gerr := s.L.Get(w.RequestID)
 		if gerr == nil && cur.Status == "cancelling" {
@@ -609,7 +621,12 @@ func (s *Service) runWork(w ledger.Work) {
 		if appr != nil {
 			d.Approval = appr
 		}
-		d.Choices = choices
+		d.Choices = nil
+		d.Questions = nil
+		if questions != nil {
+			d.Choices = append([]string(nil), questions.Choices...)
+			d.Questions = ledger.CopyDirectQuestions(questions.Questions)
+		}
 	})
 	if appr != nil && appr.Kind == "computer" && !s.networkPeerWork(w) {
 		s.supersedeCommands(w.BotID, w.RequestID)
@@ -630,7 +647,7 @@ func (s *Service) runWork(w ledger.Work) {
 	switch {
 	case appr != nil:
 		s.notify(name+" cần bạn duyệt", appr.Title, "/app/#"+threadOf(w))
-	case len(choices) > 0:
+	case questions != nil:
 		s.notify(name+" cần bạn chọn", "Chọn một phương án để tiếp tục", "/app/#"+threadOf(w))
 	default:
 		s.notify(name, "Đã xong việc bạn giao.", "/app/#"+threadOf(w))
@@ -723,11 +740,11 @@ func promiseOnly(d directives) bool {
 		return true
 	}
 	t := strings.TrimSpace(d.Text)
-	return len(d.Tools) == 0 && d.Approval == nil && d.Secret == nil && len(d.Plan) == 0 && len(d.Choices) == 0 &&
+	return len(d.Tools) == 0 && d.Approval == nil && d.Secret == nil && len(d.Plan) == 0 && len(d.Choices) == 0 && len(d.Questions) == 0 &&
 		t != "" && len([]rune(t)) < 220 && !strings.Contains(t, "?") && promiseRe.MatchString(t)
 }
 
-func (s *Service) runTurn(ctx context.Context, w ledger.Work) (*Approval, []string, error) {
+func (s *Service) runTurn(ctx context.Context, w ledger.Work) (*Approval, *questionSet, error) {
 	start := time.Now()
 	tc := &toolCtx{}
 	if !s.networkPeerWork(w) {
@@ -882,11 +899,11 @@ func (s *Service) runTurn(ctx context.Context, w ledger.Work) (*Approval, []stri
 		s.update(w.RequestID, func(r *ledger.DirectRun) { r.Secret = &sec })
 		s.record(w.BotID, w.RequestID, "secret", "Xin bí mật "+sec.Name)
 	}
-	if len(d.Plan) < 2 || d.Approval != nil {
+	if len(d.Plan) < 2 || d.Approval != nil || len(d.Questions) > 0 {
 		if d.Approval == nil {
 			s.verifyFinal(ctx, w, tc, &d)
 		}
-		return d.Approval, d.Choices, s.appendText(w.RequestID, normalizeCites(d.Text, len(tc.sources)))
+		return d.Approval, questionsOf(d), s.appendText(w.RequestID, normalizeCites(d.Text, len(tc.sources)))
 	}
 	steps := make([]Step, len(d.Plan))
 	for i, t := range d.Plan {
@@ -939,10 +956,10 @@ func (s *Service) runTurn(ctx context.Context, w ledger.Work) (*Approval, []stri
 		if len(sd.Choices) > 0 && sd.Approval == nil && (len([]rune(sd.Text)) > 300 || !strings.Contains(sd.Text, "?")) {
 			sd.Choices = nil // a finished step offering options is not a real question
 		}
-		if sd.Approval != nil || len(sd.Choices) > 0 {
+		if sd.Approval != nil || len(sd.Choices) > 0 || len(sd.Questions) > 0 {
 			setStep(i, "waiting")
 			s.endDraft(w)
-			return sd.Approval, sd.Choices, s.appendText(w.RequestID, normalizeCites(sd.Text, len(tc.sources)))
+			return sd.Approval, questionsOf(sd), s.appendText(w.RequestID, normalizeCites(sd.Text, len(tc.sources)))
 		}
 		note := normalizeCites(clean(scrubInternal(stepNote(sd.Text)), 1500), len(tc.sources))
 		tc.note(fmt.Sprintf("KẾT QUẢ BƯỚC %d (%s): %s", i+1, title, note))
@@ -967,13 +984,13 @@ func (s *Service) runTurn(ctx context.Context, w ledger.Work) (*Approval, []stri
 		return nil, nil, err
 	}
 	s.endDraft(w)
-	return fd.Approval, fd.Choices, nil
+	return fd.Approval, questionsOf(fd), nil
 }
 
 // verifyFinal: a final reply of a computer task that claims files which do
 // not exist is asked once more (with the real file list), then rewritten.
 func (s *Service) verifyFinal(ctx context.Context, w ledger.Work, tc *toolCtx, d *directives) {
-	if s.PC == nil || !computerTask(w) {
+	if s.PC == nil || !computerTask(w) || len(d.Questions) > 0 {
 		return
 	}
 	_, bad := s.verifyClaims(w.BotID, d.Text, true)
