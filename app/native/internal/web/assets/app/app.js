@@ -48,9 +48,20 @@ async function loadState(){const st=await api("/state");if(S.workspaceId&&S.work
 async function loadMsgs(id){S.msgs[id]=await api(`/agents/${id}/messages`);if(cur&&cur.id===id)renderThread()}
 // ---------- unread (device-local: last time each conversation was seen) ----------
 const store={get(k,d){try{const v=localStorage.getItem(k);return v==null?d:JSON.parse(v)}catch{return d}},set(k,v){try{localStorage.setItem(k,JSON.stringify(v))}catch{}}};
-let seen=store.get("neko-aurora-seen",null);
-function seedSeen(){if(seen)return;seen={};const now=Date.now();S.agents.forEach(a=>seen[a.id]=now);store.set("neko-aurora-seen",seen)}
-const markSeen=id=>{if(!seen)seen={};seen[id]=Date.now();store.set("neko-aurora-seen",seen)};
+const seenByWorkspace=new Map();let seen=null,seenKey="";
+function seedSeen(){
+ const key=typeof S.workspaceId==="string"&&S.workspaceId?"aurora.seen.v1."+encodeURIComponent(S.workspaceId):"";
+ if(seen&&seenKey===key)return;
+ seenKey=key;
+ if(seenByWorkspace.has(key)){seen=seenByWorkspace.get(key);return}
+ const saved=key?store.get(key,null):null;seen=Object.create(null);
+ if(saved&&typeof saved==="object"&&!Array.isArray(saved)){
+  for(const [id,time] of Object.entries(saved))if(typeof time==="number"&&Number.isFinite(time)&&time>=0&&time<=8640000000000000)seen[id]=time;
+ }else{const now=Date.now();S.agents.forEach(a=>seen[a.id]=now)}
+ seenByWorkspace.set(key,seen);if(key)store.set(key,seen);
+}
+function setSeen(id,time){if(!seen)return;seen[id]=Number.isFinite(time)?Math.max(0,time):0;if(seenKey)store.set(seenKey,seen)}
+const markSeen=id=>setSeen(id,Date.now());
 const unread=a=>!(cur&&cur.id===a.id)&&a.status!=="working"&&T(a.t)>(seen&&seen[a.id]!=null?seen[a.id]:0);
 // ---------- live events (SSE) ----------
 let es,esDown=false;
@@ -130,7 +141,7 @@ function openCtx(a,from){if(ctxOpen||sheetOpen)return;closeMenu();if(openRow)clo
  const menu=el("div","ctx-menu glass");menu.setAttribute("role","menu");
  const un=unread(a),hid=store.get("neko-aurora-hidden",[]),isHid=hid.includes(a.id);
  menu.append(
-  ctxItem("message-square-dot",un?"Đánh dấu đã đọc":"Đánh dấu chưa đọc",()=>{if(un)markSeen(a.id);else{if(!seen)seen={};seen[a.id]=T(a.t)-1;store.set("neko-aurora-seen",seen)}closeCtx();renderList();buzz("confirm")},{id:"ctxUnread"}),
+  ctxItem("message-square-dot",un?"Đánh dấu đã đọc":"Đánh dấu chưa đọc",()=>{if(un)markSeen(a.id);else setSeen(a.id,T(a.t)-1);closeCtx();renderList();buzz("confirm")},{id:"ctxUnread"}),
   isGroup(a)?null:ctxItem("pin",a.pin?"Bỏ ghim":"Ghim",()=>{closeCtx();api(`/agents/${a.id}`,{pin:!a.pin}).then(x=>{upsert(x);renderList();buzz("confirm");toast(x.pin?"Đã ghim":"Đã bỏ ghim")}).catch(()=>toast("Không ghim được"))},{id:"ctxPin"}),
   ctxItem("folder-plus","Mục mới",b=>newSection(menu,a),{id:"ctxSection"}),
   ctxItem("share","Chia sẻ",()=>{closeCtx();const url=location.origin+"/app/#"+a.id;if(navigator.share)navigator.share({title:a.name,text:a.desc||a.name,url}).catch(()=>{});else navigator.clipboard&&navigator.clipboard.writeText(url).then(()=>toast("Đã sao chép liên kết"))},{id:"ctxShare"}),

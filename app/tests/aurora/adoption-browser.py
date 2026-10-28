@@ -13,6 +13,10 @@ from urllib.parse import urlsplit
 
 from playwright.sync_api import expect, sync_playwright
 
+class FixtureHTTPServer(http.server.ThreadingHTTPServer):
+    request_queue_size = 64
+
+
 ROOT = Path(__file__).resolve().parents[3]
 OUT = ROOT / '.audit/2026-10-28-grok'
 URL = os.environ.get('AURORA_TEST_URL', '')
@@ -22,7 +26,7 @@ if not URL:
         def log_message(self, *_):
             pass
     handler = functools.partial(StaticHandler, directory=str(ROOT / 'app/native/internal/web/assets'))
-    server = http.server.ThreadingHTTPServer(('127.0.0.1', 0), handler)
+    server = FixtureHTTPServer(('127.0.0.1', 0), handler)
     threading.Thread(target=server.serve_forever, daemon=True).start()
     URL = f'http://127.0.0.1:{server.server_port}'
 if urlsplit(URL).hostname not in ('127.0.0.1', 'localhost'):
@@ -134,8 +138,9 @@ with sync_playwright() as p:
         context = browser.new_context(viewport={'width': 1280, 'height': 900}, locale='vi-VN', service_workers='block', permissions=['clipboard-read', 'clipboard-write'])
         context.add_init_script("Object.defineProperty(Crypto.prototype,'randomUUID',{value:undefined})")
         page = context.new_page()
-        fixture, errors = Fixture(), []
+        fixture, errors, failed_requests = Fixture(), [], []
         page.on('pageerror', lambda error: errors.append(str(error)))
+        page.on('requestfailed', lambda request: failed_requests.append({'url':request.url,'failure':request.failure}))
         page.route('**/app/api/**', fixture.route)
 
         def load():
@@ -147,7 +152,7 @@ with sync_playwright() as p:
             try:
                 expect(page.locator('#whoBtn')).to_contain_text('Aurora Fixture')
             except AssertionError:
-                print('LOAD DIAGNOSTICS ' + json.dumps({'url': page.url, 'errors': errors, 'body': page.locator('body').inner_text()[-1600:]}, ensure_ascii=True))
+                print('LOAD DIAGNOSTICS ' + json.dumps({'url': page.url, 'errors': errors, 'failedRequests': failed_requests, 'body': page.locator('body').inner_text()[-1600:]}, ensure_ascii=True))
                 page.screenshot(path=str(OUT / 'load-failure.png'))
                 raise
 
