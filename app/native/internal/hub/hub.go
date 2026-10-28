@@ -223,7 +223,7 @@ func (h *Hub) openTenant(uid string) (*tenant, error) {
 	}
 	ctx, cancel := context.WithCancel(h.ctx)
 	u, known := h.users.get(uid)
-	svc, err := aurora.New(ctx, st, filepath.Join(dir, "aurora"), aurora.Options{RunTurns: true, VaultKey: h.vaultKey(uid), NoBriefLoop: true, DisableCloud: !known || !h.cfg.CloudBrowserEmails[strings.ToLower(strings.TrimSpace(u.Email))],
+	svc, err := aurora.New(ctx, st, filepath.Join(dir, "aurora"), aurora.Options{RunTurns: true, VaultKey: h.vaultKey(uid), NoBriefLoop: true, OAuthOrigins: []string{h.cfg.PublicURL}, DisableCloud: !known || !h.cfg.CloudBrowserEmails[strings.ToLower(strings.TrimSpace(u.Email))],
 		NetworkAdmission: func(messageID string) error {
 			u, ok := h.users.get(uid)
 			if !ok {

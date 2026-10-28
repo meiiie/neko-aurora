@@ -32,6 +32,7 @@ type mcpTool struct {
 type mcpConn struct {
 	srv           mcpServer
 	hdr           string // resolved header value (from the vault), never logged
+	header        string
 	client        *http.Client
 	session       string
 	post          string // legacy SSE: endpoint for POSTs
@@ -184,6 +185,17 @@ func (s *Service) mcpConnect(ctx context.Context, bot string, srv mcpServer) (*m
 	if srv.Secret != "" && s.V != nil {
 		hdr, _ = s.V.Get(srv.Secret)
 	}
+	oauthHeader, oauth, credentialError := s.mcpOAuthCredential(bot, srv)
+	if credentialError != nil {
+		mcps.mu.Lock()
+		mcps.dropLocked(k)
+		mcps.mu.Unlock()
+		return nil, &mcpFailure{State: "reconnect_required"}
+	}
+	header := srv.Header
+	if oauth {
+		header, hdr = "Authorization", oauthHeader
+	}
 	auth := sha256.Sum256([]byte(hdr))
 	mcps.mu.Lock()
 	if old, ok := mcps.auth[k]; ok && old != auth {
@@ -222,7 +234,12 @@ func (s *Service) mcpConnect(ctx context.Context, bot string, srv mcpServer) (*m
 		parent = context.Background()
 	}
 	lifetime, cancel := context.WithCancel(parent)
-	c = &mcpConn{srv: srv, hdr: hdr, client: extHTTP(), waiting: map[int64]chan json.RawMessage{}, lifetime: lifetime, cancel: cancel}
+	c = &mcpConn{srv: srv, hdr: hdr, header: header, client: extHTTP(), waiting: map[int64]chan json.RawMessage{}, lifetime: lifetime, cancel: cancel}
+	if oauth {
+		client := *s.oauth.http()
+		client.Jar = nil
+		c.client = &client
+	}
 	c.client.Timeout = 0 // the SSE stream stays open; each call has its own deadline
 	c.client.CheckRedirect = func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }
 	if strings.HasSuffix(strings.TrimRight(srv.URL, "/"), "/sse") {
@@ -290,8 +307,12 @@ func (c *mcpConn) headers(r *http.Request) {
 	if c.session != "" {
 		r.Header.Set("Mcp-Session-Id", c.session)
 	}
-	if c.srv.Header != "" && c.hdr != "" {
-		r.Header.Set(c.srv.Header, c.hdr)
+	header := c.header
+	if header == "" {
+		header = c.srv.Header
+	}
+	if header != "" && c.hdr != "" {
+		r.Header.Set(header, c.hdr)
 	}
 }
 

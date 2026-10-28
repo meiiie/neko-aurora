@@ -170,6 +170,7 @@ type mcpAuthorizationMetadata struct {
 	Token         string `json:"tokenEndpoint"`
 	PKCES256      bool   `json:"pkceS256"`
 	ClientIDURL   bool   `json:"clientIdMetadataDocument"`
+	RequireIssuer bool   `json:"issuerResponseSupported"`
 }
 
 type mcpAuthorizationDiscovery struct {
@@ -308,6 +309,7 @@ func discoverMCPAuthorization(ctx context.Context, base *http.Client, resource s
 		PKCE          []string `json:"code_challenge_methods_supported"`
 		ResponseTypes []string `json:"response_types_supported"`
 		ClientIDURL   bool     `json:"client_id_metadata_document_supported"`
+		RequireIssuer bool     `json:"authorization_response_iss_parameter_supported"`
 	}
 	for _, path := range paths {
 		ok, err := mcpMetadata(ctx, &client, path, &auth)
@@ -320,7 +322,7 @@ func discoverMCPAuthorization(ctx context.Context, base *http.Client, resource s
 		if auth.Issuer != issuer || !mcpDiscoveryURL(auth.Authorization, true) || !mcpDiscoveryURL(auth.Token, true) || !slices.Contains(auth.ResponseTypes, "code") {
 			return nil, errMCPDiscovery
 		}
-		out.Authorization = &mcpAuthorizationMetadata{Issuer: issuer, Authorization: auth.Authorization, Token: auth.Token, PKCES256: slices.Contains(auth.PKCE, "S256"), ClientIDURL: auth.ClientIDURL}
+		out.Authorization = &mcpAuthorizationMetadata{Issuer: issuer, Authorization: auth.Authorization, Token: auth.Token, PKCES256: slices.Contains(auth.PKCE, "S256"), ClientIDURL: auth.ClientIDURL, RequireIssuer: auth.RequireIssuer}
 		return out, nil
 	}
 	return nil, errMCPDiscovery

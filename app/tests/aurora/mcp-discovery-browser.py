@@ -62,18 +62,18 @@ try:
         page.route('**/app/api/**',lambda r:fx.route(r))
         url=f'http://127.0.0.1:{server.server_port}/app/#bot-a'
         def load():
-            if page.url.startswith(url.split('#')[0]):page.reload(wait_until='networkidle')
-            else:page.goto(url,wait_until='networkidle')
+            page.goto('about:blank')
+            page.goto(url,wait_until='networkidle')
             page.locator('#whoBtn').click();page.locator('#prExt').click()
             expect(page.locator('.mcp-authorization')).to_be_visible()
         def preview():page.get_by_role('button',name='Xem thông tin cấp quyền · Fixture MCP').click()
-        def status():return page.locator('.mcp-authorization [role=status]')
+        def status():return page.locator('.mcp-authorization [role=status]').first
         def release():
             for route,body in fx.held:route.fulfill(status=200,content_type='application/json',body=json.dumps(fx.result(body)))
             fx.held.clear()
 
         load();assert not fx.posts
-        preview();expect(status()).to_contain_text('Tài khoản chưa được cấp quyền')
+        preview();expect(status()).to_contain_text('Chỉ xem thông tin chưa cấp thêm quyền')
         expect(page.locator('.mcp-authorization dl')).to_contain_text(ISSUER)
         expect(page.locator('.mcp-authorization dl')).to_contain_text('files:read, notes:write')
         assert fx.posts==[dict(workspaceId=fx.scope,name='Fixture MCP',url=RESOURCE,issuer='')]

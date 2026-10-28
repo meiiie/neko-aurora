@@ -13,6 +13,7 @@ import (
 	"os/signal"
 	"path/filepath"
 	"runtime/debug"
+	"strings"
 	"sync/atomic"
 	"syscall"
 	"time"
@@ -252,7 +253,11 @@ func main() {
 			return
 		}
 	}
-	if auroraService, e := aurora.New(ctx, store, filepath.Join(*state, "aurora"), aurora.Options{RunTurns: fixture == nil}); e != nil {
+	oauthOrigins := []string{"http://" + listener.Addr().String()}
+	if host, code := aurora.Env("PUBLIC_HOST"), aurora.Env("OWNER_CODE"); host != "" && len(code) >= 12 {
+		oauthOrigins = append(oauthOrigins, "https://"+strings.ToLower(host))
+	}
+	if auroraService, e := aurora.New(ctx, store, filepath.Join(*state, "aurora"), aurora.Options{RunTurns: fixture == nil, OAuthOrigins: oauthOrigins}); e != nil {
 		fmt.Fprintln(os.Stderr, "aurora_unavailable")
 	} else {
 		auroraService.OnDeleteAccount = func() error {

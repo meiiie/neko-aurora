@@ -53,6 +53,7 @@ type Service struct {
 	pcb           pcBook // bot computer build state (build.go)
 	mu            sync.Mutex
 	mcp           *mcpCache
+	oauth         *mcpOAuthManager
 	subs          map[chan Event]struct{}
 	ctx           context.Context
 	wake          chan struct{}
@@ -77,7 +78,8 @@ type Service struct {
 }
 
 type Options struct {
-	WorkspaceID string
+	WorkspaceID  string
+	OAuthOrigins []string
 	// RunTurns lets this service execute queued owner→bot work. Disable it
 	// when the attested host/executor runtime is configured instead.
 	RunTurns bool
@@ -140,6 +142,7 @@ func New(ctx context.Context, store *ledger.Store, stateDir string, opt Options)
 	s := &Service{L: store, AI: model, Push: p, V: v, Tools: toolsFromEnv(), Mem: openMemory(stateDir), steward: openSteward(stateDir), usage: openUsage(stateDir), sched: openSchedules(stateDir), ext: openExt(stateDir), PC: openComputers(stateDir), Prefs: prefs, subs: map[chan Event]struct{}{}, ctx: ctx, wake: make(chan struct{}, 1), running: map[string]bool{}, seen: map[string]string{}, Now: time.Now}
 	s.owner = opt.OwnerName
 	s.workspaceID = workspaceID
+	s.oauth = newMCPOAuthManager(v, opt.OAuthOrigins, func() time.Time { return s.Now() })
 	s.utilityAdmission = opt.UtilityAdmission
 	s.routineAdmission = opt.RoutineAdmission
 	s.cloudStateDir = stateDir
