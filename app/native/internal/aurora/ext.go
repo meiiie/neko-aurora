@@ -58,19 +58,8 @@ type botExt struct {
 	Off      map[string]bool `json:"off,omitempty"` // capabilities switched off: web, computer, mcp, browser, bots, skills
 }
 
-type formField struct {
-	Name     string   `json:"name"`
-	Label    string   `json:"label"`
-	Type     string   `json:"type"` // text|number|date|select|textarea
-	Options  []string `json:"options,omitempty"`
-	Required bool     `json:"required,omitempty"`
-}
-
-type form struct {
-	Title  string      `json:"title"`
-	Fields []formField `json:"fields"`
-	Done   bool        `json:"done,omitempty"`
-}
+type formField = ledger.DirectFormField
+type form = ledger.DirectForm
 
 type extData struct {
 	Providers []provider         `json:"providers"`
@@ -173,7 +162,7 @@ func (e *extStore) addThought(task, t string) {
 func (e *extStore) setForm(task string, f *form) {
 	e.mu.Lock()
 	defer e.mu.Unlock()
-	e.d.Forms[task] = f
+	e.d.Forms[task] = ledger.CopyDirectForm(f)
 	e.touchLocked(task)
 	e.saveLocked()
 }
@@ -184,11 +173,7 @@ func (e *extStore) side(task string) (string, *form) {
 	}
 	e.mu.Lock()
 	defer e.mu.Unlock()
-	var f *form
-	if x := e.d.Forms[task]; x != nil {
-		c := *x
-		f = &c
-	}
+	f := ledger.CopyDirectForm(e.d.Forms[task])
 	return e.d.Thoughts[task], f
 }
 

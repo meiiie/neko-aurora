@@ -62,6 +62,7 @@ type DirectRun struct {
 	Plan       []DirectStep     `json:"plan,omitempty"`
 	Choices    []string         `json:"choices,omitempty"`
 	Questions  []DirectQuestion `json:"questions,omitempty"`
+	Form       *DirectForm      `json:"form,omitempty"`
 	Items      []string         `json:"items,omitempty"`
 	Approval   *DirectApproval  `json:"approval,omitempty"`
 	Secret     *DirectSecret    `json:"secret,omitempty"`
@@ -133,6 +134,7 @@ func copyDirectRun(d DirectRun) DirectRun {
 	d.Plan = append([]DirectStep(nil), d.Plan...)
 	d.Choices = append([]string(nil), d.Choices...)
 	d.Questions = CopyDirectQuestions(d.Questions)
+	d.Form = CopyDirectForm(d.Form)
 	d.Items = append([]string(nil), d.Items...)
 	if d.Approval != nil {
 		a := *d.Approval
@@ -171,6 +173,9 @@ func validDirectApproval(a *DirectApproval) bool {
 }
 
 func validDirectRun(d *DirectRun) bool {
+	if d != nil && !ValidDirectForm(d.Form) {
+		return false
+	}
 	if d != nil && (!ValidDirectQuestions(d.Questions) || len(d.Questions) > 0 && len(d.Choices) > 0) {
 		return false
 	}
@@ -214,6 +219,9 @@ func validDirectDecision(old, next *DirectApproval) bool {
 
 func validDirectReplay(old, w Work, typ string) bool {
 	if !validDirectRun(w.Direct) || w.Core != nil || old.Core != nil || w.Epoch != old.Epoch || w.DesiredState != old.DesiredState {
+		return false
+	}
+	if w.Direct.Form != nil && (typ == "work.direct_started" || typ == "work.direct_updated" || typ == "work.direct_finished" && w.Status != "completed") {
 		return false
 	}
 	switch typ {

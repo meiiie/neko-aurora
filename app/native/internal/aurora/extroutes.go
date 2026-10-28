@@ -374,13 +374,18 @@ func (s *Service) extRoutes() {
 		writeJSON(w, 200, map[string]any{"skills": s.ext.skills()})
 	})
 	m.HandleFunc("POST /app/api/forms/{task}/done", func(w http.ResponseWriter, r *http.Request) {
-		if question, err := s.L.Get(r.PathValue("task")); err == nil && s.hasFormReceipt(question.RequestID, threadOf(question)) {
+		question, err := s.L.Get(r.PathValue("task"))
+		if err == nil && s.hasFormReceipt(question.RequestID, threadOf(question)) {
 			writeJSON(w, 200, map[string]bool{"ok": true})
 			return
 		}
-		_, f := s.ext.side(r.PathValue("task"))
+		f, durable := s.formForWork(question)
 		if f == nil {
 			fail(w, ErrNotFound)
+			return
+		}
+		if durable {
+			fail(w, ErrConflict)
 			return
 		}
 		accepted := false

@@ -12,6 +12,7 @@ import (
 type questionSet struct {
 	Choices   []string
 	Questions []ledger.DirectQuestion
+	Form      *form
 }
 
 var questionsLine = regexp.MustCompile(`(?m)^[ \t]*QUESTIONS:[ \t]*`)
@@ -36,10 +37,10 @@ func splitQuestions(text string) (string, []ledger.DirectQuestion) {
 }
 
 func questionsOf(d directives) *questionSet {
-	if len(d.Choices) == 0 && len(d.Questions) == 0 {
+	if len(d.Choices) == 0 && len(d.Questions) == 0 && d.Form == nil {
 		return nil
 	}
-	return &questionSet{Choices: d.Choices, Questions: d.Questions}
+	return &questionSet{Choices: d.Choices, Questions: d.Questions, Form: d.Form}
 }
 
 func parseQuestions(raw string) []ledger.DirectQuestion {

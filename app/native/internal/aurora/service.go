@@ -722,18 +722,19 @@ func (s *Service) routes() {
 		if len(nonce) < 8 || len(nonce) > 100 {
 			nonce = newID("aurora-")
 		}
+		answerBot := ""
 		if in.FormFor != "" {
 			question, err := s.L.Get(in.FormFor)
-			_, form := s.ext.side(in.FormFor)
+			form, _ := s.formForWork(question)
 			if err != nil || threadOf(question) != id || nonce != "form-"+in.FormFor || in.AnswerFor != "" || in.Ref != "" || in.ReplyTo != "" || form == nil && !s.hasFormReceipt(in.FormFor, id) {
 				fail(w, ErrInvalid)
 				return
 			}
+			answerBot = question.BotID
 		} else if strings.HasPrefix(nonce, "form-") {
 			fail(w, ErrInvalid)
 			return
 		}
-		answerBot := ""
 		if in.AnswerFor != "" {
 			question, err := s.L.Get(in.AnswerFor)
 			if err != nil || threadOf(question) != id || question.Direct == nil || len(question.Direct.Choices) == 0 && len(question.Direct.Questions) == 0 || nonce != "choice-"+in.AnswerFor || in.Ref != "" || in.ReplyTo != "" {

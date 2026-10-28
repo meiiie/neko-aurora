@@ -609,6 +609,11 @@ func (s *Service) runWork(w ledger.Work) {
 		s.agui(AGUIEvent{Type: RUN_ERROR, ThreadID: w.BotID, RunID: w.RequestID, Message: code})
 		return
 	}
+	s.finishWork(w, appr, questions)
+}
+
+func (s *Service) finishWork(w ledger.Work, appr *Approval, questions *questionSet) {
+	name := s.botName(w.BotID)
 	cur, gerr := s.L.Get(w.RequestID)
 	if gerr != nil || cur.Status != "running" {
 		if gerr == nil && cur.Status == "cancelling" {
@@ -617,17 +622,24 @@ func (s *Service) runWork(w ledger.Work) {
 		s.endDraft(w)
 		return
 	}
-	_, _ = s.L.DirectFinish(w.RequestID, cur.Epoch, "completed", "", func(d *ledger.DirectRun) {
+	_, err := s.L.DirectFinish(w.RequestID, cur.Epoch, "completed", "", func(d *ledger.DirectRun) {
 		if appr != nil {
 			d.Approval = appr
 		}
 		d.Choices = nil
 		d.Questions = nil
+		d.Form = nil
 		if questions != nil {
 			d.Choices = append([]string(nil), questions.Choices...)
 			d.Questions = ledger.CopyDirectQuestions(questions.Questions)
+			d.Form = ledger.CopyDirectForm(questions.Form)
 		}
 	})
+	if err != nil {
+		s.endDraft(w)
+		s.agui(AGUIEvent{Type: RUN_ERROR, ThreadID: w.BotID, RunID: w.RequestID, Message: "completion_not_recorded"})
+		return
+	}
 	if appr != nil && appr.Kind == "computer" && !s.networkPeerWork(w) {
 		s.supersedeCommands(w.BotID, w.RequestID)
 	}
@@ -647,6 +659,8 @@ func (s *Service) runWork(w ledger.Work) {
 	switch {
 	case appr != nil:
 		s.notify(name+" cần bạn duyệt", appr.Title, "/app/#"+threadOf(w))
+	case questions != nil && questions.Form != nil:
+		s.notify(name+" cần bạn điền thông tin", questions.Form.Title, "/app/#"+threadOf(w))
 	case questions != nil:
 		s.notify(name+" cần bạn chọn", "Chọn một phương án để tiếp tục", "/app/#"+threadOf(w))
 	default:
@@ -734,6 +748,9 @@ var promiseRe = regexp.MustCompile(`(?i)(^|\s)(sẽ|để (em|mình|tôi) (tra|l
 // promiseOnly reports a short reply that only announces work it never does
 // (no directive, no question): dogfood v16 long-task failure.
 func promiseOnly(d directives) bool {
+	if d.Form != nil {
+		return false
+	}
 	if len(d.Tools) == 0 && toolMimicRe.MatchString(d.Text) {
 		// live run 3: the model copied the history's "(đã gọi công cụ
 		// computer_write_file, trạng thái: pending)" line instead of a TOOL line
@@ -899,7 +916,7 @@ func (s *Service) runTurn(ctx context.Context, w ledger.Work) (*Approval, *quest
 		s.update(w.RequestID, func(r *ledger.DirectRun) { r.Secret = &sec })
 		s.record(w.BotID, w.RequestID, "secret", "Xin bí mật "+sec.Name)
 	}
-	if len(d.Plan) < 2 || d.Approval != nil || len(d.Questions) > 0 {
+	if len(d.Plan) < 2 || d.Approval != nil || len(d.Questions) > 0 || d.Form != nil {
 		if d.Approval == nil {
 			s.verifyFinal(ctx, w, tc, &d)
 		}
@@ -956,7 +973,7 @@ func (s *Service) runTurn(ctx context.Context, w ledger.Work) (*Approval, *quest
 		if len(sd.Choices) > 0 && sd.Approval == nil && (len([]rune(sd.Text)) > 300 || !strings.Contains(sd.Text, "?")) {
 			sd.Choices = nil // a finished step offering options is not a real question
 		}
-		if sd.Approval != nil || len(sd.Choices) > 0 || len(sd.Questions) > 0 {
+		if sd.Approval != nil || len(sd.Choices) > 0 || len(sd.Questions) > 0 || sd.Form != nil {
 			setStep(i, "waiting")
 			s.endDraft(w)
 			return sd.Approval, questionsOf(sd), s.appendText(w.RequestID, normalizeCites(sd.Text, len(tc.sources)))
@@ -990,7 +1007,7 @@ func (s *Service) runTurn(ctx context.Context, w ledger.Work) (*Approval, *quest
 // verifyFinal: a final reply of a computer task that claims files which do
 // not exist is asked once more (with the real file list), then rewritten.
 func (s *Service) verifyFinal(ctx context.Context, w ledger.Work, tc *toolCtx, d *directives) {
-	if s.PC == nil || !computerTask(w) || len(d.Questions) > 0 {
+	if s.PC == nil || !computerTask(w) || len(d.Questions) > 0 || d.Form != nil {
 		return
 	}
 	_, bad := s.verifyClaims(w.BotID, d.Text, true)
@@ -1245,9 +1262,6 @@ func callsOf(ts []toolReq) []toolCall {
 func (s *Service) rememberD(w ledger.Work, d directives) {
 	if s.networkPeerWork(w) {
 		return
-	}
-	if d.Form != nil && s.ext != nil {
-		s.ext.setForm(w.RequestID, d.Form)
 	}
 	if d.Memory != "" && d.MemoryScope == "team" {
 		if s.Mem.Remember(teamKey, d.Memory) {
