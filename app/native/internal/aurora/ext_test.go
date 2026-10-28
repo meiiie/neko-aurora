@@ -102,7 +102,9 @@ func TestProviderModelThinkingAndForm(t *testing.T) {
 		t.Fatal(st)
 	}
 	// form side data
-	svc.ext.setForm(last.TaskID, parseForm(`{"title":"T","fields":[{"label":"Tên"}]}`))
+	legacyForm := parseForm(`{"title":"T","fields":[{"label":"Tên"}]}`)
+	legacyForm.AnswerVersion = 0
+	svc.ext.setForm(last.TaskID, legacyForm)
 	getJSON(t, u+"/app/api/agents/"+bot+"/messages", &ms)
 	if f := ms[len(ms)-1].Form; f == nil || f.Fields[0].Label != "Tên" {
 		t.Fatal("form")

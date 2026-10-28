@@ -691,14 +691,16 @@ func (s *Service) routes() {
 	})
 	m.HandleFunc("POST /app/api/agents/{id}/messages", func(w http.ResponseWriter, r *http.Request) {
 		var in struct {
-			Text            string           `json:"text"`
-			Nonce           string           `json:"clientNonce"`
-			Ref             string           `json:"ref"` // another chat to add as context (DS Bot "Reference a chat")
-			WorkspaceID     string           `json:"workspaceId"`
-			AnswerFor       string           `json:"answerFor"`
-			FormFor         string           `json:"formFor"`
-			QuestionAnswers []questionAnswer `json:"questionAnswers"`
-			ReplyTo         string           `json:"replyTo"`
+			Text              string           `json:"text"`
+			Nonce             string           `json:"clientNonce"`
+			Ref               string           `json:"ref"` // another chat to add as context (DS Bot "Reference a chat")
+			WorkspaceID       string           `json:"workspaceId"`
+			AnswerFor         string           `json:"answerFor"`
+			FormFor           string           `json:"formFor"`
+			FormAnswerVersion int              `json:"formAnswerVersion"`
+			FormValues        []string         `json:"formValues"`
+			QuestionAnswers   []questionAnswer `json:"questionAnswers"`
+			ReplyTo           string           `json:"replyTo"`
 		}
 		if err := decode(r, &in); err != nil {
 			fail(w, err)
@@ -723,6 +725,7 @@ func (s *Service) routes() {
 			nonce = newID("aurora-")
 		}
 		answerBot := ""
+		var formAnswer *ledger.OwnerFormAnswer
 		if in.FormFor != "" {
 			question, err := s.L.Get(in.FormFor)
 			form, _ := s.formForWork(question)
@@ -731,7 +734,26 @@ func (s *Service) routes() {
 				return
 			}
 			answerBot = question.BotID
-		} else if strings.HasPrefix(nonce, "form-") {
+			if form != nil && form.AnswerVersion == 1 {
+				if in.WorkspaceID != s.workspaceID {
+					writeJSON(w, 409, map[string]string{"error": "workspace_changed"})
+					return
+				}
+				if in.FormAnswerVersion != 1 {
+					fail(w, ErrInvalid)
+					return
+				}
+				in.Text, err = formAnswerText(form, in.FormValues)
+				if err != nil {
+					fail(w, err)
+					return
+				}
+				formAnswer = &ledger.OwnerFormAnswer{TaskID: in.FormFor, Values: in.FormValues}
+			} else if in.FormAnswerVersion != 0 || in.FormValues != nil {
+				fail(w, ErrInvalid)
+				return
+			}
+		} else if strings.HasPrefix(nonce, "form-") || in.FormAnswerVersion != 0 || in.FormValues != nil {
 			fail(w, ErrInvalid)
 			return
 		}
@@ -773,7 +795,7 @@ func (s *Service) routes() {
 			fail(w, ErrNotFound)
 			return
 		}
-		works, duplicate, err := s.acceptMessage(id, text, nonce, in.Ref, answerBot, in.ReplyTo)
+		works, duplicate, err := s.acceptMessageWithForm(id, text, nonce, in.Ref, answerBot, in.ReplyTo, formAnswer)
 		if err != nil {
 			fail(w, err)
 			return

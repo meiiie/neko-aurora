@@ -80,7 +80,7 @@ func TestFormHistorySurvivesEvictionAndRestart(t *testing.T) {
 	srv := httptest.NewServer(s)
 	defer srv.Close()
 	path := srv.URL + "/app/api/agents/" + bot + "/messages"
-	answer := map[string]string{"text": "Name: Aurora\nFormat: Table", "clientNonce": "form-" + source.RequestID, "formFor": source.RequestID, "workspaceId": s.workspaceID}
+	answer := map[string]any{"text": "Name: Aurora\nFormat: Table", "clientNonce": "form-" + source.RequestID, "formFor": source.RequestID, "workspaceId": s.workspaceID, "formAnswerVersion": 1, "formValues": []string{"Aurora", "Table"}}
 	var first string
 	for i := 0; i < 2; i++ {
 		r := post(t, path, mustJSON(answer))
@@ -263,7 +263,7 @@ func TestFormHistoryGroupScopeAndPendingTurn(t *testing.T) {
 	s, closeService = historyService(t, dir)
 	srv := httptest.NewServer(s)
 	defer srv.Close()
-	answer := map[string]string{"text": "Name: Aurora", "clientNonce": "form-" + w.RequestID, "formFor": w.RequestID, "workspaceId": s.workspaceID}
+	answer := map[string]any{"text": "Name: Aurora", "clientNonce": "form-" + w.RequestID, "formFor": w.RequestID, "workspaceId": s.workspaceID, "formAnswerVersion": 1, "formValues": []string{"Aurora", "Table"}}
 	r := post(t, srv.URL+"/app/api/agents/"+w.BotID+"/messages", mustJSON(answer))
 	r.Body.Close()
 	if r.StatusCode != 400 {

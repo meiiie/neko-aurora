@@ -251,6 +251,7 @@ func parseForm(js string) *form {
 		return nil
 	}
 	f.Fields, f.Done = out, false
+	f.AnswerVersion = 1
 	if f.Title == "" {
 		f.Title = "Thông tin cần điền"
 	}

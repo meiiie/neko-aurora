@@ -8,11 +8,12 @@ import (
 )
 
 type OwnerMessageInput struct {
-	ThreadID    string `json:"threadId"`
-	ClientNonce string `json:"clientNonce"`
-	Text        string `json:"text"`
-	ReferenceID string `json:"referenceId,omitempty"`
-	ReplyTo     string `json:"replyTo,omitempty"`
+	ThreadID    string           `json:"threadId"`
+	ClientNonce string           `json:"clientNonce"`
+	Text        string           `json:"text"`
+	ReferenceID string           `json:"referenceId,omitempty"`
+	ReplyTo     string           `json:"replyTo,omitempty"`
+	Form        *OwnerFormAnswer `json:"form,omitempty"`
 }
 
 // Derived context is evaluated only for the first successful admission.
@@ -99,6 +100,7 @@ func (s *Store) OwnerMessageForWork(id string) (OwnerMessageReceipt, bool) {
 		return OwnerMessageReceipt{}, false
 	}
 	r := s.ownerMessages[k]
+	r.Input = copyOwnerInput(r.Input)
 	r.WorkIDs = append([]string(nil), r.WorkIDs...)
 	r.Quote = CopyMessageQuote(r.Quote)
 	return r, true
@@ -107,6 +109,7 @@ func (s *Store) OwnerMessageForWork(id string) (OwnerMessageReceipt, bool) {
 func ownerMessageKey(in OwnerMessageInput) string { return nonceKey(in.ThreadID, in.ClientNonce) }
 
 func (s *Store) rememberOwnerMessage(r OwnerMessageReceipt) {
+	r.Input = copyOwnerInput(r.Input)
 	if s.ownerMessages == nil {
 		s.ownerMessages = make(map[string]OwnerMessageReceipt)
 		s.ownerMessageByWork = make(map[string]string)
@@ -132,7 +135,7 @@ func validOwnerMessageRecord(r record) bool {
 		return false
 	}
 	in := r.Message.Input
-	if !validMessageQuote(in, r.Message.Quote) {
+	if !validMessageQuote(in, r.Message.Quote) || !validOwnerFormInput(in) {
 		return false
 	}
 	group := validChannelID(in.ThreadID)
@@ -168,6 +171,13 @@ func (s *Store) replayRecord(r record) error {
 		if !validOwnerMessageRecord(r) || !s.validQuoteSource(r.Message.Input, r.Message.Quote) {
 			return ErrCorrupt
 		}
+		bots := make([]string, len(r.Batch))
+		for i, e := range r.Batch {
+			bots[i] = originalBot(e.Work)
+		}
+		if !s.validOwnerFormSource(r.Message.Input, bots) {
+			return ErrCorrupt
+		}
 		if _, exists := s.ownerMessages[ownerMessageKey(r.Message.Input)]; exists {
 			return ErrCorrupt
 		}
@@ -192,6 +202,7 @@ func (s *Store) replayRecord(r record) error {
 func (s *Store) AcceptOwnerMessage(in OwnerMessageInput, plan OwnerMessagePlan) ([]Work, bool, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	in = copyOwnerInput(in)
 	if s.closed || s.poisoned {
 		return nil, false, ErrUnavailable
 	}
@@ -202,12 +213,12 @@ func (s *Store) AcceptOwnerMessage(in OwnerMessageInput, plan OwnerMessagePlan) 
 		return nil, false, ErrForbidden
 	}
 	if r, ok := s.ownerMessages[ownerMessageKey(in)]; ok {
-		if r.Input != in {
+		if !reflect.DeepEqual(r.Input, in) {
 			return nil, false, ErrConflict
 		}
 		return s.ownerMessageWork(r), true, nil
 	}
-	if !s.validQuoteSource(in, plan.Quote) {
+	if !s.validQuoteSource(in, plan.Quote) || !s.validOwnerFormSource(in, plan.BotIDs) {
 		return nil, false, ErrInvalid
 	}
 	group := validChannelID(in.ThreadID)
@@ -250,7 +261,7 @@ func (s *Store) AcceptOwnerMessage(in OwnerMessageInput, plan OwnerMessagePlan) 
 			return nil, false, err
 		}
 		if duplicate {
-			if !group && in.ReferenceID == "" && in.ReplyTo == "" {
+			if !group && in.ReferenceID == "" && in.ReplyTo == "" && in.Form == nil {
 				return []Work{w}, true, nil
 			}
 			return nil, false, ErrConflict

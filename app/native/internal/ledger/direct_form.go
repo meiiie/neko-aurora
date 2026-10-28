@@ -14,8 +14,9 @@ type DirectFormField struct {
 }
 
 type DirectForm struct {
-	Title  string            `json:"title"`
-	Fields []DirectFormField `json:"fields"`
+	AnswerVersion int               `json:"answerVersion,omitempty"`
+	Title         string            `json:"title"`
+	Fields        []DirectFormField `json:"fields"`
 	// Done is presentation-only for legacy cache compatibility, never journaled true.
 	Done bool `json:"done,omitempty"`
 }
@@ -39,7 +40,7 @@ func ValidDirectForm(f *DirectForm) bool {
 	text := func(s string, n int) bool {
 		return utf8.ValidString(s) && strings.TrimSpace(s) != "" && utf8.RuneCountInString(s) <= n
 	}
-	if f.Done || !text(f.Title, 80) || len(f.Fields) == 0 || len(f.Fields) > 10 {
+	if f.Done || f.AnswerVersion < 0 || f.AnswerVersion > 1 || !text(f.Title, 80) || len(f.Fields) == 0 || len(f.Fields) > 10 {
 		return false
 	}
 	names := map[string]bool{}

@@ -143,6 +143,10 @@ func (s *Service) createGroup(name string, bots []string) (ledger.Channel, error
 }
 
 func (s *Service) acceptMessage(id, text, nonce, ref, answerBot, replyTo string) ([]ledger.Work, bool, error) {
+	return s.acceptMessageWithForm(id, text, nonce, ref, answerBot, replyTo, nil)
+}
+
+func (s *Service) acceptMessageWithForm(id, text, nonce, ref, answerBot, replyTo string, form *ledger.OwnerFormAnswer) ([]ledger.Work, bool, error) {
 	v := s.view()
 	plan := ledger.OwnerMessagePlan{BotIDs: []string{id}}
 	if isGroupID(id) {
@@ -159,7 +163,7 @@ func (s *Service) acceptMessage(id, text, nonce, ref, answerBot, replyTo string)
 		plan.ReferenceText = v.refBlock(ref)
 	}
 	plan.Quote = s.quoteOf(v, id, replyTo)
-	return s.L.AcceptOwnerMessage(ledger.OwnerMessageInput{ThreadID: id, Text: text, ClientNonce: nonce, ReferenceID: ref, ReplyTo: replyTo}, plan)
+	return s.L.AcceptOwnerMessage(ledger.OwnerMessageInput{ThreadID: id, Text: text, ClientNonce: nonce, ReferenceID: ref, ReplyTo: replyTo, Form: form}, plan)
 }
 
 func formAnswered(nonce string) string {

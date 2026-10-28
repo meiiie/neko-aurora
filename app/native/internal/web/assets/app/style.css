@@ -528,3 +528,11 @@ details.sources[open]>:not(summary),details.think[open]>:not(summary),details.pl
 #pcBox button[hidden]{display:none}
 .schedule-test button[hidden]{display:none}.schedule-test>.caption{margin:4px 16px 12px}.schedule-test .schedule-controls{padding-top:0}.schedule-test button{min-height:44px}.schedule-blocked{padding:0 16px;color:var(--danger,#d33);font-size:14px}
 .schedule-error:empty{margin:0;padding:0}.schedule-test>.caption:empty{margin:0}
+
+.form-draft-status:empty{margin:0}.form-draft-preview{white-space:pre-wrap;overflow-wrap:anywhere;max-height:240px;overflow:auto;font-size:12px}
+
+.form-card button[hidden]{display:none}
+
+.form-result{white-space:pre-wrap;overflow-wrap:anywhere;max-height:320px;overflow:auto;font:inherit;font-size:14px;line-height:1.6}
+
+.form-result dt{font-weight:600}.form-result dd{margin:0 0 12px;white-space:pre-wrap}.form-result dd:last-child{margin-bottom:0}

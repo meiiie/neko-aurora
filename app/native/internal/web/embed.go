@@ -30,6 +30,7 @@ var contentTypes = map[string]string{
 	"/app/upload-queue.js":       "text/javascript; charset=utf-8",
 	"/app/composer-drafts.js":    "text/javascript; charset=utf-8",
 	"/app/question-card.js":      "text/javascript; charset=utf-8",
+	"/app/form-card.js":          "text/javascript; charset=utf-8",
 	"/app/network.js":            "text/javascript; charset=utf-8",
 	"/app/network.css":           "text/css; charset=utf-8",
 	"/app/cloud.js":              "text/javascript; charset=utf-8",

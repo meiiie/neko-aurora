@@ -28,8 +28,15 @@ func (s *Service) ownerDecorateMessages(ms []*Message) []*Message {
 		if m.Role != "user" || m.TaskID == "" {
 			continue
 		}
-		if r, ok := s.L.OwnerMessageForWork(m.TaskID); ok && r.Input.ThreadID == m.AgentID && r.Quote != nil {
-			m.Text, m.Ref, m.Quote = r.Input.Text, refName(r.ReferenceText), r.Quote
+		if r, ok := s.L.OwnerMessageForWork(m.TaskID); ok && r.Input.ThreadID == m.AgentID {
+			if r.Quote != nil {
+				m.Text, m.Ref, m.Quote = r.Input.Text, refName(r.ReferenceText), r.Quote
+			}
+			if r.Input.Form != nil {
+				m.FormFor = r.Input.Form.TaskID
+				m.FormValues = append([]string(nil), r.Input.Form.Values...)
+				m.Text = r.Input.Text
+			}
 		}
 	}
 	return ms
