@@ -975,7 +975,9 @@
         "memory-questions"
       ],
       "coverage": "partial-local-validation",
-      "implementation": "persistent-answer-receipt-only"
+      "implementation": "persistent-answer-receipt-only",
+      "evictionReplayEvidence": "docs/research/grokbot-form-replay-2026-10-28.md",
+      "evictionReplayCodeCommit": "9c49a07883773ff26fe212822e82ba82b6052ad5"
     },
     {
       "id": "0.77.0-Fixed-7",
