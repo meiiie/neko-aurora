@@ -3964,7 +3964,14 @@
         "chat-navigation",
         "desktop-platform"
       ],
-      "coverage": "not-validated"
+      "coverage": "partial-local-validation",
+      "implementation": "schedule-profile-load-recovery",
+      "evidence": [
+        "app/tests/aurora/schedule-loading-browser.py",
+        "docs/research/grokbot-schedule-loading-2026-10-29.md"
+      ],
+      "codeCommit": "b8d62a5bb9b03bb1fa2f3da633b7155c17078d44",
+      "limits": "Real Chrome with loopback HTTP and injected EventSource reconnect. Schedule section only; no live routine, multi-device, webhook, provider or physical-device acceptance. Other resource types in a shared bullet remain unvalidated."
     },
     {
       "id": "0.71.2-Fixed-29",
@@ -4060,7 +4067,14 @@
         "chat-navigation",
         "desktop-platform"
       ],
-      "coverage": "not-validated"
+      "coverage": "partial-local-validation",
+      "implementation": "schedule-profile-load-recovery",
+      "evidence": [
+        "app/tests/aurora/schedule-loading-browser.py",
+        "docs/research/grokbot-schedule-loading-2026-10-29.md"
+      ],
+      "codeCommit": "b8d62a5bb9b03bb1fa2f3da633b7155c17078d44",
+      "limits": "Real Chrome with loopback HTTP and injected EventSource reconnect. Schedule section only; no live routine, multi-device, webhook, provider or physical-device acceptance. Other resource types in a shared bullet remain unvalidated."
     },
     {
       "id": "0.71.2-Fixed-37",
@@ -5106,7 +5120,14 @@
         "chat-navigation",
         "desktop-platform"
       ],
-      "coverage": "not-validated"
+      "coverage": "partial-local-validation",
+      "implementation": "schedule-profile-load-recovery",
+      "evidence": [
+        "app/tests/aurora/schedule-loading-browser.py",
+        "docs/research/grokbot-schedule-loading-2026-10-29.md"
+      ],
+      "codeCommit": "b8d62a5bb9b03bb1fa2f3da633b7155c17078d44",
+      "limits": "Real Chrome with loopback HTTP and injected EventSource reconnect. Schedule section only; no live routine, multi-device, webhook, provider or physical-device acceptance. Other resource types in a shared bullet remain unvalidated."
     },
     {
       "id": "0.70.2-Fixed-12",
