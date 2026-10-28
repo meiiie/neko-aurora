@@ -195,12 +195,18 @@ func (v *Vault) Delete(name string) error {
 	}
 	v.mu.Lock()
 	defer v.mu.Unlock()
-	if _, ok := v.items[name]; !ok {
+	old, ok := v.items[name]
+	if !ok {
 		return ErrMissing
 	}
+	value := v.cache[name]
 	delete(v.items, name)
 	delete(v.cache, name)
-	return v.save()
+	if err := v.save(); err != nil {
+		v.items[name], v.cache[name] = old, value
+		return err
+	}
+	return nil
 }
 
 // Get returns a plaintext value for in-process use only.
