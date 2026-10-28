@@ -1590,7 +1590,15 @@
       "topics": [
         "general"
       ],
-      "coverage": "not-validated"
+      "coverage": "partial-local-validation",
+      "implementation": "explicit-routine-timezones",
+      "codeCommit": "31e6040dd1fdcd62ebeab4dea8a6c8211f613332",
+      "evidence": [
+        "docs/research/grokbot-schedule-timezones-2026-10-29.md",
+        "app/native/internal/aurora/schedule_timezone_test.go",
+        "app/tests/aurora/schedule-timezone-browser.py"
+      ],
+      "limits": "Explicit per-routine IANA zone and Kyiv picker, temporary Go stores and local Chrome fixtures. No account/browser auto-timezone, VM timezone, live provider, distributed or physical-device acceptance."
     },
     {
       "id": "0.77.0-Fixed-53",
