@@ -8,7 +8,7 @@ import type { FetchLike } from "@modelcontextprotocol/sdk/shared/transport.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
 import { homeDir } from "../shared/home.ts";
 import { atomicWriteFileSync } from "../shared/atomic.ts";
-import type { JsonValue } from "../shared/wire.ts";
+import { isJsonObject, isText, type JsonValue } from "../shared/wire.ts";
 import { openBrowser } from "./chatgpt-auth.ts";
 import { McpOAuthCallback } from "./mcp-oauth-callback.ts";
 
@@ -16,17 +16,24 @@ function httpsEndpoint(raw: string | undefined): boolean {
   try { const u = new URL(raw ?? ""); return u.protocol === "https:" && !u.username && !u.password && !u.hash; } catch { return false; }
 }
 
+type TokenRecord = { version: 1; phase: "consuming" } | { version: 1; phase: "ready"; tokens: OAuthTokens };
+class TokenAttemptError extends Error {
+  constructor() { super("MCP OAuth token recovery requires an explicit reconnect. Request outcome may be unknown."); }
+}
+
 export class NekoOAuthProvider implements OAuthClientProvider {
   private discovery?: OAuthDiscoveryState;
   private verifier?: string;
   private dir?: string;
+  private tokenAttempted = false;
   private readonly root = join(homeDir(), ".neko-core", "mcp-auth", "v2");
   redirected = false;
 
   constructor(private server: string, private resource: string, private callback: McpOAuthCallback, private openUrl: (url: string) => void | Promise<void> = openBrowser) {}
 
   get redirectUrl(): string { return this.callback.redirectUrl; }
-  state(): string { return this.callback.state; }
+  state(): string { this.allowAuthorization(); return this.callback.state; }
+  private allowAuthorization(): void { if (this.tokenAttempted) throw new TokenAttemptError(); }
   get clientMetadata() {
     return { client_name: "Neko Core", redirect_uris: [this.redirectUrl], grant_types: ["authorization_code", "refresh_token"], response_types: ["code"], token_endpoint_auth_method: "none", application_type: "native" };
   }
@@ -58,28 +65,54 @@ export class NekoOAuthProvider implements OAuthClientProvider {
     } catch { throw new Error("MCP OAuth credential record cannot be read"); }
   }
 
-  private save(file: string, value: OAuthClientInformationMixed | OAuthTokens): void {
+  private save(file: string, value: OAuthClientInformationMixed | TokenRecord): void {
     if (!this.dir) throw new Error("MCP OAuth discovery is required before saving credentials");
     const data = JSON.stringify(value);
     if (Buffer.byteLength(data) > 65536) throw new Error("MCP OAuth credential record is too large");
-    mkdirSync(this.dir, { recursive: true, mode: 0o700 });
-    atomicWriteFileSync(join(this.dir, file), data, 0o600);
+    try {
+      mkdirSync(this.dir, { recursive: true, mode: 0o700 });
+      atomicWriteFileSync(join(this.dir, file), data, 0o600);
+    } catch { throw new Error("MCP OAuth credential record cannot be saved"); }
   }
 
   clientInformation(): OAuthClientInformationMixed | undefined { return this.read("client.json", value => OAuthClientInformationSchema.parse(value)); }
   saveClientInformation(value: OAuthClientInformationMixed): void { this.save("client.json", OAuthClientInformationSchema.parse(value)); }
-  tokens(): OAuthTokens | undefined { return this.read("tokens.json", value => OAuthTokensSchema.parse(value)); }
-  saveTokens(value: OAuthTokens): void { this.save("tokens.json", OAuthTokensSchema.parse(value)); }
-  saveCodeVerifier(verifier: string): void { this.verifier = verifier; }
+  tokens(): OAuthTokens | undefined {
+    return this.read("tokens.json", value => {
+      if (isJsonObject(value) && (Object.hasOwn(value, "version") || Object.hasOwn(value, "phase"))) {
+        if (value.version !== 1) throw new Error("invalid token record");
+        if (value.phase === "consuming" && Object.keys(value).length === 2) return undefined;
+        if (value.phase !== "ready" || Object.keys(value).length !== 3) throw new Error("invalid token record");
+        return OAuthTokensSchema.parse(value.tokens);
+      }
+      return OAuthTokensSchema.parse(value);
+    });
+  }
+  saveTokens(value: OAuthTokens): void { this.save("tokens.json", { version: 1, phase: "ready", tokens: OAuthTokensSchema.parse(value) }); }
+  beforeTokenRequest(input: Parameters<FetchLike>[0], init?: Parameters<FetchLike>[1], signal?: AbortSignal): void {
+    const url = input instanceof Request ? input.url : String(input);
+    const endpoint = this.discovery?.authorizationServerMetadata?.token_endpoint;
+    if (!endpoint || new URL(url).href !== new URL(endpoint).href) return;
+    this.allowAuthorization();
+    this.tokenAttempted = true;
+    if (signal?.aborted) throw new TokenAttemptError();
+    if (init?.method !== "POST" || !(init.body instanceof URLSearchParams || isText(init.body))) throw new TokenAttemptError();
+    const params = new URLSearchParams(init.body);
+    if (!["authorization_code", "refresh_token"].includes(params.get("grant_type") ?? "") || params.get("resource") !== new URL(this.resource).href) throw new TokenAttemptError();
+    this.save("tokens.json", { version: 1, phase: "consuming" });
+  }
+  saveCodeVerifier(verifier: string): void { this.allowAuthorization(); this.verifier = verifier; }
   codeVerifier(): string { if (!this.verifier) throw new Error("MCP OAuth verifier is unavailable"); return this.verifier; }
 
   invalidateCredentials(scope: "all" | "client" | "tokens" | "verifier" | "discovery"): void {
+    this.allowAuthorization();
     if (this.dir) for (const [kind, file] of [["client", "client.json"], ["tokens", "tokens.json"]] as const) if (scope === "all" || scope === kind) rmSync(join(this.dir, file), { force: true });
     if (scope === "all" || scope === "verifier") this.verifier = undefined;
     if (scope === "all" || scope === "discovery") { this.discovery = undefined; this.dir = undefined; }
   }
 
   async redirectToAuthorization(url: URL): Promise<void> {
+    this.allowAuthorization();
     const metadata = this.discovery?.authorizationServerMetadata;
     if (!metadata || !httpsEndpoint(url.href) || url.searchParams.get("state") !== this.state() || url.searchParams.get("redirect_uri") !== this.redirectUrl || url.origin !== new URL(metadata.authorization_endpoint!).origin) throw new Error("MCP OAuth authorization redirect is invalid");
     this.callback.arm(this.discovery!.authorizationServerUrl, "authorization_response_iss_parameter_supported" in metadata && metadata.authorization_response_iss_parameter_supported === true);
@@ -94,10 +127,12 @@ export async function connectWithOAuth(client: Client, server: string, url: stri
   const callback = new McpOAuthCallback(), controller = new AbortController();
   const stopped = () => { callback.cancel(new Error("MCP OAuth connection canceled")); controller.abort(); };
   options.signal?.addEventListener("abort", stopped, { once: true });
-  let transport: StreamableHTTPClientTransport | undefined, connected = false;
+  let transport: StreamableHTTPClientTransport | undefined, provider: NekoOAuthProvider | undefined, connected = false;
   const timer = setTimeout(() => { callback.cancel(new Error("MCP OAuth authorization timed out")); controller.abort(); }, options.timeoutMs ?? 120_000);
   const fetchFn: FetchLike = async (input, init) => {
-    const response = await (options.fetch ?? fetch)(input, { ...init, redirect: "error", credentials: "omit", signal: AbortSignal.any([controller.signal, ...(init?.signal ? [init.signal] : []), ...(options.signal ? [options.signal] : [])]) });
+    const signal = AbortSignal.any([controller.signal, ...(init?.signal ? [init.signal] : []), ...(options.signal ? [options.signal] : [])]);
+    provider?.beforeTokenRequest(input, init, signal);
+    const response = await (options.fetch ?? fetch)(input, { ...init, redirect: "error", credentials: "omit", signal });
     // The SDK refreshes and resends the original RPC on 401/403. After initialization that
     // RPC may already have mutated remote state; require an explicit reconnect instead.
     if (connected && (response.status === 401 || response.status === 403)) {
@@ -109,11 +144,12 @@ export async function connectWithOAuth(client: Client, server: string, url: stri
   try {
     if (options.signal?.aborted) throw new Error("MCP OAuth connection canceled");
     await callback.listen(options.port ?? 41789);
-    const provider = new NekoOAuthProvider(server, url, callback, options.openUrl);
+    provider = new NekoOAuthProvider(server, url, callback, options.openUrl);
     transport = new StreamableHTTPClientTransport(new URL(url), { authProvider: provider, fetch: fetchFn });
     try {
       await client.connect(transport);
     } catch (error) {
+      if (error instanceof TokenAttemptError) throw error;
       if (!(error instanceof UnauthorizedError) || !provider.redirected) throw new Error("MCP OAuth connection failed before authorization");
       const code = await callback.code;
       await client.close();
@@ -121,7 +157,10 @@ export async function connectWithOAuth(client: Client, server: string, url: stri
         await transport.finishAuth(code);
         transport = new StreamableHTTPClientTransport(new URL(url), { authProvider: provider, fetch: fetchFn });
         await client.connect(transport);
-      } catch { throw new Error("MCP OAuth authorization could not finish; reconnect explicitly"); }
+      } catch (error) {
+        if (error instanceof TokenAttemptError) throw error;
+        throw new Error("MCP OAuth authorization could not finish; reconnect explicitly");
+      }
     }
     connected = true;
     return transport;

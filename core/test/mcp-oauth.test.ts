@@ -11,6 +11,7 @@ import { McpOAuthCallback } from "../src/adapters/mcp-oauth-callback.ts";
 import { connectWithOAuth, NekoOAuthProvider } from "../src/adapters/mcp-oauth.ts";
 import { McpHub } from "../src/adapters/mcp.ts";
 import { isText } from "../src/shared/wire.ts";
+import * as atomic from "../src/shared/atomic.ts";
 
 const resource = "https://mcp.example.test/mcp", issuer = "https://auth.example.test";
 function discovery(as = issuer, target = resource): OAuthDiscoveryState {
@@ -268,4 +269,117 @@ test("OAuth SSE authentication failure after connection does not start hidden re
     const error = await failed;
     expect(error.message).toContain("reconnect"); expect(error.message).not.toContain("private-stream-error"); expect(fixture.tokenPosts).toBe(1);
   } finally { release(); await client.close(); }
+}));
+
+test("pre-connect lost refresh response never opens a fallback browser or reuses the consumed token", async () => withHome(async () => {
+  const callback = new McpOAuthCallback(); await callback.listen(0);
+  const port = Number(new URL(callback.redirectUrl).port);
+  const seed = new NekoOAuthProvider("fixture", resource, callback);
+  seed.saveDiscoveryState(discovery()); seed.saveClientInformation({ client_id: "fixture-client" });
+  seed.saveTokens({ access_token: "fixture-access", refresh_token: "fixture-refresh", token_type: "Bearer" });
+  await callback.close();
+  const fixture = sdkFixture(); let tokenPosts = 0, opened = 0;
+  const fetchFn: FetchLike = async (input, init) => {
+    if (String(input) === issuer + "/token") {
+      tokenPosts++; throw new Error("fixture consumed refresh token then lost response");
+    }
+    return fixture.fetchFn(input, init);
+  };
+  const first = new Client({ name: "fixture", version: "1" });
+  try {
+    await expect(connectWithOAuth(first, "fixture", resource, { port, timeoutMs: 5000, fetch: fetchFn, openUrl: () => { opened++; throw new Error("unexpected fallback"); } })).rejects.toThrow();
+    expect(tokenPosts).toBe(1); expect(opened).toBe(0);
+  } finally { await first.close(); }
+  const next = new Client({ name: "fixture", version: "1" });
+  try {
+    await connectWithOAuth(next, "fixture", resource, { port, timeoutMs: 5000, fetch: async (input, init) => {
+      if (String(input) === issuer + "/token") {
+        expect(new URLSearchParams(String(init?.body)).get("grant_type")).toBe("authorization_code"); tokenPosts++;
+      }
+      return fixture.fetchFn(input, init);
+    }, openUrl: async url => {
+      opened++; const auth = fixture.authorize(url);
+      await callbackRequest(auth.searchParams.get("redirect_uri")!, new URLSearchParams({ state: auth.searchParams.get("state")!, code: "fixture-code", iss: issuer }));
+    } });
+    expect(tokenPosts).toBe(2); expect(opened).toBe(1);
+  } finally { await next.close(); }
+}));
+
+for (const mode of ["before-save", "result-save", "invalid-client", "invalid-grant", "server-error", "malformed", "second-401", "abort-before-token", "canonical-endpoint"] as const) test("SDK token recovery fences " + mode, async () => withHome(async root => {
+  const callback = new McpOAuthCallback(); await callback.listen(0);
+  const port = Number(new URL(callback.redirectUrl).port);
+  const seed = new NekoOAuthProvider("fixture", resource, callback);
+  seed.saveDiscoveryState(discovery()); seed.saveClientInformation({ client_id: "fixture-client" });
+  seed.saveTokens({ access_token: "fixture-access", refresh_token: "fixture-refresh", token_type: "Bearer" });
+  const parent = join(root, ".neko-core", "mcp-auth", "v2"), file = join(parent, readdirSync(parent)[0]!, "tokens.json");
+  const before = readFileSync(file, "utf8"); await callback.close();
+  const original = atomic.atomicWriteFileSync; let writes = 0;
+  const fault = spyOn(atomic, "atomicWriteFileSync").mockImplementation((path, data, permissions) => {
+    if (path === file && (++writes === (mode === "before-save" ? 1 : mode === "result-save" ? 2 : -1))) throw new Error("private fixture storage detail");
+    original(path, data, permissions);
+  });
+  const fixture = sdkFixture(), client = new Client({ name: "fixture", version: "1" }); let posts = 0, opened = 0;
+  const controller = new AbortController();
+  try {
+    const fetchFn: FetchLike = async (input, init) => {
+      if (String(input) === issuer + "/token") {
+        posts++;
+        expect(readFileSync(file, "utf8")).not.toContain("fixture-refresh");
+        if (mode === "invalid-client" || mode === "invalid-grant" || mode === "server-error") return new Response(JSON.stringify({ error: mode.replaceAll("-", "_"), error_description: "private-provider-detail" }), { status: mode === "server-error" ? 500 : 400 });
+        if (mode === "malformed") return new Response("{broken", { status: 200 });
+        if (mode === "canonical-endpoint") throw new Error("fixture response lost");
+      }
+      if (mode === "canonical-endpoint" && String(input) === issuer + "/.well-known/oauth-authorization-server") return new Response(JSON.stringify({ ...discovery().authorizationServerMetadata, token_endpoint: "https://AUTH.EXAMPLE.TEST:443/token" }));
+      if (mode === "second-401" && posts && String(input) === resource && init?.method === "POST") return new Response(null, { status: 401 });
+      if (mode === "abort-before-token" && String(input) === issuer + "/.well-known/oauth-authorization-server") controller.abort();
+      return fixture.fetchFn(input, init);
+    };
+    let failure = "";
+    try { await connectWithOAuth(client, "fixture", resource, { port, timeoutMs: 5000, signal: controller.signal, fetch: fetchFn, openUrl: () => { opened++; throw new Error("unexpected fallback"); } }); }
+    catch (error) { if (error instanceof Error) failure = error.message; }
+    expect(failure).not.toBe(""); expect(failure).not.toContain("private"); expect(opened).toBe(0);
+    expect(posts).toBe(mode === "before-save" || mode === "abort-before-token" ? 0 : 1);
+    const reopenedCallback = new McpOAuthCallback(); await reopenedCallback.listen(port);
+    try {
+      const reopened = new NekoOAuthProvider("fixture", resource, reopenedCallback); reopened.saveDiscoveryState(discovery());
+      if (mode === "before-save" || mode === "abort-before-token") { expect(readFileSync(file, "utf8")).toBe(before); expect(reopened.tokens()?.refresh_token).toBe("fixture-refresh"); }
+      else if (mode === "second-401") expect(reopened.tokens()?.access_token).toBe("fixture-access");
+      else expect(reopened.tokens()).toBeUndefined();
+    } finally { await reopenedCallback.close(); }
+  } finally { fault.mockRestore(); await client.close(); }
+}));
+
+test("token records migrate legacy credentials and reject malformed envelopes", async () => withHome(async root => {
+  const callback = new McpOAuthCallback(); await callback.listen(0);
+  try {
+    const provider = new NekoOAuthProvider("fixture", resource, callback); provider.saveDiscoveryState(discovery()); provider.saveClientInformation({ client_id: "fixture-client" });
+    const parent = join(root, ".neko-core", "mcp-auth", "v2"), file = join(parent, readdirSync(parent)[0]!, "tokens.json");
+    const tokens = { access_token: "legacy-fixture", token_type: "Bearer", refresh_token: "legacy-refresh" };
+    writeFileSync(file, JSON.stringify(tokens)); expect(provider.tokens()).toEqual(tokens);
+    provider.saveTokens(tokens); expect(JSON.parse(readFileSync(file, "utf8")).phase).toBe("ready"); expect(provider.tokens()).toEqual(tokens);
+    for (const value of [{ version: 2, phase: "consuming" }, { version: 1, phase: "unknown" }, { version: 1, phase: "consuming", tokens }, { version: 1, phase: "ready" }]) {
+      writeFileSync(file, JSON.stringify(value)); expect(() => provider.tokens()).toThrow("cannot be read");
+    }
+  } finally { await callback.close(); }
+}));
+
+for (const mode of ["invalid_client", "invalid_grant", "lost_response"] as const) test("authorization code failure " + mode + " cannot replay through SDK recovery", async () => withHome(async root => {
+  const fixture = sdkFixture(), client = new Client({ name: "fixture", version: "1" }); let posts = 0, opened = 0, redirect = "";
+  try {
+    await expect(connectWithOAuth(client, "fixture", resource, { port: 0, timeoutMs: 5000, fetch: async (input, init) => {
+      if (String(input) === issuer + "/token") {
+        posts++;
+        if (mode === "lost_response") throw new Error("private provider response lost");
+        return new Response(JSON.stringify({ error: mode, error_description: "private provider detail" }), { status: 400 });
+      }
+      return fixture.fetchFn(input, init);
+    }, openUrl: async url => {
+      opened++; const auth = fixture.authorize(url); redirect = auth.searchParams.get("redirect_uri")!;
+      await callbackRequest(redirect, new URLSearchParams({ state: auth.searchParams.get("state")!, code: "fixture-code", iss: issuer }));
+    } })).rejects.toThrow(/reconnect/);
+    expect(posts).toBe(1); expect(opened).toBe(1); await assertPortReleased(redirect);
+    const parent = join(root, ".neko-core", "mcp-auth", "v2"), stored = readFileSync(join(parent, readdirSync(parent)[0]!, "tokens.json"), "utf8");
+    expect(JSON.parse(stored)).toEqual({ version: 1, phase: "consuming" });
+    expect(stored).not.toContain("fixture-code"); expect(stored).not.toContain("fixture-refresh");
+  } finally { await client.close(); }
 }));
