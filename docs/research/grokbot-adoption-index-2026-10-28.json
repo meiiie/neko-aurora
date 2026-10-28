@@ -1066,7 +1066,9 @@
         "app/native/internal/aurora/mcp_lifecycle_test.go",
         "app/tests/aurora/adoption-browser.py"
       ],
-      "limits": "Remote MCP only; no live OAuth, Gmail/Google/GitHub contract or provider account validated."
+      "limits": "Remote MCP only; no live OAuth, Gmail/Google/GitHub contract or provider account validated.",
+      "discoveryEvidence": "docs/research/grokbot-mcp-discovery-2026-10-28.md",
+      "discoveryCodeCommit": "383d94b0b00826395e6321154a4215a79462a1eb"
     },
     {
       "id": "0.77.0-Fixed-14",
@@ -4927,7 +4929,9 @@
         "app/native/internal/aurora/mcp_lifecycle_test.go",
         "app/tests/aurora/adoption-browser.py"
       ],
-      "limits": "Remote MCP only; no live OAuth, Gmail/Google/GitHub contract or provider account validated."
+      "limits": "Remote MCP only; no live OAuth, Gmail/Google/GitHub contract or provider account validated.",
+      "discoveryEvidence": "docs/research/grokbot-mcp-discovery-2026-10-28.md",
+      "discoveryCodeCommit": "383d94b0b00826395e6321154a4215a79462a1eb"
     },
     {
       "id": "0.70.2-Fixed-3",
