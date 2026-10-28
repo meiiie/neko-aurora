@@ -9,8 +9,8 @@ import (
 func vn(s string) time.Time { t, _ := time.ParseInLocation("2006-01-02 15:04", s, saigon); return t }
 
 func TestScheduleDue(t *testing.T) {
-	d, ok := schedule{At: "8:05", Repeat: "daily", Text: "tin vàng"}.normalize(vn("2026-10-23 22:00"))
-	if !ok || d.At != "08:05" {
+	d, ok := schedule{At: "8:05", Repeat: "daily", Text: "tin vàng", Blocked: "quota_exceeded"}.normalize(vn("2026-10-23 22:00"))
+	if !ok || d.At != "08:05" || d.Blocked != "" {
 		t.Fatal(d)
 	}
 	if d.due(vn("2026-10-24 08:04")) != "" || d.due(vn("2026-10-24 08:05")) != "2026-10-24" {

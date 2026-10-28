@@ -69,6 +69,7 @@ type Service struct {
 	networkAdmission func(string) error
 	networkFailures  map[string]string
 	utilityAdmission func() bool
+	routineAdmission func(key, digest string) error
 	workspaceID      string
 	// OnDeleteAccount, when set, erases every bot, message, secret and backup
 	// on this server (the host wipes the state directory and restarts fresh).
@@ -92,6 +93,8 @@ type Options struct {
 	// UtilityAdmission meters owner-requested inference outside chat turns.
 	// Automatic reviews within an admitted turn do not spend another request.
 	UtilityAdmission func() bool
+	// RoutineAdmission reserves quota once for a schedule occurrence or test.
+	RoutineAdmission func(key, digest string) error
 	// DisableCloud is a server-side hosted pilot admission decision.
 	DisableCloud bool
 }
@@ -138,6 +141,7 @@ func New(ctx context.Context, store *ledger.Store, stateDir string, opt Options)
 	s.owner = opt.OwnerName
 	s.workspaceID = workspaceID
 	s.utilityAdmission = opt.UtilityAdmission
+	s.routineAdmission = opt.RoutineAdmission
 	s.cloudStateDir = stateDir
 	if !store.ReadOnly() && !opt.DisableCloud {
 		s.Cloud = openCloudBrowser(stateDir)
@@ -711,6 +715,10 @@ func (s *Service) routes() {
 		}
 		id := r.PathValue("id")
 		nonce := in.Nonce
+		if strings.HasPrefix(nonce, "routine-test-") || strings.HasPrefix(nonce, "sched-") {
+			fail(w, ErrInvalid)
+			return
+		}
 		if len(nonce) < 8 || len(nonce) > 100 {
 			nonce = newID("aurora-")
 		}

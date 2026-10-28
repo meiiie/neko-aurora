@@ -28,10 +28,11 @@ try:
   try:
    context=browser.new_context(viewport={'width':390,'height':844},locale='vi-VN',service_workers='block');page=context.new_page();fx=Fixture();errors=[]
    page.route('**/app/api/**',fx.route);page.on('pageerror',lambda e:errors.append(str(e)))
-   page.goto(f'http://127.0.0.1:{server.server_port}/app/#bot-a');expect(page.locator('#whoBtn')).to_contain_text('Chat A')
+   page.goto(f'http://127.0.0.1:{server.server_port}/app/#bot-a',wait_until='networkidle');expect(page.locator('#whoBtn')).to_contain_text('Chat A')
    pill=page.locator('.selection-excerpt');expect(pill).to_be_hidden()
    def select(selector):
-    node=page.locator(selector);node.evaluate('''node=>{node.scrollIntoView({block:"center"});const range=document.createRange();range.selectNodeContents(node);const sel=getSelection();sel.removeAllRanges();sel.addRange(range)}''')
+    page.wait_for_function('Math.abs(document.querySelector("#thread").getBoundingClientRect().left)<1')
+    node=page.locator(selector);node.scroll_into_view_if_needed();node.evaluate('''node=>{const range=document.createRange();range.selectNodeContents(node);const sel=getSelection();sel.removeAllRanges();sel.addRange(range)}''')
     try:expect(pill).to_be_visible()
     except AssertionError:
      print(json.dumps(page.evaluate("()=>({selection:getSelection().toString(),source:document.querySelector('[data-message-id=m1] .msg').getBoundingClientRect().toJSON(),root:document.querySelector('#messages').getBoundingClientRect().toJSON(),scroll:document.querySelector('#messages').scrollTop})")));raise

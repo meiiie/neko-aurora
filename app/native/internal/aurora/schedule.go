@@ -34,6 +34,7 @@ type schedule struct {
 	Paused    bool   `json:"paused"`
 	Revision  uint64 `json:"revision"`
 	StartDate string `json:"startDate,omitempty"` // earliest day after an owner edit
+	Blocked   string `json:"blocked,omitempty"`
 }
 
 type schedStore struct {
@@ -64,6 +65,7 @@ var hhmm = regexp.MustCompile(`^([01]?\d|2[0-3]):([0-5]\d)$`)
 // normalize validates a schedule from a directive; ok=false drops it.
 func (x schedule) normalize(now time.Time) (schedule, bool) {
 	x.StartDate = ""
+	x.Blocked = ""
 	x.Text = clean(x.Text, 1000)
 	m := hhmm.FindStringSubmatch(strings.TrimSpace(x.At))
 	if x.Text == "" || m == nil {
@@ -184,9 +186,33 @@ func (s *Service) scheduleTick(now time.Time) {
 		if k := st.L[i].due(now); k != "" {
 			x := st.L[i]
 			text := "[Lịch hẹn " + x.At + "] " + x.Text
-			if _, _, err := s.L.Accept(ledger.Input{BotID: x.Bot, ClientNonce: "sched-" + x.ID + "-" + k, Text: text}); err != nil {
+			nonce := "sched-" + x.ID + "-" + k
+			admitted := false
+			for _, work := range s.L.Snapshot().Work {
+				if work.ClientNonce == nonce && (work.BotID == x.Bot || work.SourceBotID == x.Bot) {
+					admitted = true
+					break
+				}
+			}
+			var err error
+			if !admitted {
+				err = s.admitRoutine(x.Bot, nonce, text)
+				if err == nil {
+					_, _, err = s.L.Accept(ledger.Input{BotID: x.Bot, ClientNonce: nonce, Text: text})
+				}
+			}
+			if err != nil {
+				blocked := "admission_unavailable"
+				if err.Error() == "quota_exceeded" {
+					blocked = "quota_exceeded"
+				}
+				if st.L[i].Blocked != blocked {
+					st.L[i].Blocked = blocked
+					changed = true
+				}
 				continue
 			}
+			st.L[i].Blocked = ""
 			st.L[i].Last = k
 			changed = true
 		}
@@ -292,6 +318,7 @@ func (s *Service) editSchedule(id string, in scheduleEdit) (schedule, error) {
 		x := old
 		x.Text, x.At, x.Repeat, x.Date = clean(in.Text, 1000), in.At, in.Repeat, in.Date
 		x.Revision, x.StartDate = max(1, old.Revision)+1, ""
+		x.Blocked = ""
 		key := day
 		if in.Repeat == "once" {
 			key = in.Date
@@ -349,6 +376,7 @@ func (s *Service) addSchedules(w ledger.Work, xs []schedule) {
 }
 
 func (s *Service) scheduleRoutes() {
+	s.scheduleTestRoutes()
 	s.mux.HandleFunc("POST /app/api/schedules/{id}/edit", func(w http.ResponseWriter, r *http.Request) {
 		var in scheduleEdit
 		if decodeStrict(r, &in) != nil {
@@ -371,10 +399,15 @@ func (s *Service) scheduleRoutes() {
 	})
 	s.mux.HandleFunc("POST /app/api/schedules/{id}/delete", func(w http.ResponseWriter, r *http.Request) {
 		var in struct {
-			Revision uint64 `json:"revision"`
+			WorkspaceID string `json:"workspaceId"`
+			Revision    uint64 `json:"revision"`
 		}
 		if decodeStrict(r, &in) != nil {
 			fail(w, ErrInvalid)
+			return
+		}
+		if in.WorkspaceID != s.workspaceID {
+			fail(w, ledger.ErrConflict)
 			return
 		}
 		if err := s.controlSchedule(r.PathValue("id"), in.Revision, nil); err != nil {
@@ -385,11 +418,16 @@ func (s *Service) scheduleRoutes() {
 	})
 	s.mux.HandleFunc("POST /app/api/schedules/{id}/state", func(w http.ResponseWriter, r *http.Request) {
 		var in struct {
-			Revision uint64 `json:"revision"`
-			Paused   *bool  `json:"paused"`
+			WorkspaceID string `json:"workspaceId"`
+			Revision    uint64 `json:"revision"`
+			Paused      *bool  `json:"paused"`
 		}
 		if decodeStrict(r, &in) != nil || in.Paused == nil {
 			fail(w, ErrInvalid)
+			return
+		}
+		if in.WorkspaceID != s.workspaceID {
+			fail(w, ledger.ErrConflict)
 			return
 		}
 		if err := s.controlSchedule(r.PathValue("id"), in.Revision, in.Paused); err != nil {

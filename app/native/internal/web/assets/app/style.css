@@ -526,3 +526,5 @@ details.sources[open]>:not(summary),details.think[open]>:not(summary),details.pl
 .schedule-controls{flex-wrap:wrap}.schedule-editor{padding:0 16px 16px;display:grid;gap:12px}.schedule-editor label{display:grid;gap:6px;font-size:14px}.schedule-editor input,.schedule-editor textarea,.schedule-editor select{box-sizing:border-box;width:100%;min-width:0;min-height:44px;font:inherit;border:1px solid var(--line);border-radius:10px;padding:8px;background:var(--card);color:var(--ink)}.schedule-editor textarea{resize:vertical}.schedule-editor label[hidden],.schedule-editor button[hidden]{display:none}.schedule-edit-actions{display:flex;flex-wrap:wrap;gap:8px}.schedule-edit-status:empty{display:none}
 
 #pcBox button[hidden]{display:none}
+.schedule-test button[hidden]{display:none}.schedule-test>.caption{margin:4px 16px 12px}.schedule-test .schedule-controls{padding-top:0}.schedule-test button{min-height:44px}.schedule-blocked{padding:0 16px;color:var(--danger,#d33);font-size:14px}
+.schedule-error:empty{margin:0;padding:0}.schedule-test>.caption:empty{margin:0}

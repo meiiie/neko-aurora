@@ -235,6 +235,13 @@ func (h *Hub) openTenant(uid string) (*tenant, error) {
 			u, ok := h.users.get(uid)
 			return ok && h.users.spend(uid, h.cfg.Now(), h.cfg.Plans[u.Plan])
 		},
+		RoutineAdmission: func(key, digest string) error {
+			u, ok := h.users.get(uid)
+			if !ok {
+				return errors.New("signin_required")
+			}
+			return h.users.reserveMessage(uid, "routine:"+key, digest, h.cfg.Now(), h.cfg.Plans[u.Plan])
+		},
 		WorkspaceID: "account-" + uid,
 		OwnerName:   func() string { u, _ := h.users.get(uid); return u.Name }})
 	if err != nil {

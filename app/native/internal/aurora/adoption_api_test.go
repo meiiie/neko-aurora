@@ -93,16 +93,16 @@ func TestAdoptionAPIQuestionsMemorySchedulesAndRetry(t *testing.T) {
 	if !s.sched.add(schedule{ID: "api-fixture", Bot: bot, Text: "tin sáng", At: "08:00", Repeat: "daily"}) {
 		t.Fatal("schedule setup")
 	}
-	if code, _ := request("/schedules/api-fixture/state", map[string]any{"revision": 1, "paused": true}); code != 200 {
+	if code, _ := request("/schedules/api-fixture/state", map[string]any{"workspaceId": s.workspaceID, "revision": 1, "paused": true}); code != 200 {
 		t.Fatal("pause", code)
 	}
-	if code, _ := request("/schedules/api-fixture/delete", map[string]any{"revision": 1}); code != 409 {
+	if code, _ := request("/schedules/api-fixture/delete", map[string]any{"workspaceId": s.workspaceID, "revision": 1}); code != 409 {
 		t.Fatal("stale delete", code)
 	}
-	if code, _ := request("/schedules/api-fixture/state", map[string]any{"revision": 2, "paused": false}); code != 200 {
+	if code, _ := request("/schedules/api-fixture/state", map[string]any{"workspaceId": s.workspaceID, "revision": 2, "paused": false}); code != 200 {
 		t.Fatal("resume", code)
 	}
-	if code, _ := request("/schedules/api-fixture/delete", map[string]any{"revision": 3}); code != 200 {
+	if code, _ := request("/schedules/api-fixture/delete", map[string]any{"workspaceId": s.workspaceID, "revision": 3}); code != 200 {
 		t.Fatal("delete", code)
 	}
 	if len(s.sched.list(bot)) != 0 {
