@@ -44,8 +44,23 @@ const el=(t,c,x)=>{const e=document.createElement(t);if(c)e.className=c;if(x!=nu
 let toastT;const toast=m=>{const t=$("#toast");t.textContent=m;t.classList.add("show");clearTimeout(toastT);toastT=setTimeout(()=>t.classList.remove("show"),2200)};
 const upsert=a=>{const i=S.agents.findIndex(x=>x.id===a.id);if(i<0)S.agents.push(a);else S.agents[i]=a};
 let listQueued=false;const renderListSoon=()=>{if(listQueued)return;listQueued=true;requestAnimationFrame(()=>{listQueued=false;renderList()})};
-async function loadState(){const st=await api("/state");if(S.workspaceId&&S.workspaceId!==st.workspaceId){S.msgs={};S.drafts={};closeThread();if(sheetOpen)closeSheet(true)}S.workspaceId=st.workspaceId;bindOutbox();S.agents=st.agents;S.pending=st.pending;S.brief=st.brief;S.ai=st.ai;S.vapid=st.vapidPublicKey;S.outbound=st.outbound||{};S.secrets=st.secrets||[];S.pushSubs=st.pushSubscriptions|0;seedSeen();renderList();if(cur){const a=byId(cur.id);if(a){cur=a;await loadMsgs(a.id)}}}
-async function loadMsgs(id){S.msgs[id]=await api(`/agents/${id}/messages`);if(cur&&cur.id===id)renderThread()}
+let stateRequest=0;const messageLoads=new Map();
+async function loadState(){
+ const request=++stateRequest;let st;
+ try{st=await api("/state")}catch(e){if(request===stateRequest)throw e;return}
+ if(request!==stateRequest)return;
+ const changed=S.workspaceId&&S.workspaceId!==st.workspaceId;
+ if(changed){S.msgs={};S.drafts={};messageLoads.clear();closeThread();closeCtx();if(sheetOpen)closeSheet(true)}
+ S.workspaceId=st.workspaceId;bindOutbox();S.agents=st.agents;S.pending=st.pending;S.brief=st.brief;S.ai=st.ai;S.vapid=st.vapidPublicKey;S.outbound=st.outbound||{};S.secrets=st.secrets||[];S.pushSubs=st.pushSubscriptions|0;seedSeen();renderList();
+ if(changed&&es)connect();
+ if(cur){const a=byId(cur.id);if(a){cur=a;await loadMsgs(a.id)}}
+}
+async function loadMsgs(id){
+ const cache=S.msgs,request={};messageLoads.set(id,request);
+ const active=()=>S.msgs===cache&&messageLoads.get(id)===request;
+ try{const messages=await api(`/agents/${id}/messages`);if(!active())return;cache[id]=messages;if(cur&&cur.id===id)renderThread()}
+ catch(e){if(active())throw e}
+}
 // ---------- unread (device-local: last time each conversation was seen) ----------
 const store={get(k,d){try{const v=localStorage.getItem(k);return v==null?d:JSON.parse(v)}catch{return d}},set(k,v){try{localStorage.setItem(k,JSON.stringify(v))}catch{}}};
 const seenByWorkspace=new Map();let seen=null,seenKey="";
@@ -68,20 +83,21 @@ let es,esDown=false;
 // offline state: one quiet pill; EventSource reconnects on its own and state reloads on reopen
 let netT=null;function net(){const off=!navigator.onLine||(esDown&&es&&es.readyState!==1);const b=$("#netBanner");if(!b)return;b.textContent=!navigator.onLine?"Ngoại tuyến · tin nhắn sẽ chưa gửi được":"Mất kết nối · đang thử lại…";b.classList.toggle("hidden",!off)}
 addEventListener("online",()=>{net();if(es&&es.readyState===2)connect()});addEventListener("offline",net);
-function connect(){es=new EventSource(API+"/events");
- es.onopen=()=>{if(esDown){esDown=false;loadState().catch(()=>{})}net()};
- es.onerror=()=>{esDown=true;setTimeout(net,2500)};
- es.addEventListener("agent",e=>{const a=JSON.parse(e.data);const was=S.agents.find(x=>x.id===a.id);if(was&&was.status==="working"&&a.status!=="working"&&S.msgs[a.id])loadMsgs(a.id).catch(()=>{});/* adopt server order once a turn ends (messages folded in mid-turn sit before the answer) */if(seen&&seen[a.id]==null)markSeen(a.id);upsert(a);if(cur&&cur.id===a.id){cur=a;markSeen(a.id);renderThread()}renderListSoon()});
- es.addEventListener("archived",e=>{const {id}=JSON.parse(e.data);S.agents=S.agents.filter(a=>a.id!==id);S.pending=S.pending.filter(m=>m.agentId!==id);renderListSoon()});
- es.addEventListener("message",e=>{const m=JSON.parse(e.data);const L=S.msgs[m.agentId];delete S.drafts[m.id];
+function connect(){const previous=es;es=null;previous?.close();const stream=new EventSource(API+"/events");es=stream;
+ const on=(type,fn)=>stream.addEventListener(type,e=>{if(es===stream)fn(e)});
+ stream.onopen=()=>{if(es!==stream)return;if(esDown){esDown=false;loadState().catch(()=>{})}net()};
+ stream.onerror=()=>{if(es!==stream)return;esDown=true;setTimeout(net,2500)};
+ on("agent",e=>{const a=JSON.parse(e.data);const was=S.agents.find(x=>x.id===a.id);if(was&&was.status==="working"&&a.status!=="working"&&S.msgs[a.id])loadMsgs(a.id).catch(()=>{});/* adopt server order once a turn ends (messages folded in mid-turn sit before the answer) */if(seen&&seen[a.id]==null)markSeen(a.id);upsert(a);if(cur&&cur.id===a.id){cur=a;markSeen(a.id);renderThread()}renderListSoon()});
+ on("archived",e=>{const {id}=JSON.parse(e.data);S.agents=S.agents.filter(a=>a.id!==id);S.pending=S.pending.filter(m=>m.agentId!==id);renderListSoon()});
+ on("message",e=>{const m=JSON.parse(e.data);const L=S.msgs[m.agentId];delete S.drafts[m.id];
   if(L){const i=L.findIndex(x=>x.id===m.id);if(i>=0)L[i]=m;else{const j=/:step\d+$/.test(m.id)?L.findIndex(x=>x.id===m.taskId):-1;if(j>=0)L.splice(j,0,m);else L.push(m)}}
   S.pending=S.pending.filter(x=>x.id!==m.id);if(m.approval&&m.approval.state==="pending")S.pending.push(m);
   if(cur&&cur.id===m.agentId)renderThread();renderListSoon()});
- es.addEventListener("delta",e=>{const d=JSON.parse(e.data);S.deltaCount=(S.deltaCount||0)+1;if(!S.drafts[d.id])setTimeout(()=>{if(S.drafts[d.id]&&cur&&cur.id===d.agentId&&!document.getElementById("d_"+d.id))paintDraft(d.id)},470);const x=S.drafts[d.id]||(S.drafts[d.id]={agentId:d.agentId,from:d.from,text:"",t0:Date.now()});x.text=typeof d.text==="string"?d.text:x.text+d.delta;if(cur&&cur.id===d.agentId)paintDraft(d.id)});
- es.addEventListener("draft_end",e=>{const d=JSON.parse(e.data);if(S.drafts[d.id]){delete S.drafts[d.id];if(cur&&cur.id===d.agentId)renderThread()}});
- es.addEventListener("activity",e=>{if(sheetOpen===$("#activity"))renderLog([JSON.parse(e.data)],true)});
- es.addEventListener("brief",e=>{S.brief=JSON.parse(e.data);renderListSoon()});
- es.addEventListener("notify",e=>{const n=JSON.parse(e.data);if(muted.includes((n.url||"").split("#")[1]))return;if(document.hidden&&!pushOn&&"Notification"in window&&Notification.permission==="granted")navigator.serviceWorker?.ready.then(r=>r.showNotification(n.title,{body:n.body,data:{url:n.url},tag:n.url}))});
+ on("delta",e=>{const d=JSON.parse(e.data);S.deltaCount=(S.deltaCount||0)+1;if(!S.drafts[d.id])setTimeout(()=>{if(es===stream&&S.drafts[d.id]&&cur&&cur.id===d.agentId&&!document.getElementById("d_"+d.id))paintDraft(d.id)},470);const x=S.drafts[d.id]||(S.drafts[d.id]={agentId:d.agentId,from:d.from,text:"",t0:Date.now()});x.text=typeof d.text==="string"?d.text:x.text+d.delta;if(cur&&cur.id===d.agentId)paintDraft(d.id)});
+ on("draft_end",e=>{const d=JSON.parse(e.data);if(S.drafts[d.id]){delete S.drafts[d.id];if(cur&&cur.id===d.agentId)renderThread()}});
+ on("activity",e=>{if(sheetOpen===$("#activity"))renderLog([JSON.parse(e.data)],true)});
+ on("brief",e=>{S.brief=JSON.parse(e.data);renderListSoon()});
+ on("notify",e=>{const n=JSON.parse(e.data);if(muted.includes((n.url||"").split("#")[1]))return;if(document.hidden&&!pushOn&&"Notification"in window&&Notification.permission==="granted")navigator.serviceWorker?.ready.then(r=>{if(es===stream)r.showNotification(n.title,{body:n.body,data:{url:n.url},tag:n.url})})});
 }
 // ---------- list ----------
 function avatarOf(a,sz){if(!isGroup(a))return face(a.av,sz);const w=el("span","stack");w.style.width=w.style.height=sz+"px";(a.members||[]).slice(0,2).forEach((id,i)=>{const b=byId(id);w.append(face(b&&b.av,Math.round(sz*.64),"s"+i))});return w}
@@ -195,8 +211,8 @@ function swipeRow(li,inn){let x0,y0,dx=0,mode=null,base=0;
 let cur=null;
 const stateTxt={working:"Đang làm việc…",waiting:"Chờ bạn duyệt",idle:"Sẵn sàng",done:"Đã xong",error:"Có lỗi"};
 const stateLine=a=>isGroup(a)&&a.status!=="working"&&!waiting(a)?(a.members||[]).map(id=>byId(id)?.name).filter(Boolean).join(", "):a.status==="working"&&a.snip&&a.snip.startsWith("Bước")?a.snip:waiting(a)?"Chờ bạn duyệt":stateTxt[a.status]||"";
-function openThread(id){selectionExcerpt?.clear();const a=byId(id);if(!a)return;closeMenu();if(cur?.id!==id){stopVoice();saveComposerDraft();cur=a;restoreComposerDraft()}else cur=a;markSeen(id);headAvatar(a);$("#threadName").textContent=a.name;$("#threadState").textContent=stateLine(a);$("#input").placeholder=isGroup(a)?"Hỏi cả nhóm":"Hỏi "+a.name;closeFind();renderThread();const loading=loadMsgs(id).catch(()=>toast("Không tải được hội thoại"));$("#thread").classList.remove("off");$("#list").classList.add("under");buzz("tap");const hs=history.state;if(hs&&hs.spent)history.replaceState({t:1},"","#"+id);else if(!(hs&&hs.t))history.pushState({t:1},"","#"+id);return loading}
-document.addEventListener("aurora-network-open-task",async e=>{const {botId,conversationId,workId}=e.detail||{},id=byId(conversationId)?conversationId:botId;if(!byId(id)){toast("Phiên bot không còn trong danh sách");return}openThread(id);try{await loadMsgs(id);const card=[...$("#messages").querySelectorAll(".approval")].find(n=>n.dataset.id===workId);if(card){stick=false;card.scrollIntoView({block:"center"});card.querySelector("button")?.focus()}}catch{toast("Không tải được tác vụ, thử mở lại hội thoại")}});
+function openThread(id){selectionExcerpt?.clear();const a=byId(id);if(!a)return;closeMenu();if(cur?.id!==id){stopVoice();saveComposerDraft();cur=a;restoreComposerDraft()}else cur=a;markSeen(id);headAvatar(a);$("#threadName").textContent=a.name;$("#threadState").textContent=stateLine(a);$("#input").placeholder=isGroup(a)?"Hỏi cả nhóm":"Hỏi "+a.name;closeFind();renderThread();const cache=S.msgs,loading=loadMsgs(id).catch(()=>{if(S.msgs===cache&&cur?.id===id)toast("Không tải được hội thoại")});$("#thread").classList.remove("off");$("#list").classList.add("under");buzz("tap");const hs=history.state;if(hs&&hs.spent)history.replaceState({t:1},"","#"+id);else if(!(hs&&hs.t))history.pushState({t:1},"","#"+id);return loading}
+document.addEventListener("aurora-network-open-task",async e=>{const {botId,conversationId,workId}=e.detail||{},id=byId(conversationId)?conversationId:botId;if(!byId(id)){toast("Phiên bot không còn trong danh sách");return}const cache=S.msgs;openThread(id);try{await loadMsgs(id);if(S.msgs!==cache||cur?.id!==id)return;const card=[...$("#messages").querySelectorAll(".approval")].find(n=>n.dataset.id===workId);if(card){stick=false;card.scrollIntoView({block:"center"});card.querySelector("button")?.focus()}}catch{if(S.msgs===cache&&cur?.id===id)toast("Không tải được tác vụ, thử mở lại hội thoại")}});
 function closeThread(fromPop){selectionExcerpt?.clear();if(!cur)return;if(profId)closeProfile(true);closeFind();markSeen(cur.id);stopVoice();saveComposerDraft();cur=null;inp.value="";setRef(null,false);setReply(null,false);inp.oninput();$("#thread").classList.add("off");$("#list").classList.remove("under");$("#thread").style.transform="";$("#list").style.transform="";renderList();if(!fromPop&&history.state&&history.state.t)history.replaceState({spent:1},"",location.pathname)}
 const deciding=new Set();
 const ICON={pending:"○",running:"◐",done:"✓",waiting:"⏸",failed:"✕",cancelled:"–"};
