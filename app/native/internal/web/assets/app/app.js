@@ -104,14 +104,16 @@ function avatarOf(a,sz){if(!isGroup(a))return face(a.av,sz);const w=el("span","s
 // chat header avatar carries the same presence dot as the list (Messenger-style)
 function headAvatar(a){const h=$("#threadAvatar");const k=a.status==="working"?"work":waiting(a)?"wait":"";if(h.dataset.k===k&&h.dataset.id===a.id&&h.firstChild)return;h.dataset.k=k;h.dataset.id=a.id;h.classList.add("head-av");h.replaceChildren(avatarOf(a,32));const bd=badge(a);if(bd)h.append(bd)}
 function badge(a){const k=a.status==="working"?"work":waiting(a)?"wait":a.status==="error"?"err":"";if(!k)return null;const b=el("i","badge "+k);b.setAttribute("aria-hidden","true");return b}
-let filter="";
+let filter="",listScope;
 const statusLine=a=>a.status==="working"?"Đang làm việc…":waiting(a)?"Chờ bạn duyệt":a.snip||a.desc||"";
 function renderList(){
+ const focused=document.activeElement,focusControl=listScope===S.workspaceId&&focused.matches("#rows .rowin,#rows .pin,#rows .arch,#featured .feat");
+ const focusId=focusControl?focused.closest("[data-id]").dataset.id:null,focusKind=focusControl?["rowin","pin","arch","feat"].find(c=>focused.classList.contains(c)):null;listScope=S.workspaceId;
  const all=[...S.agents].sort((a,b)=>(waiting(b)-waiting(a))||T(b.t)-T(a.t));
  const q=filter.trim().toLowerCase(),match=a=>!q||a.name.toLowerCase().includes(q)||(a.snip||"").toLowerCase().includes(q);
  const pinned=all.filter(a=>a.pin&&match(a)),rest=all.filter(a=>!a.pin&&match(a));
  const fe=$("#featured");fe.innerHTML="";fe.classList.toggle("hidden",!pinned.length);
- pinned.forEach(a=>{const b=el("button","feat");b.dataset.id=a.id;b.setAttribute("aria-label",a.name);const av=el("span","feat-av");av.append(avatarOf(a,92));const bd=badge(a);if(bd)av.append(bd);const nm=el("span","feat-name");nm.append(el("span",0,a.name));if(unread(a)){nm.append(el("i","dot"));b.setAttribute("aria-label",a.name+", chưa đọc")}b.append(av,nm);b.onclick=()=>{if(performance.now()<suppress)return;openThread(a.id)};longPress(b,a);fe.append(b)});
+ pinned.forEach(a=>{const b=el("button","feat");b.dataset.id=a.id;b.setAttribute("aria-label",a.name);const av=el("span","feat-av");av.append(avatarOf(a,92));const bd=badge(a);if(bd)av.append(bd);const nm=el("span","feat-name");nm.append(el("span",0,a.name));if(unread(a)){nm.append(el("i","dot"));b.setAttribute("aria-label",a.name+", chưa đọc")}b.append(av,nm);b.onclick=e=>{if(e.detail&&performance.now()<suppress)return;openThread(a.id);if(e.detail===0)inp.focus({preventScroll:true})};longPress(b,a);fe.append(b)});
  renderBrief(q);
  const ul=$("#rows");ul.innerHTML="";
  const hid=new Set(store.get("neko-aurora-hidden",[])),secs=store.get("neko-aurora-sections",{list:[],of:{}});
@@ -124,17 +126,20 @@ function renderList(){
   if(!isGroup(a)){const acts=el("div","actions"),pin=el("button","pin",a.pin?"Bỏ ghim":"Ghim"),ar=el("button","arch","Lưu trữ");acts.append(pin,ar);li.append(acts);
    pin.onclick=e=>{e.stopPropagation();suppress=performance.now()+600;api(`/agents/${a.id}`,{pin:!a.pin}).then(upsert).then(()=>{buzz("tap");renderList()}).catch(()=>toast("Không ghim được"))};
    ar.onclick=e=>{e.stopPropagation();suppress=performance.now()+600;if(ar.disabled)return;ar.disabled=true;api(`/agents/${a.id}`,{archived:true}).then(()=>{S.agents=S.agents.filter(x=>x.id!==a.id);S.pending=S.pending.filter(m=>m.agentId!==a.id);renderList();toast("Đã lưu trữ "+a.name)}).catch(()=>{ar.disabled=false;toast("Không lưu trữ được")})}}
-  const inn=el("div","rowin");inn.setAttribute("role","button");inn.tabIndex=0;const av=el("span","row-av");av.append(avatarOf(a,48));const bd=badge(a);if(bd)av.append(bd);inn.append(av);
-  const tx=el("div","rowtxt"),h=el("div","rowh");h.append(el("b",0,a.name));if(isGroup(a))h.append(el("span","tag",(a.members||[]).length+" bot"));
+  const inn=el("button","rowin");inn.type="button";const av=el("span","row-av");av.append(avatarOf(a,48));const bd=badge(a);if(bd)av.append(bd);inn.append(av);
+  const tx=el("span","rowtxt"),h=el("span","rowh");h.append(el("b",0,a.name));if(isGroup(a))h.append(el("span","tag",(a.members||[]).length+" bot"));
   const live=a.status==="working",un=unread(a);h.append(el("span","time"+(live?" now":"")+(un?" un":""),live?"bây giờ":ago(a.t)));
-  const sn=el("div","snip"+(waiting(a)?" wait":"")+(live?" dots":"")+(a.status==="error"?" err":"")+(un?" un":""),statusLine(a));
+  const sn=el("span","snip"+(waiting(a)?" wait":"")+(live?" dots":"")+(a.status==="error"?" err":"")+(un?" un":""),statusLine(a));
   tx.append(h,sn);inn.append(tx);if(un)inn.append(el("i","dot"));li.append(inn);ul.append(li);
-  inn.onclick=()=>{if(performance.now()<suppress)return;if(li.dataset.open){closeRow(li);return}openThread(a.id)};inn.onkeydown=e=>{if(e.key==="Enter")openThread(a.id)};
+  inn.onclick=e=>{if(e.detail&&performance.now()<suppress)return;if(li.dataset.open){closeRow(li);return}openThread(a.id);if(e.detail===0)inp.focus({preventScroll:true})};
   if(hid.has(a.id))li.classList.add("is-hidden");
   if(!isGroup(a))swipeRow(li,inn);longPress(inn,a)});
  if(hiddenN&&!q){const li=el("li","hid-toggle"),b=el("button","text-btn",showHidden?"Ẩn lại "+hiddenN+" bot":"Đã ẩn · "+hiddenN);b.onclick=()=>{showHidden=!showHidden;buzz("tap");renderList()};li.append(b);ul.append(li)}
  const em=$("#empty");em.classList.toggle("hidden",!!(pinned.length||rest.length));em.textContent=q?"Không tìm thấy “"+filter.trim()+"”.":"Chưa có bot nào. Bấm + để tạo.";
- updatePill()}
+ updatePill();
+ if(focusId&&(document.activeElement===focused||document.activeElement===document.body)){
+  const row=[...ul.children].find(n=>n.dataset.id===focusId),featured=[...fe.children].find(n=>n.dataset.id===focusId),target=row?.querySelector("."+focusKind);
+  (target&&!target.disabled?target:featured||row?.querySelector(".rowin")||$("#search")).focus({preventScroll:true})}}
 // ---------- long-press context menu (iOS-style: blurred backdrop, preview, menu + stacked submenu) ----------
 let showHidden=false,ctxOpen=null;
 function longPress(node,a){let t=null,x0=0,y0=0;const clear=()=>{clearTimeout(t);t=null;node.classList.remove("pressing")};

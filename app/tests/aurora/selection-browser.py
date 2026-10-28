@@ -28,10 +28,14 @@ try:
   try:
    context=browser.new_context(viewport={'width':390,'height':844},locale='vi-VN',service_workers='block');page=context.new_page();fx=Fixture();errors=[]
    page.route('**/app/api/**',fx.route);page.on('pageerror',lambda e:errors.append(str(e)))
+   page.on('requestfailed',lambda r:print('REQUEST FAILED',r.url,r.failure,flush=True))
    page.goto(f'http://127.0.0.1:{server.server_port}/app/#bot-a',wait_until='networkidle');expect(page.locator('#whoBtn')).to_contain_text('Chat A')
    pill=page.locator('.selection-excerpt');expect(pill).to_be_hidden()
    def select(selector):
-    page.wait_for_function('Math.abs(document.querySelector("#thread").getBoundingClientRect().left)<1')
+    try:page.wait_for_function('Math.abs(document.querySelector("#thread").getBoundingClientRect().left)<1')
+    except Exception:
+     print('LAYOUT DIAGNOSTICS',json.dumps(page.evaluate('''()=>({thread:document.querySelector('#thread').getBoundingClientRect().toJSON(),appScroll:document.querySelector('#app').scrollLeft,width:innerWidth,scrollX,styles:[...document.styleSheets].map(s=>s.href),className:document.querySelector('#thread').className})''')),flush=True)
+     page.screenshot(path=str(OUT/'selection-layout-failure.png'));raise
     node=page.locator(selector);node.scroll_into_view_if_needed();node.evaluate('''node=>{const range=document.createRange();range.selectNodeContents(node);const sel=getSelection();sel.removeAllRanges();sel.addRange(range)}''')
     try:expect(pill).to_be_visible()
     except AssertionError:
