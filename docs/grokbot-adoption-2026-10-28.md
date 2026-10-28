@@ -52,7 +52,7 @@ Các implementation chính nằm trong [Aurora service](../app/native/internal/a
 
 Mục đổi model để vượt một lần dừng của bộ lọc an toàn không được tiếp nhận. Fallback vì lỗi vận hành không phải cơ chế bỏ qua quyết định an toàn.
 
-Ưu tiên tiếp: contract/acceptance provider và hoàn thiện lưu trữ/transport OAuth Core; lịch/webhook, tài liệu, voice và quyền nhóm. Mỗi mục cần bằng chứng riêng trong index; không tự chuyển trạng thái theo keyword hay theo việc có file tương tự. Hai mươi hai dòng nguồn hiện có bằng chứng cục bộ một phần; 797 dòng vẫn chưa được ghi nhận có kiểm chứng tương ứng. Thay đổi admission là cải thiện độ bền của Aurora, không tự được tính thành hoàn tất thêm dòng changelog. Chi tiết: [giữ nháp và ảnh theo chat](research/grokbot-composer-drafts-2026-10-28.md), [câu hỏi nhiều bước](research/grokbot-structured-questions-2026-10-28.md), [catalog và hủy chờ MCP](research/grokbot-mcp-refresh-2026-10-28.md), [trích dẫn tin nhắn](research/grokbot-quoted-replies-2026-10-28.md).
+Ưu tiên tiếp: contract/acceptance provider và hoàn thiện lưu trữ/transport OAuth Core; lịch/webhook, tài liệu, voice và quyền nhóm. Mỗi mục cần bằng chứng riêng trong index; không tự chuyển trạng thái theo keyword hay theo việc có file tương tự. Hai mươi ba dòng nguồn hiện có bằng chứng cục bộ một phần; 796 dòng vẫn chưa được ghi nhận có kiểm chứng tương ứng. Thay đổi admission là cải thiện độ bền của Aurora, không tự được tính thành hoàn tất thêm dòng changelog. Chi tiết: [giữ nháp và ảnh theo chat](research/grokbot-composer-drafts-2026-10-28.md), [câu hỏi nhiều bước](research/grokbot-structured-questions-2026-10-28.md), [catalog và hủy chờ MCP](research/grokbot-mcp-refresh-2026-10-28.md), [trích dẫn tin nhắn](research/grokbot-quoted-replies-2026-10-28.md).
 
 ## Bằng chứng kiểm tra
 
@@ -150,3 +150,6 @@ Gợi ý sử dụng Vault (0.77.0): checkpoint `f6ebaed0d7ba316d40e804021db3b6b
 
 
 Vòng đời thẻ nhập bí mật: checkpoint `73e92ebd948e717f112dcd984435550ce60089d5` gắn thao tác lưu với workspace/chat gốc, xóa nội dung khi rời màn hình, chặn phản hồi cũ và chỉ khôi phục nháp cho đúng mục. API bí mật áp dụng kiểm tra workspace/body, no-store và chặn xóa ở chế độ chỉ đọc. Full Go 2,005 PASS / 38 SKIP; 121 nhóm trình duyệt và 8 kiểm thử Node PASS. [Báo cáo vòng đời thẻ bí mật](research/grokbot-secret-lifecycle-2026-10-29.md) ghi rõ tương thích caller cũ và giới hạn request đã gửi. Đây là sửa độ tin cậy của Aurora; số mục nguồn được kiểm chứng không tăng.
+
+
+Thanh toán ưu tiên trong Vault (0.77.0): checkpoint `92d9658a9acd2c5c4ff9765bcb08d23fa8b61cde` thêm tab Thanh toán, chọn/đổi/bỏ thẻ ưu tiên, lưu bền lựa chọn và đưa dấu ưu tiên vào metadata bot đọc. Mỗi lần dùng vẫn tạo yêu cầu duyệt; đổi ưu tiên không đổi đích của yêu cầu đã chờ. Full Go 2,022 PASS / 38 SKIP; 131 nhóm trình duyệt và 8 kiểm thử Node, vet/syntax/assets/build PASS. [Báo cáo thanh toán ưu tiên](research/grokbot-vault-payments-2026-10-29.md) phân biệt lựa chọn metadata với giao dịch thật và ghi rõ kiểm chứng còn thiếu. Index có 23 dòng nguồn được kiểm chứng cục bộ một phần.
