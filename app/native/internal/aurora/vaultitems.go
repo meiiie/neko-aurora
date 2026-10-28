@@ -13,6 +13,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"log"
 	"net/http"
 	"net/url"
@@ -280,25 +281,69 @@ func (s *Service) vaultExec(ctx context.Context, bot, cmd string, env map[string
 
 var vaultTypes = regexp.MustCompile(`^(card|login|identity)$`)
 
+func (s *Service) vaultWorkspace(w http.ResponseWriter, scope string) bool {
+	if scope != "" && scope != s.workspaceID {
+		fail(w, ledger.ErrConflict)
+		return false
+	}
+	return true
+}
+
+func decodeVaultRequest(w http.ResponseWriter, r *http.Request, value any) error {
+	d := json.NewDecoder(http.MaxBytesReader(w, r.Body, 16<<10))
+	d.DisallowUnknownFields()
+	if err := d.Decode(value); err != nil {
+		return err
+	}
+	var extra json.RawMessage
+	if err := d.Decode(&extra); !errors.Is(err, io.EOF) {
+		return ledger.ErrInvalid
+	}
+	return nil
+}
+
+func (s *Service) vaultActionRequest(w http.ResponseWriter, r *http.Request) bool {
+	var in struct {
+		WorkspaceID string `json:"workspaceId"`
+	}
+	if err := decodeVaultRequest(w, r, &in); err != nil && !errors.Is(err, io.EOF) {
+		fail(w, ledger.ErrInvalid)
+		return false
+	}
+	return s.vaultWorkspace(w, in.WorkspaceID)
+}
+
 func (s *Service) vaultRoutes() {
 	m := s.mux
 	m.HandleFunc("GET /app/api/vault", func(w http.ResponseWriter, r *http.Request) {
-		writeJSON(w, 200, map[string]any{"items": s.V.Items(), "uses": s.V.Uses(30), "fields": vault.ItemFields})
+		if len(r.URL.Query()["workspaceId"]) > 1 {
+			fail(w, ledger.ErrInvalid)
+			return
+		}
+		if !s.vaultWorkspace(w, r.URL.Query().Get("workspaceId")) {
+			return
+		}
+		w.Header().Set("Cache-Control", "no-store")
+		writeJSON(w, 200, map[string]any{"workspaceId": s.workspaceID, "items": s.V.Items(), "uses": s.V.Uses(30), "fields": vault.ItemFields})
 	})
 	m.HandleFunc("POST /app/api/vault", func(w http.ResponseWriter, r *http.Request) {
 		var in struct {
-			ID     string            `json:"id"`
-			Type   string            `json:"type"`
-			Label  string            `json:"label"`
-			Fields map[string]string `json:"fields"`
-			Work   string            `json:"work"`
+			WorkspaceID string            `json:"workspaceId"`
+			ID          string            `json:"id"`
+			Type        string            `json:"type"`
+			Label       string            `json:"label"`
+			Fields      map[string]string `json:"fields"`
+			Work        string            `json:"work"`
 		}
 		if s.L.ReadOnly() {
 			fail(w, ledger.ErrConflict)
 			return
 		}
-		if err := decodeStrict(r, &in); err != nil || !vaultTypes.MatchString(in.Type) {
+		if err := decodeVaultRequest(w, r, &in); err != nil || !vaultTypes.MatchString(in.Type) {
 			fail(w, ledger.ErrInvalid)
+			return
+		}
+		if !s.vaultWorkspace(w, in.WorkspaceID) {
 			return
 		}
 		it, err := s.V.SaveItem(in.ID, in.Type, clean(in.Label, 80), in.Fields)
@@ -329,6 +374,9 @@ func (s *Service) vaultRoutes() {
 		writeJSON(w, 200, it)
 	})
 	m.HandleFunc("POST /app/api/vault/{id}/reveal", func(w http.ResponseWriter, r *http.Request) {
+		if !s.vaultActionRequest(w, r) {
+			return
+		}
 		id := r.PathValue("id")
 		f, ok := s.V.Fields(id)
 		it, _ := s.V.Item(id)
@@ -336,7 +384,7 @@ func (s *Service) vaultRoutes() {
 			fail(w, ErrNotFound)
 			return
 		}
-		out := map[string]any{"fields": f}
+		out := map[string]any{"workspaceId": s.workspaceID, "fields": f}
 		if f["totp"] != "" {
 			if c, err := vault.TOTP(f["totp"], time.Now()); err == nil {
 				out["code"], out["codeTTL"] = c, 30-time.Now().Unix()%30
@@ -347,6 +395,13 @@ func (s *Service) vaultRoutes() {
 		writeJSON(w, 200, out)
 	})
 	m.HandleFunc("POST /app/api/vault/{id}/delete", func(w http.ResponseWriter, r *http.Request) {
+		if s.L.ReadOnly() {
+			fail(w, ledger.ErrConflict)
+			return
+		}
+		if !s.vaultActionRequest(w, r) {
+			return
+		}
 		id := r.PathValue("id")
 		it, _ := s.V.Item(id)
 		if err := s.V.DeleteItem(id); err != nil {
