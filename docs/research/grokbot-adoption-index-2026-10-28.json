@@ -5570,7 +5570,8 @@
       "topics": [
         "routines-network"
       ],
-      "coverage": "not-validated"
+      "coverage": "partial-local-validation",
+      "implementation": "schedule-pause-resume-edit-delete-with-revision-and-occurrence-guards"
     },
     {
       "id": "0.68.0-Improved-4",
@@ -10129,6 +10130,6 @@
       "coverage": "not-validated"
     }
   ],
-  "note": "Every source bullet is indexed, including fixes and bundled changes. Tags are routing hints, not proof of feature coverage. Eight entries have narrower local implementations; no complete upstream parity is claimed. Source prose is not redistributed.",
+  "note": "Every source bullet is indexed, including fixes and bundled changes. Tags are routing hints, not proof of feature coverage. Eleven entries have narrower local implementations; no complete upstream parity is claimed. Source prose is not redistributed.",
   "baseCommit": "66376d68691d8bce16b6565c6268c4331802ef57"
 }
