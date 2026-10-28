@@ -41,7 +41,7 @@ Các implementation chính nằm trong [Aurora service](../app/native/internal/a
 | Nhóm | Điểm tích hợp hiện có | Điều kiện để được ghi nhận hoàn thành |
 |---|---|---|
 | Connector, email và reconnect | `aurora/mcp.go`, `connectors.go`, `outbound/`, `connections/` | Đã có foundation MCP cục bộ; đã thêm phân trang catalog, refresh theo notification và hủy chờ kết nối; còn OAuth/provider-specific lifecycle, fake-provider contract từng dịch vụ rồi acceptance tài khoản được cấp phép. |
-| Chat, nhiều câu hỏi và form | `aurora/view.go`, `groups.go`, PWA | Đã có form theo receipt, fan-out nguyên tử, retry tham chiếu đã pin và nháp/tham chiếu/đường dẫn ảnh theo chat; đã bổ sung nhiều câu hỏi có danh tính riêng và biên nhận; đã có trích dẫn tin theo biên nhận; còn lựa chọn một đoạn văn bản và phục hồi upload đang dở sau crash. |
+| Chat, nhiều câu hỏi và form | `aurora/view.go`, `groups.go`, PWA | Đã có form theo receipt, fan-out nguyên tử, retry tham chiếu đã pin và nháp/tham chiếu/đường dẫn ảnh theo chat; đã bổ sung nhiều câu hỏi có danh tính riêng và biên nhận; đã có trích dẫn tin theo biên nhận; đã có hàng đợi ảnh chờ qua đóng/mở trang và retry theo nội dung; còn lựa chọn một đoạn văn bản, kiểm chứng crash hệ điều hành và đồng bộ nhiều thiết bị. |
 | Routine, webhook và handoff | `schedule.go`, `network.go`, ledger | Lịch phong phú, webhook có identity, reconnect refresh, nguồn/đích kết quả, hạn mức trigger và restart admission. |
 | Pages, Library và tài liệu | `documents/`, `documentworker/`, `artifacts.go`, UI file | Biên tập/lưu/xuất có version; phục hồi crash; kiểm tra cấu trúc và render nội dung thật, accessibility. |
 | Computer và browser | Rust host, Go computer, cloud-browser | Quyền theo hành động, cancellation, reconnect đúng thiết bị, artifact outcome; kiểm thử crash/unknown outcome và host thật. |
@@ -52,7 +52,7 @@ Các implementation chính nằm trong [Aurora service](../app/native/internal/a
 
 Mục đổi model để vượt một lần dừng của bộ lọc an toàn không được tiếp nhận. Fallback vì lỗi vận hành không phải cơ chế bỏ qua quyết định an toàn.
 
-Ưu tiên tiếp: trích đoạn văn bản; phục hồi upload đang dở sau crash; lifecycle OAuth/provider thật; lịch/webhook, tài liệu, voice và quyền nhóm. Mỗi mục cần bằng chứng riêng trong index; không tự chuyển trạng thái theo keyword hay theo việc có file tương tự. Mười dòng nguồn hiện có bằng chứng cục bộ một phần; 809 dòng vẫn chưa được ghi nhận có kiểm chứng tương ứng. Thay đổi admission là cải thiện độ bền của Aurora, không tự được tính thành hoàn tất thêm dòng changelog. Chi tiết: [giữ nháp và ảnh theo chat](research/grokbot-composer-drafts-2026-10-28.md), [câu hỏi nhiều bước](research/grokbot-structured-questions-2026-10-28.md), [catalog và hủy chờ MCP](research/grokbot-mcp-refresh-2026-10-28.md), [trích dẫn tin nhắn](research/grokbot-quoted-replies-2026-10-28.md).
+Ưu tiên tiếp: trích đoạn văn bản; độ tin cậy đồng bộ Computer; lifecycle OAuth/provider thật; lịch/webhook, tài liệu, voice và quyền nhóm. Mỗi mục cần bằng chứng riêng trong index; không tự chuyển trạng thái theo keyword hay theo việc có file tương tự. Mười dòng nguồn hiện có bằng chứng cục bộ một phần; 809 dòng vẫn chưa được ghi nhận có kiểm chứng tương ứng. Thay đổi admission là cải thiện độ bền của Aurora, không tự được tính thành hoàn tất thêm dòng changelog. Chi tiết: [giữ nháp và ảnh theo chat](research/grokbot-composer-drafts-2026-10-28.md), [câu hỏi nhiều bước](research/grokbot-structured-questions-2026-10-28.md), [catalog và hủy chờ MCP](research/grokbot-mcp-refresh-2026-10-28.md), [trích dẫn tin nhắn](research/grokbot-quoted-replies-2026-10-28.md).
 
 ## Bằng chứng kiểm tra
 
@@ -62,3 +62,5 @@ Môi trường: Windows amd64, Go 1.27.1, Node 25.9.0, Python 3.13.7, Chrome hea
 
 
 Gate Core bổ sung đã hoàn tất tại `bef6a7c508168a6335fe5ecdc0760c281f370b46`: 2.173 test pass, 42 skip, 0 fail; typecheck/lint, build với ConPTY/ACP/startup và 6 test Rust–Core đều qua. Đã sửa vòng đời probe màn hình, teardown UIA, hợp đồng kiểu saved-account và fixture monorepo. Doctor/policy trả exit 0 với cảnh báo của profile thử nghiệm; không coi đó là sandbox khỏe. Xem [báo cáo Core](research/grokbot-core-gate-2026-10-28.md) để biết exact command, manifest, lỗi ban đầu và giới hạn.
+
+Upload ảnh bổ sung tại `868bff92fb327dfbb7d7d59e4d2287a1557031e3`: lưu ảnh chờ trước khi gửi, giữ biên nhận trước khi chèn nháp, retry cùng đường dẫn và từ chối file đã đổi. Go 1.571 pass/37 skip/0 fail, 55 kịch bản trình duyệt, vet/build và 8 test draft/outbox đều pass. Xem [báo cáo upload](research/grokbot-image-uploads-2026-10-28.md) cho phạm vi và giới hạn.

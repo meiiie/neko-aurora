@@ -29,3 +29,5 @@ Detailed command, base SHA, source manifest and PASS/FAIL records are in `.audit
 | `go vet ./...` and `go build -o <audit-dir>/neko-aurora.exe ./cmd/neko-aurora` in `app/native` | PASS on the final source manifest (`vet-131039.log`, `build-131042.log`) |
 
 Environment: Windows amd64, PowerShell 7.6, Go 1.27.1, Node 25.9.0, Python 3.13.7. Live/provider environment variables were excluded. The local `checkpoint.json` records the exact code commit and confirms it matches the validated source manifest.
+
+Later image queue and idempotent upload work supersedes the unfinished-upload limitation of this checkpoint; see [recoverable image uploads](grokbot-image-uploads-2026-10-28.md) for its distinct evidence and limits.

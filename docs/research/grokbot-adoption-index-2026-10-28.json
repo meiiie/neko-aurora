@@ -3640,13 +3640,17 @@
         "chat-navigation"
       ],
       "coverage": "partial-local-validation",
-      "implementation": "workspace-chat-composer-drafts",
+      "implementation": "workspace-chat-composer-drafts-and-image-retry",
       "evidence": [
         "app/tests/aurora/composer-browser.py",
         "app/tests/aurora/composer-drafts-test.mjs",
-        "app/native/internal/aurora/upload_draft_test.go"
+        "app/native/internal/aurora/upload_draft_test.go",
+        "app/tests/aurora/upload-browser.py",
+        "app/native/internal/computer/upload_test.go"
       ],
-      "limits": "Local browser drafts, simulated upload failures and temporary-file upload isolation; no cloud sync, blob crash-retry queue or physical phone acceptance."
+      "limits": "Local browser drafts/image queue, page close/reload and transaction aborts, loopback uploads and real temporary-file receipt tests; no cloud sync, OS/power-loss proof or physical phone acceptance.",
+      "uploadEvidence": "docs/research/grokbot-image-uploads-2026-10-28.md",
+      "uploadCodeCommit": "868bff92fb327dfbb7d7d59e4d2287a1557031e3"
     },
     {
       "id": "0.71.2-Fixed-7",
