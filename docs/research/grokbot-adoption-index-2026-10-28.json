@@ -5571,7 +5571,8 @@
         "routines-network"
       ],
       "coverage": "partial-local-validation",
-      "implementation": "schedule-pause-resume-edit-delete-with-revision-and-occurrence-guards"
+      "implementation": "schedule-pause-resume-edit-delete-and-receipted-test-with-hosted-quota",
+      "evidence": "docs/research/grokbot-schedule-test-2026-10-28.md"
     },
     {
       "id": "0.68.0-Improved-4",
