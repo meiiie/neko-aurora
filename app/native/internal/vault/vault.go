@@ -37,11 +37,12 @@ func ValidName(n string) bool { return nameRe.MatchString(n) }
 // Meta is the public description of a secret. Hint is an optional
 // non-secret display string (e.g. the Gmail address) set by the caller.
 type Meta struct {
-	Name    string `json:"name"`
-	Label   string `json:"label,omitempty"`
-	Kind    string `json:"kind,omitempty"`
-	Hint    string `json:"hint,omitempty"`
-	Updated string `json:"updated"`
+	Name             string `json:"name"`
+	Label            string `json:"label,omitempty"`
+	Kind             string `json:"kind,omitempty"`
+	Hint             string `json:"hint,omitempty"`
+	Updated          string `json:"updated"`
+	PreferredPayment bool   `json:"preferredPayment,omitempty"`
 }
 
 type entry struct {

@@ -42,13 +42,14 @@ const itemUseHint = "__use_hint"
 
 // Item is the public description of a Vault item: no secret values.
 type Item struct {
-	ID      string            `json:"id"`
-	Type    string            `json:"type"`
-	Label   string            `json:"label"`
-	Hint    map[string]string `json:"hint"`
-	Filled  []string          `json:"filled"`
-	Updated string            `json:"updated"`
-	UseHint string            `json:"useHint,omitempty"`
+	ID               string            `json:"id"`
+	Type             string            `json:"type"`
+	Label            string            `json:"label"`
+	Hint             map[string]string `json:"hint"`
+	Filled           []string          `json:"filled"`
+	Updated          string            `json:"updated"`
+	UseHint          string            `json:"useHint,omitempty"`
+	PreferredPayment bool              `json:"preferredPayment,omitempty"`
 }
 
 var idRe = regexp.MustCompile(`^[a-f0-9]{8,32}$`)
@@ -76,6 +77,7 @@ func (v *Vault) SaveItem(id, typ, label string, fields map[string]string, useHin
 	v.mu.Lock()
 	defer v.mu.Unlock()
 	old := map[string]string{}
+	preferred := false
 	if id == "" {
 		b := make([]byte, 8)
 		_, _ = rand.Read(b)
@@ -88,6 +90,7 @@ func (v *Vault) SaveItem(id, typ, label string, fields map[string]string, useHin
 		if !ok || m.Kind != "vault:"+typ {
 			return Item{}, ErrMissing
 		}
+		preferred = typ == "card" && m.PreferredPayment
 		var err error
 		old, err = v.fieldsLocked(id)
 		if err != nil {
@@ -145,7 +148,7 @@ func (v *Vault) SaveItem(id, typ, label string, fields map[string]string, useHin
 	if len(b) > 8192 {
 		return Item{}, ErrValue
 	}
-	m, err := v.setLocked(Meta{Name: itemName(id), Label: label, Kind: "vault:" + typ, Hint: string(hint)}, string(b))
+	m, err := v.setLocked(Meta{Name: itemName(id), Label: label, Kind: "vault:" + typ, Hint: string(hint), PreferredPayment: preferred}, string(b))
 	if err != nil {
 		return Item{}, err
 	}
@@ -251,6 +254,7 @@ func hintOf(typ string, f map[string]string) map[string]string {
 
 func itemOf(m Meta) Item {
 	it := Item{ID: strings.ToLower(strings.TrimPrefix(m.Name, itemPrefix)), Type: strings.TrimPrefix(m.Kind, "vault:"), Label: m.Label, Hint: map[string]string{}, Updated: m.Updated}
+	it.PreferredPayment = it.Type == "card" && m.PreferredPayment
 	var h map[string]string
 	if json.Unmarshal([]byte(m.Hint), &h) == nil && h != nil {
 		it.Hint = h
@@ -284,8 +288,61 @@ func (v *Vault) Items() []Item {
 		}
 	}
 	v.mu.RUnlock()
-	sort.Slice(out, func(i, j int) bool { return out[i].Updated > out[j].Updated })
+	sort.Slice(out, func(i, j int) bool {
+		if out[i].PreferredPayment != out[j].PreferredPayment {
+			return out[i].PreferredPayment
+		}
+		if out[i].Updated != out[j].Updated {
+			return out[i].Updated > out[j].Updated
+		}
+		return out[i].ID < out[j].ID
+	})
 	return out
+}
+
+// PreferPayment persists one owner-selected card (empty id clears the choice).
+// It changes only public metadata and never authorizes use of the credential.
+func (v *Vault) PreferPayment(id string) error {
+	if v == nil {
+		return ErrMissing
+	}
+	v.mu.Lock()
+	defer v.mu.Unlock()
+	if id != "" {
+		if !ValidItemID(id) {
+			return ErrMissing
+		}
+		e, ok := v.items[itemName(id)]
+		if !ok {
+			return ErrMissing
+		}
+		if e.Kind != "vault:card" {
+			return ErrType
+		}
+	}
+	changed := map[string]entry{}
+	for name, e := range v.items {
+		if e.Kind != "vault:card" {
+			continue
+		}
+		preferred := id != "" && name == itemName(id)
+		if e.PreferredPayment == preferred {
+			continue
+		}
+		changed[name] = e
+		e.PreferredPayment = preferred
+		v.items[name] = e
+	}
+	if len(changed) == 0 {
+		return nil
+	}
+	if err := v.save(); err != nil {
+		for name, e := range changed {
+			v.items[name] = e
+		}
+		return err
+	}
+	return nil
 }
 
 func (v *Vault) Item(id string) (Item, bool) {

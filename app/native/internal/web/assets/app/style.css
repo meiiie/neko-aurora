@@ -550,3 +550,5 @@ details.sources[open]>:not(summary),details.think[open]>:not(summary),details.pl
 .mcp-authorization p,.mcp-authorization a{overflow-wrap:anywhere}.mcp-authorization input{max-width:100%;box-sizing:border-box}.mcp-authorization label{display:block}.mcp-authorization button,.mcp-authorization a{margin:4px 4px 4px 0}
 
 .vault-form textarea{box-sizing:border-box;width:100%;min-height:88px;resize:vertical;padding:12px;border:1px solid var(--line);border-radius:12px;background:var(--field,transparent);color:inherit;line-height:1.5}.vault-use-hint{white-space:pre-wrap;overflow-wrap:anywhere;margin:6px 0 14px}
+
+.vault-tabs{display:flex;gap:8px;margin:0 16px 14px}.vault-tabs [aria-selected=true]{background:var(--ink);color:var(--card)}.vault-tabs button:focus-visible{outline:2px solid var(--ink);outline-offset:3px}.vault-row .vault-preferred{font-weight:650;color:var(--ink);margin-top:3px}.vault-it .cell-t{overflow-wrap:anywhere}
