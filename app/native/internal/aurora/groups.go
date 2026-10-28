@@ -170,6 +170,21 @@ func formAnswered(nonce string) string {
 	return ""
 }
 
+// A durable owner receipt can outlive the bounded form/think display cache.
+// A legacy work with a similar nonce is not enough to bypass that cache.
+func (s *Service) hasFormReceipt(task, thread string) bool {
+	for _, work := range s.L.Snapshot().Work {
+		if formAnswered(work.ClientNonce) != task {
+			continue
+		}
+		receipt, ok := s.L.OwnerMessageForWork(work.RequestID)
+		if ok && receipt.Input.ThreadID == thread && receipt.Input.ClientNonce == "form-"+task && receipt.Input.ReferenceID == "" && receipt.Input.ReplyTo == "" {
+			return true
+		}
+	}
+	return false
+}
+
 func questionAnswered(nonce string) string {
 	nonce = groupBase(nonce)
 	if strings.HasPrefix(nonce, "choice-") {

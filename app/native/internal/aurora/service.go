@@ -717,7 +717,7 @@ func (s *Service) routes() {
 		if in.FormFor != "" {
 			question, err := s.L.Get(in.FormFor)
 			_, form := s.ext.side(in.FormFor)
-			if err != nil || threadOf(question) != id || form == nil || nonce != "form-"+in.FormFor || in.AnswerFor != "" || in.Ref != "" || in.ReplyTo != "" {
+			if err != nil || threadOf(question) != id || nonce != "form-"+in.FormFor || in.AnswerFor != "" || in.Ref != "" || in.ReplyTo != "" || form == nil && !s.hasFormReceipt(in.FormFor, id) {
 				fail(w, ErrInvalid)
 				return
 			}
