@@ -400,9 +400,9 @@ addEventListener("storage",e=>{if(e.key?.startsWith("aurora.outbox.v1.")){bindOu
 const scrim=$("#scrim");let sheetOpen=null,openedAt=0,ghost=0;
 document.addEventListener("click",e=>{if(performance.now()<ghost&&!(sheetOpen&&sheetOpen.contains(e.target))){e.stopImmediatePropagation();e.preventDefault()}},true);
 function openSheet(s){if(sheetOpen)return;closeMenu();openedAt=performance.now();sheetOpen=s;scrim.classList.remove("hidden");s.classList.remove("hidden");s.classList.add("closed");s.offsetHeight;s.classList.remove("closed");buzz("tap")}
-function closeSheet(force){const s=sheetOpen;if(!s||(!force&&performance.now()-openedAt<350))return;if(s===$("#extSheet"))extViewVersion++;if(s===$("#vaultSheet"))resetVault();if(s===$("#memSheet"))resetMemory();sheetOpen=null;ghost=performance.now()+400;s.style.transform="";s.classList.add("closed");scrim.classList.add("hidden");document.activeElement?.blur?.();setTimeout(()=>{if(sheetOpen!==s)s.classList.add("hidden")},330)}
+function closeSheet(force){const s=sheetOpen;if(!s||(!force&&performance.now()-openedAt<350))return;if(s===$("#extSheet"))extViewVersion++;if(s===$("#vaultSheet"))resetVault();if(s===$("#memSheet"))resetMemory();if(s===$("#usageSheet"))resetUsage();sheetOpen=null;ghost=performance.now()+400;s.style.transform="";s.classList.add("closed");scrim.classList.add("hidden");document.activeElement?.blur?.();setTimeout(()=>{if(sheetOpen!==s)s.classList.add("hidden")},330)}
 // swap one sheet for another (settings → connectors / themes)
-function swapSheet(next){const s=sheetOpen;if(s){if(s===$("#extSheet"))extViewVersion++;if(s===$("#vaultSheet"))resetVault();if(s===$("#memSheet"))resetMemory();sheetOpen=null;s.classList.add("closed");setTimeout(()=>{if(sheetOpen!==s)s.classList.add("hidden")},330)}openedAt=0;openSheet(next)}
+function swapSheet(next){const s=sheetOpen;if(s){if(s===$("#extSheet"))extViewVersion++;if(s===$("#vaultSheet"))resetVault();if(s===$("#memSheet"))resetMemory();if(s===$("#usageSheet"))resetUsage();sheetOpen=null;s.classList.add("closed");setTimeout(()=>{if(sheetOpen!==s)s.classList.add("hidden")},330)}openedAt=0;openSheet(next)}
 scrim.onclick=()=>closeSheet();
 document.querySelectorAll(".sheet").forEach(s=>{let y0=null,dy=0;const start=e=>{const sc=e.target.closest(".scroll");if(sc&&sc.scrollTop>0)return;if(e.target.closest("input,textarea"))return;y0=e.touches[0].clientY;dy=0};
  s.addEventListener("touchstart",start,{passive:true});
@@ -760,17 +760,43 @@ const _rp=renderProfile;renderProfile=function(){_rp();const a=byId(profId);if(!
  const memoryScope=S.workspaceId;api(memoryPath({scope:memoryScope},`/agents/${a.id}/memory`)).then(m=>{if(S.workspaceId!==memoryScope||!c.isConnected)return;const v=c.querySelector(".cell-v")||el("span","cell-v");v.textContent=((m.items||[]).length+(m.team||[]).length)+" mục";const ch=c.querySelector(".chev");ch?ch.before(v):c.querySelector(".cell").append(v)}).catch(()=>{});
  if(pc)presetCard(a.id,pc)};
 // ---------- usage page ----------
-let usageRange="7";
+let usageRange="7",usageView=null;
+const usageReadings=new Map(),usagePeriods=[["1","24 giờ"],["7","7 ngày"],["30","30 ngày"],["365","12 tháng"]];
 const fmtTok=n=>n>=1e6?(n/1e6).toFixed(1)+"M":n>=1e3?(n/1e3).toFixed(1)+"K":String(n);
 const KIND={chat:"Trò chuyện",checkpoint:"Tóm tắt ngữ cảnh",memory:"Ghi nhớ",budget:"Quyết định khi hết giờ",factcheck:"Kiểm tra số liệu",review:"Rà soát file",rewrite:"Sửa tiếng Việt",brief:"Bản tin"};
-async function openUsage(keep){const B=$("#usageBody");if(!keep){B.innerHTML="";swapSheet($("#usageSheet"))}
- let u;try{u=await api("/usage?range="+usageRange)}catch{B.innerHTML="";B.append(el("p","caption","Không tải được"));return}
- B.innerHTML="";const seg=el("div","seg");[["1","24 giờ"],["7","7 ngày"],["30","30 ngày"],["365","12 tháng"]].forEach(([k,n])=>{const b=el("button","seg-b",n);b.setAttribute("aria-checked",k===usageRange);b.onclick=()=>{usageRange=k;openUsage(true)};seg.append(b)});
- const hero=el("div","use-hero");hero.append(el("b",0,"≈ "+fmtTok(u.total.tokens)+" token"),el("small",0,u.total.calls+" lượt gọi mô hình · "+(S.ai.model||"")));B.append(seg,hero);
- const days=u.days||[],mx=Math.max(1,...days.map(d=>d.tokens));if(days.length>1){const ch=el("div","use-bars");days.slice(-31).forEach(d=>{const c=el("i");c.style.height=Math.max(3,Math.round(d.tokens/mx*72))+"px";c.title=d.key+": "+fmtTok(d.tokens);ch.append(c)});B.append(ch)}
- B.append(card("Theo bot",...(u.bots||[]).map(r=>cell("users",u.names[r.key]||r.key,{static:1,value:fmtTok(r.tokens),sub:r.calls+" lượt"}))));
- B.append(card("Theo loại",...(u.kinds||[]).map(r=>cell("activity",KIND[r.key]||r.key,{static:1,value:fmtTok(r.tokens),sub:r.calls+" lượt"}))));
- B.append(el("p","caption","Số token là ước tính từ độ dài văn bản gửi và nhận."))};
+function resetUsage(){usageView=null;$("#usageBody").replaceChildren()}
+function usageKey(scope,range){return "aurora.usage.v1."+encodeURIComponent(scope)+"."+range}
+function validUsage(u,scope,range){
+ const count=n=>Number.isSafeInteger(n)&&n>=0,row=x=>x&&typeof x.key==="string"&&x.key.length<=200&&count(x.calls)&&count(x.tokens);
+ return !!u&&u.workspaceId===scope&&u.range===Number(range)&&u.estimated===true&&row(u.total)&&["days","bots","kinds"].every(k=>Array.isArray(u[k])&&u[k].length<=512&&u[k].every(row))&&u.names&&typeof u.names==="object"&&!Array.isArray(u.names)&&Object.keys(u.names).length<=512&&Object.entries(u.names).every(([k,v])=>k.length<=200&&typeof v==="string"&&v.length<=300);
+}
+function usageCached(scope,range){
+ const key=usageKey(scope,range);if(usageReadings.has(key))return usageReadings.get(key);
+ try{const raw=localStorage.getItem(key);if(!raw||raw.length>131072)return null;const c=JSON.parse(raw);if(c.version!==1||!Number.isSafeInteger(c.at)||c.at<=0||c.at>Date.now()+60000||!validUsage(c.data,scope,range))return null;usageReadings.set(key,c);if(usageReadings.size>32)usageReadings.delete(usageReadings.keys().next().value);return c}catch{return null}
+}
+function usageRemember(scope,range,data){
+ const key=usageKey(scope,range),reading={version:1,at:Date.now(),data};usageReadings.set(key,reading);if(usageReadings.size>32)usageReadings.delete(usageReadings.keys().next().value);
+ try{const raw=JSON.stringify(reading);if(raw.length>131072)throw Error("usage_cache_size");localStorage.setItem(key,raw);return {reading,saved:true}}catch{return {reading,saved:false}}
+}
+function usageRender(view,reading,state){
+ const B=$("#usageBody"),range=view.range,seg=el("div","seg"),notice=el("div","usage-status caption");notice.setAttribute("role","status");B.replaceChildren();
+ usagePeriods.forEach(([k,n])=>{const b=el("button","seg-b",n);b.type="button";b.setAttribute("aria-checked",k===range);b.onclick=()=>{if(usageView!==view)return;usageRange=k;void openUsage(true)};seg.append(b)});B.append(seg);
+ const message=state==="error"?"Chưa tải được mức dùng. Hãy thử lại.":state==="loading"?"Đang cập nhật mức dùng…":state==="unsaved"?"Chưa lưu được lần đọc này trên thiết bị. Số liệu vẫn còn trong cửa sổ này.":"Đã cập nhật mức dùng.";
+ notice.append(el("p",0,message));if(reading){const stamp=el("time",0,new Date(reading.at).toLocaleString());stamp.dateTime=new Date(reading.at).toISOString();notice.append(el("span",0,"Lần đọc gần nhất: "),stamp)}
+ if(state==="error"){const retry=el("button","pill soft","Thử lại");retry.type="button";retry.onclick=()=>{if(usageView===view)void openUsage(true)};notice.append(retry)}B.append(notice);
+ if(!reading)return;const u=reading.data,hero=el("div","use-hero");hero.append(el("b",0,"≈ "+fmtTok(u.total.tokens)+" token"),el("small",0,u.total.calls+" lượt gọi mô hình"));B.append(hero);
+ const mx=Math.max(1,...u.days.map(d=>d.tokens));if(u.days.length>1){const ch=el("div","use-bars");u.days.slice(-31).forEach(d=>{const c=el("i");c.style.height=Math.max(3,Math.round(d.tokens/mx*72))+"px";c.title=d.key+": "+fmtTok(d.tokens);ch.append(c)});B.append(ch)}
+ B.append(card("Theo bot",...u.bots.map(r=>{const c=cell("users",Object.hasOwn(u.names,r.key)?u.names[r.key]:r.key,{static:1,value:fmtTok(r.tokens),sub:r.calls+" lượt"});c.querySelector(".cell-t > span").dataset.noi18n="";return c})));
+ B.append(card("Theo loại",...u.kinds.map(r=>cell("activity",KIND[r.key]||r.key,{static:1,value:fmtTok(r.tokens),sub:r.calls+" lượt"}))));
+ B.append(el("p","caption","Số token là ước tính từ độ dài văn bản gửi và nhận."));
+}
+async function openUsage(keep=false){
+ const sheet=$("#usageSheet"),scope=S.workspaceId;if(!scope||keep&&(!usageView||usageView.scope!==scope||sheetOpen!==sheet))return;
+ const view={scope,range:usageRange};usageView=view;if(sheetOpen!==sheet)swapSheet(sheet);
+ const active=()=>usageView===view&&S.workspaceId===scope&&sheetOpen===sheet,cached=usageCached(scope,view.range);usageRender(view,cached,"loading");
+ try{const data=await api("/usage?range="+view.range+"&workspaceId="+encodeURIComponent(scope));if(!active())return;if(!validUsage(data,scope,view.range))throw Error("invalid_usage");const result=usageRemember(scope,view.range,data);usageRender(view,result.reading,result.saved?"ready":"unsaved")}
+ catch{if(active())usageRender(view,cached,"error")}
+}
 $("#closeUsage").onclick=()=>closeSheet(true);
 const _rs=renderSettings;renderSettings=function(){_rs();const B=$("#settingsBody");const c=card("Sử dụng",cell("activity","Mức dùng AI",{id:"openUsage",sub:"Token theo ngày, theo bot và theo loại",onClick:()=>openUsage()}));const last=B.querySelectorAll(".card-group");last.length>1?B.insertBefore(c,last[last.length-1]):B.append(c)};
 // ---------- chat search ----------
