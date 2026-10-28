@@ -7,6 +7,7 @@
 // no code copied from markdown-it/micromark).
 (()=>{
 const el=(t,c,x)=>{const e=document.createElement(t);if(c)e.className=c;if(x!=null)e.textContent=x;return e};
+const ui=s=>self.__I18N?.t(s)||s;
 const host=u=>{try{return new URL(u).hostname.replace(/^www\./,"")}catch{return u}};
 const INL=/(\\[\\`*_~\[\]()#+\-.!>|]|`+[^`\n]*?`+|\*\*(?=\S)[^\n]*?\S\*\*|__(?=\S)[^\n]*?\S__|~~(?=\S)[^\n]*?\S~~|\[[^\]\n]+\]\((?:https?:\/\/|mailto:|\/app\/api\/agents\/[\w-]+\/computer\/download\?path=)[^\s)]+\)|https?:\/\/[^\s<>()]+[^\s<>().,;:!?'"]|\[\d{1,2}\](?:\s*,?\s*\[\d{1,2}\])*|(?<![\w*])\*(?=\S)[^*\n]*?\S\*(?![\w*])|(?<![\p{L}\p{N}_])_(?=\S)[^_\n]*?\S_(?![\p{L}\p{N}_]))/gu;
 function link(t,u){const a=el("a","lnk",t);a.href=u;a.target="_blank";a.rel="noopener noreferrer";return a}
@@ -35,24 +36,39 @@ function code(node,lang,body){const w=el("div","code");const hd=el("div","code-h
  hd.append(cp);const pre=el("pre");pre.tabIndex=0;pre.append(el("code",lang?"lang-"+lang:0,body));w.append(hd,pre);node.append(w)}
 let activeTableViewer=null;
 function closeViewer(restoreFocus=true){activeTableViewer?.close(restoreFocus)}
+let tableRegionId=0;
+function updateTableScroll(frame){
+ if(!frame.isConnected)return;const wrap=frame.querySelector(".tbl"),max=wrap.scrollWidth-wrap.clientWidth;
+ const atStart=wrap.scrollLeft<=1,atEnd=wrap.scrollLeft>=max-1;frame.dataset.atEnd=String(atEnd);
+ for(const [selector,atEdge] of [[".table-scroll-prev",atStart],[".table-scroll-next",atEnd]]){const b=frame.querySelector(selector);b.hidden=max<=1;b.setAttribute("aria-disabled",String(atEdge))}
+}
+function refreshTableScroll(){document.querySelectorAll(".table-frame").forEach(updateTableScroll)}
+addEventListener("resize",refreshTableScroll);
+document.fonts?.ready.then(refreshTableScroll);
 function tableCard(node,wrap,table,markdown){
  const card=el("div","table-card"),bar=el("div","table-actions"),status=el("span","table-status");status.setAttribute("role","status");
- const copy=(title,body)=>{const b=el("button","pill soft",title);b.type="button";b.onclick=async()=>{try{await navigator.clipboard.writeText(body());status.textContent="Đã sao chép"}catch{status.textContent="Không sao chép được. Hãy chọn văn bản trong bảng."}};return b};
+ const copy=(title,body)=>{const b=el("button","pill soft",ui(title));b.type="button";b.onclick=async()=>{try{await navigator.clipboard.writeText(body());status.textContent=ui("Đã sao chép")}catch{status.textContent=ui("Không sao chép được. Hãy chọn văn bản trong bảng.")}};return b};
  bar.append(copy("Sao chép bảng",()=>Array.from(table.rows,row=>Array.from(row.cells,c=>c.textContent.replace(/\t|\n/g," ")).join("\t")).join("\n")),copy("Sao chép Markdown",()=>markdown));
- const expand=el("button","pill soft","Mở rộng bảng");expand.type="button";expand.onclick=()=>{
+ const expand=el("button","pill soft",ui("Mở rộng bảng"));expand.type="button";expand.onclick=()=>{
   if(!expand.isConnected)return;closeViewer(false);
   const dialog=el("dialog","table-viewer"),head=el("div","table-actions"),body=el("div","table-stage md"),clone=table.cloneNode(true);
-  dialog.setAttribute("aria-label","Bảng mở rộng");body.tabIndex=0;body.setAttribute("role","region");body.setAttribute("aria-label","Nội dung bảng, cuộn để xem");
-  const zoom=el("button","pill soft","100%"),close=el("button","pill","Đóng bảng");zoom.type=close.type="button";zoom.setAttribute("aria-label","Phóng to bảng");
+  dialog.setAttribute("aria-label",ui("Bảng mở rộng"));body.tabIndex=0;body.setAttribute("role","region");body.setAttribute("aria-label",ui("Nội dung bảng, cuộn để xem"));
+  const zoom=el("button","pill soft","100%"),close=el("button","pill",ui("Đóng bảng"));zoom.type=close.type="button";zoom.setAttribute("aria-label",ui("Phóng to bảng"));
   let scale=1;zoom.onclick=()=>{scale=scale>=2?1:scale+.25;body.style.setProperty("--table-scale",scale);zoom.textContent=Math.round(scale*100)+"%"};
   let closed=false;const viewer={close(restoreFocus=true){if(closed)return;closed=true;observer.disconnect();if(activeTableViewer===viewer)activeTableViewer=null;if(dialog.open)dialog.close();dialog.remove();if(restoreFocus&&expand.isConnected)expand.focus({preventScroll:true})}};
   const observer=new MutationObserver(()=>{if(!expand.isConnected)viewer.close(false)});observer.observe(document.body,{childList:true,subtree:true});activeTableViewer=viewer;
   let backdropDown=false;const outside=e=>{const r=dialog.getBoundingClientRect();return e.clientX<r.left||e.clientX>r.right||e.clientY<r.top||e.clientY>r.bottom};
   dialog.onpointerdown=e=>{backdropDown=e.target===dialog&&outside(e)};dialog.onpointercancel=()=>{backdropDown=false};
   close.onclick=()=>viewer.close();dialog.onclose=()=>viewer.close();dialog.oncancel=e=>{e.preventDefault();viewer.close()};dialog.onclick=e=>{if(backdropDown&&e.target===dialog&&outside(e))viewer.close();backdropDown=false};
-  head.append(el("strong",0,"Bảng"),zoom,close);body.append(clone);dialog.append(head,body);document.body.append(dialog);dialog.showModal();close.focus();
+  head.append(el("strong",0,ui("Bảng")),zoom,close);body.append(clone);dialog.append(head,body);document.body.append(dialog);dialog.showModal();close.focus();
  };
- bar.append(expand,status);card.append(bar,wrap);node.append(card);
+ const frame=el("div","table-frame");wrap.id="aurora-table-"+(++tableRegionId);frame.append(wrap);
+ for(const [direction,side,label,glyph] of [[-1,"prev","Cuộn bảng sang trái","‹"],[1,"next","Cuộn bảng sang phải","›"]]){
+  const b=el("button","table-scroll table-scroll-"+side,glyph);b.type="button";b.hidden=true;b.setAttribute("aria-label",ui(label));b.setAttribute("aria-controls",wrap.id);
+  b.onclick=()=>{updateTableScroll(frame);if(b.getAttribute("aria-disabled")==="true")return;wrap.scrollBy({left:direction*Math.max(80,wrap.clientWidth*.8),behavior:matchMedia("(prefers-reduced-motion: reduce)").matches?"auto":"smooth"})};frame.append(b);
+ }
+ const refresh=()=>updateTableScroll(frame);wrap.addEventListener("scroll",refresh,{passive:true});card.addEventListener("pointerenter",refresh);card.addEventListener("focusin",refresh);
+ bar.append(expand,status);card.append(bar,frame);node.append(card);requestAnimationFrame(refresh);
 }
 function blocks(node,lines,src){let i=0;
  while(i<lines.length){const l=lines[i];
@@ -61,7 +77,7 @@ function blocks(node,lines,src){let i=0;
   if((m=l.match(HEAD))){const lv=m[1].length,e=el(lv<=2?"h3":lv===3?"h4":"h5");inline(e,m[2],src);node.append(e);i++;continue}
   if(HR.test(l)){node.append(el("hr"));i++;continue}
   if(ROW.test(l)&&i+1<lines.length&&DELIM.test(lines[i+1])){const start=i,al=cells(lines[i+1]).map(c=>c.startsWith(":")&&c.endsWith(":")?"center":c.endsWith(":")?"right":"");
-   const wrap=el("div","tbl"),t=el("table"),th=el("thead"),tr=el("tr");wrap.tabIndex=0;wrap.setAttribute("role","region");wrap.setAttribute("aria-label","Bảng, vuốt ngang để xem");
+   const wrap=el("div","tbl"),t=el("table"),th=el("thead"),tr=el("tr");wrap.tabIndex=0;wrap.setAttribute("role","region");wrap.setAttribute("aria-label",ui("Bảng, vuốt ngang để xem"));
    const cell=(tag,c,k)=>{const x=el(tag);if(al[k])x.style.textAlign=al[k];inline(x,c,src);return x};
    cells(l).forEach((c,k)=>tr.append(cell("th",c,k)));th.append(tr);t.append(th);const tb=el("tbody");i+=2;
    while(i<lines.length&&lines[i].trim()&&ROW.test(lines[i])){const r=el("tr");cells(lines[i]).forEach((c,k)=>r.append(cell("td",c,k)));tb.append(r);i++}t.append(tb);wrap.append(t);tableCard(node,wrap,t,lines.slice(start,i).join("\n"));continue}
