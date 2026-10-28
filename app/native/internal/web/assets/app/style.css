@@ -548,3 +548,5 @@ details.sources[open]>:not(summary),details.think[open]>:not(summary),details.pl
 .mcp-authorization{padding:12px 16px}.mcp-authorization dd{margin:4px 0 12px;overflow-wrap:anywhere;white-space:pre-wrap}.mcp-authorization dt{font-weight:600}.mcp-authorization select{display:block;max-width:100%;margin:8px 0}.mcp-authorization [role="status"]:empty{margin:0}
 
 .mcp-authorization p,.mcp-authorization a{overflow-wrap:anywhere}.mcp-authorization input{max-width:100%;box-sizing:border-box}.mcp-authorization label{display:block}.mcp-authorization button,.mcp-authorization a{margin:4px 4px 4px 0}
+
+.vault-form textarea{box-sizing:border-box;width:100%;min-height:88px;resize:vertical;padding:12px;border:1px solid var(--line);border-radius:12px;background:var(--field,transparent);color:inherit;line-height:1.5}.vault-use-hint{white-space:pre-wrap;overflow-wrap:anywhere;margin:6px 0 14px}

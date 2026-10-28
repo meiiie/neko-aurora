@@ -38,6 +38,7 @@ var ItemFields = map[string][]string{
 var plainField = map[string]bool{"site": true}
 
 const itemPrefix = "VI_"
+const itemUseHint = "__use_hint"
 
 // Item is the public description of a Vault item: no secret values.
 type Item struct {
@@ -47,6 +48,7 @@ type Item struct {
 	Hint    map[string]string `json:"hint"`
 	Filled  []string          `json:"filled"`
 	Updated string            `json:"updated"`
+	UseHint string            `json:"useHint,omitempty"`
 }
 
 var idRe = regexp.MustCompile(`^[a-f0-9]{8,32}$`)
@@ -59,7 +61,7 @@ func isItemKind(k string) bool { return strings.HasPrefix(k, "vault:") }
 
 // SaveItem creates (id == "") or updates an item. On update an empty field
 // keeps its stored value, so the owner never retypes a secret to edit a label.
-func (v *Vault) SaveItem(id, typ, label string, fields map[string]string) (Item, error) {
+func (v *Vault) SaveItem(id, typ, label string, fields map[string]string, useHint ...string) (Item, error) {
 	allowed, ok := ItemFields[typ]
 	if v == nil || !ok {
 		return Item{}, ErrType
@@ -67,6 +69,9 @@ func (v *Vault) SaveItem(id, typ, label string, fields map[string]string) (Item,
 	label = strings.TrimSpace(label)
 	if utf8.RuneCountInString(label) > 80 {
 		return Item{}, ErrType
+	}
+	if len(useHint) > 1 || len(useHint) == 1 && (!utf8.ValidString(useHint[0]) || utf8.RuneCountInString(useHint[0]) > 500 || strings.ContainsRune(useHint[0], 0)) {
+		return Item{}, ErrValue
 	}
 	v.mu.Lock()
 	defer v.mu.Unlock()
@@ -128,6 +133,13 @@ func (v *Vault) SaveItem(id, typ, label string, fields map[string]string) (Item,
 	if label == "" {
 		label = defaultLabel(typ, out)
 	}
+	hintText := old[itemUseHint]
+	if len(useHint) == 1 {
+		hintText = strings.TrimSpace(useHint[0])
+	}
+	if hintText != "" {
+		out[itemUseHint] = hintText
+	}
 	hint, _ := json.Marshal(hintOf(typ, out))
 	b, _ := json.Marshal(out)
 	if len(b) > 8192 {
@@ -137,7 +149,7 @@ func (v *Vault) SaveItem(id, typ, label string, fields map[string]string) (Item,
 	if err != nil {
 		return Item{}, err
 	}
-	return itemOf(m), nil
+	return itemWithFields(m, out), nil
 }
 
 func contains(l []string, s string) bool {
@@ -246,6 +258,17 @@ func itemOf(m Meta) Item {
 	return it
 }
 
+func itemWithFields(m Meta, fields map[string]string) Item {
+	it := itemOf(m)
+	it.UseHint = fields[itemUseHint]
+	for _, k := range ItemFields[it.Type] {
+		if fields[k] != "" {
+			it.Filled = append(it.Filled, k)
+		}
+	}
+	return it
+}
+
 // Items lists every Vault item's metadata (newest first).
 func (v *Vault) Items() []Item {
 	out := []Item{}
@@ -255,15 +278,9 @@ func (v *Vault) Items() []Item {
 	v.mu.RLock()
 	for _, e := range v.items {
 		if isItemKind(e.Kind) {
-			it := itemOf(e.Meta)
 			var f map[string]string
 			_ = json.Unmarshal([]byte(v.cache[e.Name]), &f)
-			for _, k := range ItemFields[it.Type] {
-				if f[k] != "" {
-					it.Filled = append(it.Filled, k)
-				}
-			}
-			out = append(out, it)
+			out = append(out, itemWithFields(e.Meta, f))
 		}
 	}
 	v.mu.RUnlock()
@@ -288,6 +305,7 @@ func (v *Vault) Fields(id string) (map[string]string, bool) {
 	v.mu.RLock()
 	defer v.mu.RUnlock()
 	f, err := v.fieldsLocked(id)
+	delete(f, itemUseHint)
 	return f, err == nil
 }
 
