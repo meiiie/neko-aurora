@@ -214,6 +214,13 @@ cookies, page content and the bridge capability never do. Full design: `BROWSER-
   After initialization, 401/403 requires explicit reconnect and never automatically
   replays the original tool call, whose remote outcome may already be unknown.
 
+  OAuth metadata responses are limited to 1 MiB, and token/registration responses
+  and HTTP error bodies to 64 KiB. Actual decoded bytes are counted; cancellation
+  and the connection deadline also interrupt body reading. A read failure cancels
+  discovery fallback, and a failed token response leaves the consuming marker.
+  Successful MCP JSON/SSE resource responses keep their existing behavior, outside
+  this OAuth budget. Public-DNS/dial pinning for OAuth is still pending.
+
   Legacy bare token JSON in the v2 directory is readable and migrates on the next
   write. Older binaries cannot read the new envelope; rollback requires a compatible
   reader or a separately reviewed credential reset/migration. These Core files remain
