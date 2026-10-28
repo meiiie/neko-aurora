@@ -3,7 +3,7 @@ package aurora
 // Schedules (idea from DS Bot): the owner asks a bot to do something at a
 // time ("mỗi sáng 8h tóm tắt tin vàng"), the bot answers with a SCHEDULE
 // line, and at that time the request runs as an ordinary turn of that bot
-// (push notification included). Times are Vietnam time. One occurrence is
+// (push notification included). Legacy schedules use Vietnam time. One occurrence is
 // one ledger nonce, so a restart never runs it twice.
 
 import (
@@ -23,11 +23,14 @@ import (
 
 const maxSchedules = 12
 
+const defaultScheduleTimezone = "Asia/Ho_Chi_Minh"
+
 type schedule struct {
 	ID        string `json:"id"`
+	Timezone  string `json:"timezone,omitempty"`
 	Bot       string `json:"bot"`
 	Text      string `json:"text"`
-	At        string `json:"at"`             // HH:MM, Vietnam time
+	At        string `json:"at"`             // HH:MM in Timezone
 	Repeat    string `json:"repeat"`         // daily | weekdays | once
 	Date      string `json:"date,omitempty"` // once: YYYY-MM-DD
 	Last      string `json:"last,omitempty"` // last occurrence key run
@@ -35,6 +38,27 @@ type schedule struct {
 	Revision  uint64 `json:"revision"`
 	StartDate string `json:"startDate,omitempty"` // earliest day after an owner edit
 	Blocked   string `json:"blocked,omitempty"`
+}
+
+func (x schedule) zoneName() string {
+	if x.Timezone == "" {
+		return defaultScheduleTimezone
+	}
+	return x.Timezone
+}
+
+func scheduleLocation(zone string) (*time.Location, error) {
+	if zone == "" {
+		return saigon, nil
+	}
+	if len(zone) > 64 || zone != strings.TrimSpace(zone) || zone == "Local" || strings.HasPrefix(zone, "/") || strings.Contains(zone, "..") || strings.Contains(zone, "\\") || (zone != "UTC" && !strings.Contains(zone, "/")) {
+		return nil, ErrInvalid
+	}
+	loc, err := time.LoadLocation(zone)
+	if err != nil {
+		return nil, ErrInvalid
+	}
+	return loc, nil
 }
 
 type schedStore struct {
@@ -64,6 +88,12 @@ var hhmm = regexp.MustCompile(`^([01]?\d|2[0-3]):([0-5]\d)$`)
 
 // normalize validates a schedule from a directive; ok=false drops it.
 func (x schedule) normalize(now time.Time) (schedule, bool) {
+	x.Timezone = strings.TrimSpace(x.Timezone)
+	loc, err := scheduleLocation(x.Timezone)
+	if err != nil {
+		return x, false
+	}
+	x.Timezone = x.zoneName()
 	x.StartDate = ""
 	x.Blocked = ""
 	x.Text = clean(x.Text, 1000)
@@ -80,9 +110,9 @@ func (x schedule) normalize(now time.Time) (schedule, bool) {
 		x.Date = ""
 	default:
 		x.Repeat = "once"
-		t := now.In(saigon)
+		t := now.In(loc)
 		today := t.Format("2006-01-02")
-		if _, err := time.ParseInLocation("2006-01-02", x.Date, saigon); err != nil || x.Date < today {
+		if _, err := time.ParseInLocation("2006-01-02", x.Date, loc); err != nil || x.Date < today {
 			x.Date = today
 		}
 		if x.Date == today && t.Format("15:04") >= x.At {
@@ -90,15 +120,25 @@ func (x schedule) normalize(now time.Time) (schedule, bool) {
 			x.Date = t.AddDate(0, 0, 1).Format("2006-01-02")
 		}
 	}
+	if x.Repeat == "once" {
+		at, err := time.ParseInLocation("2006-01-02 15:04", x.Date+" "+x.At, loc)
+		if err != nil || at.Format("2006-01-02 15:04") != x.Date+" "+x.At {
+			return x, false
+		}
+	}
 	return x, true
 }
 
 // due: the occurrence key to run now, or "".
 func (x schedule) due(now time.Time) string {
+	loc, err := scheduleLocation(x.Timezone)
+	if err != nil {
+		return ""
+	}
 	if x.Paused {
 		return ""
 	}
-	t := now.In(saigon)
+	t := now.In(loc)
 	day := t.Format("2006-01-02")
 	if x.StartDate != "" && day < x.StartDate {
 		return ""
@@ -136,7 +176,7 @@ func (st *schedStore) add(x schedule) bool {
 		return false
 	}
 	for _, y := range st.L {
-		if y.Bot == x.Bot && y.At == x.At && y.Repeat == x.Repeat && strings.EqualFold(y.Text, x.Text) {
+		if y.Bot == x.Bot && y.At == x.At && y.zoneName() == x.zoneName() && y.Repeat == x.Repeat && strings.EqualFold(y.Text, x.Text) {
 			return false
 		}
 	}
@@ -183,9 +223,16 @@ func (s *Service) scheduleTick(now time.Time) {
 	defer st.mu.Unlock()
 	changed := false
 	for i := range st.L {
+		if _, err := scheduleLocation(st.L[i].Timezone); err != nil {
+			if st.L[i].Blocked != "invalid_timezone" {
+				st.L[i].Blocked = "invalid_timezone"
+				changed = true
+			}
+			continue
+		}
 		if k := st.L[i].due(now); k != "" {
 			x := st.L[i]
-			text := "[Lịch hẹn " + x.At + "] " + x.Text
+			text := "[Lịch hẹn " + x.At + " " + x.zoneName() + "] " + x.Text
 			nonce := "sched-" + x.ID + "-" + k
 			admitted := false
 			for _, work := range s.L.Snapshot().Work {
@@ -270,20 +317,19 @@ func (s *Service) controlSchedule(id string, revision uint64, paused *bool) erro
 }
 
 type scheduleEdit struct {
-	WorkspaceID string `json:"workspaceId"`
-	Revision    uint64 `json:"revision"`
-	Text        string `json:"text"`
-	At          string `json:"at"`
-	Repeat      string `json:"repeat"`
-	Date        string `json:"date"`
+	Timezone    *string `json:"timezone"`
+	WorkspaceID string  `json:"workspaceId"`
+	Revision    uint64  `json:"revision"`
+	Text        string  `json:"text"`
+	At          string  `json:"at"`
+	Repeat      string  `json:"repeat"`
+	Date        string  `json:"date"`
 }
 
 func (s *Service) editSchedule(id string, in scheduleEdit) (schedule, error) {
 	if s.L.ReadOnly() {
 		return schedule{}, ledger.ErrConflict
 	}
-	now := s.Now().In(saigon)
-	day := now.Format("2006-01-02")
 	m := hhmm.FindStringSubmatch(strings.TrimSpace(in.At))
 	if m == nil || strings.TrimSpace(in.Text) == "" || utf8.RuneCountInString(in.Text) > 1000 {
 		return schedule{}, ErrInvalid
@@ -298,10 +344,6 @@ func (s *Service) editSchedule(id string, in scheduleEdit) (schedule, error) {
 			return schedule{}, ErrInvalid
 		}
 	case "once":
-		at, err := time.ParseInLocation("2006-01-02 15:04", in.Date+" "+in.At, saigon)
-		if err != nil || at.Format("2006-01-02") != in.Date || !at.After(now) {
-			return schedule{}, ErrInvalid
-		}
 	default:
 		return schedule{}, ErrInvalid
 	}
@@ -315,7 +357,27 @@ func (s *Service) editSchedule(id string, in scheduleEdit) (schedule, error) {
 		if in.Revision != max(1, old.Revision) {
 			return schedule{}, ledger.ErrConflict
 		}
+		zone := old.Timezone
+		if in.Timezone != nil {
+			zone = strings.TrimSpace(*in.Timezone)
+			if zone == "" {
+				return schedule{}, ErrInvalid
+			}
+		}
+		loc, err := scheduleLocation(zone)
+		if err != nil {
+			return schedule{}, ErrInvalid
+		}
+		now := s.Now().In(loc)
+		day := now.Format("2006-01-02")
+		if in.Repeat == "once" {
+			at, err := time.ParseInLocation("2006-01-02 15:04", in.Date+" "+in.At, loc)
+			if err != nil || at.Format("2006-01-02 15:04") != in.Date+" "+in.At || !at.After(now) {
+				return schedule{}, ErrInvalid
+			}
+		}
 		x := old
+		x.Timezone = zone
 		x.Text, x.At, x.Repeat, x.Date = clean(in.Text, 1000), in.At, in.Repeat, in.Date
 		x.Revision, x.StartDate = max(1, old.Revision)+1, ""
 		x.Blocked = ""
@@ -370,7 +432,7 @@ func (s *Service) addSchedules(w ledger.Work, xs []schedule) {
 		x.Bot, x.ID = w.BotID, newID("s-")
 		if n, ok := x.normalize(s.Now()); ok && s.sched.add(n) {
 			when := map[string]string{"daily": "mỗi ngày", "weekdays": "các ngày trong tuần", "once": "ngày " + n.Date}[n.Repeat]
-			s.record(w.BotID, w.RequestID, "step", "Đã đặt lịch "+n.At+" "+when+": "+clean(n.Text, 80))
+			s.record(w.BotID, w.RequestID, "step", "Đã đặt lịch "+n.At+" "+n.zoneName()+" "+when+": "+clean(n.Text, 80))
 		}
 	}
 }

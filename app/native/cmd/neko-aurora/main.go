@@ -17,6 +17,7 @@ import (
 	"sync/atomic"
 	"syscall"
 	"time"
+	_ "time/tzdata"
 
 	"nekoaurora.local/native/internal/api"
 	"nekoaurora.local/native/internal/connections"

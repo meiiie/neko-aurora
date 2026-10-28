@@ -4,18 +4,22 @@
     const el = (tag, text) => { const node = document.createElement(tag); if (text) node.textContent = text; return node; };
     const form = el("form"); form.className = "schedule-editor";
     form.setAttribute("aria-label", "Sửa lịch hẹn");
-    const field = (label, input) => { const row = el("label"); row.append(el("span", label), input); form.append(row); return row; };
+    const field = (label, input) => { const row = el("label"); input.setAttribute("aria-label",label); row.append(el("span", label), input); form.append(row); return row; };
     const text = el("textarea"); text.value = schedule.text; text.required = true; text.maxLength = 4000; text.rows = 3;
     text.oninput = () => text.setCustomValidity([...text.value].length > 1000 ? "Tối đa 1.000 ký tự." : "");
     field("Nội dung lịch", text);
-    const at = el("input"); at.type = "time"; at.required = true; at.value = schedule.at; field("Giờ (Việt Nam)", at);
+    const at = el("input"); at.type = "time"; at.required = true; at.value = schedule.at; field("Giờ hẹn", at);
+    const timezone = el("select"), defaultZone = "Asia/Ho_Chi_Minh", zones = new Set([defaultZone,"UTC","Europe/Kyiv","America/New_York","Europe/London","Asia/Tokyo","Asia/Singapore","Australia/Sydney",schedule.timezone||defaultZone]);
+    try { for (const zone of Intl.supportedValuesOf("timeZone")) zones.add(zone); } catch {}
+    for (const zone of [...zones].sort()) { const option = el("option",zone); option.value = zone; timezone.append(option); }
+    timezone.value = schedule.timezone||defaultZone; field("Múi giờ",timezone);
     const repeat = el("select");
     for (const [value, name] of [["daily","Mỗi ngày"],["weekdays","Thứ 2–6"],["once","Một lần"]]) { const option = el("option",name); option.value = value; repeat.append(option); }
     repeat.value = schedule.repeat; field("Lặp lại", repeat);
     const date = el("input"); date.type = "date"; date.value = schedule.date || ""; const dateRow = field("Ngày hẹn", date);
     const syncDate = () => { const once = repeat.value === "once"; dateRow.hidden = !once; date.disabled = !once; date.required = once; };
     repeat.onchange = syncDate; syncDate();
-    const hint = el("p", "Thay đổi áp dụng cho lượt tiếp theo. Nếu giờ mới đã qua hoặc lịch đã chạy hôm nay, lịch lặp bắt đầu từ ngày mai. Lượt đã nhận giữ nội dung cũ."); hint.className = "caption";
+    const hint = el("p", "Giờ hẹn theo múi giờ đã chọn. Khi đổi giờ mùa hè, giờ bị lặp chỉ chạy một lần; giờ bị bỏ qua sẽ chạy sau đó. Thay đổi áp dụng cho lượt tiếp theo. Nếu giờ mới đã qua hoặc lịch đã chạy hôm nay, lịch lặp bắt đầu từ ngày mai. Lượt đã nhận giữ nội dung cũ."); hint.className = "caption";
     const status = el("p"); status.className = "schedule-edit-status"; status.setAttribute("role","status");
     const actions = el("div"); actions.className = "schedule-edit-actions";
     const submit = el("button","Lưu lịch"), back = el("button","Hủy chỉnh sửa"), refresh = el("button","Tải lại lịch");
@@ -28,7 +32,7 @@
     form.onsubmit = async event => {
       event.preventDefault(); if (busy || saved) return;
       text.oninput(); if (!form.reportValidity()) return;
-      const body = {workspaceId, revision:schedule.revision, text:text.value, at:at.value, repeat:repeat.value, date:repeat.value === "once" ? date.value : ""};
+      const body = {workspaceId, revision:schedule.revision, text:text.value, at:at.value, timezone:timezone.value, repeat:repeat.value, date:repeat.value === "once" ? date.value : ""};
       lock(true); status.textContent = "Đang lưu lịch…"; refresh.hidden = true;
       try {
         await save(body);
@@ -37,7 +41,7 @@
       } catch (error) {
         lock(false);
         refresh.hidden = error.status === 400;
-        status.textContent = error.status === 409 ? "Lịch đã thay đổi. Nội dung chỉnh sửa vẫn còn; tải lại để xem phiên bản mới." : error.status === 400 ? "Thông tin lịch chưa hợp lệ. Kiểm tra nội dung, giờ và ngày hẹn trong tương lai." : error.status === 404 ? "Lịch không còn tồn tại. Tải lại danh sách để kiểm tra." : "Chưa nhận được xác nhận. Nội dung vẫn còn; tải lại lịch để kiểm tra trước khi thử lại.";
+        status.textContent = error.status === 409 ? "Lịch đã thay đổi. Nội dung chỉnh sửa vẫn còn; tải lại để xem phiên bản mới." : error.status === 400 ? "Thông tin lịch chưa hợp lệ. Kiểm tra nội dung, múi giờ, giờ và ngày hẹn trong tương lai." : error.status === 404 ? "Lịch không còn tồn tại. Tải lại danh sách để kiểm tra." : "Chưa nhận được xác nhận. Nội dung vẫn còn; tải lại lịch để kiểm tra trước khi thử lại.";
         if (error.status === 404) submit.disabled = true;
       }
     };

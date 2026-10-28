@@ -52,7 +52,7 @@ class Fixture:
             elif self.mode == 'error': status = 500
             elif body['revision'] != self.item['revision']: status = 409
             else:
-                self.item.update({k: body[k] for k in ('text', 'at', 'repeat', 'date')})
+                self.item.update({k: body[k] for k in ('text', 'at', 'repeat', 'date', 'timezone')})
                 self.item['revision'] += 1
                 data = dict(schedule=self.item)
                 if self.mode == 'lost':
@@ -102,12 +102,12 @@ try:
 
             edit.click()
             prompt.fill('Báo cáo ngày trong tuần')
-            form.get_by_label('Giờ (Việt Nam)').fill('10:30')
+            form.get_by_label('Giờ hẹn').fill('10:30')
             form.get_by_label('Lặp lại').select_option('weekdays')
             save.focus(); page.keyboard.press('Enter')
             expect(form).to_have_count(0)
             expect(edit).to_be_focused()
-            assert fx.edits[-1] == dict(workspaceId='schedule-owner-a', revision=1, text='Báo cáo ngày trong tuần', at='10:30', repeat='weekdays', date='')
+            assert fx.edits[-1] == dict(workspaceId='schedule-owner-a', revision=1, text='Báo cáo ngày trong tuần', at='10:30', repeat='weekdays', date='', timezone='Asia/Ho_Chi_Minh')
             assert fx.item['paused'] and fx.item['revision'] == 2
             check('keyboard save sends exact scope and revision while preserving pause')
 
