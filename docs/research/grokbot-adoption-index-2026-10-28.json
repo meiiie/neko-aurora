@@ -1070,7 +1070,9 @@
       "discoveryEvidence": "docs/research/grokbot-mcp-discovery-2026-10-28.md",
       "discoveryCodeCommit": "383d94b0b00826395e6321154a4215a79462a1eb",
       "coreOAuthEvidence": "docs/research/grokbot-core-mcp-oauth-2026-10-28.md",
-      "coreOAuthCodeCommit": "ec5ee166e052a2e2f3191e2cb02295cf09adfc8a"
+      "coreOAuthCodeCommit": "ec5ee166e052a2e2f3191e2cb02295cf09adfc8a",
+      "coreMCPReplayEvidence": "docs/research/grokbot-core-mcp-replay-2026-10-28.md",
+      "coreMCPReplayCodeCommit": "dbda8cf18bed46a739d7ace20de398911ae27c34"
     },
     {
       "id": "0.77.0-Fixed-14",
@@ -4935,7 +4937,9 @@
       "discoveryEvidence": "docs/research/grokbot-mcp-discovery-2026-10-28.md",
       "discoveryCodeCommit": "383d94b0b00826395e6321154a4215a79462a1eb",
       "coreOAuthEvidence": "docs/research/grokbot-core-mcp-oauth-2026-10-28.md",
-      "coreOAuthCodeCommit": "ec5ee166e052a2e2f3191e2cb02295cf09adfc8a"
+      "coreOAuthCodeCommit": "ec5ee166e052a2e2f3191e2cb02295cf09adfc8a",
+      "coreMCPReplayEvidence": "docs/research/grokbot-core-mcp-replay-2026-10-28.md",
+      "coreMCPReplayCodeCommit": "dbda8cf18bed46a739d7ace20de398911ae27c34"
     },
     {
       "id": "0.70.2-Fixed-3",
