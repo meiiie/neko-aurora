@@ -8,9 +8,11 @@ import type { FetchLike } from "@modelcontextprotocol/sdk/shared/transport.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
 import { homeDir } from "../shared/home.ts";
 import { atomicWriteFileSync } from "../shared/atomic.ts";
+import { throwIfAborted } from "../shared/abort.ts";
 import { isJsonObject, isText, type JsonValue } from "../shared/wire.ts";
 import { openBrowser } from "./chatgpt-auth.ts";
 import { McpOAuthCallback } from "./mcp-oauth-callback.ts";
+import { boundedOAuthResponse } from "./mcp-oauth-http.ts";
 
 function httpsEndpoint(raw: string | undefined): boolean {
   try { const u = new URL(raw ?? ""); return u.protocol === "https:" && !u.username && !u.password && !u.hash; } catch { return false; }
@@ -93,6 +95,8 @@ export class NekoOAuthProvider implements OAuthClientProvider {
     const url = input instanceof Request ? input.url : String(input);
     const endpoint = this.discovery?.authorizationServerMetadata?.token_endpoint;
     if (!endpoint || new URL(url).href !== new URL(endpoint).href) return;
+    const registration = this.discovery?.authorizationServerMetadata?.registration_endpoint;
+    if (registration && new URL(url).href === new URL(registration).href && init?.method === "POST" && new Headers(init.headers).get("content-type") === "application/json") return;
     this.allowAuthorization();
     this.tokenAttempted = true;
     if (signal?.aborted) throw new TokenAttemptError();
@@ -131,7 +135,12 @@ export async function connectWithOAuth(client: Client, server: string, url: stri
   const timer = setTimeout(() => { callback.cancel(new Error("MCP OAuth authorization timed out")); controller.abort(); }, options.timeoutMs ?? 120_000);
   const fetchFn: FetchLike = async (input, init) => {
     const signal = AbortSignal.any([controller.signal, ...(init?.signal ? [init.signal] : []), ...(options.signal ? [options.signal] : [])]);
-    provider?.beforeTokenRequest(input, init, signal);
+    throwIfAborted(signal);
+    const target = new URL(input instanceof Request ? input.url : String(input));
+    // SDK resource requests advertise SSE; discovery, registration and token requests do not,
+    // including when a server uses the same URL for resource and OAuth endpoints.
+    const resourceRequest = target.href === new URL(url).href && new Headers(init?.headers).get("accept")?.includes("text/event-stream");
+    if (!resourceRequest) provider?.beforeTokenRequest(input, init, signal);
     const response = await (options.fetch ?? fetch)(input, { ...init, redirect: "error", credentials: "omit", signal });
     // The SDK refreshes and resends the original RPC on 401/403. After initialization that
     // RPC may already have mutated remote state; require an explicit reconnect instead.
@@ -139,7 +148,10 @@ export async function connectWithOAuth(client: Client, server: string, url: stri
       void response.body?.cancel().catch(() => {});
       throw new Error("MCP OAuth authorization is required; reconnect explicitly. Request outcome is unknown.");
     }
-    return response;
+    if (resourceRequest && response.ok) return response;
+    const limit = !response.ok || init?.method === "POST" ? 64 * 1024 : 1024 * 1024;
+    try { return await boundedOAuthResponse(response, signal, limit); }
+    catch (error) { controller.abort(); throw error; }
   };
   try {
     if (options.signal?.aborted) throw new Error("MCP OAuth connection canceled");

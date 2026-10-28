@@ -5,6 +5,7 @@ import { createServer, request } from "node:http";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
+import { ToolListChangedNotificationSchema } from "@modelcontextprotocol/sdk/types.js";
 import type { OAuthDiscoveryState } from "@modelcontextprotocol/sdk/client/auth.js";
 import type { FetchLike } from "@modelcontextprotocol/sdk/shared/transport.js";
 import { McpOAuthCallback } from "../src/adapters/mcp-oauth-callback.ts";
@@ -175,6 +176,90 @@ function sdkFixture(toolStatus?: 401 | 403) {
   };
   return { fetchFn, get toolCalls() { return toolCalls; }, get tokenPosts() { return tokenPosts; }, authorize(url: string) { authorization = new URL(url); return authorization; } };
 }
+
+for (const stage of ["resource", "metadata", "issuer", "registration", "token"] as const) test("SDK rejects oversized OAuth " + stage + " without continuing authorization", async () => withHome(async root => {
+  const fixture = sdkFixture(), client = new Client({ name: "fixture", version: "1" });
+  let canceled = 0, opened = 0, posts = 0, hit = false, requestSignal: AbortSignal | null | undefined;
+  const target = { resource, metadata: resource + "/metadata", issuer: issuer + "/.well-known/oauth-authorization-server", registration: issuer + "/register", token: issuer + "/token" }[stage];
+  try {
+    await expect(connectWithOAuth(client, "fixture", resource, { port: 0, timeoutMs: 2000, fetch: async (input, init) => {
+      if (String(input) === issuer + "/token") posts++;
+      if (String(input) !== target) return fixture.fetchFn(input, init);
+      hit = true; requestSignal = init?.signal;
+      const payload = stage === "resource" ? {} : stage === "metadata" ? discovery().resourceMetadata : stage === "issuer" ? discovery().authorizationServerMetadata : stage === "registration" ? { ...JSON.parse(String(init?.body)), client_id: "fixture-client" } : { access_token: "fixture-access", refresh_token: "fixture-refresh", token_type: "Bearer" };
+      const data = new TextEncoder().encode(JSON.stringify({ ...payload, padding: "x".repeat(1024 * 1024 + 1) }));
+      let sent = false;
+      return new Response(new ReadableStream<Uint8Array>({ pull(c) { if (sent) c.close(); else { sent = true; c.enqueue(data); } }, cancel() { canceled++; } }, { highWaterMark: 0 }), { status: stage === "resource" ? 401 : 200, headers: { "Content-Type": "application/json", "Content-Length": "1", "WWW-Authenticate": 'Bearer resource_metadata="' + resource + '/metadata"' } });
+    }, openUrl: async url => {
+      opened++; const auth = fixture.authorize(url);
+      await callbackRequest(auth.searchParams.get("redirect_uri")!, new URLSearchParams({ state: auth.searchParams.get("state")!, code: "fixture-code", iss: issuer }));
+    } })).rejects.toThrow();
+    expect(hit).toBe(true); expect(canceled).toBe(1); expect(requestSignal?.aborted).toBe(true);
+    expect(posts).toBe(stage === "token" ? 1 : 0); expect(opened).toBe(stage === "token" ? 1 : 0);
+    if (stage === "token") {
+      const parent = join(root, ".neko-core", "mcp-auth", "v2");
+      expect(JSON.parse(readFileSync(join(parent, readdirSync(parent)[0]!, "tokens.json"), "utf8"))).toEqual({ version: 1, phase: "consuming" });
+    }
+  } finally { await client.close(); }
+}));
+
+test("SDK keeps large RPC responses and live SSE outside the OAuth body budget even with shared endpoint URLs", async () => withHome(async () => {
+  const fixture = sdkFixture(), client = new Client({ name: "fixture", version: "1" });
+  const text = "x".repeat(1024 * 1024 + 1); let sseOpened = false;
+  let notify!: () => void;
+  const notification = new Promise<void>(resolve => { notify = resolve; });
+  client.setNotificationHandler(ToolListChangedNotificationSchema, () => { notify(); });
+  try {
+    await connectWithOAuth(client, "fixture", resource, { port: 0, timeoutMs: 2000, fetch: async (input, init) => {
+      if (String(input) === issuer + "/.well-known/oauth-authorization-server") return Response.json({ ...discovery().authorizationServerMetadata, token_endpoint: resource, registration_endpoint: resource });
+      if (String(input) === resource) {
+        const headers = new Headers(init?.headers);
+        if (!headers.get("accept")?.includes("text/event-stream")) return fixture.fetchFn(issuer + (headers.get("content-type") === "application/json" ? "/register" : "/token"), init);
+        if (init?.method === "GET") { sseOpened = true; return new Response(new ReadableStream<Uint8Array>({ start(c) {
+          c.enqueue(new TextEncoder().encode(": " + text + '\n\ndata: {"jsonrpc":"2.0","method":"notifications/tools/list_changed"}\n\n'));
+          init.signal?.addEventListener("abort", () => { c.close(); }, { once: true });
+        } }), { headers: { "Content-Type": "text/event-stream" } }); }
+        const body = JSON.parse(String(init?.body));
+        if (body.method === "tools/call") return Response.json({ jsonrpc: "2.0", id: body.id, result: { content: [{ type: "text", text }] } });
+      }
+      return fixture.fetchFn(input, init);
+    }, openUrl: async url => {
+      const auth = fixture.authorize(url);
+      await callbackRequest(auth.searchParams.get("redirect_uri")!, new URLSearchParams({ state: auth.searchParams.get("state")!, code: "fixture-code", iss: issuer }));
+    } });
+    expect((await client.callTool({ name: "fixture", arguments: {} })).content).toEqual([{ type: "text", text }]);
+    let deadline: ReturnType<typeof setTimeout> | undefined;
+    try { await Promise.race([notification, new Promise<never>((_, reject) => { deadline = setTimeout(() => reject(new Error("fixture SSE notification deadline")), 500); })]); }
+    finally { clearTimeout(deadline); }
+    expect(fixture.tokenPosts).toBe(1); expect(sseOpened).toBe(true);
+  } finally { await client.close(); }
+}));
+
+for (const mode of ["abort", "deadline", "stream-error", "oversized-error", "oversized-success"] as const) test("SDK refresh response " + mode + " leaves a consumed token and never retries", async () => withHome(async root => {
+  const callback = new McpOAuthCallback(); await callback.listen(0);
+  const port = Number(new URL(callback.redirectUrl).port), seed = new NekoOAuthProvider("fixture", resource, callback);
+  seed.saveDiscoveryState(discovery()); seed.saveClientInformation({ client_id: "fixture-client" });
+  seed.saveTokens({ access_token: "fixture-access", refresh_token: "fixture-refresh", token_type: "Bearer" });
+  await callback.close();
+  const fixture = sdkFixture(), client = new Client({ name: "fixture", version: "1" }), controller = new AbortController();
+  let posts = 0, opened = 0, canceled = 0;
+  try {
+    await expect(connectWithOAuth(client, "fixture", resource, { port, timeoutMs: mode === "deadline" ? 80 : 2000, signal: controller.signal, fetch: async (input, init) => {
+      if (String(input) !== issuer + "/token") return fixture.fetchFn(input, init);
+      posts++;
+      const stream = new ReadableStream<Uint8Array>({ pull(c) {
+        if (mode === "abort") controller.abort();
+        else if (mode === "stream-error") c.error(new Error("private token response"));
+        else if (mode.startsWith("oversized")) c.enqueue(new TextEncoder().encode(" ".repeat(64 * 1024 + 1)));
+      }, cancel() { canceled++; return new Promise<void>(() => {}); } }, { highWaterMark: 0 });
+      return new Response(stream, { status: mode === "oversized-error" ? 400 : 200 });
+    }, openUrl: () => { opened++; } })).rejects.toThrow();
+    expect(posts).toBe(1); expect(opened).toBe(0); expect(canceled).toBe(mode === "stream-error" ? 0 : 1);
+    const parent = join(root, ".neko-core", "mcp-auth", "v2");
+    expect(JSON.parse(readFileSync(join(parent, readdirSync(parent)[0]!, "tokens.json"), "utf8"))).toEqual({ version: 1, phase: "consuming" });
+    await assertPortReleased(callback.redirectUrl);
+  } finally { await client.close(); }
+}));
 
 test("real MCP SDK completes discovery, PKCE and loopback callback with an injected OAuth service", async () => withHome(async () => {
   const fixture = sdkFixture(), client = new Client({ name: "fixture", version: "1" }); let redirect = "";
