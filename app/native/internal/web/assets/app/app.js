@@ -41,6 +41,7 @@ const byId=id=>S.agents.find(x=>x.id===id);
 const waiting=a=>S.pending.some(m=>m.agentId===a.id)||a.status==="waiting";
 const ago=t=>{t=T(t);if(!(t>0))return"";const s=(Date.now()-t)/1e3;if(s<60)return"bây giờ";if(s<3600)return Math.floor(s/60)+" phút";if(s<86400&&new Date(t).getDate()===new Date().getDate())return new Date(t).toLocaleTimeString("vi-VN",{hour:"2-digit",minute:"2-digit"});return new Date(t).toLocaleDateString("vi-VN",{day:"numeric",month:"numeric"})};
 const el=(t,c,x)=>{const e=document.createElement(t);if(c)e.className=c;if(x!=null)e.textContent=x;return e};
+const literalEl=(t,c,x)=>{const e=el(t,c,x);e.dataset.noi18n="";return e};
 let toastT;const toast=m=>{const t=$("#toast");t.textContent=m;t.classList.add("show");clearTimeout(toastT);toastT=setTimeout(()=>t.classList.remove("show"),2200)};
 const upsert=a=>{const i=S.agents.findIndex(x=>x.id===a.id);if(i<0)S.agents.push(a);else S.agents[i]=a};
 let listQueued=false;const renderListSoon=()=>{if(listQueued)return;listQueued=true;requestAnimationFrame(()=>{listQueued=false;renderList()})};
@@ -115,7 +116,7 @@ function renderList(){
  const q=filter.trim().toLowerCase(),match=a=>!q||a.name.toLowerCase().includes(q)||(a.snip||"").toLowerCase().includes(q);
  const pinned=all.filter(a=>a.pin&&match(a)),rest=all.filter(a=>!a.pin&&match(a));
  const fe=$("#featured");fe.innerHTML="";fe.classList.toggle("hidden",!pinned.length);
- pinned.forEach(a=>{const b=el("button","feat");b.dataset.id=a.id;b.setAttribute("aria-label",a.name);const av=el("span","feat-av");av.append(avatarOf(a,92));const bd=badge(a);if(bd)av.append(bd);const nm=el("span","feat-name");nm.append(el("span",0,a.name));if(unread(a)){nm.append(el("i","dot"));b.setAttribute("aria-label",a.name+", chưa đọc")}b.append(av,nm);b.onclick=e=>{if(e.detail&&performance.now()<suppress)return;openThread(a.id);if(e.detail===0)inp.focus({preventScroll:true})};longPress(b,a);fe.append(b)});
+ pinned.forEach(a=>{const b=el("button","feat");b.dataset.id=a.id;b.dataset.noi18n="";b.setAttribute("aria-label",a.name);const av=el("span","feat-av");av.append(avatarOf(a,92));const bd=badge(a);if(bd)av.append(bd);const nm=el("span","feat-name");nm.append(el("span",0,a.name));if(unread(a)){nm.append(el("i","dot"));b.setAttribute("aria-label",a.name+", "+(window.__I18N?.t("chưa đọc")||"chưa đọc"))}b.append(av,nm);b.onclick=e=>{if(e.detail&&performance.now()<suppress)return;openThread(a.id);if(e.detail===0)inp.focus({preventScroll:true})};longPress(b,a);fe.append(b)});
  renderBrief(q);
  const ul=$("#rows");ul.innerHTML="";
  const hid=new Set(store.get("neko-aurora-hidden",[])),secs=store.get("neko-aurora-sections",{list:[],of:{}});
@@ -123,15 +124,16 @@ function renderList(){
  secs.list.forEach(sc=>{const its=visibleRest.filter(a=>secs.of[a.id]===sc.id);if(its.length)ordered.push({hdr:sc},...its)});
  const hiddenN=rest.filter(a=>hid.has(a.id)).length;
  ordered.forEach(a=>{
-  if(a.hdr){const h=el("li","sec-h");h.setAttribute("role","heading");h.setAttribute("aria-level","2");h.append(el("span",0,a.hdr.name));ul.append(h);return}
+  if(a.hdr){const h=el("li","sec-h");h.setAttribute("role","heading");h.setAttribute("aria-level","2");h.append(literalEl("span",0,a.hdr.name));ul.append(h);return}
   const li=el("li","row");li.dataset.id=a.id;
   if(!isGroup(a)){const acts=el("div","actions"),pin=el("button","pin",a.pin?"Bỏ ghim":"Ghim"),ar=el("button","arch","Lưu trữ");acts.append(pin,ar);li.append(acts);
    pin.onclick=e=>{e.stopPropagation();suppress=performance.now()+600;api(`/agents/${a.id}`,{pin:!a.pin}).then(upsert).then(()=>{buzz("tap");renderList()}).catch(()=>toast("Không ghim được"))};
    ar.onclick=e=>{e.stopPropagation();suppress=performance.now()+600;if(ar.disabled)return;ar.disabled=true;api(`/agents/${a.id}`,{archived:true}).then(()=>{S.agents=S.agents.filter(x=>x.id!==a.id);S.pending=S.pending.filter(m=>m.agentId!==a.id);renderList();toast("Đã lưu trữ "+a.name)}).catch(()=>{ar.disabled=false;toast("Không lưu trữ được")})}}
   const inn=el("button","rowin");inn.type="button";const av=el("span","row-av");av.append(avatarOf(a,48));const bd=badge(a);if(bd)av.append(bd);inn.append(av);
-  const tx=el("span","rowtxt"),h=el("span","rowh");h.append(el("b",0,a.name));if(isGroup(a))h.append(el("span","tag",(a.members||[]).length+" bot"));
+  const tx=el("span","rowtxt"),h=el("span","rowh");h.append(literalEl("b",0,a.name));if(isGroup(a))h.append(el("span","tag",(a.members||[]).length+" bot"));
   const live=a.status==="working",un=unread(a);h.append(el("span","time"+(live?" now":"")+(un?" un":""),live?"bây giờ":ago(a.t)));
   const sn=el("span","snip"+(waiting(a)?" wait":"")+(live?" dots":"")+(a.status==="error"?" err":"")+(un?" un":""),statusLine(a));
+  if(!live&&!waiting(a))sn.dataset.noi18n="";
   tx.append(h,sn);inn.append(tx);if(un)inn.append(el("i","dot"));li.append(inn);ul.append(li);
   inn.onclick=e=>{if(e.detail&&performance.now()<suppress)return;if(li.dataset.open){closeRow(li);return}openThread(a.id);if(e.detail===0)inp.focus({preventScroll:true})};
   if(hid.has(a.id))li.classList.add("is-hidden");
@@ -150,14 +152,14 @@ function longPress(node,a){let t=null,x0=0,y0=0;const clear=()=>{clearTimeout(t)
  node.addEventListener("touchend",clear);node.addEventListener("touchcancel",clear);
  node.addEventListener("contextmenu",e=>{e.preventDefault();if(!ctxOpen){suppress=performance.now()+700;openCtx(a,node)}})}
 const reduceMotion=()=>matchMedia("(prefers-reduced-motion: reduce)").matches;
-function ctxItem(icon,label,fn,opt={}){const b=el("button","ctx-i"+(opt.danger?" danger":""));b.setAttribute("role","menuitem");if(opt.id)b.id=opt.id;b.append(I(icon,22),el("span",0,label));if(opt.chev)b.append(el("span","ctx-chev"),I(opt.chev,18));b.onclick=e=>{e.stopPropagation();if(performance.now()<suppress)return;fn(b)};return b}
+function ctxItem(icon,label,fn,opt={}){const b=el("button","ctx-i"+(opt.danger?" danger":""));b.setAttribute("role","menuitem");if(opt.id)b.id=opt.id;b.append(I(icon,22),(opt.literal?literalEl:el)("span",0,label));if(opt.chev)b.append(el("span","ctx-chev"),I(opt.chev,18));b.onclick=e=>{e.stopPropagation();if(performance.now()<suppress)return;fn(b)};return b}
 function closeCtx(){const c=ctxOpen;if(!c)return;ctxOpen=null;c.classList.add("out");document.removeEventListener("keydown",ctxKey);setTimeout(()=>c.remove(),reduceMotion()?0:220);c._from&&c._from.focus&&c._from.focus({preventScroll:true})}
 const ctxKey=e=>{if(e.key==="Escape"){e.preventDefault();const sub=ctxOpen&&ctxOpen.querySelector(".ctx-sub");if(sub)sub._close();else closeCtx()}};
 function openCtx(a,from){if(ctxOpen||sheetOpen)return;closeMenu();if(openRow)closeRow(openRow);buzz("tap");
  const o=el("div","ctx");o._from=from;o.setAttribute("role","dialog");o.setAttribute("aria-label","Tuỳ chọn cho "+a.name);
  o.addEventListener("click",e=>{if(performance.now()<suppress){e.stopPropagation();e.preventDefault();const f=o.querySelector(".ctx-menu .ctx-i");f&&f.focus({preventScroll:true})}},true); // the lift that ends the long-press is not a tap
  const bg=el("div","ctx-bg");bg.onclick=closeCtx;o.append(bg);
- const card=el("div","ctx-card");const hd=el("div","ctx-h");hd.append(avatarOf(a,28),el("b",0,a.name));const bub=el("div","ctx-bub");
+ const card=el("div","ctx-card");const hd=el("div","ctx-h");hd.append(avatarOf(a,28),literalEl("b",0,a.name));const bub=el("div","ctx-bub");
  const lastText=()=>{const L=(S.msgs[a.id]||[]).filter(m=>m.role==="agent"&&m.text);return L.length?L[L.length-1].text:statusLine(a)};
  let place=()=>{};const fill=()=>{bub.replaceChildren();md(bub,lastText().slice(0,600));place()};fill();if(!S.msgs[a.id])loadMsgs(a.id).then(()=>ctxOpen===o&&fill()).catch(()=>{});
  card.append(hd,bub);card.onclick=()=>{closeCtx();openThread(a.id)};
@@ -189,7 +191,7 @@ function openSub(o,menu,a){if(menu.querySelector(".ctx-sub"))return;buzz("tap");
 function newSection(menu,a){const f=el("form","ctx-form");const i=el("input");i.placeholder="Tên mục, ví dụ Công việc";i.maxLength=24;i.setAttribute("aria-label","Tên mục mới");const go=el("button","pill small","Tạo");go.type="submit";f.append(i,go);
  f.onsubmit=e=>{e.preventDefault();const n=i.value.trim();if(!n)return;const sc=store.get("neko-aurora-sections",{list:[],of:{}});let x=sc.list.find(z=>z.name.toLowerCase()===n.toLowerCase());if(!x){x={id:"s"+Date.now().toString(36),name:n};sc.list.push(x)}sc.of[a.id]=x.id;store.set("neko-aurora-sections",sc);closeCtx();renderList();buzz("confirm");toast("Đã chuyển "+a.name+" vào "+n)};
  const sc=store.get("neko-aurora-sections",{list:[],of:{}});menu.replaceChildren(f);
- sc.list.forEach(x=>menu.append(ctxItem("folder",x.name,()=>{const s2=store.get("neko-aurora-sections",{list:[],of:{}});s2.of[a.id]=x.id;store.set("neko-aurora-sections",s2);closeCtx();renderList();toast("Đã chuyển vào "+x.name)})));
+ sc.list.forEach(x=>menu.append(ctxItem("folder",x.name,()=>{const s2=store.get("neko-aurora-sections",{list:[],of:{}});s2.of[a.id]=x.id;store.set("neko-aurora-sections",s2);closeCtx();renderList();toast("Đã chuyển vào "+x.name)},{literal:true})));
  if(sc.of[a.id])menu.append(ctxItem("x","Bỏ khỏi mục",()=>{const s2=store.get("neko-aurora-sections",{list:[],of:{}});delete s2.of[a.id];s2.list=s2.list.filter(x=>Object.values(s2.of).includes(x.id));store.set("neko-aurora-sections",s2);closeCtx();renderList()}));
  setTimeout(()=>i.focus(),30)}
 // morning brief: rendered as the first list row; tap to expand (full text, approvals waiting, refresh)
@@ -218,7 +220,7 @@ function swipeRow(li,inn){let x0,y0,dx=0,mode=null,base=0;
 let cur=null;
 const stateTxt={working:"Đang làm việc…",waiting:"Chờ bạn duyệt",idle:"Sẵn sàng",done:"Đã xong",error:"Có lỗi"};
 const stateLine=a=>isGroup(a)&&a.status!=="working"&&!waiting(a)?(a.members||[]).map(id=>byId(id)?.name).filter(Boolean).join(", "):a.status==="working"&&a.snip&&a.snip.startsWith("Bước")?a.snip:waiting(a)?"Chờ bạn duyệt":stateTxt[a.status]||"";
-function openThread(id){selectionExcerpt?.clear();const a=byId(id);if(!a)return;closeMenu();if(cur?.id!==id){AURORA_MD.closeViewer(false);clearVaultChat();stopVoice();saveComposerDraft();cur=a;restoreComposerDraft()}else cur=a;markSeen(id);headAvatar(a);$("#threadName").textContent=a.name;$("#threadState").textContent=stateLine(a);$("#input").placeholder=isGroup(a)?"Hỏi cả nhóm":"Hỏi "+a.name;closeFind();renderThread();const cache=S.msgs,loading=loadMsgs(id).catch(()=>{if(S.msgs===cache&&cur?.id===id)toast("Không tải được hội thoại")});$("#thread").classList.remove("off");$("#list").classList.add("under");buzz("tap");const hs=history.state;if(hs&&hs.spent)history.replaceState({t:1},"","#"+id);else if(!(hs&&hs.t))history.pushState({t:1},"","#"+id);return loading}
+function openThread(id){selectionExcerpt?.clear();const a=byId(id);if(!a)return;closeMenu();if(cur?.id!==id){AURORA_MD.closeViewer(false);clearVaultChat();stopVoice();saveComposerDraft();cur=a;restoreComposerDraft()}else cur=a;markSeen(id);headAvatar(a);$("#threadName").textContent=a.name;$("#threadState").toggleAttribute("data-noi18n",isGroup(a)&&a.status!=="working"&&!waiting(a));$("#threadState").textContent=stateLine(a);$("#input").placeholder=isGroup(a)?"Hỏi cả nhóm":"Hỏi "+a.name;closeFind();renderThread();const cache=S.msgs,loading=loadMsgs(id).catch(()=>{if(S.msgs===cache&&cur?.id===id)toast("Không tải được hội thoại")});$("#thread").classList.remove("off");$("#list").classList.add("under");buzz("tap");const hs=history.state;if(hs&&hs.spent)history.replaceState({t:1},"","#"+id);else if(!(hs&&hs.t))history.pushState({t:1},"","#"+id);return loading}
 document.addEventListener("aurora-network-open-task",async e=>{const {botId,conversationId,workId}=e.detail||{},id=byId(conversationId)?conversationId:botId;if(!byId(id)){toast("Phiên bot không còn trong danh sách");return}const cache=S.msgs;openThread(id);try{await loadMsgs(id);if(S.msgs!==cache||cur?.id!==id)return;const card=[...$("#messages").querySelectorAll(".approval")].find(n=>n.dataset.id===workId);if(card){stick=false;card.scrollIntoView({block:"center"});card.querySelector("button")?.focus()}}catch{if(S.msgs===cache&&cur?.id===id)toast("Không tải được tác vụ, thử mở lại hội thoại")}});
 function closeThread(fromPop){selectionExcerpt?.clear();AURORA_MD.closeViewer(false);if(!cur)return;clearVaultChat();if(profId)closeProfile(true);closeFind();markSeen(cur.id);stopVoice();saveComposerDraft();cur=null;inp.value="";setRef(null,false);setReply(null,false);inp.oninput();$("#thread").classList.add("off");$("#list").classList.remove("under");$("#thread").style.transform="";$("#list").style.transform="";renderList();if(!fromPop&&history.state&&history.state.t)history.replaceState({spent:1},"",location.pathname)}
 const deciding=new Set();
@@ -254,8 +256,8 @@ document.addEventListener("aurora-copied",()=>{buzz("confirm");toast("Đã sao c
 function sourceList(m){const w=el("details","sources");const sm=el("summary");const u=uniqSources(m.sources);const ok=u.length>0,T=m.tools||[],bad=T.length>0&&T.every(t=>t.status==="failed");sm.append(el("span",0,ok?`Nguồn · ${u.length}`:bad?"Không lấy được dữ liệu":`Các bước · ${T.length}`),I("chevron-down",14));w.append(sm);
  (m.tools||[]).forEach(t=>{const r=el("p","tool-line"+(t.status==="failed"?" bad":""),(t.summary||t.name)+(t.ms?" · "+(t.ms/1000).toFixed(1).replace(".",",")+"s":""));w.append(r)});const ol=el("ol");
  u.forEach(x=>{const li=el("li");const l=el("a");l.href=x.url;l.target="_blank";l.rel="noopener noreferrer";l.append(el("b",0,"["+x.n+"] "+(x.title||srcHost(x.url))),el("small",0,srcHost(x.url)+(x.at?" · "+new Date(x.at).toLocaleTimeString("vi-VN",{hour:"2-digit",minute:"2-digit"}):"")));li.append(l);ol.append(li)});w.append(ol);return w}
-function speaker(box,m,last){if(!isGroup(cur)||m.role!=="agent"||!m.from)return;if(last.v===m.from)return;last.v=m.from;const b=byId(m.from);const h=el("div","speaker");h.append(face(b&&b.av,20),el("span",0,b?b.name:"Bot"));box.append(h)}
-function renderThread(){const a=cur;if(!a)return;const restoreSelection=selectionExcerpt?.beforeRender();$("#threadState").textContent=stateLine(a);headAvatar(a);const box=$("#messages");
+function speaker(box,m,last){if(!isGroup(cur)||m.role!=="agent"||!m.from)return;if(last.v===m.from)return;last.v=m.from;const b=byId(m.from);const h=el("div","speaker");h.append(face(b&&b.av,20),literalEl("span",0,b?b.name:"Bot"));box.append(h)}
+function renderThread(){const a=cur;if(!a)return;const restoreSelection=selectionExcerpt?.beforeRender();$("#threadState").toggleAttribute("data-noi18n",isGroup(a)&&a.status!=="working"&&!waiting(a));$("#threadState").textContent=stateLine(a);headAvatar(a);const box=$("#messages");
  const focused=document.activeElement,focusMessage=box.contains(focused)&&focused.classList.contains("message-item")?focused.dataset.messageId:null;
  const keepSec=[...box.querySelectorAll(".secret input[data-secret]")].map(i=>[i.closest(".secret").dataset.id,i.dataset.secret,i.value]);
  const keepEdit=[...box.querySelectorAll(".ap-body")].map(t=>[t.closest(".approval").dataset.id,t.value,t.closest(".approval").querySelector(".ap-subject")?.value]);
@@ -315,7 +317,7 @@ async function installApp(){if(installEv){installEv.prompt();try{await installEv
 function emptyThread(a){const w=el("div","thread-empty enter");const f=el("div","te-face"),g=isGroup(a);
  const mem=g?(a.members||[]).map(byId).filter(Boolean):[];if(g&&mem.length){f.classList.add("stack");mem.slice(0,3).forEach(b=>f.append(face(b.av||{},48)))}else f.append(face(a.av||{},64));
  const names=mem.map(b=>b.name);const who=names.length>1?names.slice(0,-1).join(", ")+" và "+names.at(-1):names[0]||"";
- w.append(f,el("b",0,a.name),el("p",0,g?(who?"Nhóm gồm "+who+". Nhắn một lần, các bot cùng làm.":"Nhóm chat"):a.desc||"Sẵn sàng nhận việc."));
+ w.append(f,literalEl("b",0,a.name),((g?who:a.desc)?literalEl:el)("p",0,g?(who?"Nhóm gồm "+who+". Nhắn một lần, các bot cùng làm.":"Nhóm chat"):a.desc||"Sẵn sàng nhận việc."));
  const c=el("div","choices");(g?["Mỗi bạn giới thiệu ngắn một câu nhé","Chia việc giúp mình: lên kế hoạch tuần này","Cả nhóm cùng góp ý một ý tưởng"]:["Bạn giúp được mình những gì?","Gợi ý 3 việc mình nên giao cho bạn","Bắt đầu với một việc nhỏ hôm nay nhé"]).forEach(t=>{const b=el("button","choice",t);b.type="button";b.onclick=()=>sendMsg(t);c.append(b)});w.append(c);return w}
 // Working status (one persistent node, so the mascot and shine never restart
 // on a re-render): the bot's own mascot moves per phase (bob/scan/hop…, eyes
@@ -437,10 +439,10 @@ $("#agentName").onkeydown=e=>{if(e.key==="Enter"){e.preventDefault();$("#createB
 // ---------- new group chat ----------
 let picked=[];
 function renderGroup(){const q=$("#groupSearch").value.trim().toLowerCase();const ch=$("#groupChips");ch.innerHTML="";
- picked.forEach(id=>{const b=byId(id);if(!b)return;const c=el("button","gchip");c.append(face(b.av,20),el("span",0,b.name));c.setAttribute("aria-label","Bỏ "+b.name);c.onclick=()=>{picked=picked.filter(x=>x!==id);renderGroup()};ch.append(c)});
+ picked.forEach(id=>{const b=byId(id);if(!b)return;const c=el("button","gchip");c.append(face(b.av,20),literalEl("span",0,b.name));c.setAttribute("aria-label","Bỏ "+b.name);c.onclick=()=>{picked=picked.filter(x=>x!==id);renderGroup()};ch.append(c)});
  const ul=$("#groupList");ul.innerHTML="";const list=bots().filter(b=>!q||b.name.toLowerCase().includes(q)).sort((a,b)=>a.name.localeCompare(b.name,"vi"));
  if(!list.length)ul.append(el("li","note",bots().length<2?"Cần ít nhất 2 bot để tạo nhóm.":"Không tìm thấy bot."));
- list.forEach(b=>{const li=el("li"),bt=el("button","pick-row");const on=picked.includes(b.id);bt.setAttribute("aria-pressed",on);bt.append(face(b.av,40));const t=el("span","pt");t.append(el("b",0,b.name),el("small",0,b.desc||""));bt.append(t);const ck=el("span","ck");if(on)ck.append(I("check",16));bt.append(ck);
+ list.forEach(b=>{const li=el("li"),bt=el("button","pick-row");const on=picked.includes(b.id);bt.setAttribute("aria-pressed",on);bt.append(face(b.av,40));const t=el("span","pt");t.append(literalEl("b",0,b.name),literalEl("small",0,b.desc||""));bt.append(t);const ck=el("span","ck");if(on)ck.append(I("check",16));bt.append(ck);
   bt.onclick=()=>{if(on)picked=picked.filter(x=>x!==b.id);else if(picked.length<8)picked.push(b.id);else toast("Tối đa 8 bot");buzz("tap");renderGroup()};li.append(bt);ul.append(li)});
  $("#groupNext").disabled=picked.length<2}
 $("#menuGroup").onclick=()=>{closeMenu();if(sheetOpen)return;picked=[];$("#groupSearch").value="";$("#groupName").value="";renderGroup();openSheet($("#groupSheet"))};
@@ -600,7 +602,7 @@ const shareLink=async a=>{const url=location.origin+"/app/#"+a.id;try{if(navigat
 function openProfile(id){const a=byId(id);if(!a)return;closeMenu();profId=id;renderProfile();const profile=profileVersion,scope=S.workspaceId;if(!S.msgs[id])loadMsgs(id).then(()=>{if(profId===id&&scope===S.workspaceId&&profileVersion===profile&&!$("#profBody .schedule-editor"))renderProfile()}).catch(()=>{});$("#profile").classList.remove("off");$("#profBody").scrollTop=0;buzz("tap");history.pushState({p:1},"",location.hash||"#"+id)}
 function closeProfile(fromPop){if(!profId)return;profileVersion++;profId=null;closeMenu();$("#profile").classList.add("off");if(!fromPop&&history.state&&history.state.p){skipPop=true;history.back()}}
 function renderProfile(){profileVersion++;const a=byId(profId);const B=$("#profBody");if(!a){B.innerHTML="";return}B.innerHTML="";
- const hero=el("div","hero");const av=el("span","hero-av");av.append(avatarOf(a,112));const bd=a.pin?el("i","badge pin"):badge(a);if(a.pin)bd.append(I("star",12));if(bd)av.append(bd);hero.append(av,el("h2",0,a.name));if(a.desc)hero.append(el("p",0,a.desc));
+ const hero=el("div","hero");const av=el("span","hero-av");av.append(avatarOf(a,112));const bd=a.pin?el("i","badge pin"):badge(a);if(a.pin)bd.append(I("star",12));if(bd)av.append(bd);hero.append(av,literalEl("h2",0,a.name));if(a.desc)hero.append(literalEl("p",0,a.desc));
  if(!isGroup(a)){const ed=el("button","pill soft","Sửa");ed.id="profEdit";ed.onclick=()=>openCreator(a);hero.append(ed)}B.append(hero);
  const L=S.msgs[a.id]||[],pend=S.pending.filter(m=>m.agentId===a.id).length;
  const toThread=()=>{closeProfile();if(!cur||cur.id!==a.id)setTimeout(()=>openThread(a.id),cur?0:0)};
