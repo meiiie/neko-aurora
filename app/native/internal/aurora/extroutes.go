@@ -230,7 +230,10 @@ func (s *Service) extRoutes() {
 			writeJSON(w, 429, map[string]string{"error": "rate_limited", "retryAt": failure.RetryAt.UTC().Format(time.RFC3339)})
 			return
 		}
-		s.mcpDrop(id, srv)
+		if err := s.mcpDrop(r.Context(), id, srv); err != nil {
+			fail(w, err)
+			return
+		}
 		writeJSON(w, 200, map[string]bool{"ok": true})
 	})
 	m.HandleFunc("POST /app/api/agents/{id}/ext", func(w http.ResponseWriter, r *http.Request) {
@@ -292,7 +295,10 @@ func (s *Service) extRoutes() {
 				return
 			}
 			for _, x := range be.MCP {
-				s.mcpDrop(id, x)
+				if err := s.mcpDrop(r.Context(), id, x); err != nil {
+					fail(w, err)
+					return
+				}
 			}
 			be.MCP = nil
 			for _, x := range *in.MCP {

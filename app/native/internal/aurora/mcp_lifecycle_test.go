@@ -113,7 +113,7 @@ func TestMCPLifecycleHTTPFailureCooldownAndExplicitReconnect(t *testing.T) {
 			if calls.Load() != 1 {
 				t.Fatal("automatic repeat while blocked", calls.Load())
 			}
-			s.mcpDrop("bot", srv)
+			s.mcpDrop(s.ctx, "bot", srv)
 			s.mcpTools(s.ctx, "bot", srv)
 			if calls.Load() != 2 {
 				t.Fatal("explicit reconnect did not reset handshake")

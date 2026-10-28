@@ -1056,7 +1056,7 @@
         "connectors-email"
       ],
       "coverage": "partial-local-validation",
-      "implementation": "workspace-scoped-mcp-lifecycle",
+      "implementation": "workspace-scoped-mcp-lifecycle-cancellation-and-catalog-refresh",
       "evidence": [
         "app/native/internal/aurora/mcp_lifecycle_test.go",
         "app/tests/aurora/adoption-browser.py"
@@ -4906,7 +4906,7 @@
         "desktop-platform"
       ],
       "coverage": "partial-local-validation",
-      "implementation": "workspace-scoped-mcp-lifecycle",
+      "implementation": "workspace-scoped-mcp-lifecycle-cancellation-and-catalog-refresh",
       "evidence": [
         "app/native/internal/aurora/mcp_lifecycle_test.go",
         "app/tests/aurora/adoption-browser.py"
