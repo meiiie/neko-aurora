@@ -66,6 +66,7 @@ func (s *Service) providersView() []map[string]any {
 }
 
 func (s *Service) extRoutes() {
+	s.mcpAuthorizationRoutes()
 	m := s.mux
 	m.HandleFunc("GET /app/api/models", func(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, 200, map[string]any{"models": s.modelMenu(), "providers": s.providersView(), "vision": s.visionModel(), "browser": browserBin() != ""})

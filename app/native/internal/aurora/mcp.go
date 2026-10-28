@@ -64,8 +64,10 @@ func (s *Service) mcpState() *mcpCache {
 }
 
 type mcpFailure struct {
-	State   string    `json:"state"`
-	RetryAt time.Time `json:"retryAt,omitempty"`
+	State       string    `json:"state"`
+	RetryAt     time.Time `json:"retryAt,omitempty"`
+	challenge   *mcpAuthChallenge
+	authInvalid bool
 }
 
 func (e *mcpFailure) Error() string {
@@ -83,6 +85,11 @@ func (e *mcpFailure) Error() string {
 
 func mcpHTTPFailure(r *http.Response) error {
 	e := &mcpFailure{State: "unavailable", RetryAt: time.Now().Add(5 * time.Second)}
+	if r.StatusCode == 401 || r.StatusCode == 403 {
+		var err error
+		e.challenge, err = parseMCPChallenge(r.Header.Values("WWW-Authenticate"))
+		e.authInvalid = err != nil
+	}
 	switch r.StatusCode {
 	case 401:
 		e.State, e.RetryAt = "reconnect_required", time.Time{}
