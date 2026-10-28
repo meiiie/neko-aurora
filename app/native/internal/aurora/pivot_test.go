@@ -1,8 +1,8 @@
 package aurora
 
 import (
-	"archive/zip"
 	"bytes"
+	"fmt"
 	"os"
 	"strings"
 	"testing"
@@ -80,14 +80,12 @@ func TestProbeMP4(t *testing.T) {
 }
 
 func xlsx(t *testing.T, rows int) []byte {
-	var buf bytes.Buffer
-	z := zip.NewWriter(&buf)
-	w, _ := z.Create("xl/workbook.xml")
-	w.Write([]byte("<workbook/>"))
-	w, _ = z.Create("xl/worksheets/sheet1.xml")
-	w.Write([]byte("<worksheet><sheetData>" + strings.Repeat(`<row r="1"><c><v>1</v></c></row>`, rows) + "</sheetData></worksheet>"))
-	z.Close()
-	return buf.Bytes()
+	t.Helper()
+	var body strings.Builder
+	for i := 1; i <= rows; i++ {
+		fmt.Fprintf(&body, `<row r="%d"><c r="A%d"><v>1</v></c></row>`, i, i)
+	}
+	return sheetArchive(t, sheetPackage(body.String()))
 }
 
 func TestCheckSheet(t *testing.T) {

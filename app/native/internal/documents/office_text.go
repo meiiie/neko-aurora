@@ -406,42 +406,61 @@ func officePartNumber(name, prefix, suffix string) (int, bool) {
 	return number, ok && strconv.Itoa(number) == value
 }
 
+// XLSXSummary describes parsed cells; formulas are never evaluated.
+type XLSXSummary struct {
+	Sheets, MaxPopulatedRows, PopulatedCells int
+	FormulaCells, UncachedFormulaCells       int
+}
+
+// InspectXLSX uses the same complete package validation and limits as text extraction.
+// A rejected package returns no partial summary.
+func InspectXLSX(raw []byte) (XLSXSummary, error) {
+	_, summary, err := inspectXLSX(raw)
+	return summary, err
+}
+
 func ExtractXLSX(raw []byte) (Result, error) {
+	result, _, err := inspectXLSX(raw)
+	return result, err
+}
+
+func inspectXLSX(raw []byte) (Result, XLSXSummary, error) {
 	pkg, err := officeArchive(raw)
 	if err != nil {
-		return Result{}, err
+		return Result{}, XLSXSummary{}, err
 	}
 	if err = pkg.main("xl/workbook.xml", officeWorkbookType); err != nil {
-		return Result{}, err
+		return Result{}, XLSXSummary{}, err
 	}
 	items, namespace, err := pkg.workbook()
 	if err != nil {
-		return Result{}, err
+		return Result{}, XLSXSummary{}, err
 	}
 	var shared []string
 	sharedTarget := ""
 	for _, relation := range pkg.rels["xl/_rels/workbook.xml.rels"] {
 		if officeRelationKind(relation.kind, "sharedStrings") {
 			if sharedTarget != "" {
-				return Result{}, reject(InvalidOffice, "duplicate_shared_strings")
+				return Result{}, XLSXSummary{}, reject(InvalidOffice, "duplicate_shared_strings")
 			}
 			sharedTarget = relation.target
 		}
 	}
 	if sharedTarget != "" {
 		if pkg.types[sharedTarget] != officeStringsType {
-			return Result{}, reject(InvalidOffice, "shared_strings_content_type")
+			return Result{}, XLSXSummary{}, reject(InvalidOffice, "shared_strings_content_type")
 		}
 		shared, err = officeStrings(pkg.parts[sharedTarget], namespace)
 		if err != nil {
-			return Result{}, err
+			return Result{}, XLSXSummary{}, err
 		}
 	}
 	var output officeText
+	summary := XLSXSummary{Sheets: len(items)}
 	for index, item := range items {
 		if index != 0 {
 			if err = output.add("\n\n"); err != nil {
-				return Result{}, err
+				return Result{}, XLSXSummary{}, err
 			}
 		}
 		state := ""
@@ -449,23 +468,35 @@ func ExtractXLSX(raw []byte) (Result, error) {
 			state = "; " + item.state
 		}
 		if err = output.add(fmt.Sprintf("Sheet %d: %s (id %d%s; %s)", item.number, item.name, item.id, state, item.target)); err != nil {
-			return Result{}, err
+			return Result{}, XLSXSummary{}, err
 		}
 		cells, err := officeCells(pkg.parts[item.target], namespace, shared)
 		if err != nil {
-			return Result{}, err
+			return Result{}, XLSXSummary{}, err
 		}
+		rows := map[int]bool{}
 		for _, cell := range cells {
+			if strings.TrimSpace(cell.text) != "" {
+				rows[cell.row] = true
+				summary.PopulatedCells++
+			}
+			if cell.formulaCount != 0 {
+				summary.FormulaCells++
+				if cell.valueCount == 0 {
+					summary.UncachedFormulaCells++
+				}
+			}
 			label := cell.reference
 			if cell.formulaCount != 0 {
 				label += " [cached formula]"
 			}
 			if err = output.add("\n" + label + ": " + cell.text); err != nil {
-				return Result{}, err
+				return Result{}, XLSXSummary{}, err
 			}
 		}
+		summary.MaxPopulatedRows = max(summary.MaxPopulatedRows, len(rows))
 	}
-	return officeResult(output.builder.String()), nil
+	return officeResult(output.builder.String()), summary, nil
 }
 
 func (pkg *officePackage) workbook() ([]officeItem, string, error) {
