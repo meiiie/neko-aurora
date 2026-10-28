@@ -259,10 +259,10 @@ function sourceList(m){const w=el("details","sources");const sm=el("summary");co
 function speaker(box,m,last){if(!isGroup(cur)||m.role!=="agent"||!m.from)return;if(last.v===m.from)return;last.v=m.from;const b=byId(m.from);const h=el("div","speaker");h.append(face(b&&b.av,20),literalEl("span",0,b?b.name:"Bot"));box.append(h)}
 function renderThread(){const a=cur;if(!a)return;const restoreSelection=selectionExcerpt?.beforeRender();$("#threadState").toggleAttribute("data-noi18n",isGroup(a)&&a.status!=="working"&&!waiting(a));$("#threadState").textContent=stateLine(a);headAvatar(a);const box=$("#messages");
  const focused=document.activeElement,focusMessage=box.contains(focused)&&focused.classList.contains("message-item")?focused.dataset.messageId:null;
- const keepSec=[...box.querySelectorAll(".secret input[data-secret]")].map(i=>[i.closest(".secret").dataset.id,i.dataset.secret,i.value]);
+ const keepSec=[...box.querySelectorAll(".secret input[data-secret]")].map(i=>[i.closest(".secret").dataset.inputKey,i.dataset.secret,i.value]);
  const keepHints=[...box.querySelectorAll(".vault-card textarea[name=useHint]")].map(i=>({key:i.closest(".vault-card").dataset.hintKey,value:i.value,focused:i===focused,start:i.selectionStart,end:i.selectionEnd,direction:i.selectionDirection}));
  const keepEdit=[...box.querySelectorAll(".ap-body")].map(t=>[t.closest(".approval").dataset.id,t.value,t.closest(".approval").querySelector(".ap-subject")?.value]);
- const sEl=statusEl();[...box.childNodes].forEach(n=>n!==sEl&&n.remove());if(sEl.parentNode!==box)box.append(sEl);const all=S.msgs[a.id]||[];const W=win[a.id]||(win[a.id]=PAGE);const L=all.length>W?all.slice(-W):all;const last={v:null};
+ clearVaultInputs(box);const sEl=statusEl();[...box.childNodes].forEach(n=>n!==sEl&&n.remove());if(sEl.parentNode!==box)box.append(sEl);const all=S.msgs[a.id]||[];const W=win[a.id]||(win[a.id]=PAGE);const L=all.length>W?all.slice(-W):all;const last={v:null};
  const first=stickFor!==a.id;if(first){stickFor=a.id;stick=true;nodeCache.clear()}const frag=document.createDocumentFragment();const mark=(n0,isNew)=>{if(isNew)[...frag.childNodes].slice(n0).forEach(n=>{if(!n.classList)return;n.classList.add("enter");n.addEventListener("animationend",()=>n.classList.remove("enter"),{once:true})})};
  if(all.length>W){const o=el("button","older","Xem tin nhắn cũ hơn");o.type="button";o.onclick=loadOlder;frag.append(o)}if(justSent)stick=true;let prevT=0;
  L.forEach((m,idx)=>{
@@ -271,7 +271,7 @@ function renderThread(){const a=cur;if(!a)return;const restoreSelection=selectio
   const later=m.choices&&m.choices.length?L.some(x=>x.answerFor===m.taskId)||outbox.some(x=>x.answerFor===m.taskId):false;
   const questionState=m.questions?JSON.stringify([all.some(x=>x.answerFor===m.taskId),outbox.find(x=>x.answerFor===m.taskId&&x.agentId===a.id)||null]):"";
   const formState=m.form?JSON.stringify([all.find(x=>x.formFor===m.taskId&&x.role==="user")||null,outbox.find(x=>x.formFor===m.taskId&&x.agentId===a.id)||null]):"";
-  const sig=JSON.stringify(m)+"|"+(idx===L.length-1&&!m.text?a.status:"")+"|"+later+"|"+showThink+"|"+formState+"|"+questionState+"|"+last.v+"|"+prevT;
+  const sig=JSON.stringify(m)+"|"+(idx===L.length-1&&!m.text?a.status:"")+"|"+later+"|"+showThink+"|"+formState+"|"+questionState+"|"+last.v+"|"+prevT+"|"+(m.secret&&!m.secret.vault?S.secrets.includes(m.secret.name):"");
   const hit=nodeCache.get(m.id);if(hit&&hit.sig===sig){hit.nodes.forEach(n=>frag.append(n));last.v=hit.lastV;prevT=hit.prevT;return}
   const n0=frag.childNodes.length,isNew=!first&&!shownIds.has(m.id)&&!(m.role==="user"&&sentRecently(m.text));if(!first&&!shownIds.has(m.id))seenAt.set(m.id,Date.now());shownIds.add(m.id);if(m.role!=="agent")last.v=null;const t=T(m.t);if(m.role==="user"&&t>0&&(!prevT||t-prevT>15*60e3))frag.append(el("div","daystamp",dayStamp(t)));if(t>0)prevT=t;
   const cp=m.role==="agent"&&AURORA_UX.isCheckpoint(m.text),body=cp?m.text.trim().slice(0,-AURORA_UX.CHECKPOINT.length).trim():m.text;
@@ -288,7 +288,7 @@ function renderThread(){const a=cur;if(!a)return;const restoreSelection=selectio
   if(m.tools&&m.tools.length&&(m.text||m.approval)&&!(a.status==="working"&&idx===L.length-1&&!m.text))frag.append(sourceList(m));
   if(m.approval)frag.append(approvalCard(m));if(m.secret)frag.append(secretCard(m));mark(n0,isNew);nodeCache.set(m.id,{sig,nodes:[...frag.childNodes].slice(n0),lastV:last.v,prevT})});
  box.insertBefore(frag,sEl);
- keepSec.forEach(([id,n,v])=>{const i=box.querySelector(`.secret[data-id="${id}"] input[data-secret="${n}"]`);if(i&&!i.value)i.value=v});
+ keepSec.forEach(([key,n,v])=>{if(!key)return;const card=[...box.querySelectorAll(".secret")].find(c=>c.dataset.inputKey===key),i=card&&[...card.querySelectorAll("input[data-secret]")].find(i=>i.dataset.secret===n);if(i)i.value=v});
  keepHints.forEach(h=>{const card=[...box.querySelectorAll(".vault-card")].find(c=>c.dataset.hintKey===h.key),i=card?.querySelector("textarea[name=useHint]");if(!i)return;if(!i.value)i.value=h.value;if(h.focused&&(document.activeElement===document.body||document.activeElement===focused)){i.focus({preventScroll:true});i.setSelectionRange(h.start,h.end,h.direction)}});
  keepEdit.forEach(([id,v,sj])=>{const c=box.querySelector(`.approval[data-id="${id}"]`);if(c){const t=c.querySelector(".ap-body");if(t)t.value=v;const s2=c.querySelector(".ap-subject");if(s2&&sj!=null)s2.value=sj}});
  outbox.filter(o=>o.agentId===a.id).forEach(o=>{last.v=null;frag.append(pendingCard(o))});
@@ -558,13 +558,14 @@ async function gmailTest(to){if(!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(to)){toast("�
 $("#closeConnectors").onclick=()=>closeSheet(true);
 $("#appsBtn").onclick=()=>{if(sheetOpen)return;renderConnectors();openSheet($("#connectors"))};
 // in-chat secret request card: masked input → vault; message/journal hold only the name
-function secretCard(m){if(m.secret.vault)return vaultCard(m);const x=m.secret,saved=S.secrets.includes(x.name),c=el("div","secret"+(saved?" saved":""));c.dataset.id=m.id;c.dataset.name=x.name;
+function secretCard(m){if(m.secret.vault)return vaultCard(m);const x=m.secret,scope=S.workspaceId,chat=cur?.id,chatVersion=vaultChatVersion,saved=S.secrets.includes(x.name),c=el("div","secret"+(saved?" saved":""));c.dataset.id=m.id;c.dataset.name=x.name;c.dataset.inputKey=JSON.stringify([scope,m.agentId,m.taskId||"",m.id,x.name,x.label||""]);
+ const active=()=>scope===S.workspaceId&&cur?.id===chat&&vaultChatVersion===chatVersion&&c.isConnected;
  const top=el("div","sec-top");top.append(I("key-round",18),el("b",0,x.label||x.name),el("code",0,x.name));c.append(top);if(x.desc)c.append(el("p","sec-desc",x.desc));
  if(saved){const d=el("div","sec-done");d.append(I("check",16),el("span",0,"Đã lưu vào kho bí mật"));c.append(d);return c}
  const sf=secretField(x.name,x.label||x.name);const row=el("div","sec-row");const go=el("button","pill","Lưu");go.className="pill sec-save";
  const err=el("p","sec-err");err.setAttribute("role","alert");
- go.onclick=async()=>{const value=sf.i.value;err.textContent="";if(!value){err.textContent="Chưa nhập giá trị.";return}go.disabled=true;go.textContent="Đang lưu…";
-  try{await api("/secrets",{name:x.name,value,label:x.label||"",work:m.taskId});sf.i.value="";if(!S.secrets.includes(x.name))S.secrets.push(x.name);buzz("confirm");toast("Đã lưu "+x.name);loadState().catch(()=>{});renderThread()}catch(e){err.textContent=e.status===400?"Giá trị không hợp lệ (tối đa 8 KB).":"Không lưu được, thử lại.";go.disabled=false;go.textContent="Lưu"}};
+ go.onclick=async()=>{if(!active()||go.disabled)return;const value=sf.i.value;err.textContent="";if(!value){err.textContent="Chưa nhập giá trị.";return}go.disabled=true;go.textContent="Đang lưu…";
+  try{await api("/secrets",{workspaceId:scope,name:x.name,value,label:x.label||"",work:m.taskId});sf.i.value="";if(!active())return;if(!S.secrets.includes(x.name))S.secrets.push(x.name);nodeCache.delete(m.id);buzz("confirm");toast("Đã lưu "+x.name);loadState().catch(()=>{});renderThread()}catch(e){if(!active())return;err.textContent=e.status===400?"Giá trị không hợp lệ (tối đa 8 KB).":"Không lưu được, thử lại.";go.disabled=false;go.textContent="Lưu"}};
  sf.i.onkeydown=e=>{if(e.key==="Enter"){e.preventDefault();go.click()}};row.append(sf.w,go);c.append(row,err,el("small","hint","Giá trị chỉ vào kho mã hoá trên máy chủ, không nằm trong tin nhắn."));return c}
 // ---------- activity ----------
 function renderLog(items,prepend){const L=$("#log");if(!prepend)L.innerHTML="";items.forEach(x=>{const li=el("li"),t=el("time",0,ago(x.t));li.append(t,x.text);prepend?L.prepend(li):L.append(li)})}
@@ -1013,8 +1014,8 @@ const VT={card:["credit-card","Thẻ thanh toán","Thẻ"],login:["lock","Đăng
 const VA={fill:"Điền form",env:"Dùng trong lệnh",reveal:"Bạn xem",save:"Đã lưu",delete:"Đã xoá"};
 let vaultData=null,vaultOpen=null,vaultEdit=null,vaultShown={},vaultView=0,vaultChatVersion=0,vaultHideTimer=null;
 function hideVaultValues(){clearTimeout(vaultHideTimer);vaultHideTimer=null;vaultShown={}}
-function clearVaultInputs(root){root.querySelectorAll(".vault-form input,.vault-form textarea").forEach(i=>{i.value=""})}
-function clearVaultChat(){vaultChatVersion++;const root=$("#messages");clearVaultInputs(root);root.querySelectorAll(".vault-card[data-id]").forEach(n=>nodeCache.delete(n.dataset.id))}
+function clearVaultInputs(root){root.querySelectorAll(".secret input[data-secret],.vault-form input,.vault-form textarea").forEach(i=>{i.value=""})}
+function clearVaultChat(){vaultChatVersion++;const root=$("#messages");clearVaultInputs(root);root.querySelectorAll(".secret[data-id]").forEach(n=>nodeCache.delete(n.dataset.id))}
 function resetVault(){vaultView++;vaultData=null;vaultOpen=null;vaultEdit=null;hideVaultValues();clearVaultInputs($("#vaultBody"));$("#vaultBody").replaceChildren()}
 const vaultActive=(scope,view,node)=>scope===S.workspaceId&&view===vaultView&&sheetOpen===$("#vaultSheet")&&node.isConnected;
 const vSub=it=>it.type==="card"?(it.hint.brand||"Thẻ")+" •••• "+(it.hint.last4||""):it.type==="login"?[it.hint.site,it.hint.user].filter(Boolean).join(" · ")+(it.hint.totp?" · 2 lớp":""):(it.hint.name||"")+" · "+(it.filled||[]).length+" mục";
@@ -1062,7 +1063,7 @@ function rememberVaultCard(key,it){
  vaultSaved.add(key);
  try{if(!it||typeof it.id!=="string"||!/^[a-f0-9]{8,32}$/.test(it.id))return false;localStorage.setItem(key,JSON.stringify({version:1,itemId:it.id}));return true}catch{return false}
 }
-function vaultCard(m){const x=m.secret,t=x.vault,scope=S.workspaceId,key="aurora.vault.saved.v1."+encodeURIComponent(JSON.stringify([scope,m.agentId,m.taskId||"",m.id,t])),saved=vaultCardSaved(key),c=el("div","secret vault-card"+(saved?" saved":""));c.dataset.id=m.id;c.dataset.name=x.name;c.dataset.hintKey=JSON.stringify([key,x.label||"",x.site||""]);
+function vaultCard(m){const x=m.secret,t=x.vault,scope=S.workspaceId,key="aurora.vault.saved.v1."+encodeURIComponent(JSON.stringify([scope,m.agentId,m.taskId||"",m.id,t])),saved=vaultCardSaved(key),c=el("div","secret vault-card"+(saved?" saved":""));c.dataset.id=m.id;c.dataset.name=x.name;c.dataset.inputKey=c.dataset.hintKey=JSON.stringify([key,x.label||"",x.site||""]);
  const top=el("div","sec-top");top.append(I(VT[t]?VT[t][0]:"lock",18),el("b",0,x.label||VT[t][1]),el("code",0,"Vault"));c.append(top);if(x.desc)c.append(el("p","sec-desc",x.desc));
  if(saved){const d=el("div","sec-done");d.append(I("check",16),el("span",0,"Đã lưu vào Vault"));const view=el("button","pill ghost","Xem Vault");view.onclick=()=>{if(scope===S.workspaceId)openVault()};c.append(d,view);return c}
  c.append(vaultForm(t,null,it=>{const persisted=rememberVaultCard(key,it);nodeCache.delete(m.id);renderThread();if(!persisted)toast("Đã lưu vào Vault. Thiết bị chưa nhớ được trạng thái thẻ.")},{task:m.taskId,label:x.label,site:x.site}));return c}

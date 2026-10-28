@@ -5,6 +5,7 @@ import (
 	"errors"
 	"net"
 	"net/http"
+	"net/url"
 	"os"
 	"strings"
 
@@ -127,21 +128,35 @@ func vaultErr(w http.ResponseWriter, err error) {
 func (s *Service) connectorRoutes() {
 	m := s.mux
 	m.HandleFunc("GET /app/api/secrets", func(w http.ResponseWriter, r *http.Request) {
-		writeJSON(w, 200, map[string]any{"secrets": s.V.List()})
+		w.Header().Set("Cache-Control", "no-store")
+		query, err := url.ParseQuery(r.URL.RawQuery)
+		if values, present := query["workspaceId"]; err != nil || present && (len(values) != 1 || values[0] == "") {
+			fail(w, ledger.ErrInvalid)
+			return
+		}
+		if !s.vaultWorkspace(w, query.Get("workspaceId")) {
+			return
+		}
+		writeJSON(w, 200, map[string]any{"workspaceId": s.workspaceID, "secrets": s.V.List()})
 	})
 	m.HandleFunc("POST /app/api/secrets", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Cache-Control", "no-store")
 		var in struct {
-			Name  string `json:"name"`
-			Value string `json:"value"`
-			Label string `json:"label"`
-			Work  string `json:"work"`
+			WorkspaceID string `json:"workspaceId"`
+			Name        string `json:"name"`
+			Value       string `json:"value"`
+			Label       string `json:"label"`
+			Work        string `json:"work"`
 		}
 		if s.L.ReadOnly() {
 			fail(w, ledger.ErrConflict)
 			return
 		}
-		if err := decodeStrict(r, &in); err != nil {
-			fail(w, err)
+		if err := decodeVaultRequest(w, r, &in); err != nil {
+			fail(w, ledger.ErrInvalid)
+			return
+		}
+		if !s.vaultWorkspace(w, in.WorkspaceID) {
 			return
 		}
 		meta, err := s.V.Set(vault.Meta{Name: in.Name, Label: clean(in.Label, 80), Kind: "secret"}, in.Value)
@@ -163,6 +178,14 @@ func (s *Service) connectorRoutes() {
 		writeJSON(w, 200, meta)
 	})
 	m.HandleFunc("POST /app/api/secrets/{name}/delete", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Cache-Control", "no-store")
+		if s.L.ReadOnly() {
+			fail(w, ledger.ErrConflict)
+			return
+		}
+		if !s.vaultActionRequest(w, r) {
+			return
+		}
 		n := r.PathValue("name")
 		if err := s.V.Delete(n); err != nil {
 			vaultErr(w, err)
