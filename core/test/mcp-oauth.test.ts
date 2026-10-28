@@ -136,8 +136,8 @@ test("OAuth rejects mismatched discovery and corrupt or oversized credentials", 
   rmSync(file); mkdirSync(file); expect(() => p.tokens()).toThrow("cannot be read"); await cb.close();
 }));
 
-function sdkFixture() {
-  let authorization: URL | undefined, tokenPosts = 0;
+function sdkFixture(toolStatus?: 401 | 403) {
+  let authorization: URL | undefined, tokenPosts = 0, toolCalls = 0;
   const json = <T>(data: T, status = 200) => new Response(JSON.stringify(data), { status, headers: { "Content-Type": "application/json" } });
   const fetchFn: FetchLike = async (input, init) => {
     expect(init?.redirect).toBe("error"); expect(init?.credentials).toBe("omit");
@@ -147,22 +147,32 @@ function sdkFixture() {
     if (url === issuer + "/register") return json({ ...JSON.parse(String(init?.body)), client_id: "fixture-client" }, 201);
     if (url === issuer + "/token") {
       tokenPosts++; const body = new URLSearchParams(String(init?.body));
-      expect(body.get("resource")).toBe(resource); expect(body.get("code")).toBe("fixture-code");
+      expect(body.get("resource")).toBe(resource);
+      if (body.get("grant_type") === "refresh_token") {
+        expect(body.get("refresh_token")).toBe("fixture-refresh");
+        return json({ access_token: "fixture-access", token_type: "Bearer", refresh_token: "fixture-refresh" });
+      }
+      expect(body.get("code")).toBe("fixture-code");
       expect(body.get("grant_type")).toBe("authorization_code"); expect(body.get("redirect_uri")).toBe(authorization!.searchParams.get("redirect_uri"));
       expect(createHash("sha256").update(body.get("code_verifier")!).digest("base64url")).toBe(authorization!.searchParams.get("code_challenge")!);
-      return json({ access_token: "fixture-access", token_type: "Bearer" });
+      return json({ access_token: "fixture-access", token_type: "Bearer", refresh_token: "fixture-refresh" });
     }
     if (url === resource) {
       if (init?.method === "GET") return new Response(null, { status: 405 });
       if (new Headers(init?.headers).get("Authorization") !== "Bearer fixture-access") return new Response(null, { status: 401, headers: { "WWW-Authenticate": 'Bearer resource_metadata="' + resource + '/metadata", scope="read"' } });
       const body = JSON.parse(String(init?.body));
       if (body.method === "initialize") return json({ jsonrpc: "2.0", id: body.id, result: { protocolVersion: "2025-06-18", capabilities: { tools: {} }, serverInfo: { name: "fixture", version: "1" } } });
+      if (body.method === "tools/call" && toolStatus) {
+        toolCalls++;
+        if (toolCalls === 1) return new Response("private-provider-error", { status: toolStatus, headers: { "WWW-Authenticate": 'Bearer error="insufficient_scope", scope="write"' } });
+        return json({ jsonrpc: "2.0", id: body.id, result: { content: [{ type: "text", text: "mutation repeated" }] } });
+      }
       if (body.method === "tools/list") return json({ jsonrpc: "2.0", id: body.id, result: { tools: [] } });
       return new Response(null, { status: 202 });
     }
     throw new Error("Unexpected fixture route");
   };
-  return { fetchFn, get tokenPosts() { return tokenPosts; }, authorize(url: string) { authorization = new URL(url); return authorization; } };
+  return { fetchFn, get toolCalls() { return toolCalls; }, get tokenPosts() { return tokenPosts; }, authorize(url: string) { authorization = new URL(url); return authorization; } };
 }
 
 test("real MCP SDK completes discovery, PKCE and loopback callback with an injected OAuth service", async () => withHome(async () => {
@@ -214,4 +224,48 @@ test("closing McpHub cancels pending OAuth and releases the callback port", asyn
     expect(hub.serverNames).toEqual([]);
     expect(errors.mock.calls.some(args => String(args[0]).includes("failed to connect"))).toBe(true);
   } finally { await hub.close(); errors.mockRestore(); await new Promise<void>(resolve => { server.close(() => resolve()); server.closeAllConnections(); }); }
+}));
+
+for (const status of [401, 403] as const) test("OAuth tool " + status + " never refreshes or replays a mutation", async () => withHome(async () => {
+  const fixture = sdkFixture(status), client = new Client({ name: "fixture", version: "1" }); let redirect = "";
+  try {
+    await connectWithOAuth(client, "fixture", resource, { port: 0, timeoutMs: 5000, fetch: fixture.fetchFn, openUrl: async url => {
+      const auth = fixture.authorize(url);
+      redirect = auth.searchParams.get("redirect_uri")!;
+      await callbackRequest(redirect, new URLSearchParams({ state: auth.searchParams.get("state")!, code: "fixture-code", iss: issuer }));
+    } });
+    let failure = "";
+    try { await client.callTool({ name: "mutate", arguments: {} }); } catch (error) { if (error instanceof Error) failure = error.message; }
+    expect(fixture.toolCalls).toBe(1); expect(fixture.tokenPosts).toBe(1);
+    expect(failure).toContain("reconnect"); expect(failure).not.toContain("private-provider-error");
+    await client.close();
+    const next = new Client({ name: "fixture", version: "1" });
+    try {
+      await connectWithOAuth(next, "fixture", resource, { port: Number(new URL(redirect).port), timeoutMs: 5000, fetch: fixture.fetchFn, openUrl: () => { throw new Error("unexpected new authorization"); } });
+      expect(fixture.toolCalls).toBe(1); expect(fixture.tokenPosts).toBe(2);
+      await next.callTool({ name: "mutate", arguments: {} }); expect(fixture.toolCalls).toBe(2);
+    } finally { await next.close(); }
+  } finally { await client.close(); }
+}));
+
+test("OAuth SSE authentication failure after connection does not start hidden refresh", async () => withHome(async () => {
+  const fixture = sdkFixture(), client = new Client({ name: "fixture", version: "1" });
+  let release!: () => void, started!: () => void;
+  const gate = new Promise<void>(resolve => { release = resolve; }), requested = new Promise<void>(resolve => { started = resolve; });
+  const fetchFn: FetchLike = async (input, init) => {
+    if (String(input) === resource && init?.method === "GET") {
+      started(); await gate; return new Response("private-stream-error", { status: 401 });
+    }
+    return fixture.fetchFn(input, init);
+  };
+  try {
+    await connectWithOAuth(client, "fixture", resource, { port: 0, timeoutMs: 5000, fetch: fetchFn, openUrl: async url => {
+      const auth = fixture.authorize(url);
+      await callbackRequest(auth.searchParams.get("redirect_uri")!, new URLSearchParams({ state: auth.searchParams.get("state")!, code: "fixture-code", iss: issuer }));
+    } });
+    await requested;
+    const failed = new Promise<Error>(resolve => { client.onerror = resolve; }); release();
+    const error = await failed;
+    expect(error.message).toContain("reconnect"); expect(error.message).not.toContain("private-stream-error"); expect(fixture.tokenPosts).toBe(1);
+  } finally { release(); await client.close(); }
 }));

@@ -96,7 +96,16 @@ export async function connectWithOAuth(client: Client, server: string, url: stri
   options.signal?.addEventListener("abort", stopped, { once: true });
   let transport: StreamableHTTPClientTransport | undefined, connected = false;
   const timer = setTimeout(() => { callback.cancel(new Error("MCP OAuth authorization timed out")); controller.abort(); }, options.timeoutMs ?? 120_000);
-  const fetchFn: FetchLike = (input, init) => (options.fetch ?? fetch)(input, { ...init, redirect: "error", credentials: "omit", signal: AbortSignal.any([controller.signal, ...(init?.signal ? [init.signal] : []), ...(options.signal ? [options.signal] : [])]) });
+  const fetchFn: FetchLike = async (input, init) => {
+    const response = await (options.fetch ?? fetch)(input, { ...init, redirect: "error", credentials: "omit", signal: AbortSignal.any([controller.signal, ...(init?.signal ? [init.signal] : []), ...(options.signal ? [options.signal] : [])]) });
+    // The SDK refreshes and resends the original RPC on 401/403. After initialization that
+    // RPC may already have mutated remote state; require an explicit reconnect instead.
+    if (connected && (response.status === 401 || response.status === 403)) {
+      void response.body?.cancel().catch(() => {});
+      throw new Error("MCP OAuth authorization is required; reconnect explicitly. Request outcome is unknown.");
+    }
+    return response;
+  };
   try {
     if (options.signal?.aborted) throw new Error("MCP OAuth connection canceled");
     await callback.listen(options.port ?? 41789);
