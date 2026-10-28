@@ -21,6 +21,7 @@
 - [Core instructions](../core/AGENTS.md) và [Core testing](../core/docs/process/TESTING.md).
 - [Giao tiếp agent: cách dùng, hợp đồng và giới hạn](../app/docs/agent-network-20261025.md).
 - [Máy tính cloud: worker riêng, Vault và phạm vi kiểm chứng](../app/docs/cloud-browser-20261025.md).
+- [Nghiên cứu Grok Bot: phần đã áp dụng, giới hạn và backlog](grokbot-adoption-2026-10-28.md).
 - [Wiii overlay/base manifest](../migration/wiii-integration.json).
 - [Source provenance manifest](../migration/source-manifest.json).
 

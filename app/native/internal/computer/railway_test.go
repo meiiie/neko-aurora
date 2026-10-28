@@ -1,6 +1,7 @@
 package computer
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"net/http"
@@ -8,6 +9,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"sync"
 	"testing"
@@ -60,13 +62,36 @@ func (f *fakeRailway) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 		c := in.Variables["command"].(string)
 		f.cmds = append(f.cmds, c)
-		c = strings.ReplaceAll(strings.ReplaceAll(c, "/home/bot", dir+"/home"), "/tmp/", dir+"/tmp/")
-		out, err := exec.Command("/bin/sh", "-c", c).Output()
+		c = strings.NewReplacer("/home/bot", filepath.ToSlash(dir)+"/home", "/tmp/", filepath.ToSlash(dir)+"/tmp/").Replace(c)
+		shell := "/bin/sh"
+		if runtime.GOOS == "windows" {
+			shell = filepath.Join(os.Getenv("ProgramFiles"), "Git", "bin", "bash.exe")
+			if configured := os.Getenv("AURORA_TEST_SHELL"); configured != "" {
+				shell = configured
+			}
+			python, err := exec.LookPath("python")
+			if err != nil {
+				f.t.Error("Railway fixture needs Python")
+				http.Error(w, "fixture unavailable", 500)
+				return
+			}
+			c = strings.ReplaceAll(c, "python3 -c ", shq(filepath.ToSlash(python))+" -c ")
+			c = strings.ReplaceAll(strings.ReplaceAll(c, "tar xzf ", "tar --force-local -xzf "), "tar czf ", "tar --force-local -czf ")
+		}
+		command := exec.CommandContext(r.Context(), shell, "-s")
+		command.Stdin = strings.NewReader(c)
+		var stderr bytes.Buffer
+		command.Stderr = &stderr
+		out, err := command.Output()
 		code := 0
 		if ee, ok := err.(*exec.ExitError); ok {
 			code = ee.ExitCode()
+		} else if err != nil {
+			f.t.Error("Railway fixture shell could not start", err)
+			http.Error(w, "fixture unavailable", 500)
+			return
 		}
-		reply(map[string]any{"sandboxExec": map[string]any{"exitCode": code, "stdout": string(out), "stderr": "", "truncated": false, "timedOut": false}})
+		reply(map[string]any{"sandboxExec": map[string]any{"exitCode": code, "stdout": string(out), "stderr": stderr.String(), "truncated": false, "timedOut": false}})
 	case strings.Contains(in.Query, "sandboxDestroy("):
 		delete(f.vms, in.Variables["id"].(string))
 		reply(map[string]any{"sandboxDestroy": map[string]any{"id": in.Variables["id"], "status": "DESTROYED"}})

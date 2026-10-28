@@ -679,11 +679,19 @@ func (s *Service) appendText(id, text string) error {
 	return s.L.AppendText(id, cur.Epoch, s.V.Redact(text))
 }
 
-func (s *Service) update(id string, fn func(*ledger.DirectRun)) {
-	if cur, err := s.L.Get(id); err == nil && cur.Status == "running" {
-		_, _ = s.L.DirectUpdate(id, cur.Epoch, fn)
+func (s *Service) update(id string, fn func(*ledger.DirectRun)) error {
+	cur, err := s.L.Get(id)
+	if err != nil {
+		return err
+	}
+	if cur.Status != "running" {
+		return ledger.ErrConflict
+	}
+	if _, err := s.L.DirectUpdate(id, cur.Epoch, fn); err != nil {
+		return err
 	}
 	s.sync()
+	return nil
 }
 
 // maxToolRounds bounds model-requested lookups per turn; multi-part research

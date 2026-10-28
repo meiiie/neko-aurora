@@ -8,6 +8,8 @@ import (
 	"path/filepath"
 	"testing"
 	"time"
+
+	"nekoaurora.local/native/internal/privatefs"
 )
 
 func write(t *testing.T, p, s string) {
@@ -34,8 +36,8 @@ func TestSnapshotRestoreRotateAndKeyNeverArchived(t *testing.T) {
 			t.Fatal(err)
 		}
 		last = p
-		if fi, _ := os.Stat(p); fi.Mode().Perm() != 0o600 {
-			t.Fatal("archive not private")
+		if err := privatefs.Check(p); err != nil {
+			t.Fatal("archive not private", err)
 		}
 	}
 	if l := List(st); len(l) != 3 || l[0] != last {

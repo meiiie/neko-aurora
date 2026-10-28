@@ -1100,6 +1100,21 @@ func (s *Store) Cancel(id string) (Work, error) {
 	defer s.mu.Unlock()
 	return s.cancelLocked(id)
 }
+
+// CancelWaiting cannot interrupt a turn claimed after the caller read its snapshot.
+func (s *Store) CancelWaiting(id string) (Work, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	w, ok := s.work[id]
+	if !ok {
+		return Work{}, ErrNotFound
+	}
+	if w.Status != "waiting_host" {
+		return Work{}, ErrConflict
+	}
+	return s.cancelLocked(id)
+}
+
 func (s *Store) cancelLocked(id string) (Work, error) {
 	w, ok := s.work[id]
 	if !ok {

@@ -356,5 +356,5 @@ func (s *Service) computerNote(botID string) string {
 		}
 		return dl + ctxNote
 	}
-	return "\nLƯU Ý: trên máy chủ này máy tính của bạn tạm KHÔNG chạy được lệnh (computer_run); vẫn liệt kê, đọc, ghi file được. Nói rõ điều đó và đưa phương án cụ thể làm được ngay."
+	return ctxNote + dl + "\nLƯU Ý: trên máy chủ này máy tính của bạn tạm KHÔNG chạy được lệnh (computer_run); vẫn liệt kê, đọc, ghi file được. Chỉ chuẩn bị file, không tuyên bố đã chạy hay xác minh đầu ra. Nói rõ điều đó và đưa phương án cụ thể làm được ngay."
 }

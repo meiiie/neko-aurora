@@ -91,8 +91,10 @@ type DirectSource struct {
 
 var directToolStatus = map[string]bool{"running": true, "done": true, "failed": true}
 
+const MaxDirectTools = 10
+
 func validDirectTools(d *DirectRun) bool {
-	if len(d.Tools) > 6 || len(d.Sources) > 16 {
+	if len(d.Tools) > MaxDirectTools || len(d.Sources) > 16 {
 		return false
 	}
 	for _, t := range d.Tools {

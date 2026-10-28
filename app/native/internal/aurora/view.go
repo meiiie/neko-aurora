@@ -74,6 +74,8 @@ type Plan struct {
 type Approval = ledger.DirectApproval
 
 type Message struct {
+	AnswerFor     string                `json:"answerFor,omitempty"`
+	FormFor       string                `json:"formFor,omitempty"`
 	ID            string                `json:"id"`
 	TaskID        string                `json:"taskId"`
 	AgentID       string                `json:"agentId"`
@@ -324,7 +326,7 @@ func (v *view) messages(botID string, limit int) []*Message {
 			var ins []*Message
 			for _, q := range w.Direct.Steered {
 				if qw, ok := text[q]; ok {
-					ins = append(ins, &Message{ID: q + ":u", TaskID: q, AgentID: qw.BotID, Role: "user", Text: qw.Text, Created: ts(qw.CreatedAt)})
+					ins = append(ins, &Message{ID: q + ":u", TaskID: q, AgentID: qw.BotID, Role: "user", Text: qw.Text, Created: ts(qw.CreatedAt), AnswerFor: questionAnswered(qw.ClientNonce), FormFor: formAnswered(qw.ClientNonce)})
 				}
 			}
 			pos := len(ms)
@@ -358,7 +360,7 @@ func workMessages(w ledger.Work, botRunning bool) []*Message {
 		kind = "handoff"
 	}
 	if kind == "" {
-		out = append(out, &Message{ID: w.RequestID + ":u", TaskID: w.RequestID, AgentID: w.BotID, Role: "user", Text: stripRef(w.Text), Ref: refName(w.Text), Queued: w.Status == "waiting_host" && botRunning, Created: at})
+		out = append(out, &Message{ID: w.RequestID + ":u", TaskID: w.RequestID, AgentID: w.BotID, Role: "user", Text: stripRef(w.Text), Ref: refName(w.Text), Queued: w.Status == "waiting_host" && botRunning, Created: at, AnswerFor: questionAnswered(w.ClientNonce), FormFor: formAnswered(w.ClientNonce)})
 	}
 	if d == nil {
 		if w.Status == "cancelled" {

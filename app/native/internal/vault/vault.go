@@ -19,6 +19,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"nekoaurora.local/native/internal/privatefs"
 )
 
 var (
@@ -89,18 +91,23 @@ func open(dir string, fixed []byte) (*Vault, error) {
 	if fixed != nil {
 		key = fixed
 	} else {
-		key, err = os.ReadFile(kp)
+		if err = privatefs.Protect(kp); err == nil {
+			key, err = os.ReadFile(kp)
+		}
 	}
 	if fixed == nil && os.IsNotExist(err) {
 		key = make([]byte, 32)
 		if _, err = io.ReadFull(rand.Reader, key); err != nil {
 			return nil, err
 		}
-		f, err := os.OpenFile(kp, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
+		f, err := privatefs.CreateNew(kp)
 		if err != nil {
 			return nil, err
 		}
 		_, err = f.Write(key)
+		if err == nil {
+			err = f.Sync()
+		}
 		if cerr := f.Close(); err == nil {
 			err = cerr
 		}
@@ -113,12 +120,12 @@ func open(dir string, fixed []byte) (*Vault, error) {
 	if len(key) != 32 {
 		return nil, ErrCorrupt
 	}
-	if fixed == nil {
-		_ = os.Chmod(kp, 0o600)
-	}
 	blk, _ := aes.NewCipher(key)
 	aead, _ := cipher.NewGCM(blk)
 	v := &Vault{path: filepath.Join(dir, "vault.json"), aead: aead, items: map[string]entry{}, cache: map[string]string{}}
+	if err = privatefs.Protect(v.path); err != nil && !os.IsNotExist(err) {
+		return nil, err
+	}
 	defer register(v)
 	b, err := os.ReadFile(v.path)
 	if err == nil {
@@ -146,11 +153,7 @@ func (v *Vault) save() error {
 	}
 	sort.Slice(list, func(i, j int) bool { return list[i].Name < list[j].Name })
 	b, _ := json.MarshalIndent(list, "", " ")
-	tmp := v.path + ".tmp"
-	if err := os.WriteFile(tmp, b, 0o600); err != nil {
-		return err
-	}
-	return os.Rename(tmp, v.path)
+	return privatefs.WriteFile(v.path, b)
 }
 
 func (v *Vault) Set(m Meta, value string) (Meta, error) {

@@ -7,6 +7,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"nekoaurora.local/native/internal/privatefs"
 )
 
 const pw = "abcd efgh ijkl mnop"
@@ -21,9 +23,8 @@ func TestVaultSealsAndPersists(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, f := range []string{"vault.key", "vault.json"} {
-		st, err := os.Stat(filepath.Join(dir, f))
-		if err != nil || st.Mode().Perm() != 0o600 {
-			t.Fatalf("%s mode %v %v", f, st.Mode(), err)
+		if err := privatefs.Check(filepath.Join(dir, f)); err != nil {
+			t.Fatalf("%s is not owner-only: %v", f, err)
 		}
 	}
 	filepath.Walk(dir, func(p string, _ os.FileInfo, _ error) error {

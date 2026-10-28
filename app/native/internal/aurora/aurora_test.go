@@ -24,6 +24,20 @@ import (
 )
 
 func TestMain(m *testing.M) {
+	if len(os.Args) > 1 && strings.HasPrefix(os.Args[1], "aurora-core-fixture-") {
+		if len(os.Args) != 7 || os.Args[2] != "--profile" || os.Args[4] != "--no-tools" || os.Args[5] != "run" {
+			os.Exit(2)
+		}
+		switch os.Args[1] {
+		case "aurora-core-fixture-usage":
+			fmt.Print("Xong.\nAPPROVAL: {\"title\":\"t\",\"kind\":\"send\",\"body\":\"b\"}\n[session cumulative: 9 tokens]\nmore\n")
+		case "aurora-core-fixture-fallback":
+			fmt.Print("Từ Core.")
+		default:
+			os.Exit(2)
+		}
+		os.Exit(0)
+	}
 	os.Setenv("AURORA_BRIEF_LOOP", "off")
 	os.Exit(m.Run())
 }
@@ -355,9 +369,11 @@ func TestAlias(t *testing.T) {
 
 func TestCoreStreamStripsUsage(t *testing.T) {
 	dir := t.TempDir()
-	script := filepath.Join(dir, "bun")
-	os.WriteFile(script, []byte("#!/bin/sh\nprintf 'Xong.\\nAPPROVAL: {\"title\":\"t\",\"kind\":\"send\",\"body\":\"b\"}\\n[session cumulative: 9 tokens]\\nmore\\n'\n"), 0o755)
-	c := &Core{Bun: script, Entry: "x", Home: dir, Model: "glm-5.3", Profile: "zai", key: "k"}
+	executable, err := os.Executable()
+	if err != nil {
+		t.Fatal(err)
+	}
+	c := &Core{Bun: executable, Entry: "aurora-core-fixture-usage", Home: dir, Model: "glm-5.3", Profile: "zai", key: "k"}
 	var streamed strings.Builder
 	out, err := c.Stream(context.Background(), []ChatMsg{{"user", "hi"}}, func(d string) { streamed.WriteString(d) })
 	if err != nil || strings.Contains(out, "session cumulative") || strings.Contains(streamed.String(), "session") {

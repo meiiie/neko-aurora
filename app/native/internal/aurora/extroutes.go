@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"regexp"
 	"strings"
@@ -191,9 +192,46 @@ func (s *Service) extRoutes() {
 					e = clean(err.Error(), 120)
 				}
 			}
-			srv = append(srv, map[string]any{"name": x.Name, "url": x.URL, "header": x.Header, "secret": x.Secret, "tools": names, "error": e})
+			state, retryAt := "ready", ""
+			if err != nil {
+				state = "unavailable"
+				var failure *mcpFailure
+				if errors.As(err, &failure) {
+					state = failure.State
+					if !failure.RetryAt.IsZero() {
+						retryAt = failure.RetryAt.UTC().Format(time.RFC3339)
+					}
+				}
+			}
+			srv = append(srv, map[string]any{"name": x.Name, "url": x.URL, "header": x.Header, "secret": x.Secret, "tools": names, "error": s.redact(e), "state": state, "retryAt": retryAt})
 		}
 		writeJSON(w, 200, map[string]any{"model": be.Model, "thinking": be.Thinking, "folder": be.Folder, "skills": be.Skills, "mcp": srv, "off": be.Off, "menu": s.modelMenu(), "allSkills": s.ext.skills()})
+	})
+	m.HandleFunc("POST /app/api/agents/{id}/mcp/reconnect", func(w http.ResponseWriter, r *http.Request) {
+		var in struct {
+			Name string `json:"name"`
+		}
+		if decodeStrict(r, &in) != nil {
+			fail(w, ErrInvalid)
+			return
+		}
+		id := r.PathValue("id")
+		srv, ok := s.mcpServerOf(id, in.Name)
+		if !ok {
+			fail(w, ErrNotFound)
+			return
+		}
+		cache := s.mcpState()
+		cache.mu.Lock()
+		failure := cache.failures[mcpKey(id, srv)]
+		limited := failure != nil && failure.State == "rate_limited" && time.Now().Before(failure.RetryAt)
+		cache.mu.Unlock()
+		if limited {
+			writeJSON(w, 429, map[string]string{"error": "rate_limited", "retryAt": failure.RetryAt.UTC().Format(time.RFC3339)})
+			return
+		}
+		s.mcpDrop(id, srv)
+		writeJSON(w, 200, map[string]bool{"ok": true})
 	})
 	m.HandleFunc("POST /app/api/agents/{id}/ext", func(w http.ResponseWriter, r *http.Request) {
 		id := r.PathValue("id")
@@ -254,7 +292,7 @@ func (s *Service) extRoutes() {
 				return
 			}
 			for _, x := range be.MCP {
-				mcpDrop(id, x)
+				s.mcpDrop(id, x)
 			}
 			be.MCP = nil
 			for _, x := range *in.MCP {
@@ -332,8 +370,17 @@ func (s *Service) extRoutes() {
 			fail(w, ErrNotFound)
 			return
 		}
-		f.Done = true
-		s.ext.setForm(r.PathValue("task"), f)
+		accepted := false
+		for _, work := range s.L.Snapshot().Work {
+			if formAnswered(work.ClientNonce) == r.PathValue("task") {
+				accepted = true
+				break
+			}
+		}
+		if !accepted {
+			fail(w, ErrConflict)
+			return
+		}
 		writeJSON(w, 200, map[string]bool{"ok": true})
 	})
 	m.HandleFunc("POST /app/api/agents/{id}/memory/ask", func(w http.ResponseWriter, r *http.Request) {
@@ -349,6 +396,9 @@ func (s *Service) extRoutes() {
 		items := append(s.memList(id, ""), s.Mem.List(teamKey)...)
 		if len(items) == 0 {
 			writeJSON(w, 200, map[string]string{"answer": "Bot chưa nhớ điều gì."})
+			return
+		}
+		if !s.admitUtility(w) {
 			return
 		}
 		ctx, cancel := context.WithTimeout(r.Context(), 90*time.Second)
@@ -389,6 +439,9 @@ func (s *Service) extRoutes() {
 			writeJSON(w, 200, map[string]any{"proposal": []string{}})
 			return
 		}
+		if !s.admitUtility(w) {
+			return
+		}
 		ctx, cancel := context.WithTimeout(r.Context(), 90*time.Second)
 		defer cancel()
 		out, err := s.stream(ctx, id, "memory", []ChatMsg{{"system", memSumPrompt}, {"user", memText(items)}}, func(string) {})
@@ -398,6 +451,14 @@ func (s *Service) extRoutes() {
 		}
 		writeJSON(w, 200, map[string]any{"proposal": parseList(out), "before": len(items)})
 	})
+}
+
+func (s *Service) admitUtility(w http.ResponseWriter) bool {
+	if s.utilityAdmission != nil && !s.utilityAdmission() {
+		writeJSON(w, http.StatusTooManyRequests, map[string]string{"error": "quota_exceeded"})
+		return false
+	}
+	return true
 }
 
 func (s *Service) modelProviderOK(p string) string {

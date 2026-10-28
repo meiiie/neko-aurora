@@ -248,6 +248,12 @@ func (s *Service) decorate(ms []*Message) []*Message {
 		return ms
 	}
 	seen := map[string]bool{}
+	forms := map[string]bool{}
+	for _, w := range s.L.Snapshot().Work {
+		if task := formAnswered(w.ClientNonce); task != "" {
+			forms[task] = true
+		}
+	}
 	for i := len(ms) - 1; i >= 0; i-- {
 		m := ms[i]
 		if m.Role != "agent" || m.TaskID == "" || seen[m.TaskID] {
@@ -255,6 +261,9 @@ func (s *Service) decorate(ms []*Message) []*Message {
 		}
 		seen[m.TaskID] = true
 		th, f := s.ext.side(m.TaskID)
+		if f != nil && forms[m.TaskID] {
+			f.Done = true
+		}
 		m.Thinking, m.Form = th, f
 	}
 	return ms

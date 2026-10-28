@@ -30,7 +30,7 @@ const API="/app/api";
 // iOS shell (Capacitor) native plugins, null in the browser
 const CAP=window.Capacitor&&window.Capacitor.isNativePlatform&&window.Capacitor.isNativePlatform()?window.Capacitor.Plugins:null;
 
-async function api(path,body,retry){const get=body===undefined;let r;try{r=await fetch(API+path,{method:get?"GET":"POST",credentials:"same-origin",cache:"no-store",headers:get?{}:{"Content-Type":"application/json"},body:get?undefined:JSON.stringify(body),signal:get&&AbortSignal.timeout?AbortSignal.timeout(15000):undefined});
+async function api(path,body,retry){const get=body===undefined;let r;try{r=await fetch(API+path,{method:get?"GET":"POST",credentials:"same-origin",cache:"no-store",headers:get?{}:{"Content-Type":"application/json"},body:get?undefined:JSON.stringify(body),signal:(get||path.endsWith("/messages"))&&AbortSignal.timeout?AbortSignal.timeout(get?15000:30000):undefined});
  // a GET stuck on a container that is shutting down (deploy) or a 503 while the workspace opens: retry once on a fresh connection
  if(get&&!retry&&r.status===503){await new Promise(f=>setTimeout(f,1500));return api(path,body,true)}
  if(!r.ok){const e=new Error(String(r.status));e.status=r.status;e.body=await r.json().catch(()=>null);throw e}return get?await r.json():r.json()}catch(e){if(get&&!retry&&!e.status){await new Promise(f=>setTimeout(f,800));return api(path,body,true)}throw e}}
@@ -44,7 +44,7 @@ const el=(t,c,x)=>{const e=document.createElement(t);if(c)e.className=c;if(x!=nu
 let toastT;const toast=m=>{const t=$("#toast");t.textContent=m;t.classList.add("show");clearTimeout(toastT);toastT=setTimeout(()=>t.classList.remove("show"),2200)};
 const upsert=a=>{const i=S.agents.findIndex(x=>x.id===a.id);if(i<0)S.agents.push(a);else S.agents[i]=a};
 let listQueued=false;const renderListSoon=()=>{if(listQueued)return;listQueued=true;requestAnimationFrame(()=>{listQueued=false;renderList()})};
-async function loadState(){const st=await api("/state");S.agents=st.agents;S.pending=st.pending;S.brief=st.brief;S.ai=st.ai;S.vapid=st.vapidPublicKey;S.outbound=st.outbound||{};S.secrets=st.secrets||[];S.pushSubs=st.pushSubscriptions|0;seedSeen();renderList();if(cur){const a=byId(cur.id);if(a){cur=a;await loadMsgs(a.id)}}}
+async function loadState(){const st=await api("/state");if(S.workspaceId&&S.workspaceId!==st.workspaceId){S.msgs={};S.drafts={};closeThread();if(sheetOpen)closeSheet(true)}S.workspaceId=st.workspaceId;bindOutbox();S.agents=st.agents;S.pending=st.pending;S.brief=st.brief;S.ai=st.ai;S.vapid=st.vapidPublicKey;S.outbound=st.outbound||{};S.secrets=st.secrets||[];S.pushSubs=st.pushSubscriptions|0;seedSeen();renderList();if(cur){const a=byId(cur.id);if(a){cur=a;await loadMsgs(a.id)}}}
 async function loadMsgs(id){S.msgs[id]=await api(`/agents/${id}/messages`);if(cur&&cur.id===id)renderThread()}
 // ---------- unread (device-local: last time each conversation was seen) ----------
 const store={get(k,d){try{const v=localStorage.getItem(k);return v==null?d:JSON.parse(v)}catch{return d}},set(k,v){try{localStorage.setItem(k,JSON.stringify(v))}catch{}}};
@@ -189,7 +189,7 @@ document.addEventListener("aurora-network-open-task",async e=>{const {botId,conv
 function closeThread(fromPop){if(!cur)return;if(profId)closeProfile(true);closeFind();markSeen(cur.id);cur=null;stopVoice();$("#thread").classList.add("off");$("#list").classList.remove("under");$("#thread").style.transform="";$("#list").style.transform="";renderList();if(!fromPop&&history.state&&history.state.t)history.replaceState({spent:1},"",location.pathname)}
 const deciding=new Set();
 const ICON={pending:"○",running:"◐",done:"✓",waiting:"⏸",failed:"✕",cancelled:"–"};
-const editing=new Set(),usedChoice=new Set();
+const editing=new Set();
 function planCard(m){const c=el("div","plan");const st=m.plan.steps,done=st.filter(x=>x.status==="done").length;
  const h=el("div","plan-h");h.append(el("b",0,"Kế hoạch"),el("span",0,`${done}/${st.length}`));c.append(h);
  const bar=el("div","bar");const f=el("i");f.style.width=(100*done/st.length)+"%";bar.append(f);c.append(bar);
@@ -231,8 +231,9 @@ function renderThread(){const a=cur;if(!a)return;$("#threadState").textContent=s
  L.forEach((m,idx)=>{
   // keyed reuse: a message whose data and context did not change keeps its
   // DOM (no markdown re-parse, open folds and inputs stay as they are)
-  const later=m.choices&&m.choices.length?L.slice(idx+1).some(x=>x.role==="user"):false;
-  const sig=JSON.stringify(m)+"|"+(idx===L.length-1&&!m.text?a.status:"")+"|"+later+"|"+showThink+"|"+usedChoice.has(m.id)+"|"+last.v+"|"+prevT;
+  const later=m.choices&&m.choices.length?L.some(x=>x.answerFor===m.taskId)||outbox.some(x=>x.answerFor===m.taskId):false;
+  const formState=m.form?JSON.stringify([all.some(x=>x.formFor===m.taskId),outbox.find(x=>x.formFor===m.taskId&&x.agentId===a.id)||null]):"";
+  const sig=JSON.stringify(m)+"|"+(idx===L.length-1&&!m.text?a.status:"")+"|"+later+"|"+showThink+"|"+formState+"|"+last.v+"|"+prevT;
   const hit=nodeCache.get(m.id);if(hit&&hit.sig===sig){hit.nodes.forEach(n=>frag.append(n));last.v=hit.lastV;prevT=hit.prevT;return}
   const n0=frag.childNodes.length,isNew=!first&&!shownIds.has(m.id)&&!(m.role==="user"&&sentRecently(m.text));if(!first&&!shownIds.has(m.id))seenAt.set(m.id,Date.now());shownIds.add(m.id);if(m.role!=="agent")last.v=null;const t=T(m.t);if(m.role==="user"&&t>0&&(!prevT||t-prevT>15*60e3))frag.append(el("div","daystamp",dayStamp(t)));if(t>0)prevT=t;
   const cp=m.role==="agent"&&AURORA_UX.isCheckpoint(m.text),body=cp?m.text.trim().slice(0,-AURORA_UX.CHECKPOINT.length).trim():m.text;
@@ -242,7 +243,8 @@ function renderThread(){const a=cur;if(!a)return;$("#threadState").textContent=s
   if(m.role==="user"&&m.ref)frag.append(el("div","note-line ref-line","Kèm ngữ cảnh: chat “"+m.ref+"”"));
   if(cp)frag.append(el("div","note-line","↻ Đang làm tiếp ở lượt sau"));
   if(m.plan)frag.append(planCard(m));
-  if(m.choices&&m.choices.length){const wrap=el("div","choices");const later=L.slice(idx+1).some(x=>x.role==="user");m.choices.forEach(ch=>{const b=el("button","choice",ch);b.disabled=later||usedChoice.has(m.id);b.onclick=async()=>{if(usedChoice.has(m.id))return;usedChoice.add(m.id);renderThread();if(!(await sendMsg(ch)))usedChoice.delete(m.id)};wrap.append(b)});frag.append(wrap)}
+  if(m.choices&&m.choices.length){const wrap=el("div","choices");const answered=L.some(x=>x.answerFor===m.taskId)||outbox.some(x=>x.answerFor===m.taskId);const choose=text=>sendMsg(text,{answerFor:m.taskId});m.choices.forEach(ch=>{const b=el("button","choice",ch);b.dataset.noi18n="";b.disabled=answered;b.onclick=()=>choose(ch);wrap.append(b)});
+   if(!answered){const f=el("form","choice-custom"),input=el("input"),go=el("button","pill soft","Trả lời");input.placeholder="Câu trả lời khác";input.setAttribute("aria-label","Câu trả lời khác");input.maxLength=10000;go.type="submit";f.append(input,go);f.onsubmit=e=>{e.preventDefault();if(choose(input.value))input.value=""};wrap.append(f)}frag.append(wrap)}
   if(m.form)frag.append(formCard(m));
   if(m.tools&&m.tools.length&&(m.text||m.approval)&&!(a.status==="working"&&idx===L.length-1&&!m.text))frag.append(sourceList(m));
   if(m.approval)frag.append(approvalCard(m));if(m.secret)frag.append(secretCard(m));mark(n0,isNew);nodeCache.set(m.id,{sig,nodes:[...frag.childNodes].slice(n0),lastV:last.v,prevT})});
@@ -250,7 +252,7 @@ function renderThread(){const a=cur;if(!a)return;$("#threadState").textContent=s
  keepForm.forEach(([id,n,v])=>{const i=box.querySelector(`.form-card[data-id="${id}"] [name="${n}"]`);if(i&&v)i.value=v});
  keepSec.forEach(([id,n,v])=>{const i=box.querySelector(`.secret[data-id="${id}"] input[data-secret="${n}"]`);if(i&&!i.value)i.value=v});
  keepEdit.forEach(([id,v,sj])=>{const c=box.querySelector(`.approval[data-id="${id}"]`);if(c){const t=c.querySelector(".ap-body");if(t)t.value=v;const s2=c.querySelector(".ap-subject");if(s2&&sj!=null)s2.value=sj}});
- outbox.filter(o=>o.agentId===a.id).forEach(o=>{last.v=null;const b=el("div","msg mine pending"+(o.shown?"":" enter"),o.text);o.shown=1;if(o.wait)b.append(el("span","chip","đang gửi…"));frag.append(b)});
+ outbox.filter(o=>o.agentId===a.id).forEach(o=>{last.v=null;frag.append(pendingCard(o))});
  Object.entries(S.drafts).forEach(([id,d])=>{if(d.agentId===a.id&&shown(d)){speaker(frag,{role:"agent",from:d.from},last);const b=el("div","msg bot draft"+(shownIds.has(id)?"":" enter"));shownIds.add(id);b.id="d_"+id;frag.append(b);if(reduceMotion())d.sl=1e9;drawDraft(id,b);requestAnimationFrame(()=>paintDraft(id))}});
  // an answer just landed (first seen < 2.5 s ago, nothing running): no status line while the bot state catches up
  const lm=L.at(-1),age=lm&&seenAt.has(lm.id)?Date.now()-seenAt.get(lm.id):1e9;
@@ -326,23 +328,31 @@ let stopping=false;async function stopAgent(){if(!cur||stopping)return;stopping=
 // at once, and is delivered in order; retries (offline, reconnect, 429/5xx)
 // reuse the nonce so the server stores it exactly once. The running bot folds
 // new messages into its current turn (server inbox), so nothing waits.
-const outbox=[];let pumping=false;const sleep=ms=>new Promise(r=>setTimeout(r,ms));
+const outbox=[];let pumping=false,outboxStore=null;const sleep=ms=>new Promise(r=>setTimeout(r,ms));
+try{outboxStore=window.AURORA_OUTBOX.create(localStorage)}catch{}
+function bindOutbox(){outbox.length=0;try{outbox.push(...outboxStore.list(S.workspaceId))}catch{toast("Chưa đọc được tin chưa gửi trên thiết bị này")}pump()}
 const MAX_MSG=10000;
-function sendMsg(text){const a=cur;text=text.trim();if(!a||!text)return false;
+function sendMsg(text,options={}){const a=cur;text=text.trim();if(!a||!text)return false;
  if([...text].length>MAX_MSG){toast(`Tin quá dài (tối đa ${MAX_MSG.toLocaleString("vi-VN")} ký tự). Chia nhỏ hoặc gửi dạng file nhé.`);return false}
- const ref=pendingRef&&pendingRef.for===a.id?pendingRef.id:undefined;setRef(null);
- sent.set(text,Date.now());outbox.push({agentId:a.id,text,ref,n:"c"+Date.now().toString(36)+Math.random().toString(36).slice(2,10),t:Date.now()});buzz("tap");renderThread();pump();return true}
-async function pump(){if(pumping)return;pumping=true;try{while(outbox.length){const it=outbox[0];
-  try{const m=await api(`/agents/${it.agentId}/messages`,{text:it.text,clientNonce:it.n,ref:it.ref});outbox.shift();
+ const ref=!options.answerFor&&!options.formFor&&pendingRef&&pendingRef.for===a.id?pendingRef.id:undefined;
+ const it={agentId:a.id,text,ref,workspaceId:S.workspaceId,answerFor:options.answerFor,formFor:options.formFor,formValues:options.formValues,n:options.formFor?"form-"+options.formFor:options.answerFor?"choice-"+options.answerFor:window.AURORA_OUTBOX.nonce(),t:Date.now()};
+ if(outbox.some(x=>x.n===it.n))return false;
+ try{outboxStore.put(it)}catch{toast("Chưa lưu được tin trên thiết bị. Nội dung vẫn còn; kiểm tra dung lượng lưu trữ rồi thử lại.");return false}
+ setRef(null);sent.set(text,Date.now());outbox.push(it);buzz("tap");renderThread();pump();return true}
+function dropOutbox(it){outboxStore.remove(it.workspaceId,it.n);const i=outbox.findIndex(x=>x.n===it.n&&x.workspaceId===it.workspaceId);if(i>=0)outbox.splice(i,1)}
+function pendingCard(it){const b=el("div","msg mine pending"+(it.shown?"":" enter"),it.text);it.shown=1;
+ if(it.error){const note=el("p","caption",it.error);note.setAttribute("role","status");b.append(note);const copy=el("button","pill soft","Sao chép nội dung");copy.onclick=async()=>{try{await navigator.clipboard.writeText(it.text);toast("Đã sao chép")}catch{toast("Chưa sao chép được")}};const remove=el("button","pill soft","Bỏ khỏi hàng đợi");remove.onclick=()=>{try{dropOutbox(it);renderThread()}catch{toast("Chưa xóa được tin trên thiết bị")}};b.append(copy,remove)}else b.append(el("span","chip",it.wait?"đang chờ gửi…":"đang gửi…"));return b}
+async function pump(){if(pumping||!S.workspaceId)return;pumping=true;try{for(;;){const it=outbox.find(x=>!x.error);if(!it)break;
+  if(Date.now()-it.t>window.AURORA_OUTBOX.MAX_AGE){it.error="Tin đã cũ. Sao chép để xem lại trước khi gửi mới.";try{outboxStore.put(it)}catch{};continue}
+  try{const m=await api(`/agents/${it.agentId}/messages`,{text:it.text,clientNonce:it.n,ref:it.ref,workspaceId:it.workspaceId,answerFor:it.answerFor,formFor:it.formFor});dropOutbox(it);
+   if(S.workspaceId!==it.workspaceId)continue;
    if(m&&m.id){const L=S.msgs[it.agentId]||(S.msgs[it.agentId]=[]);if(!L.some(x=>x.id===m.id))L.push(m)}if(cur&&cur.id===it.agentId)renderThread()}
-  catch(e){const quota=e.status===429&&e.body&&e.body.error==="quota_exceeded";
-   if(quota||e.status&&e.status>=400&&e.status<500&&e.status!==429){
-    // final refusal: never retry, and give the text back so nothing is lost
-    const drop=quota?outbox.filter(x=>x.agentId===it.agentId):[outbox[0]];for(const x of drop)outbox.splice(outbox.indexOf(x),1);
-    const inp=$("#input");if(cur&&cur.id===it.agentId&&!inp.value.trim()){inp.value=drop.map(x=>x.text).join("\n");inp.dispatchEvent(new Event("input"))}
-    toast(quota?`Hết lượt hôm nay (${e.body.daily} tin/ngày). Mai dùng tiếp nhé.`:e.status===413?"Tin quá dài, chia nhỏ giúp mình nhé":"Không gửi được, thử lại");if(cur&&cur.id===it.agentId)renderThread();continue}
+  catch(e){if(S.workspaceId!==it.workspaceId)continue;
+   const quota=e.status===429&&e.body?.error==="quota_exceeded";
+   if(quota||e.status>=400&&e.status<500&&e.status!==429){it.error=quota?"Hết lượt hôm nay. Nội dung được giữ lại để bạn gửi sau.":e.status===401?"Phiên đăng nhập đã hết. Đăng nhập lại rồi gửi nội dung này.":e.status===409?"Máy chủ chưa xác nhận lần gửi này. Kiểm tra lịch sử chat trước khi gửi lại.":"Tin chưa được nhận. Sao chép nội dung để chỉnh và gửi lại.";try{outboxStore.put(it)}catch{toast("Chưa lưu được trạng thái tin chưa gửi")};if(cur&&cur.id===it.agentId)renderThread();continue}
    it.wait=true;if(cur&&cur.id===it.agentId)renderThread();await sleep(e.status===429?4000:!navigator.onLine?1500:2000)}}}finally{pumping=false}}
 addEventListener("online",pump);
+addEventListener("storage",e=>{if(e.key?.startsWith("aurora.outbox.v1.")){bindOutbox();if(cur)renderThread()}});
 // edge-swipe back (iOS style), anywhere on screen while a thread is open
 (()=>{const th=$("#thread"),ls=$("#list"),root=$("#app");let x0=null,y0,dx=0,on=false;
  root.addEventListener("touchstart",e=>{const t=e.touches[0];if(!cur||sheetOpen||profId||t.clientX>28){x0=null;return}x0=t.clientX;y0=t.clientY;dx=0;on=false},{passive:true});
@@ -685,18 +695,29 @@ $("#pmRef").onclick=()=>{closeMenu();if(!cur)return;const B=$("#refBody");B.inne
 $("#closeRef").onclick=()=>closeSheet(true);
 // ---------- schedules on the profile ----------
 const RPT={daily:"Mỗi ngày",weekdays:"Thứ 2–6",once:"Một lần"};
-function schedCard(id,B){api("/schedules?bot="+encodeURIComponent(id)).then(r=>{const L=r.schedules||[];const old=B.querySelector("#schedBox");if(old)old.remove();if(!L.length&&!old)return;
- const w=card("Lịch hẹn",...(L.length?L.map(x=>cell("clock",x.at+" · "+(RPT[x.repeat]||x.repeat)+(x.date?" "+x.date.split("-").reverse().join("/"):""),{sub:x.text,value:"Xoá",onClick:()=>api(`/schedules/${x.id}/delete`,{}).then(()=>{toast("Đã xoá lịch");schedCard(id,B)}).catch(()=>toast("Không xoá được"))})):[cell("clock","Chưa có lịch hẹn",{static:1})]));w.id="schedBox";const pc=$("#pcBox");pc?B.insertBefore(w,pc):B.append(w)}).catch(()=>{})}
+async function schedCard(id,B){
+ try{const r=await api("/schedules?bot="+encodeURIComponent(id));if(profId!==id)return;
+  const old=B.querySelector("#schedBox"),L=r.schedules||[];if(!L.length&&!old)return;
+  const w=card("Lịch hẹn");w.id="schedBox";
+  if(!L.length)w.append(cell("clock","Chưa có lịch hẹn",{static:1}));
+  for(const x of L){const row=el("div","schedule-row");row.append(cell("clock",x.at+" · "+(RPT[x.repeat]||x.repeat)+(x.date?" "+x.date.split("-").reverse().join("/"):"")+(x.paused?" · Đã tạm dừng":""),{sub:x.text,static:1}));
+   const controls=el("div","schedule-controls"),toggle=el("button","pill soft",x.paused?"Tiếp tục":"Tạm dừng"),remove=el("button","pill soft","Xóa lịch"),status=el("p","schedule-error");status.setAttribute("role","status");
+   const change=async action=>{toggle.disabled=remove.disabled=true;try{await api(`/schedules/${x.id}/${action}`,{revision:x.revision,...(action==="state"?{paused:!x.paused}:{})});await schedCard(id,B)}catch(e){if(e.status===409){toast("Lịch đã thay đổi. Đã tải lại phiên bản mới.");await schedCard(id,B)}else{status.textContent="Chưa lưu được thay đổi. Hãy thử lại.";toggle.disabled=remove.disabled=false}}};
+   toggle.type=remove.type="button";toggle.onclick=()=>change("state");remove.onclick=()=>change("delete");controls.append(toggle,remove);row.append(controls,status);w.append(row)}
+  w.append(el("p","caption","Tạm dừng ngăn lượt mới và hủy lượt còn trong hàng đợi. Lượt đang chạy tiếp tục đến khi bạn dừng trong chat."));
+  if(old)old.replaceWith(w);else{const pc=B.querySelector("#pcBox");pc?B.insertBefore(w,pc):B.append(w)}
+ }catch{if(profId===id)toast("Chưa tải được lịch hẹn")}
+}
 
 // ---------- extras: model menu, providers, thinking, skills, MCP, folder, forms, images (DS Bot ideas, Apache-2.0 credit) ----------
 let showThink=localStorage.getItem("aurora.think")!=="0";
 function thinkCard(m){const d=el("details","think");d.append(el("summary",0,"Suy nghĩ của bot"));const p=el("pre",0,m.thinking.slice(0,6000));d.append(p);return d}
-function formCard(m){const f=m.form;const w=el("form","card form-card");w.dataset.id=m.taskId;w.append(el("h4",0,f.title));const ins=[];
+function formCard(m){const f=m.form,L=S.msgs[m.agentId]||[],pending=outbox.find(x=>x.formFor===m.taskId&&x.agentId===m.agentId),done=f.done||L.some(x=>x.formFor===m.taskId),locked=!!(done||pending);const w=el("form","card form-card");w.dataset.id=m.taskId;w.append(el("h4",0,f.title));const ins=[];
  f.fields.forEach((x,i)=>{const l=el("label","fm-row");l.append(el("span",0,x.label+(x.required?" *":"")));let inp;
   if(x.type==="select"){inp=el("select");(x.options||[]).forEach(o=>{const op=el("option",0,o);op.value=o;inp.append(op)})}else if(x.type==="textarea"){inp=el("textarea");inp.rows=3}else{inp=el("input");inp.type=x.type==="number"?"number":x.type==="date"?"date":"text"}
-  inp.name="f"+i;if(x.required)inp.required=true;if(f.done)inp.disabled=true;l.append(inp);ins.push([x,inp]);w.append(l)});
- const go=el("button","pill",f.done?"Đã gửi":"Gửi");go.type="submit";go.disabled=!!f.done;w.append(go);
- w.onsubmit=async e=>{e.preventDefault();const txt="📋 "+f.title+"\n"+ins.map(([x,i])=>"- "+x.label+": "+(i.value||"(bỏ trống)")).join("\n");go.disabled=true;if(await sendMsg(txt)){api(`/forms/${m.taskId}/done`,{}).catch(()=>{});f.done=true}else go.disabled=false};return w}
+  inp.name="f"+i;if(x.required)inp.required=true;inp.disabled=locked;if(pending?.formValues?.[i]!=null)inp.value=pending.formValues[i];l.append(inp);ins.push([x,inp]);w.append(l)});
+ const go=el("button","pill",done?"Đã gửi":pending?(pending.error?"Chưa được nhận":"Đang chờ xác nhận…"):"Gửi");go.type="submit";go.disabled=locked;w.append(go);
+ w.onsubmit=e=>{e.preventDefault();if(locked)return;const txt="📋 "+f.title+"\n"+ins.map(([x,i])=>"- "+x.label+": "+(i.value||"(bỏ trống)")).join("\n");sendMsg(txt,{formFor:m.taskId,formValues:ins.map(([,i])=>i.value)})};return w}
 const CAPS=[["web","Tìm & đọc web"],["computer","Máy tính"],["browser","Trình duyệt"],["mcp","Máy chủ MCP"],["bots","Tạo/sửa bot"],["skills","Kỹ năng"]];
 function sel(opts,cur){const s=el("select","ext-sel");opts.forEach(([v,n])=>{const o=el("option",0,n);o.value=v;if(v===cur)o.selected=true;s.append(o)});return s}
 function field(label,node,hint){const l=el("label","fm-row");l.append(el("span",0,label),node);if(hint)l.append(el("small","caption",hint));return l}
@@ -712,6 +733,7 @@ async function openExt(id,keep){const B=$("#extBody");const a=byId(id);if(!keep)
  const on=new Set(x.skills||[]);const g4=card("Kỹ năng"+(on.size?"":" · tất cả"),...(x.allSkills||[]).map(k=>cell("sparkles",k.name,{sub:k.desc,toggle:!on.size||on.has(k.id),onToggle:sw=>{let l=on.size?[...on]:(x.allSkills||[]).map(z=>z.id);l=sw.getAttribute("aria-checked")==="true"?l.filter(z=>z!==k.id):[...l,k.id];l.length?save({skills:l.length===(x.allSkills||[]).length?[]:l}):save({off:{...off,skills:true}})}})));
  const mcp=x.mcp||[];const strip=()=>mcp.map(m=>({name:m.name,url:m.url,header:m.header||undefined,secret:m.secret||undefined}));
  const g5=card("Máy chủ MCP",...mcp.map((m,i)=>cell("link",m.name,{sub:m.error?("Lỗi: "+m.error):(m.tools||[]).map(t=>t.name).join(", ")||"chưa có công cụ",value:"Gỡ",onClick:()=>{const l=strip();l.splice(i,1);save({mcp:l},"Đã gỡ máy chủ")}})));
+ mcp.filter(m=>m.state&&m.state!=="ready").forEach(m=>{const retry=el("button","pill soft","Kết nối lại · "+m.name),until=m.retryAt?new Date(m.retryAt):null;retry.type="button";retry.disabled=m.state==="rate_limited"&&until>Date.now();if(retry.disabled)setTimeout(()=>{if(retry.isConnected)retry.disabled=false},Math.min(86400000,until-Date.now())+50);retry.onclick=async()=>{retry.disabled=true;try{await api(`/agents/${id}/mcp/reconnect`,{name:m.name});await openExt(id,true)}catch{toast("Chưa thể kết nối lại; kiểm tra xác thực hoặc chờ hết giới hạn.");retry.disabled=false}};g5.append(retry);if(until&&!isNaN(until)&&until>Date.now())g5.append(el("p","caption","Có thể thử lại sau "+until.toLocaleTimeString("vi-VN")))});
  const mf=el("form","mcp-add");const mn=el("input","ext-in");mn.placeholder="Tên (vd. deepwiki)";mn.id="mcpName";const mu=el("input","ext-in");mu.placeholder="https://…/mcp hoặc …/sse";mu.id="mcpUrl";mu.inputMode="url";const mh=el("input","ext-in");mh.placeholder="Header xác thực (tuỳ chọn, vd. Authorization)";const msx=el("input","ext-in");msx.placeholder="Tên bí mật trong kho (vd. MCP_TOKEN)";const mb=el("button","pill","Thêm máy chủ");mb.type="submit";
  mf.append(mn,mu,mh,msx,mb);mf.onsubmit=e=>{e.preventDefault();if(!mn.value.trim()||!mu.value.trim())return;save({mcp:[...strip(),{name:mn.value.trim(),url:mu.value.trim(),header:mh.value.trim()||undefined,secret:msx.value.trim()||undefined}]},"Đã thêm máy chủ MCP")};
  g5.append(mf,el("p","caption","Bot gọi thẳng công cụ của máy chủ đã thêm. Khoá đặt trong kho bí mật, không bao giờ hiện ra."));
@@ -736,13 +758,14 @@ async function openSkills(keep){const B=$("#extBody");if(!keep){B.innerHTML="";$
 const _rp2=renderProfile;renderProfile=function(){_rp2();const a=byId(profId);if(!a||isGroup(a))return;const B=$("#profBody");const c=card("AI & công cụ",cell("sparkles","Mô hình, suy nghĩ, kỹ năng, MCP",{id:"prExt",sub:"Thư mục làm việc và các khả năng của bot",onClick:()=>openExt(a.id)}));const m=$("#prMem");const g=m&&m.closest(".card-group");g?g.after(c):B.append(c)};
 const _rs2=renderSettings;renderSettings=function(){_rs2();const B=$("#settingsBody");const c=card("AI",cell("sparkles","Mô hình & nhà cung cấp",{id:"openModels",sub:"GLM mặc định, thêm khoá riêng, mô hình đọc ảnh",onClick:()=>openModels()}),cell("list-checks","Kỹ năng",{id:"openSkills",sub:"Hướng dẫn bot dùng lại cho việc lặp lại",onClick:()=>openSkills()}));const u=$("#openUsage");const g=u&&u.closest(".card-group");g?g.before(c):B.append(c)};
 // memory: ask + summarize
-const _om=openMemory;openMemory=async function(id,keep){await _om(id,keep);const B=$("#memBody");if(!B.querySelector(".mem-add"))return;const bar=el("div","mem-tools");const ask=el("button","pill soft","Hỏi bộ nhớ");ask.id="memAsk";const sum=el("button","pill soft","Gộp trùng lặp");sum.id="memSum";bar.append(ask,sum);B.querySelector(".mem-add").after(bar);
+const _om=openMemory;openMemory=async function(id,keep){await _om(id,keep);const B=$("#memBody");if(memBot!==id||!B.querySelector(".mem-add"))return;const bar=el("div","mem-tools");const ask=el("button","pill soft","Hỏi bộ nhớ");ask.id="memAsk";const sum=el("button","pill soft","Gộp trùng lặp");sum.id="memSum";bar.append(ask,sum);B.querySelector(".mem-add").after(bar);
+ if(!isGroup(byId(id)))window.AURORA_MEMORY_IMPORT.mount(bar,id,api,added=>{toast("Đã nhập "+added+" mục");if(memBot===id)openMemory(id,true)});
  ask.onclick=()=>{if(B.querySelector(".mem-q"))return;const f=el("form","mem-add mem-q");const i=el("input");i.placeholder="vd. Bot biết gì về lịch làm việc của mình?";const g=el("button","pill","Hỏi");f.append(i,g);bar.after(f);i.focus();f.onsubmit=e=>{e.preventDefault();if(!i.value.trim())return;g.disabled=true;api(`/agents/${id}/memory/ask`,{q:i.value.trim()}).then(r=>{const p=el("p","mem-ans",r.answer);f.after(p);g.disabled=false}).catch(()=>{g.disabled=false;toast("Không hỏi được")})}};
  sum.onclick=()=>{sum.disabled=true;sum.textContent="Đang gộp…";api(`/agents/${id}/memory/summarize`,{}).then(r=>{sum.disabled=false;sum.textContent="Gộp trùng lặp";const L=r.proposal||[];if(!L.length){toast("Không có gì để gộp");return}const w=el("div","card mem-prop");w.append(el("b",0,"Đề xuất ("+r.before+" → "+L.length+" mục)"));const ul=el("ul");L.forEach(t=>ul.append(el("li",0,t)));const ok=el("button","pill","Áp dụng"),no=el("button","pill soft","Bỏ");const br=el("div","mem-bar");br.append(no,ok);w.append(ul,br);bar.after(w);no.onclick=()=>w.remove();ok.onclick=()=>api(`/agents/${id}/memory/summarize`,{apply:L}).then(()=>{toast("Đã gộp bộ nhớ");openMemory(id,true)}).catch(()=>toast("Không áp dụng được"))}).catch(()=>{sum.disabled=false;sum.textContent="Gộp trùng lặp";toast("Không gộp được")})}};
 // images: downscale on the phone, upload into the bot's computer, describe via the vision model
 function shrink(file){return new Promise((ok,bad)=>{const img=new Image();img.onload=()=>{const k=Math.min(1,1600/Math.max(img.width,img.height));const c=document.createElement("canvas");c.width=img.width*k|0;c.height=img.height*k|0;c.getContext("2d").drawImage(img,0,0,c.width,c.height);c.toBlob(b=>b?ok(b):bad(),"image/jpeg",.82)};img.onerror=bad;const fr=new FileReader();fr.onload=()=>{img.src=fr.result};fr.onerror=bad;fr.readAsDataURL(file)})} // data: URL, the CSP allows no blob: images
 $("#pmImg").onclick=()=>{closeMenu();if(!cur||isGroup(cur)){toast("Gửi ảnh trong chat với một bot");return}$("#imgPick").click()};
-$("#imgPick").onchange=async e=>{const f=e.target.files&&e.target.files[0];e.target.value="";if(!f||!cur)return;try{const b=await shrink(f);const nm=(f.name||"anh").replace(/\.[^.]+$/,"").normalize("NFC").slice(0,50)+".jpg";const data=await new Promise((ok,bad)=>{const fr=new FileReader();fr.onload=()=>ok(String(fr.result).split(",")[1]);fr.onerror=bad;fr.readAsDataURL(b)});const j=await api(`/agents/${cur.id}/computer/upload`,{name:nm,data});const inp=$("#input");inp.value=(inp.value.trim()?inp.value.trim()+"\n":"Bạn xem ảnh này giúp mình.\n")+"[Ảnh: "+j.path+"]";inp.dispatchEvent(new Event("input"));inp.focus();toast("Đã tải ảnh lên")}catch{toast("Không tải được ảnh (tối đa 1 MB sau khi nén)")}};
+$("#imgPick").onchange=async e=>{const f=e.target.files&&e.target.files[0];e.target.value="";if(!f||!cur)return;const target=cur.id;try{const b=await shrink(f);const nm=(f.name||"anh").replace(/\.[^.]+$/,"").normalize("NFC").slice(0,50)+".jpg";const data=await new Promise((ok,bad)=>{const fr=new FileReader();fr.onload=()=>ok(String(fr.result).split(",")[1]);fr.onerror=bad;fr.readAsDataURL(b)});const j=await api(`/agents/${target}/computer/upload`,{name:nm,data});if(cur?.id!==target){toast("Ảnh đã lưu trong máy tính của bot bạn chọn lúc đầu");return}const inp=$("#input");inp.value=(inp.value.trim()?inp.value.trim()+"\n":"Bạn xem ảnh này giúp mình.\n")+"[Ảnh: "+j.path+"]";inp.dispatchEvent(new Event("input"));inp.focus();toast("Đã tải ảnh lên")}catch{toast("Không tải được ảnh (tối đa 1 MB sau khi nén)")}};
 // ---------- Vault (cards, logins, personal details) ----------
 // Values live only in the encrypted vault on the server. The list shows
 // metadata; a value is fetched (and logged) only when the owner taps to reveal.

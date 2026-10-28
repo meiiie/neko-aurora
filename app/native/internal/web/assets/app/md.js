@@ -33,17 +33,31 @@ const indentOf=l=>l.match(/^\s*/)[0].replace(/\t/g,"    ").length;
 function code(node,lang,body){const w=el("div","code");const hd=el("div","code-h");hd.append(el("span","code-lang",lang||"code"));
  const cp=el("button","code-copy","Sao chép");cp.type="button";cp.setAttribute("aria-label","Sao chép mã");cp.onclick=()=>{(navigator.clipboard?navigator.clipboard.writeText(body):Promise.reject()).then(()=>{cp.textContent="Đã chép";setTimeout(()=>cp.textContent="Sao chép",1400);document.dispatchEvent(new CustomEvent("aurora-copied"))}).catch(()=>{})};
  hd.append(cp);const pre=el("pre");pre.tabIndex=0;pre.append(el("code",lang?"lang-"+lang:0,body));w.append(hd,pre);node.append(w)}
+function tableCard(node,wrap,table,markdown){
+ const card=el("div","table-card"),bar=el("div","table-actions"),status=el("span","table-status");status.setAttribute("role","status");
+ const copy=(title,body)=>{const b=el("button","pill soft",title);b.type="button";b.onclick=async()=>{try{await navigator.clipboard.writeText(body());status.textContent="Đã sao chép"}catch{status.textContent="Không sao chép được. Hãy chọn văn bản trong bảng."}};return b};
+ bar.append(copy("Sao chép bảng",()=>Array.from(table.rows,row=>Array.from(row.cells,c=>c.textContent.replace(/\t|\n/g," ")).join("\t")).join("\n")),copy("Sao chép Markdown",()=>markdown));
+ const expand=el("button","pill soft","Mở rộng bảng");expand.type="button";expand.onclick=()=>{
+  const dialog=el("dialog","table-viewer"),head=el("div","table-actions"),body=el("div","table-stage md"),clone=table.cloneNode(true);
+  dialog.setAttribute("aria-label","Bảng mở rộng");body.tabIndex=0;body.setAttribute("role","region");body.setAttribute("aria-label","Nội dung bảng, cuộn để xem");
+  const zoom=el("button","pill soft","100%"),close=el("button","pill","Đóng bảng");zoom.type=close.type="button";zoom.setAttribute("aria-label","Phóng to bảng");
+  let scale=1;zoom.onclick=()=>{scale=scale>=2?1:scale+.25;body.style.setProperty("--table-scale",scale);zoom.textContent=Math.round(scale*100)+"%"};
+  close.onclick=()=>dialog.close();dialog.onclose=()=>{dialog.remove();if(expand.isConnected)expand.focus()};dialog.onclick=e=>{if(e.target===dialog)dialog.close()};
+  head.append(el("strong",0,"Bảng"),zoom,close);body.append(clone);dialog.append(head,body);document.body.append(dialog);dialog.showModal();close.focus();
+ };
+ bar.append(expand,status);card.append(bar,wrap);node.append(card);
+}
 function blocks(node,lines,src){let i=0;
  while(i<lines.length){const l=lines[i];
   if(!l.trim()){i++;continue}
   let m=l.match(FENCE);if(m){const f=m[2],body=[];i++;while(i<lines.length&&!new RegExp("^\\s{0,3}"+f[0]+"{"+f.length+",}\\s*$").test(lines[i]))body.push(lines[i++].replace(new RegExp("^ {0,"+m[1].length+"}"),""));i++;code(node,m[3],body.join("\n"));continue}
   if((m=l.match(HEAD))){const lv=m[1].length,e=el(lv<=2?"h3":lv===3?"h4":"h5");inline(e,m[2],src);node.append(e);i++;continue}
   if(HR.test(l)){node.append(el("hr"));i++;continue}
-  if(ROW.test(l)&&i+1<lines.length&&DELIM.test(lines[i+1])){const al=cells(lines[i+1]).map(c=>c.startsWith(":")&&c.endsWith(":")?"center":c.endsWith(":")?"right":"");
+  if(ROW.test(l)&&i+1<lines.length&&DELIM.test(lines[i+1])){const start=i,al=cells(lines[i+1]).map(c=>c.startsWith(":")&&c.endsWith(":")?"center":c.endsWith(":")?"right":"");
    const wrap=el("div","tbl"),t=el("table"),th=el("thead"),tr=el("tr");wrap.tabIndex=0;wrap.setAttribute("role","region");wrap.setAttribute("aria-label","Bảng, vuốt ngang để xem");
    const cell=(tag,c,k)=>{const x=el(tag);if(al[k])x.style.textAlign=al[k];inline(x,c,src);return x};
    cells(l).forEach((c,k)=>tr.append(cell("th",c,k)));th.append(tr);t.append(th);const tb=el("tbody");i+=2;
-   while(i<lines.length&&lines[i].trim()&&ROW.test(lines[i])){const r=el("tr");cells(lines[i]).forEach((c,k)=>r.append(cell("td",c,k)));tb.append(r);i++}t.append(tb);wrap.append(t);node.append(wrap);continue}
+   while(i<lines.length&&lines[i].trim()&&ROW.test(lines[i])){const r=el("tr");cells(lines[i]).forEach((c,k)=>r.append(cell("td",c,k)));tb.append(r);i++}t.append(tb);wrap.append(t);tableCard(node,wrap,t,lines.slice(start,i).join("\n"));continue}
   if(QUOTE.test(l)){const buf=[];while(i<lines.length&&lines[i].trim()&&(QUOTE.test(lines[i])||(buf.length&&!startsBlock(lines[i],lines[i+1]))))buf.push(lines[i++].replace(QUOTE,""));const q=el("blockquote");blocks(q,buf,src);node.append(q);continue}
   if((m=l.match(ITEM))){const base=indentOf(l),ol=/\d/.test(m[2]),list=el(ol?"ol":"ul");if(ol&&parseInt(m[2])!==1)list.start=parseInt(m[2]);let loose=false;
    while(i<lines.length&&(m=lines[i].match(ITEM))&&indentOf(lines[i])<=base+1&&/\d/.test(m[2])===ol){const off=indentOf(lines[i])+m[2].length+1,body=[m[3]];i++;

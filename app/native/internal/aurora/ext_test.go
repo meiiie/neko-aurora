@@ -107,9 +107,15 @@ func TestProviderModelThinkingAndForm(t *testing.T) {
 	if f := ms[len(ms)-1].Form; f == nil || f.Fields[0].Label != "Tên" {
 		t.Fatal("form")
 	}
-	post(t, u+"/app/api/forms/"+last.TaskID+"/done", `{}`)
-	if _, f := svc.ext.side(last.TaskID); !f.Done {
-		t.Fatal("done")
+	if r := post(t, u+"/app/api/forms/"+last.TaskID+"/done", `{}`); r.StatusCode != 409 {
+		t.Fatal("form completed without receipt")
+	}
+	answer := map[string]string{"text": "Tên: Aurora", "clientNonce": "form-" + last.TaskID, "formFor": last.TaskID}
+	if r := post(t, u+"/app/api/agents/"+bot+"/messages", mustJSON(answer)); r.StatusCode != 202 {
+		t.Fatal("form answer rejected", r.StatusCode)
+	}
+	if f := svc.decorate([]*Message{{Role: "agent", TaskID: last.TaskID}})[0].Form; f == nil || !f.Done {
+		t.Fatal("durable form receipt missing")
 	}
 }
 

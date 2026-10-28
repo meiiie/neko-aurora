@@ -113,14 +113,17 @@ func testClient(t *testing.T) *Client {
 func TestWorkerClientProcessFailuresAndReuse(t *testing.T) {
 	t.Setenv("NEKO_TEST_SECRET_CANARY", "synthetic-value")
 	c := testClient(t)
-	c.timeout = 150 * time.Millisecond
 	for _, mode := range []string{"stall", "crash", "stdout", "stderr", "malformed", "bad-digest", "trailing"} {
 		t.Run(mode, func(t *testing.T) {
+			c.timeout = 150 * time.Millisecond
 			start := time.Now()
 			out, err := c.Extract("docx", []byte(mode))
 			if err == nil || out.Text != "" || time.Since(start) > 2*time.Second {
 				t.Fatal("failure did not remain bounded")
 			}
+			// Reuse must succeed within the production deadline; the injected
+			// 150 ms failure deadline also includes Windows process startup.
+			c.timeout = Deadline
 			out, err = c.Extract("docx", []byte("text"))
 			if err != nil || out.Text != "valid text" {
 				t.Fatal("worker slot not reusable", err)

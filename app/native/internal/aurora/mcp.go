@@ -10,11 +10,13 @@ import (
 	"bufio"
 	"bytes"
 	"context"
+	"crypto/sha256"
 	"encoding/json"
 	"errors"
-	"fmt"
 	"io"
 	"net/http"
+	"net/url"
+	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -40,31 +42,135 @@ type mcpConn struct {
 }
 
 type mcpCache struct {
-	mu    sync.Mutex
-	conns map[string]*mcpConn
-	tools map[string][]mcpTool
-	at    map[string]time.Time
+	mu       sync.Mutex
+	conns    map[string]*mcpConn
+	tools    map[string][]mcpTool
+	at       map[string]time.Time
+	failures map[string]*mcpFailure
+	auth     map[string][32]byte
+	gates    map[string]*sync.Mutex
 }
 
-var mcps = &mcpCache{conns: map[string]*mcpConn{}, tools: map[string][]mcpTool{}, at: map[string]time.Time{}}
+func (s *Service) mcpState() *mcpCache {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.mcp == nil {
+		s.mcp = &mcpCache{conns: map[string]*mcpConn{}, tools: map[string][]mcpTool{}, at: map[string]time.Time{}, failures: map[string]*mcpFailure{}, auth: map[string][32]byte{}, gates: map[string]*sync.Mutex{}}
+	}
+	return s.mcp
+}
 
-func mcpKey(bot string, s mcpServer) string { return bot + "\x00" + s.Name + "\x00" + s.URL }
+type mcpFailure struct {
+	State   string    `json:"state"`
+	RetryAt time.Time `json:"retryAt,omitempty"`
+}
+
+func (e *mcpFailure) Error() string {
+	switch e.State {
+	case "reconnect_required":
+		return "máy chủ MCP cần cập nhật xác thực và kết nối lại"
+	case "forbidden":
+		return "máy chủ MCP từ chối quyền truy cập"
+	case "rate_limited":
+		return "máy chủ MCP đang giới hạn tốc độ; thử lại sau"
+	default:
+		return "máy chủ MCP tạm thời không sẵn sàng"
+	}
+}
+
+func mcpHTTPFailure(r *http.Response) error {
+	e := &mcpFailure{State: "unavailable", RetryAt: time.Now().Add(5 * time.Second)}
+	switch r.StatusCode {
+	case 401:
+		e.State, e.RetryAt = "reconnect_required", time.Time{}
+	case 403:
+		e.State, e.RetryAt = "forbidden", time.Time{}
+	case 429:
+		e.State = "rate_limited"
+		d := 30 * time.Second
+		if n, err := strconv.ParseInt(r.Header.Get("Retry-After"), 10, 64); err == nil {
+			d = time.Duration(max(1, min(n, 86400))) * time.Second
+		} else if at, err := http.ParseTime(r.Header.Get("Retry-After")); err == nil {
+			d = time.Until(at)
+		}
+		e.RetryAt = time.Now().Add(max(time.Second, min(d, 24*time.Hour)))
+	}
+	return e
+}
+
+func (s *Service) mcpFailed(bot string, srv mcpServer, c *mcpConn, err error) {
+	mcps, k := s.mcpState(), mcpKey(bot, srv)
+	mcps.mu.Lock()
+	defer mcps.mu.Unlock()
+	if current := mcps.conns[k]; c != nil && current != c {
+		return
+	}
+	if c != nil {
+		c.close()
+	}
+	delete(mcps.conns, k)
+	delete(mcps.tools, k)
+	delete(mcps.at, k)
+	var failure *mcpFailure
+	if !errors.As(err, &failure) {
+		failure = &mcpFailure{State: "unavailable", RetryAt: time.Now().Add(5 * time.Second)}
+	}
+	mcps.failures[k] = failure
+}
+
+func mcpKey(bot string, s mcpServer) string {
+	return bot + "\x00" + s.Name + "\x00" + s.URL + "\x00" + s.Header + "\x00" + s.Secret
+}
 
 func (s *Service) mcpConnect(ctx context.Context, bot string, srv mcpServer) (*mcpConn, error) {
 	k := mcpKey(bot, srv)
+	mcps := s.mcpState()
 	mcps.mu.Lock()
+	gate := mcps.gates[k]
+	if gate == nil {
+		gate = &sync.Mutex{}
+		mcps.gates[k] = gate
+	}
+	mcps.mu.Unlock()
+	gate.Lock()
+	defer gate.Unlock()
+	hdr := ""
+	if srv.Secret != "" && s.V != nil {
+		hdr, _ = s.V.Get(srv.Secret)
+	}
+	auth := sha256.Sum256([]byte(hdr))
+	mcps.mu.Lock()
+	if old, ok := mcps.auth[k]; ok && old != auth {
+		if c := mcps.conns[k]; c != nil {
+			c.close()
+		}
+		delete(mcps.conns, k)
+		delete(mcps.tools, k)
+		delete(mcps.failures, k)
+		delete(mcps.at, k)
+	}
+	mcps.auth[k] = auth
+	if failure := mcps.failures[k]; failure != nil && (failure.RetryAt.IsZero() || time.Now().Before(failure.RetryAt)) {
+		mcps.mu.Unlock()
+		return nil, failure
+	}
 	c := mcps.conns[k]
 	mcps.mu.Unlock()
 	if c != nil {
 		return c, nil
 	}
-	c = &mcpConn{srv: srv, client: extHTTP(), waiting: map[int64]chan json.RawMessage{}}
-	c.client.Timeout = 0 // the SSE stream stays open; each call has its own deadline
-	if srv.Secret != "" && s.V != nil {
-		c.hdr, _ = s.V.Get(srv.Secret)
+	if srv.Secret != "" && hdr == "" {
+		err := &mcpFailure{State: "reconnect_required"}
+		s.mcpFailed(bot, srv, nil, err)
+		return nil, err
 	}
+	c = &mcpConn{srv: srv, hdr: hdr, client: extHTTP(), waiting: map[int64]chan json.RawMessage{}}
+	c.client.Timeout = 0 // the SSE stream stays open; each call has its own deadline
+	c.client.CheckRedirect = func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }
 	if strings.HasSuffix(strings.TrimRight(srv.URL, "/"), "/sse") {
-		if err := c.openSSE(); err != nil {
+		if err := c.openSSE(ctx, s.ctx); err != nil {
+			c.close()
+			s.mcpFailed(bot, srv, nil, err)
 			return nil, err
 		}
 	}
@@ -73,11 +179,17 @@ func (s *Service) mcpConnect(ctx context.Context, bot string, srv mcpServer) (*m
 	}
 	if err := c.call(ctx, "initialize", map[string]any{"protocolVersion": "2025-06-18", "capabilities": map[string]any{}, "clientInfo": map[string]string{"name": "neko-aurora", "version": "1"}}, &init); err != nil {
 		c.close()
+		s.mcpFailed(bot, srv, nil, err)
 		return nil, err
 	}
-	_ = c.notify(ctx, "notifications/initialized")
+	if err := c.notify(ctx, "notifications/initialized"); err != nil {
+		c.close()
+		s.mcpFailed(bot, srv, nil, err)
+		return nil, err
+	}
 	mcps.mu.Lock()
 	mcps.conns[k] = c
+	delete(mcps.failures, k)
 	mcps.mu.Unlock()
 	return c, nil
 }
@@ -89,6 +201,8 @@ func (c *mcpConn) close() {
 }
 
 func (c *mcpConn) headers(r *http.Request) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
 	r.Header.Set("Content-Type", "application/json")
 	r.Header.Set("Accept", "application/json, text/event-stream")
 	if c.session != "" {
@@ -99,9 +213,16 @@ func (c *mcpConn) headers(r *http.Request) {
 	}
 }
 
-func (c *mcpConn) openSSE() error {
-	ctx, cancel := context.WithCancel(context.Background())
+func (c *mcpConn) openSSE(handshake, parent context.Context) error {
+	if parent == nil {
+		parent = context.Background()
+	}
+	ctx, cancel := context.WithCancel(parent)
 	c.cancel = cancel
+	stop := context.AfterFunc(handshake, cancel)
+	defer stop()
+	timer := time.AfterFunc(15*time.Second, cancel)
+	defer timer.Stop()
 	req, _ := http.NewRequestWithContext(ctx, "GET", c.srv.URL, nil)
 	c.headers(req)
 	req.Header.Set("Accept", "text/event-stream")
@@ -113,7 +234,7 @@ func (c *mcpConn) openSSE() error {
 	if res.StatusCode != 200 {
 		res.Body.Close()
 		cancel()
-		return fmt.Errorf("máy chủ MCP trả %d", res.StatusCode)
+		return mcpHTTPFailure(res)
 	}
 	ep := make(chan string, 1)
 	go func() {
@@ -141,6 +262,8 @@ func (c *mcpConn) openSSE() error {
 	case <-time.After(15 * time.Second):
 		cancel()
 		return errors.New("máy chủ MCP không gửi endpoint")
+	case <-ctx.Done():
+		return errors.New("máy chủ MCP không trả lời kịp")
 	}
 }
 
@@ -206,6 +329,9 @@ func (c *mcpConn) notify(ctx context.Context, method string) error {
 	}
 	io.Copy(io.Discard, io.LimitReader(res.Body, 1<<16))
 	res.Body.Close()
+	if res.StatusCode < 200 || res.StatusCode >= 300 {
+		return mcpHTTPFailure(res)
+	}
 	return nil
 }
 
@@ -229,10 +355,12 @@ func (c *mcpConn) call(ctx context.Context, method string, params any, out any) 
 	}
 	defer res.Body.Close()
 	if sid := res.Header.Get("Mcp-Session-Id"); sid != "" {
+		c.mu.Lock()
 		c.session = sid
+		c.mu.Unlock()
 	}
-	if res.StatusCode >= 400 {
-		return fmt.Errorf("máy chủ MCP trả %d", res.StatusCode)
+	if res.StatusCode < 200 || res.StatusCode >= 300 {
+		return mcpHTTPFailure(res)
 	}
 	if c.post == "" { // streamable HTTP: the reply is in this response
 		ct := res.Header.Get("Content-Type")
@@ -248,7 +376,7 @@ func (c *mcpConn) call(ctx context.Context, method string, params any, out any) 
 		var m rpcMsg
 		_ = json.Unmarshal(raw, &m)
 		if m.Error != nil {
-			return errors.New("MCP: " + clean(m.Error.Message, 200))
+			return errors.New("MCP: lỗi giao thức " + strconv.Itoa(m.Error.Code))
 		}
 		if out != nil {
 			return json.Unmarshal(m.Result, out)
@@ -260,22 +388,28 @@ func (c *mcpConn) call(ctx context.Context, method string, params any, out any) 
 }
 
 func resolveRef(base, ref string) (string, error) {
-	if strings.HasPrefix(ref, "http://") || strings.HasPrefix(ref, "https://") {
-		return ref, nil
-	}
-	i := strings.Index(base, "://")
-	if i < 0 {
+	b, err := url.Parse(base)
+	if err != nil {
 		return "", errors.New("bad url")
 	}
-	j := strings.Index(base[i+3:], "/")
-	if j < 0 {
-		return base + ref, nil
+	r, err := url.Parse(ref)
+	if err != nil {
+		return "", errors.New("bad url")
 	}
-	return base[:i+3+j] + ref, nil
+	u := b.ResolveReference(r)
+	if u.Scheme != b.Scheme || u.Host != b.Host || u.User != nil || u.Fragment != "" {
+		return "", errors.New("MCP endpoint must keep the configured origin")
+	}
+	return u.String(), nil
 }
 
 // mcpTools lists a server's tools (cached 10 min).
 func (s *Service) mcpTools(ctx context.Context, bot string, srv mcpServer) ([]mcpTool, error) {
+	c, err := s.mcpConnect(ctx, bot, srv)
+	if err != nil {
+		return nil, err
+	}
+	mcps := s.mcpState()
 	k := mcpKey(bot, srv)
 	mcps.mu.Lock()
 	if t, ok := mcps.tools[k]; ok && time.Since(mcps.at[k]) < 10*time.Minute {
@@ -283,34 +417,47 @@ func (s *Service) mcpTools(ctx context.Context, bot string, srv mcpServer) ([]mc
 		return t, nil
 	}
 	mcps.mu.Unlock()
-	c, err := s.mcpConnect(ctx, bot, srv)
-	if err != nil {
-		return nil, err
-	}
 	var r struct {
 		Tools []mcpTool `json:"tools"`
 	}
 	if err := c.call(ctx, "tools/list", map[string]any{}, &r); err != nil {
-		mcpDrop(bot, srv)
+		s.mcpFailed(bot, srv, c, err)
 		return nil, err
 	}
 	if len(r.Tools) > 40 {
 		r.Tools = r.Tools[:40]
 	}
 	mcps.mu.Lock()
+	if mcps.conns[k] != c {
+		mcps.mu.Unlock()
+		return nil, errors.New("máy chủ MCP đã thay đổi; tải lại danh sách")
+	}
 	mcps.tools[k], mcps.at[k] = r.Tools, time.Now()
 	mcps.mu.Unlock()
 	return r.Tools, nil
 }
 
-func mcpDrop(bot string, srv mcpServer) {
+func (s *Service) mcpDrop(bot string, srv mcpServer) {
+	mcps := s.mcpState()
 	k := mcpKey(bot, srv)
+	mcps.mu.Lock()
+	gate := mcps.gates[k]
+	if gate == nil {
+		gate = &sync.Mutex{}
+		mcps.gates[k] = gate
+	}
+	mcps.mu.Unlock()
+	gate.Lock()
+	defer gate.Unlock()
 	mcps.mu.Lock()
 	if c := mcps.conns[k]; c != nil {
 		c.close()
 	}
 	delete(mcps.conns, k)
 	delete(mcps.tools, k)
+	delete(mcps.at, k)
+	delete(mcps.failures, k)
+	delete(mcps.auth, k)
 	mcps.mu.Unlock()
 }
 
@@ -330,7 +477,7 @@ func (s *Service) mcpCall(ctx context.Context, bot string, srv mcpServer, tool s
 		IsError bool `json:"isError"`
 	}
 	if err := c.call(ctx, "tools/call", map[string]any{"name": tool, "arguments": args}, &r); err != nil {
-		mcpDrop(bot, srv)
+		s.mcpFailed(bot, srv, c, err)
 		return "", err
 	}
 	var b strings.Builder
@@ -360,6 +507,7 @@ func (s *Service) mcpServerOf(bot, name string) (mcpServer, bool) {
 // mcpNote lists the bot's MCP tools for the prompt (cached lists only, so a
 // slow server never delays a turn; the list is warmed when a server is added).
 func (s *Service) mcpNote(bot string, be botExt) string {
+	mcps := s.mcpState()
 	if len(be.MCP) == 0 {
 		return ""
 	}

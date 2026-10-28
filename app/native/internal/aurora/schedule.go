@@ -23,13 +23,15 @@ import (
 const maxSchedules = 12
 
 type schedule struct {
-	ID     string `json:"id"`
-	Bot    string `json:"bot"`
-	Text   string `json:"text"`
-	At     string `json:"at"`             // HH:MM, Vietnam time
-	Repeat string `json:"repeat"`         // daily | weekdays | once
-	Date   string `json:"date,omitempty"` // once: YYYY-MM-DD
-	Last   string `json:"last,omitempty"` // last occurrence key run
+	ID       string `json:"id"`
+	Bot      string `json:"bot"`
+	Text     string `json:"text"`
+	At       string `json:"at"`             // HH:MM, Vietnam time
+	Repeat   string `json:"repeat"`         // daily | weekdays | once
+	Date     string `json:"date,omitempty"` // once: YYYY-MM-DD
+	Last     string `json:"last,omitempty"` // last occurrence key run
+	Paused   bool   `json:"paused"`
+	Revision uint64 `json:"revision"`
 }
 
 type schedStore struct {
@@ -46,12 +48,13 @@ func openSchedules(dir string) *schedStore {
 	return st
 }
 
-func (st *schedStore) saveLocked() {
+func (st *schedStore) saveLocked() error {
 	b, _ := json.Marshal(st.L)
 	tmp := st.path + ".tmp"
-	if os.WriteFile(tmp, b, 0o600) == nil {
-		_ = os.Rename(tmp, st.path)
+	if err := os.WriteFile(tmp, b, 0o600); err != nil {
+		return err
 	}
+	return os.Rename(tmp, st.path)
 }
 
 var hhmm = regexp.MustCompile(`^([01]?\d|2[0-3]):([0-5]\d)$`)
@@ -87,6 +90,9 @@ func (x schedule) normalize(now time.Time) (schedule, bool) {
 
 // due: the occurrence key to run now, or "".
 func (x schedule) due(now time.Time) string {
+	if x.Paused {
+		return ""
+	}
 	t := now.In(saigon)
 	day := t.Format("2006-01-02")
 	if x.Repeat == "once" {
@@ -126,8 +132,12 @@ func (st *schedStore) add(x schedule) bool {
 			return false
 		}
 	}
+	x.Revision = 1
 	st.L = append(st.L, x)
-	st.saveLocked()
+	if st.saveLocked() != nil {
+		st.L = st.L[:len(st.L)-1]
+		return false
+	}
 	return true
 }
 
@@ -137,6 +147,7 @@ func (st *schedStore) list(bot string) []schedule {
 	out := []schedule{}
 	for _, x := range st.L {
 		if bot == "" || x.Bot == bot {
+			x.Revision = max(1, x.Revision)
 			out = append(out, x)
 		}
 	}
@@ -161,15 +172,17 @@ func (st *schedStore) remove(id string) bool {
 func (s *Service) scheduleTick(now time.Time) {
 	st := s.sched
 	st.mu.Lock()
-	type job struct {
-		x   schedule
-		key string
-	}
-	var jobs []job
+	defer st.mu.Unlock()
+	changed := false
 	for i := range st.L {
 		if k := st.L[i].due(now); k != "" {
+			x := st.L[i]
+			text := "[Lịch hẹn " + x.At + "] " + x.Text
+			if _, _, err := s.L.Accept(ledger.Input{BotID: x.Bot, ClientNonce: "sched-" + x.ID + "-" + k, Text: text}); err != nil {
+				continue
+			}
 			st.L[i].Last = k
-			jobs = append(jobs, job{st.L[i], k})
+			changed = true
 		}
 	}
 	keep := st.L[:0]
@@ -179,19 +192,49 @@ func (s *Service) scheduleTick(now time.Time) {
 		}
 	}
 	st.L = keep
-	if len(jobs) > 0 {
+	if changed {
 		st.saveLocked()
-	}
-	st.mu.Unlock()
-	for _, j := range jobs {
-		text := "[Lịch hẹn " + j.x.At + "] " + j.x.Text
-		if _, _, err := s.L.Accept(ledger.Input{BotID: j.x.Bot, ClientNonce: "sched-" + j.x.ID + "-" + j.key, Text: text}); err == nil {
-			s.record(j.x.Bot, "", "step", "Chạy lịch hẹn "+j.x.At+": "+clean(j.x.Text, 80))
-		}
-	}
-	if len(jobs) > 0 {
 		s.poke()
 	}
+}
+
+func (s *Service) controlSchedule(id string, revision uint64, paused *bool) error {
+	if s.L.ReadOnly() {
+		return ledger.ErrConflict
+	}
+	st := s.sched
+	st.mu.Lock()
+	defer st.mu.Unlock()
+	for i, x := range st.L {
+		if x.ID != id {
+			continue
+		}
+		if revision != max(1, x.Revision) {
+			return ledger.ErrConflict
+		}
+		old := append([]schedule(nil), st.L...)
+		if paused == nil {
+			st.L = append(st.L[:i], st.L[i+1:]...)
+		} else {
+			st.L[i].Paused = *paused
+			st.L[i].Revision = max(1, x.Revision) + 1
+		}
+		if err := st.saveLocked(); err != nil {
+			st.L = old
+			return err
+		}
+		if paused == nil || *paused {
+			for _, w := range s.L.Snapshot().Work {
+				if w.BotID == x.Bot && strings.HasPrefix(w.ClientNonce, "sched-"+id+"-") && w.Status == "waiting_host" {
+					if _, err := s.L.CancelWaiting(w.RequestID); err != nil && err != ledger.ErrConflict {
+						return err
+					}
+				}
+			}
+		}
+		return nil
+	}
+	return ErrNotFound
 }
 
 func (s *Service) scheduleLoop() {
@@ -223,8 +266,30 @@ func (s *Service) scheduleRoutes() {
 		writeJSON(w, 200, map[string]any{"schedules": s.sched.list(r.URL.Query().Get("bot"))})
 	})
 	s.mux.HandleFunc("POST /app/api/schedules/{id}/delete", func(w http.ResponseWriter, r *http.Request) {
-		if !s.sched.remove(r.PathValue("id")) {
-			fail(w, ErrNotFound)
+		var in struct {
+			Revision uint64 `json:"revision"`
+		}
+		if decodeStrict(r, &in) != nil {
+			fail(w, ErrInvalid)
+			return
+		}
+		if err := s.controlSchedule(r.PathValue("id"), in.Revision, nil); err != nil {
+			fail(w, err)
+			return
+		}
+		writeJSON(w, 200, map[string]bool{"ok": true})
+	})
+	s.mux.HandleFunc("POST /app/api/schedules/{id}/state", func(w http.ResponseWriter, r *http.Request) {
+		var in struct {
+			Revision uint64 `json:"revision"`
+			Paused   *bool  `json:"paused"`
+		}
+		if decodeStrict(r, &in) != nil || in.Paused == nil {
+			fail(w, ErrInvalid)
+			return
+		}
+		if err := s.controlSchedule(r.PathValue("id"), in.Revision, in.Paused); err != nil {
+			fail(w, err)
 			return
 		}
 		writeJSON(w, 200, map[string]bool{"ok": true})

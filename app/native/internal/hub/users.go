@@ -11,18 +11,19 @@ import (
 )
 
 type User struct {
-	ID                  string            `json:"id"`
-	Email               string            `json:"email"`
-	Name                string            `json:"name,omitempty"`
-	Provider            string            `json:"provider"` // email|google|apple
-	Subjects            map[string]string `json:"subjects,omitempty"`
-	Plan                string            `json:"plan"`
-	Created             string            `json:"created"`
-	Onboarded           bool              `json:"onboarded,omitempty"`
-	Gen                 int               `json:"gen"` // bump to revoke every session
-	UsageDay            string            `json:"usageDay,omitempty"`
-	Used                int               `json:"used,omitempty"`
-	NetworkReservations map[string]string `json:"networkReservations,omitempty"`
+	ID                  string                        `json:"id"`
+	Email               string                        `json:"email"`
+	Name                string                        `json:"name,omitempty"`
+	Provider            string                        `json:"provider"` // email|google|apple
+	Subjects            map[string]string             `json:"subjects,omitempty"`
+	Plan                string                        `json:"plan"`
+	Created             string                        `json:"created"`
+	Onboarded           bool                          `json:"onboarded,omitempty"`
+	Gen                 int                           `json:"gen"` // bump to revoke every session
+	UsageDay            string                        `json:"usageDay,omitempty"`
+	Used                int                           `json:"used,omitempty"`
+	NetworkReservations map[string]string             `json:"networkReservations,omitempty"`
+	MessageReservations map[string]messageReservation `json:"messageReservations,omitempty"`
 }
 
 type userStore struct {

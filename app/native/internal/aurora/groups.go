@@ -150,9 +150,9 @@ func (s *Service) sendGroup(id, text, nonce string) (*Message, error) {
 	if !ok {
 		return nil, ErrNotFound
 	}
-	s.supersede(id)
 	rev := c.Revision
 	var first ledger.Work
+	acceptedNew := false
 	n := 0
 	to := map[string]bool{}
 	for _, id := range v.recipients(c, text) {
@@ -162,10 +162,11 @@ func (s *Service) sendGroup(id, text, nonce string) (*Message, error) {
 		if v.archived[b] || !to[b] {
 			continue
 		}
-		w, _, err := s.L.AcceptProduct(ledger.Input{BotID: b, ClientNonce: nonce + "_g" + itoa(i+1), Text: text}, ledger.SubmissionScope{ChannelID: id, ExpectedChannelRevision: &rev})
+		w, duplicate, err := s.L.AcceptProduct(ledger.Input{BotID: b, ClientNonce: nonce + "_g" + itoa(i+1), Text: text}, ledger.SubmissionScope{ChannelID: id, ExpectedChannelRevision: &rev})
 		if err != nil {
 			return nil, err
 		}
+		acceptedNew = acceptedNew || !duplicate
 		if n == 0 {
 			first = w
 		}
@@ -174,7 +175,26 @@ func (s *Service) sendGroup(id, text, nonce string) (*Message, error) {
 	if n == 0 {
 		return nil, ErrInvalid
 	}
-	return &Message{ID: nonce + ":u", TaskID: first.RequestID, AgentID: id, Role: "user", Text: text, Created: time.Now()}, nil
+	if acceptedNew {
+		s.supersede(id)
+	}
+	return &Message{ID: nonce + ":u", TaskID: first.RequestID, AgentID: id, Role: "user", Text: text, Created: time.Now(), AnswerFor: questionAnswered(nonce), FormFor: formAnswered(nonce)}, nil
+}
+
+func formAnswered(nonce string) string {
+	nonce = groupBase(nonce)
+	if strings.HasPrefix(nonce, "form-") {
+		return strings.TrimPrefix(nonce, "form-")
+	}
+	return ""
+}
+
+func questionAnswered(nonce string) string {
+	nonce = groupBase(nonce)
+	if strings.HasPrefix(nonce, "choice-") {
+		return strings.TrimPrefix(nonce, "choice-")
+	}
+	return ""
 }
 
 func threadOf(w ledger.Work) string {
