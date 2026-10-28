@@ -53,6 +53,7 @@ async function loadState(){
  if(changed){S.msgs={};S.drafts={};messageLoads.clear();nodeCache.clear();resetVault();closeThread();closeCtx();if(sheetOpen)closeSheet(true)}
  $("#login").classList.add("hidden");S.workspaceId=st.workspaceId;bindOutbox();S.agents=st.agents;S.pending=st.pending;S.brief=st.brief;S.ai=st.ai;S.vapid=st.vapidPublicKey;S.outbound=st.outbound||{};S.secrets=st.secrets||[];S.pushSubs=st.pushSubscriptions|0;seedSeen();renderList();
  if(changed&&es)connect();
+ if(profId&&!isGroup(byId(profId)))void schedCard(profId,$("#profBody"),S.workspaceId,true);
  if(cur){const a=byId(cur.id);if(a){cur=a;await loadMsgs(a.id)}}
  return request===stateRequest;
 }
@@ -593,12 +594,12 @@ function applyTheme(id){const pick=THEMES.find(x=>x.id===id)||THEMES[0];try{pick
 function renderThemes(){const L=$("#themeList");L.innerHTML="";const c=curTheme();THEMES.forEach(t=>{const b=el("button","theme-opt");b.setAttribute("aria-pressed",c===t.id);b.dataset.theme=t.id;const d=el("span","dots3");t.sw.forEach(x=>{const i=el("i");i.style.background=x;d.append(i)});const tx=el("span");tx.append(el("b",0,t.name),el("small",0,t.sub));b.append(d,tx);b.onclick=()=>applyTheme(t.id);L.append(b)})}
 $("#closeThemes").onclick=()=>closeSheet(true);
 // ---------- bot profile ----------
-let profId=null,skipPop=false,muted=store.get("neko-aurora-muted",[]);
+let profId=null,profileVersion=0,skipPop=false,muted=store.get("neko-aurora-muted",[]);
 const shareLink=async a=>{const url=location.origin+"/app/#"+a.id;try{if(navigator.share){await navigator.share({title:a.name,text:a.name+" · Neko Aurora",url});return}}catch(e){if(e&&e.name==="AbortError")return}
  try{await navigator.clipboard.writeText(url);toast("Đã sao chép liên kết")}catch{toast(url)}};
-function openProfile(id){const a=byId(id);if(!a)return;closeMenu();profId=id;renderProfile();if(!S.msgs[id])loadMsgs(id).then(()=>profId===id&&renderProfile()).catch(()=>{});$("#profile").classList.remove("off");$("#profBody").scrollTop=0;buzz("tap");history.pushState({p:1},"",location.hash||"#"+id)}
-function closeProfile(fromPop){if(!profId)return;profId=null;closeMenu();$("#profile").classList.add("off");if(!fromPop&&history.state&&history.state.p){skipPop=true;history.back()}}
-function renderProfile(){const a=byId(profId);const B=$("#profBody");if(!a){B.innerHTML="";return}B.innerHTML="";
+function openProfile(id){const a=byId(id);if(!a)return;closeMenu();profId=id;renderProfile();const profile=profileVersion,scope=S.workspaceId;if(!S.msgs[id])loadMsgs(id).then(()=>{if(profId===id&&scope===S.workspaceId&&profileVersion===profile&&!$("#profBody .schedule-editor"))renderProfile()}).catch(()=>{});$("#profile").classList.remove("off");$("#profBody").scrollTop=0;buzz("tap");history.pushState({p:1},"",location.hash||"#"+id)}
+function closeProfile(fromPop){if(!profId)return;profileVersion++;profId=null;closeMenu();$("#profile").classList.add("off");if(!fromPop&&history.state&&history.state.p){skipPop=true;history.back()}}
+function renderProfile(){profileVersion++;const a=byId(profId);const B=$("#profBody");if(!a){B.innerHTML="";return}B.innerHTML="";
  const hero=el("div","hero");const av=el("span","hero-av");av.append(avatarOf(a,112));const bd=a.pin?el("i","badge pin"):badge(a);if(a.pin)bd.append(I("star",12));if(bd)av.append(bd);hero.append(av,el("h2",0,a.name));if(a.desc)hero.append(el("p",0,a.desc));
  if(!isGroup(a)){const ed=el("button","pill soft","Sửa");ed.id="profEdit";ed.onclick=()=>openCreator(a);hero.append(ed)}B.append(hero);
  const L=S.msgs[a.id]||[],pend=S.pending.filter(m=>m.agentId===a.id).length;
@@ -756,25 +757,35 @@ $("#pmRef").onclick=()=>{closeMenu();if(!cur)return;const B=$("#refBody");B.inne
  B.append(card(null,...L.map(x=>cell(isGroup(x)?"users":"message-circle",x.name,{sub:x.snip||"",onClick:()=>{setRef({id:x.id,name:x.name,for:cur.id});closeSheet(true);toast("Sẽ kèm chat “"+x.name+"”")}}))),el("p","caption","Tin nhắn gần nhất của chat đó được gửi kèm làm ngữ cảnh cho tin tiếp theo của bạn."));openSheet($("#refSheet"))};
 $("#closeRef").onclick=()=>closeSheet(true);
 // ---------- schedules on the profile ----------
-let scheduleTestStore;try{scheduleTestStore=window.AURORA_SCHEDULE_TEST.create(localStorage)}catch{}
+let scheduleTestStore,scheduleLoad=0;try{scheduleTestStore=window.AURORA_SCHEDULE_TEST.create(localStorage)}catch{}
 const RPT={daily:"Mỗi ngày",weekdays:"Thứ 2–6",once:"Một lần"};
-async function schedCard(id,B,scope=S.workspaceId){
- if(profId!==id||scope!==S.workspaceId)return;
- try{const r=await api("/schedules?bot="+encodeURIComponent(id));if(profId!==id||scope!==S.workspaceId)return;
-  const old=B.querySelector("#schedBox"),L=r.schedules||[];let testRecords=[],testStorageError=false;try{testRecords=scheduleTestStore.list(scope,id)}catch{testStorageError=true}if(!L.length&&!old&&!testRecords.length&&!testStorageError)return true;
-  const w=card("Lịch hẹn");w.id="schedBox";
+async function schedCard(id,B,scope=S.workspaceId,preserveDraft=false){
+ if(profId!==id||scope!==S.workspaceId||!B.isConnected)return false;
+ const request=++scheduleLoad,profile=profileVersion;
+ const current=()=>profId===id&&scope===S.workspaceId&&profileVersion===profile&&request===scheduleLoad&&B.isConnected;
+ const place=w=>{const old=B.querySelector("#schedBox"),pc=B.querySelector("#pcBox");if(old)old.replaceWith(w);else if(pc)B.insertBefore(w,pc);else B.append(w)};
+ const notice=(message,retry=false)=>{if(!current())return;let w=B.querySelector("#schedBox");if(!w){w=card("Lịch hẹn");w.id="schedBox";w.tabIndex=-1;place(w)}w.querySelector(".schedule-load-status")?.remove();const n=el("div","schedule-load-status");n.setAttribute("role","status");n.append(el("p","caption",message));if(retry){const b=el("button","pill soft","Tải lại lịch");b.type="button";b.onclick=async()=>{if(!current())return;const focused=document.activeElement===b;b.disabled=true;const loaded=await schedCard(id,B,scope);if(loaded&&focused&&document.activeElement===document.body&&profId===id&&scope===S.workspaceId&&profileVersion===profile)B.querySelector("#schedBox")?.focus({preventScroll:true})};n.append(b)}w.append(n)};
+ const keepDraft=()=>{if(!preserveDraft||!B.querySelector("#schedBox .schedule-editor"))return false;notice("Đang chỉnh sửa lịch. Lưu hoặc hủy chỉnh sửa để tải phiên bản mới.");return true};
+ if(keepDraft())return false;
+ notice("Đang tải lịch hẹn…");
+ try{const r=await api("/schedules?bot="+encodeURIComponent(id));if(!current()||keepDraft())return false;
+  if(!Array.isArray(r.schedules))throw Error("schedule_list");
+  const L=r.schedules;let testRecords=[],testStorageError=false;try{testRecords=scheduleTestStore.list(scope,id)}catch{testStorageError=true}
+  const w=card("Lịch hẹn");w.id="schedBox";w.tabIndex=-1;
   if(!L.length)w.append(cell("clock","Chưa có lịch hẹn",{static:1}));
-  const testCard=(schedule,recordId)=>window.AURORA_SCHEDULE_TEST.mount({schedule,id:recordId,botId:id,workspaceId:scope,store:scheduleTestStore,api,isCurrent:()=>profId===id&&S.workspaceId===scope&&w.isConnected,openResult:requestId=>{closeProfile(true);history.replaceState({t:1},"","#"+id);Promise.resolve(openThread(id)).then(()=>{if(S.workspaceId===scope&&cur?.id===id)jumpToQuote(requestId+":u")})}});
+  const testCard=(schedule,recordId)=>window.AURORA_SCHEDULE_TEST.mount({schedule,id:recordId,botId:id,workspaceId:scope,store:scheduleTestStore,api,isCurrent:()=>profId===id&&S.workspaceId===scope&&profileVersion===profile&&w.isConnected,openResult:requestId=>{closeProfile(true);history.replaceState({t:1},"","#"+id);Promise.resolve(openThread(id)).then(()=>{if(S.workspaceId===scope&&cur?.id===id)jumpToQuote(requestId+":u")})}});
   if(testStorageError)w.append(el("p","caption","Chưa đọc được lượt thử đã lưu. Chưa thể gửi thêm lượt thử."));
   for(const x of L){const row=el("div","schedule-row");row.append(cell("clock",x.at+" · "+(RPT[x.repeat]||x.repeat)+(x.date?" "+x.date.split("-").reverse().join("/"):"")+(x.paused?" · Đã tạm dừng":""),{sub:x.text,static:1}));
    const controls=el("div","schedule-controls"),toggle=el("button","pill soft",x.paused?"Tiếp tục":"Tạm dừng"),remove=el("button","pill soft","Xóa lịch"),edit=el("button","pill soft","Sửa lịch"),status=el("p","schedule-error");status.setAttribute("role","status");
-   const change=async action=>{if(scope!==S.workspaceId||profId!==id||!row.isConnected)return;toggle.disabled=remove.disabled=edit.disabled=true;try{await api(`/schedules/${x.id}/${action}`,{workspaceId:scope,revision:x.revision,...(action==="state"?{paused:!x.paused}:{})});await schedCard(id,B,scope)}catch(e){if(scope!==S.workspaceId||profId!==id||!row.isConnected)return;if(e.status===409){toast("Lịch đã thay đổi. Đã tải lại phiên bản mới.");await schedCard(id,B,scope)}else{status.textContent="Chưa lưu được thay đổi. Hãy thử lại.";toggle.disabled=remove.disabled=edit.disabled=false}}};
-   edit.type="button";edit.dataset.editSchedule=x.id;edit.onclick=()=>{if(scope!==S.workspaceId||profId!==id||!row.isConnected)return;toggle.disabled=remove.disabled=edit.disabled=true;const editor=window.AURORA_SCHEDULE_EDITOR.create({schedule:x,workspaceId:scope,save:body=>api(`/schedules/${x.id}/edit`,body),reload:async()=>{const loaded=await schedCard(id,B,scope);if(loaded)[...B.querySelectorAll("[data-edit-schedule]")].find(button=>button.dataset.editSchedule===x.id)?.focus();return loaded},cancel:()=>{editor.element.remove();toggle.disabled=remove.disabled=edit.disabled=false;edit.focus()}});row.append(editor.element);editor.focus()};
+   const active=()=>scope===S.workspaceId&&profId===id&&profileVersion===profile&&row.isConnected;
+   const change=async action=>{if(!active()||toggle.disabled)return;toggle.disabled=remove.disabled=edit.disabled=true;try{await api(`/schedules/${x.id}/${action}`,{workspaceId:scope,revision:x.revision,...(action==="state"?{paused:!x.paused}:{})});if(!active())return;if(!await schedCard(id,B,scope)&&active())status.textContent="Đã lưu thay đổi. Tải lại lịch để kiểm tra."}catch(e){if(!active())return;if(e.status===409){status.textContent="Lịch đã thay đổi. Tải lại lịch để kiểm tra.";await schedCard(id,B,scope)}else{status.textContent="Chưa lưu được thay đổi. Hãy thử lại.";toggle.disabled=remove.disabled=edit.disabled=false}}};
+   const focusEdit=()=>{if(profId===id&&S.workspaceId===scope&&profileVersion===profile&&!B.querySelector(".schedule-editor"))[...B.querySelectorAll("[data-edit-schedule]")].find(button=>button.dataset.editSchedule===x.id)?.focus({preventScroll:true})};
+   edit.type="button";edit.dataset.editSchedule=x.id;edit.onclick=()=>{if(!active()||edit.disabled)return;toggle.disabled=remove.disabled=edit.disabled=true;const editor=window.AURORA_SCHEDULE_EDITOR.create({schedule:x,workspaceId:scope,save:body=>api(`/schedules/${x.id}/edit`,body),reload:async()=>{if(!active())return false;const loaded=await schedCard(id,B,scope);if(loaded)focusEdit();return loaded},cancel:async()=>{if(!active())return;editor.element.remove();toggle.disabled=remove.disabled=edit.disabled=false;edit.focus();if(await schedCard(id,B,scope,true))focusEdit()}});row.append(editor.element);editor.focus()};
    toggle.type=remove.type="button";toggle.onclick=()=>change("state");remove.onclick=()=>change("delete");controls.append(toggle,edit,remove);row.append(controls,status);if(x.blocked)row.append(el("p","schedule-blocked",x.blocked==="quota_exceeded"?"Lịch đang chờ hạn mức mới.":"Chưa nhận được lượt hẹn; hệ thống sẽ thử lại."));if(!testStorageError)row.append(testCard(x,x.id));w.append(row)}
   if(!testStorageError)for(const record of testRecords)if(!L.some(x=>x.id===record.id)){const row=el("div","schedule-row");row.append(el("p","caption","Lượt thử của lịch không còn trong danh sách"),testCard(null,record.id));w.append(row)}
   w.append(el("p","caption","Tạm dừng ngăn lượt mới và hủy lượt còn trong hàng đợi. Lượt đang chạy tiếp tục đến khi bạn dừng trong chat."));
-  if(old)old.replaceWith(w);else{const pc=B.querySelector("#pcBox");pc?B.insertBefore(w,pc):B.append(w)}return true;
- }catch{if(profId===id&&scope===S.workspaceId)toast("Chưa tải được lịch hẹn");return false}
+  place(w);return true;
+ }catch{if(current()&&!keepDraft())notice("Chưa tải được lịch hẹn. Hãy thử tải lại.",true);return false}
 }
 
 // ---------- extras: model menu, providers, thinking, skills, MCP, folder, forms, images (DS Bot ideas, Apache-2.0 credit) ----------

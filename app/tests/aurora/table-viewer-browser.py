@@ -61,11 +61,14 @@ try:
             check('wide inline table can be scrolled using the keyboard')
             open_table();stage=dialog.locator('.table-stage');stage.focus();page.keyboard.press('ArrowRight');page.keyboard.press('ArrowDown')
             page.wait_for_function('document.querySelector(".table-stage").scrollLeft>0 && document.querySelector(".table-stage").scrollTop>0')
+            page.wait_for_timeout(250)
             stage.evaluate('n=>{n.scrollLeft=0;n.scrollTop=0}')
             cell=dialog.locator('tbody tr:first-child td').first
-            box=cell.bounding_box();edge=stage.bounding_box()
-            page.mouse.move(box['x']+5,box['y']+box['height']/2);page.mouse.down()
+            box=cell.evaluate('n=>{const range=document.createRange();range.setStart(n.firstChild,0);range.setEnd(n.firstChild,1);const r=range.getBoundingClientRect();return {x:r.x,y:r.y,height:r.height}}');edge=stage.bounding_box()
+            page.mouse.move(box['x']+1,box['y']+box['height']/2);page.mouse.down()
             try:
+                page.mouse.move(box['x']+50,box['y']+box['height']/2,steps=5)
+                page.wait_for_function('getSelection().toString().length>0')
                 page.mouse.move(edge['x']+edge['width']+10,box['y']+box['height']/2,steps=12)
                 page.wait_for_function('document.querySelector(".table-stage").scrollLeft>20')
                 assert page.evaluate('getSelection().toString().length>0')
