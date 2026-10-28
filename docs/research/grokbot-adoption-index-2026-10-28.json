@@ -955,7 +955,9 @@
       "coverage": "partial-local-validation",
       "tableViewerEvidence": "docs/research/grokbot-table-viewer-2026-10-28.md",
       "tableViewerCodeCommit": "68942674b99ded286b65f045d13664a2c3ea0a05",
-      "limits": "Local Chrome table-dialog source ownership, selection release and focus/scroll fixtures only; not all table/link/zoom/platform conditions."
+      "limits": "Local Chrome table-dialog source ownership, selection release and focus/scroll fixtures only; not all table/link/zoom/platform conditions.",
+      "listFocusEvidence": "docs/research/grokbot-list-focus-2026-10-28.md",
+      "listFocusCodeCommit": "8a0c5fd2edcbddc8266d675d3ab075249ab87e35"
     },
     {
       "id": "0.77.0-Fixed-5",
@@ -1005,7 +1007,9 @@
       "codeCommit": "c684bb995de97b59c4ce26c4ab27bbd0f8a0f26d",
       "limits": "Device-local browser markers only; no server read API, cross-tab conflict resolution, real phone or multi-device sync acceptance.",
       "loadingEvidence": "docs/research/grokbot-chat-loading-2026-10-28.md",
-      "loadingCodeCommit": "dc61d4b8f054a15892009b5891c7af76130fe78a"
+      "loadingCodeCommit": "dc61d4b8f054a15892009b5891c7af76130fe78a",
+      "listFocusEvidence": "docs/research/grokbot-list-focus-2026-10-28.md",
+      "listFocusCodeCommit": "8a0c5fd2edcbddc8266d675d3ab075249ab87e35"
     },
     {
       "id": "0.77.0-Fixed-8",

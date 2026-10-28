@@ -33,3 +33,5 @@ All final gates share manifest `38f46e324f88f15c06b32a14c986c85b526ee29c582dcf99
 - Read-state `223612` failed to open a chat with Enter after workspace round trips, with no page exception. The same source passed at `223659`. The separate ignored `focus-probe.py` deterministically shows focus moving from a chat row to BODY on a same-workspace state reload. That list-focus bug remains a follow-up at this checkpoint; it is not fixed by table changes. A fixture socket write also reported WinError 10053 in the failed run; it does not establish the cause of the keyboard failure.
 
 This provides partial evidence for source entry 0.77.0 Fixed 4, not every table/link scrolling or zoom condition. It does not implement hover arrows, Slack rich-text export, every browser/native platform, realtime streaming selection guarantees or general focus preservation throughout Aurora. No new full-parity claim is made.
+
+Follow-up: the deterministic list-focus bug noted above is addressed at `8a0c5fd2edcbddc8266d675d3ab075249ab87e35` with a separate [focus and viewport report](grokbot-list-focus-2026-10-28.md). The original table gate and its failed read-state run remain unchanged.
