@@ -16,6 +16,7 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"unicode/utf8"
 
 	"nekoaurora.local/native/internal/ledger"
 )
@@ -23,15 +24,16 @@ import (
 const maxSchedules = 12
 
 type schedule struct {
-	ID       string `json:"id"`
-	Bot      string `json:"bot"`
-	Text     string `json:"text"`
-	At       string `json:"at"`             // HH:MM, Vietnam time
-	Repeat   string `json:"repeat"`         // daily | weekdays | once
-	Date     string `json:"date,omitempty"` // once: YYYY-MM-DD
-	Last     string `json:"last,omitempty"` // last occurrence key run
-	Paused   bool   `json:"paused"`
-	Revision uint64 `json:"revision"`
+	ID        string `json:"id"`
+	Bot       string `json:"bot"`
+	Text      string `json:"text"`
+	At        string `json:"at"`             // HH:MM, Vietnam time
+	Repeat    string `json:"repeat"`         // daily | weekdays | once
+	Date      string `json:"date,omitempty"` // once: YYYY-MM-DD
+	Last      string `json:"last,omitempty"` // last occurrence key run
+	Paused    bool   `json:"paused"`
+	Revision  uint64 `json:"revision"`
+	StartDate string `json:"startDate,omitempty"` // earliest day after an owner edit
 }
 
 type schedStore struct {
@@ -61,6 +63,7 @@ var hhmm = regexp.MustCompile(`^([01]?\d|2[0-3]):([0-5]\d)$`)
 
 // normalize validates a schedule from a directive; ok=false drops it.
 func (x schedule) normalize(now time.Time) (schedule, bool) {
+	x.StartDate = ""
 	x.Text = clean(x.Text, 1000)
 	m := hhmm.FindStringSubmatch(strings.TrimSpace(x.At))
 	if x.Text == "" || m == nil {
@@ -95,6 +98,9 @@ func (x schedule) due(now time.Time) string {
 	}
 	t := now.In(saigon)
 	day := t.Format("2006-01-02")
+	if x.StartDate != "" && day < x.StartDate {
+		return ""
+	}
 	if x.Repeat == "once" {
 		switch {
 		case x.Last != "" || day < x.Date:
@@ -237,6 +243,87 @@ func (s *Service) controlSchedule(id string, revision uint64, paused *bool) erro
 	return ErrNotFound
 }
 
+type scheduleEdit struct {
+	WorkspaceID string `json:"workspaceId"`
+	Revision    uint64 `json:"revision"`
+	Text        string `json:"text"`
+	At          string `json:"at"`
+	Repeat      string `json:"repeat"`
+	Date        string `json:"date"`
+}
+
+func (s *Service) editSchedule(id string, in scheduleEdit) (schedule, error) {
+	if s.L.ReadOnly() {
+		return schedule{}, ledger.ErrConflict
+	}
+	now := s.Now().In(saigon)
+	day := now.Format("2006-01-02")
+	m := hhmm.FindStringSubmatch(strings.TrimSpace(in.At))
+	if m == nil || strings.TrimSpace(in.Text) == "" || utf8.RuneCountInString(in.Text) > 1000 {
+		return schedule{}, ErrInvalid
+	}
+	if len(m[1]) == 1 {
+		m[1] = "0" + m[1]
+	}
+	in.At = m[1] + ":" + m[2]
+	switch in.Repeat {
+	case "daily", "weekdays":
+		if in.Date != "" {
+			return schedule{}, ErrInvalid
+		}
+	case "once":
+		at, err := time.ParseInLocation("2006-01-02 15:04", in.Date+" "+in.At, saigon)
+		if err != nil || at.Format("2006-01-02") != in.Date || !at.After(now) {
+			return schedule{}, ErrInvalid
+		}
+	default:
+		return schedule{}, ErrInvalid
+	}
+	st := s.sched
+	st.mu.Lock()
+	defer st.mu.Unlock()
+	for i, old := range st.L {
+		if old.ID != id {
+			continue
+		}
+		if in.Revision != max(1, old.Revision) {
+			return schedule{}, ledger.ErrConflict
+		}
+		x := old
+		x.Text, x.At, x.Repeat, x.Date = clean(in.Text, 1000), in.At, in.Repeat, in.Date
+		x.Revision, x.StartDate = max(1, old.Revision)+1, ""
+		key := day
+		if in.Repeat == "once" {
+			key = in.Date
+		}
+		admitted := old.Last == key
+		for _, work := range s.L.Snapshot().Work {
+			if work.BotID == old.Bot && work.ClientNonce == "sched-"+id+"-"+key {
+				admitted = true
+				break
+			}
+		}
+		if in.Repeat == "once" {
+			if admitted {
+				return schedule{}, ledger.ErrConflict
+			}
+			x.Last = ""
+		} else {
+			x.StartDate = day
+			if admitted || in.At <= now.Format("15:04") {
+				x.StartDate = now.AddDate(0, 0, 1).Format("2006-01-02")
+			}
+		}
+		st.L[i] = x
+		if err := st.saveLocked(); err != nil {
+			st.L[i] = old
+			return schedule{}, err
+		}
+		return x, nil
+	}
+	return schedule{}, ErrNotFound
+}
+
 func (s *Service) scheduleLoop() {
 	t := time.NewTicker(30 * time.Second)
 	defer t.Stop()
@@ -262,6 +349,23 @@ func (s *Service) addSchedules(w ledger.Work, xs []schedule) {
 }
 
 func (s *Service) scheduleRoutes() {
+	s.mux.HandleFunc("POST /app/api/schedules/{id}/edit", func(w http.ResponseWriter, r *http.Request) {
+		var in scheduleEdit
+		if decodeStrict(r, &in) != nil {
+			fail(w, ErrInvalid)
+			return
+		}
+		if in.WorkspaceID != s.workspaceID {
+			fail(w, ledger.ErrConflict)
+			return
+		}
+		x, err := s.editSchedule(r.PathValue("id"), in)
+		if err != nil {
+			fail(w, err)
+			return
+		}
+		writeJSON(w, 200, map[string]any{"schedule": x})
+	})
 	s.mux.HandleFunc("GET /app/api/schedules", func(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, 200, map[string]any{"schedules": s.sched.list(r.URL.Query().Get("bot"))})
 	})

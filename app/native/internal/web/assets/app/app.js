@@ -30,7 +30,7 @@ const API="/app/api";let selectionExcerpt=null;
 // iOS shell (Capacitor) native plugins, null in the browser
 const CAP=window.Capacitor&&window.Capacitor.isNativePlatform&&window.Capacitor.isNativePlatform()?window.Capacitor.Plugins:null;
 
-async function api(path,body,retry){const get=body===undefined;let r;try{r=await fetch(API+path,{method:get?"GET":"POST",credentials:"same-origin",cache:"no-store",headers:get?{}:{"Content-Type":"application/json"},body:get?undefined:JSON.stringify(body),signal:(get||path.endsWith("/messages")||path.endsWith("/computer/upload"))&&AbortSignal.timeout?AbortSignal.timeout(get?15000:30000):undefined});
+async function api(path,body,retry){const get=body===undefined;let r;try{r=await fetch(API+path,{method:get?"GET":"POST",credentials:"same-origin",cache:"no-store",headers:get?{}:{"Content-Type":"application/json"},body:get?undefined:JSON.stringify(body),signal:(get||path.endsWith("/messages")||path.endsWith("/computer/upload")||path.startsWith("/schedules/")&&path.endsWith("/edit"))&&AbortSignal.timeout?AbortSignal.timeout(get?15000:30000):undefined});
  // a GET stuck on a container that is shutting down (deploy) or a 503 while the workspace opens: retry once on a fresh connection
  if(get&&!retry&&r.status===503){await new Promise(f=>setTimeout(f,1500));return api(path,body,true)}
  if(!r.ok){const e=new Error(String(r.status));e.status=r.status;e.body=await r.json().catch(()=>null);throw e}return get?await r.json():r.json()}catch(e){if(get&&!retry&&!e.status){await new Promise(f=>setTimeout(f,800));return api(path,body,true)}throw e}}
@@ -707,18 +707,20 @@ $("#pmRef").onclick=()=>{closeMenu();if(!cur)return;const B=$("#refBody");B.inne
 $("#closeRef").onclick=()=>closeSheet(true);
 // ---------- schedules on the profile ----------
 const RPT={daily:"Mỗi ngày",weekdays:"Thứ 2–6",once:"Một lần"};
-async function schedCard(id,B){
- try{const r=await api("/schedules?bot="+encodeURIComponent(id));if(profId!==id)return;
-  const old=B.querySelector("#schedBox"),L=r.schedules||[];if(!L.length&&!old)return;
+async function schedCard(id,B,scope=S.workspaceId){
+ if(profId!==id||scope!==S.workspaceId)return;
+ try{const r=await api("/schedules?bot="+encodeURIComponent(id));if(profId!==id||scope!==S.workspaceId)return;
+  const old=B.querySelector("#schedBox"),L=r.schedules||[];if(!L.length&&!old)return true;
   const w=card("Lịch hẹn");w.id="schedBox";
   if(!L.length)w.append(cell("clock","Chưa có lịch hẹn",{static:1}));
   for(const x of L){const row=el("div","schedule-row");row.append(cell("clock",x.at+" · "+(RPT[x.repeat]||x.repeat)+(x.date?" "+x.date.split("-").reverse().join("/"):"")+(x.paused?" · Đã tạm dừng":""),{sub:x.text,static:1}));
-   const controls=el("div","schedule-controls"),toggle=el("button","pill soft",x.paused?"Tiếp tục":"Tạm dừng"),remove=el("button","pill soft","Xóa lịch"),status=el("p","schedule-error");status.setAttribute("role","status");
-   const change=async action=>{toggle.disabled=remove.disabled=true;try{await api(`/schedules/${x.id}/${action}`,{revision:x.revision,...(action==="state"?{paused:!x.paused}:{})});await schedCard(id,B)}catch(e){if(e.status===409){toast("Lịch đã thay đổi. Đã tải lại phiên bản mới.");await schedCard(id,B)}else{status.textContent="Chưa lưu được thay đổi. Hãy thử lại.";toggle.disabled=remove.disabled=false}}};
-   toggle.type=remove.type="button";toggle.onclick=()=>change("state");remove.onclick=()=>change("delete");controls.append(toggle,remove);row.append(controls,status);w.append(row)}
+   const controls=el("div","schedule-controls"),toggle=el("button","pill soft",x.paused?"Tiếp tục":"Tạm dừng"),remove=el("button","pill soft","Xóa lịch"),edit=el("button","pill soft","Sửa lịch"),status=el("p","schedule-error");status.setAttribute("role","status");
+   const change=async action=>{toggle.disabled=remove.disabled=edit.disabled=true;try{await api(`/schedules/${x.id}/${action}`,{revision:x.revision,...(action==="state"?{paused:!x.paused}:{})});await schedCard(id,B)}catch(e){if(e.status===409){toast("Lịch đã thay đổi. Đã tải lại phiên bản mới.");await schedCard(id,B)}else{status.textContent="Chưa lưu được thay đổi. Hãy thử lại.";toggle.disabled=remove.disabled=edit.disabled=false}}};
+   edit.type="button";edit.dataset.editSchedule=x.id;edit.onclick=()=>{toggle.disabled=remove.disabled=edit.disabled=true;const editor=window.AURORA_SCHEDULE_EDITOR.create({schedule:x,workspaceId:scope,save:body=>api(`/schedules/${x.id}/edit`,body),reload:async()=>{const loaded=await schedCard(id,B,scope);if(loaded)[...B.querySelectorAll("[data-edit-schedule]")].find(button=>button.dataset.editSchedule===x.id)?.focus();return loaded},cancel:()=>{editor.element.remove();toggle.disabled=remove.disabled=edit.disabled=false;edit.focus()}});row.append(editor.element);editor.focus()};
+   toggle.type=remove.type="button";toggle.onclick=()=>change("state");remove.onclick=()=>change("delete");controls.append(toggle,edit,remove);row.append(controls,status);w.append(row)}
   w.append(el("p","caption","Tạm dừng ngăn lượt mới và hủy lượt còn trong hàng đợi. Lượt đang chạy tiếp tục đến khi bạn dừng trong chat."));
-  if(old)old.replaceWith(w);else{const pc=B.querySelector("#pcBox");pc?B.insertBefore(w,pc):B.append(w)}
- }catch{if(profId===id)toast("Chưa tải được lịch hẹn")}
+  if(old)old.replaceWith(w);else{const pc=B.querySelector("#pcBox");pc?B.insertBefore(w,pc):B.append(w)}return true;
+ }catch{if(profId===id&&scope===S.workspaceId)toast("Chưa tải được lịch hẹn");return false}
 }
 
 // ---------- extras: model menu, providers, thinking, skills, MCP, folder, forms, images (DS Bot ideas, Apache-2.0 credit) ----------
