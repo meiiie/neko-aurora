@@ -126,7 +126,6 @@ func open(dir string, fixed []byte) (*Vault, error) {
 	if err = privatefs.Protect(v.path); err != nil && !os.IsNotExist(err) {
 		return nil, err
 	}
-	defer register(v)
 	b, err := os.ReadFile(v.path)
 	if err == nil {
 		var list []entry
@@ -134,15 +133,33 @@ func open(dir string, fixed []byte) (*Vault, error) {
 			return nil, ErrCorrupt
 		}
 		for _, e := range list {
-			pt, err := aead.Open(nil, e.Nonce, e.CT, aad(e.V, e.Name))
-			if err != nil || !ValidName(e.Name) || (e.V != 0 && e.V != 1) || len(e.Nonce) != aead.NonceSize() {
+			if !ValidName(e.Name) && !isOAuthRecordName(e.Name) || (e.V != 0 && e.V != 1) || len(e.Nonce) != aead.NonceSize() {
 				return nil, ErrCorrupt
+			}
+			if _, exists := v.items[e.Name]; exists {
+				return nil, ErrCorrupt
+			}
+			if isOAuthRecordName(e.Name) && len(e.CT) > maxOAuthRecordBytes+aead.Overhead() {
+				return nil, ErrCorrupt
+			}
+			pt, err := aead.Open(nil, e.Nonce, e.CT, aad(e.V, e.Name))
+			if err != nil {
+				return nil, ErrCorrupt
+			}
+			if isOAuthRecordName(e.Name) {
+				if e.V != 1 || e.Kind != oauthRecordKind {
+					return nil, ErrCorrupt
+				}
+				if _, err := decodeOAuthRecord(string(pt)); err != nil {
+					return nil, ErrCorrupt
+				}
 			}
 			v.items[e.Name], v.cache[e.Name] = e, string(pt)
 		}
 	} else if !os.IsNotExist(err) {
 		return nil, err
 	}
+	register(v)
 	return v, nil
 }
 
@@ -165,6 +182,13 @@ func (v *Vault) Set(m Meta, value string) (Meta, error) {
 	}
 	if value == "" || len(value) > 8192 || strings.ContainsAny(value, "\x00") {
 		return Meta{}, ErrValue
+	}
+	return v.set(m, value)
+}
+
+func (v *Vault) set(m Meta, value string) (Meta, error) {
+	if v == nil {
+		return Meta{}, ErrMissing
 	}
 	nonce := make([]byte, v.aead.NonceSize())
 	if _, err := io.ReadFull(rand.Reader, nonce); err != nil {
@@ -190,6 +214,13 @@ func (v *Vault) Set(m Meta, value string) (Meta, error) {
 }
 
 func (v *Vault) Delete(name string) error {
+	if !ValidName(name) {
+		return ErrName
+	}
+	return v.delete(name)
+}
+
+func (v *Vault) delete(name string) error {
 	if v == nil {
 		return ErrMissing
 	}
@@ -211,6 +242,13 @@ func (v *Vault) Delete(name string) error {
 
 // Get returns a plaintext value for in-process use only.
 func (v *Vault) Get(name string) (string, bool) {
+	if !ValidName(name) {
+		return "", false
+	}
+	return v.get(name)
+}
+
+func (v *Vault) get(name string) (string, bool) {
 	if v == nil {
 		return "", false
 	}
@@ -223,7 +261,7 @@ func (v *Vault) Get(name string) (string, bool) {
 func (v *Vault) Has(name string) bool { _, ok := v.Get(name); return ok }
 
 func (v *Vault) Meta(name string) (Meta, bool) {
-	if v == nil {
+	if v == nil || !ValidName(name) {
 		return Meta{}, false
 	}
 	v.mu.RLock()
@@ -240,7 +278,7 @@ func (v *Vault) List() []Meta {
 	v.mu.RLock()
 	defer v.mu.RUnlock()
 	for _, e := range v.items {
-		if !isItemKind(e.Kind) {
+		if ValidName(e.Name) && !isItemKind(e.Kind) {
 			out = append(out, e.Meta)
 		}
 	}
@@ -256,6 +294,10 @@ func (v *Vault) Redact(s string) string {
 	v.mu.RLock()
 	defer v.mu.RUnlock()
 	for n, val := range v.cache {
+		if isOAuthRecordName(n) {
+			s = redactOAuthRecord(s, val)
+			continue
+		}
 		if isItemKind(v.items[n].Kind) {
 			s = redactItem(s, n, val)
 			continue
