@@ -79,6 +79,7 @@ type ResourcePin struct {
 	Files            []UploadedFile `json:"files"`
 }
 type SubmissionScope struct {
+	groupRecipient             bool
 	peerMessageID              string
 	coreProfileVerified        bool
 	CoreProfileSelection       *CoreProfileSelection `json:"coreProfileSelection,omitempty"`

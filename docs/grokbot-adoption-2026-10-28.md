@@ -31,7 +31,7 @@ Các implementation chính nằm trong [Aurora service](../app/native/internal/a
 - Câu hỏi hỗ trợ một nhóm lựa chọn với câu trả lời riêng. Chưa triển khai thẻ nhiều câu hỏi từng bước. Form mới hoàn tất theo receipt; cờ hoàn tất đã lưu bằng phiên bản cũ được giữ để tương thích, không tự suy đoán lại nội dung lịch sử.
 - MCP được kiểm tra bằng remote transport giả lập; chưa có OAuth discovery/refresh hay acceptance Gmail/Outlook/GitHub thật. Trạng thái tạm thời nằm trong service đang chạy; restart không phải bằng chứng phục hồi phiên OAuth.
 - Bảng sao chép TSV và Markdown; chưa xuất định dạng Slack rich text, căn dấu thập phân, footnote hay mọi chế độ bảng của nguồn tham khảo.
-- Outbox là dữ liệu trong trình duyệt của thiết bị, không phải cloud sync. Tin đã bị từ chối không tự gửi lại khi đăng nhập hoặc hết quota; người dùng xem lịch sử rồi quyết định. Retry có tham chiếu chat đã đổi hoặc nhóm đã đổi revision có thể nhận 409 và được giữ lại để xem xét. Chưa có transaction fan-out toàn bộ nhóm.
+- Outbox là dữ liệu trong trình duyệt của thiết bị, không phải cloud sync. Tin đã bị từ chối không tự gửi lại khi đăng nhập hoặc hết quota; người dùng xem lịch sử rồi quyết định. Lượt gửi mới lưu toàn bộ nhóm và biên nhận trong một khung journal; retry giữ người nhận và tham chiếu đã pin kể cả sau restart. Lượt nhóm đã nhận một phần bằng phiên bản cũ vẫn trả conflict. Chi tiết định dạng và giới hạn trong [message admission](research/grokbot-message-admission-2026-10-28.md).
 - Quota reservation giữ tối thiểu đến lần dọn sau 8 ngày và giới hạn 16.384 mục/workspace; lỗi admission sau reservation giữ lượt đã dành. Không tuyên bố exactly-once cho email, thanh toán hay công cụ bên ngoài.
 - Lịch dùng múi giờ Việt Nam và các kiểu lặp sẵn có. Kiểm tra revision là trên cùng server; chưa kiểm chứng bằng hai điện thoại thật. Occurrence đã chạy cần dừng bằng thao tác trong chat. Dữ liệu lịch vẫn dùng file hiện hữu, không phải bộ điều phối phân tán.
 - PWA là bề mặt đã kiểm tra. Chưa có acceptance Tauri, iOS/Android vật lý, APNs production hay đánh giá chất lượng model.
@@ -41,7 +41,7 @@ Các implementation chính nằm trong [Aurora service](../app/native/internal/a
 | Nhóm | Điểm tích hợp hiện có | Điều kiện để được ghi nhận hoàn thành |
 |---|---|---|
 | Connector, email và reconnect | `aurora/mcp.go`, `connectors.go`, `outbound/`, `connections/` | Đã có foundation MCP cục bộ; còn OAuth/provider-specific lifecycle, schema refresh, fake-provider contract từng dịch vụ rồi acceptance tài khoản được cấp phép. |
-| Chat, nhiều câu hỏi và form | `aurora/view.go`, `groups.go`, PWA | Đã có form theo receipt; còn nhiều câu hỏi có danh tính riêng, quoted reply, giữ nháp/tệp khi đổi chat, fan-out nguyên tử và retry tham chiếu đã pin. |
+| Chat, nhiều câu hỏi và form | `aurora/view.go`, `groups.go`, PWA | Đã có form theo receipt, fan-out nguyên tử và retry tham chiếu đã pin; còn nhiều câu hỏi có danh tính riêng, quoted reply và giữ nháp/tệp khi đổi chat. |
 | Routine, webhook và handoff | `schedule.go`, `network.go`, ledger | Lịch phong phú, webhook có identity, reconnect refresh, nguồn/đích kết quả, hạn mức trigger và restart admission. |
 | Pages, Library và tài liệu | `documents/`, `documentworker/`, `artifacts.go`, UI file | Biên tập/lưu/xuất có version; phục hồi crash; kiểm tra cấu trúc và render nội dung thật, accessibility. |
 | Computer và browser | Rust host, Go computer, cloud-browser | Quyền theo hành động, cancellation, reconnect đúng thiết bị, artifact outcome; kiểm thử crash/unknown outcome và host thật. |
@@ -52,7 +52,7 @@ Các implementation chính nằm trong [Aurora service](../app/native/internal/a
 
 Mục đổi model để vượt một lần dừng của bộ lọc an toàn không được tiếp nhận. Fallback vì lỗi vận hành không phải cơ chế bỏ qua quyết định an toàn.
 
-Ưu tiên tiếp: retry nhóm nguyên tử và tham chiếu đã pin; câu hỏi nhiều bước; lifecycle OAuth/provider thật; lịch/webhook, tài liệu, voice và quyền nhóm. Mỗi mục cần bằng chứng riêng trong index; không tự chuyển trạng thái theo keyword hay theo việc có file tương tự. Tám dòng nguồn hiện có bằng chứng cục bộ một phần; 811 dòng vẫn chưa được ghi nhận có kiểm chứng tương ứng.
+Ưu tiên tiếp: giữ nháp/tệp theo chat; câu hỏi nhiều bước; lifecycle OAuth/provider thật; lịch/webhook, tài liệu, voice và quyền nhóm. Mỗi mục cần bằng chứng riêng trong index; không tự chuyển trạng thái theo keyword hay theo việc có file tương tự. Tám dòng nguồn hiện có bằng chứng cục bộ một phần; 811 dòng vẫn chưa được ghi nhận có kiểm chứng tương ứng. Thay đổi admission là cải thiện độ bền của Aurora, không tự được tính thành hoàn tất thêm dòng changelog.
 
 ## Bằng chứng kiểm tra
 

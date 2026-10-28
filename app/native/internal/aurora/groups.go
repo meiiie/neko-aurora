@@ -4,7 +4,6 @@ import (
 	"log"
 	"sort"
 	"strings"
-	"time"
 
 	"nekoaurora.local/native/internal/ledger"
 )
@@ -143,42 +142,20 @@ func (s *Service) createGroup(name string, bots []string) (ledger.Channel, error
 	return c, err
 }
 
-// sendGroup fans one owner message out to every member bot.
-func (s *Service) sendGroup(id, text, nonce string) (*Message, error) {
+func (s *Service) acceptMessage(id, text, nonce, ref string) ([]ledger.Work, bool, error) {
 	v := s.view()
-	c, ok := v.channels[id]
-	if !ok {
-		return nil, ErrNotFound
+	plan := ledger.OwnerMessagePlan{BotIDs: []string{id}}
+	if isGroupID(id) {
+		c := v.channels[id]
+		plan.BotIDs, plan.ChannelRevision = v.recipients(c, text), c.Revision
 	}
-	rev := c.Revision
-	var first ledger.Work
-	acceptedNew := false
-	n := 0
-	to := map[string]bool{}
-	for _, id := range v.recipients(c, text) {
-		to[id] = true
+	if ref == id {
+		ref = ""
 	}
-	for i, b := range c.BotIDs {
-		if v.archived[b] || !to[b] {
-			continue
-		}
-		w, duplicate, err := s.L.AcceptProduct(ledger.Input{BotID: b, ClientNonce: nonce + "_g" + itoa(i+1), Text: text}, ledger.SubmissionScope{ChannelID: id, ExpectedChannelRevision: &rev})
-		if err != nil {
-			return nil, err
-		}
-		acceptedNew = acceptedNew || !duplicate
-		if n == 0 {
-			first = w
-		}
-		n++
+	if ref != "" {
+		plan.ReferenceText = v.refBlock(ref)
 	}
-	if n == 0 {
-		return nil, ErrInvalid
-	}
-	if acceptedNew {
-		s.supersede(id)
-	}
-	return &Message{ID: nonce + ":u", TaskID: first.RequestID, AgentID: id, Role: "user", Text: text, Created: time.Now(), AnswerFor: questionAnswered(nonce), FormFor: formAnswered(nonce)}, nil
+	return s.L.AcceptOwnerMessage(ledger.OwnerMessageInput{ThreadID: id, Text: text, ClientNonce: nonce, ReferenceID: ref}, plan)
 }
 
 func formAnswered(nonce string) string {

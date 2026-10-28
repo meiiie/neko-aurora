@@ -743,25 +743,11 @@ func (s *Service) routes() {
 			fail(w, ErrInvalid)
 			return
 		}
-		if in.Ref != "" && in.Ref != r.PathValue("id") {
-			text += s.view().refBlock(in.Ref)
-		}
-		if isGroupID(id) {
-			msg, err := s.sendGroup(id, text, nonce)
-			if err != nil {
-				fail(w, err)
-				return
-			}
-			s.sync()
-			s.poke()
-			writeJSON(w, 202, msg)
-			return
-		}
-		if _, ok := s.view().bot(id); !ok {
+		if _, ok := s.view().bot(id); !ok && !isGroupID(id) {
 			fail(w, ErrNotFound)
 			return
 		}
-		work, duplicate, err := s.L.Accept(ledger.Input{BotID: id, ClientNonce: nonce, Text: text})
+		works, duplicate, err := s.acceptMessage(id, text, nonce, in.Ref)
 		if err != nil {
 			fail(w, err)
 			return
@@ -771,6 +757,12 @@ func (s *Service) routes() {
 		}
 		s.sync()
 		s.poke()
+		work := works[0]
+		if isGroupID(id) {
+			at, _ := time.Parse(time.RFC3339Nano, work.CreatedAt)
+			writeJSON(w, 202, &Message{ID: nonce + ":u", TaskID: work.RequestID, AgentID: id, Role: "user", Text: stripRef(work.Text), Ref: refName(work.Text), Created: at, AnswerFor: questionAnswered(nonce), FormFor: formAnswered(nonce)})
+			return
+		}
 		for _, msg := range workMessages(work, false) {
 			if msg.Role == "user" {
 				msg.Queued = s.isRunning(id)

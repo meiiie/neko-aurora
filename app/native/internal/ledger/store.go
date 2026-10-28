@@ -171,12 +171,15 @@ type Snapshot struct {
 	Files                []UploadedFile        `json:"files,omitempty"`
 }
 type record struct {
-	Version  int    `json:"version"`
-	Event    Event  `json:"event"`
-	Previous string `json:"previous"`
-	Digest   string `json:"digest"`
+	Version  int                  `json:"version"`
+	Event    Event                `json:"event"`
+	Previous string               `json:"previous"`
+	Digest   string               `json:"digest"`
+	Batch    []Event              `json:"batch,omitempty"`
+	Message  *OwnerMessageReceipt `json:"message,omitempty"`
 }
 type Store struct {
+	ownerMessages            map[string]OwnerMessageReceipt
 	networkSessions          map[string]NetworkSession
 	networkMessages          map[string]NetworkMessage
 	networkNonces            map[string]Event
@@ -416,13 +419,12 @@ func (s *Store) replay() error {
 			return ErrCorrupt
 		}
 		d, err := digestRecord(r)
-		if err != nil || r.Version != 1 || r.Previous != s.digest || d != r.Digest || r.Event.Sequence != uint64(len(s.events)+1) {
+		if err != nil || r.Previous != s.digest || d != r.Digest {
 			return ErrCorrupt
 		}
-		if !validReplay(s, r.Event) {
+		if err = s.replayRecord(r); err != nil {
 			return ErrCorrupt
 		}
-		s.apply(r.Event)
 		s.digest = r.Digest
 		offset += int64(len(line))
 	}
@@ -847,6 +849,10 @@ func (s *Store) commit(e Event) error {
 	}
 	e.Sequence = uint64(len(s.events) + 1)
 	r := record{Version: 1, Event: e, Previous: s.digest}
+	return s.commitRecord(r)
+}
+
+func (s *Store) commitRecord(r record) error {
 	d, err := digestRecord(r)
 	if err != nil {
 		return err
@@ -872,7 +878,14 @@ func (s *Store) commit(e Event) error {
 		s.poisoned = true
 		return ErrUnavailable
 	}
-	s.apply(e)
+	if r.Version == 2 {
+		for _, e := range r.Batch {
+			s.apply(e)
+		}
+		s.rememberOwnerMessage(*r.Message)
+	} else {
+		s.apply(r.Event)
+	}
 	s.digest = d
 	return nil
 }
@@ -913,6 +926,26 @@ func (s *Store) Accept(in Input) (Work, bool, error) {
 	return s.acceptLocked(in, nil, "")
 }
 func (s *Store) acceptLocked(in Input, account *connections.Pin, channelID string, options ...SubmissionScope) (Work, bool, error) {
+	w, duplicate, err := s.prepareAcceptanceLocked(in, account, channelID, options...)
+	if err != nil || duplicate {
+		return w, duplicate, err
+	}
+	commit := func() error { return s.commit(Event{Type: "work.accepted", Work: w}) }
+	if len(options) > 0 && options[0].ExpectedInstallationPin != nil {
+		if w.ExecutorPin == nil || *w.ExecutorPin != *options[0].ExpectedInstallationPin {
+			return Work{}, false, ErrConflict
+		}
+		err = s.withInstallPin(w.ExecutorPolicyVersion, w.ExecutorPin, commit)
+	} else {
+		err = commit()
+	}
+	if err != nil {
+		return Work{}, false, err
+	}
+	return copyWork(w), false, nil
+}
+
+func (s *Store) prepareAcceptanceLocked(in Input, account *connections.Pin, channelID string, options ...SubmissionScope) (Work, bool, error) {
 	scope := SubmissionScope{ChannelID: channelID}
 	if len(options) > 0 {
 		scope = options[0]
@@ -989,8 +1022,16 @@ func (s *Store) acceptLocked(in Input, account *connections.Pin, channelID strin
 		selection := *scope.CoreProfileSelection
 		w.CoreProfileSelection = &selection
 	}
-	if target, alias, err := s.resolvePeerRoute(in.Text, scope.peerMessageID); err != nil {
-		return Work{}, false, err
+	target, alias, routeErr := "", "", error(nil)
+	if scope.groupRecipient {
+		if !validChannelID(channelID) {
+			return Work{}, false, ErrInvalid
+		}
+	} else {
+		target, alias, routeErr = s.resolvePeerRoute(in.Text, scope.peerMessageID)
+	}
+	if routeErr != nil {
+		return Work{}, false, routeErr
 	} else if target != "" && target != in.BotID {
 		w.SourceBotID = in.BotID
 		w.BotID = target
@@ -1080,18 +1121,6 @@ func (s *Store) acceptLocked(in Input, account *connections.Pin, channelID strin
 	}
 	if !boundedRuntimePrompt(w) {
 		return Work{}, false, ErrInvalid
-	}
-	commit := func() error { return s.commit(Event{Type: "work.accepted", Work: w}) }
-	if scope.ExpectedInstallationPin != nil {
-		if w.ExecutorPin == nil || *w.ExecutorPin != *scope.ExpectedInstallationPin {
-			return Work{}, false, ErrConflict
-		}
-		err = s.withInstallPin(w.ExecutorPolicyVersion, w.ExecutorPin, commit)
-	} else {
-		err = commit()
-	}
-	if err != nil {
-		return Work{}, false, err
 	}
 	return copyWork(w), false, nil
 }
