@@ -509,14 +509,15 @@ func isImage(p string) bool {
 func IsDeliverable(p string) bool { return deliverableExt[strings.ToLower(path.Ext(p))] }
 
 type Status struct {
-	Backend   string   `json:"backend"`
-	Available bool     `json:"available"`
-	Error     string   `json:"error,omitempty"`
-	Policy    Policy   `json:"policy"`
-	UsedBytes int64    `json:"usedBytes"`
-	Quota     int64    `json:"quotaBytes"`
-	Files     []Entry  `json:"files"`
-	Log       []Result `json:"log"`
+	Recovery  *RecoveryStatus `json:"recovery,omitempty"`
+	Backend   string          `json:"backend"`
+	Available bool            `json:"available"`
+	Error     string          `json:"error,omitempty"`
+	Policy    Policy          `json:"policy"`
+	UsedBytes int64           `json:"usedBytes"`
+	Quota     int64           `json:"quotaBytes"`
+	Files     []Entry         `json:"files"`
+	Log       []Result        `json:"log"`
 }
 
 func (m *Manager) Status(bot string) (Status, error) {
@@ -532,6 +533,12 @@ func (m *Manager) Status(bot string) (Status, error) {
 	if err := m.sb.Available(); err != nil {
 		st.Available, st.Error = false, err.Error()
 	}
+	if backend, ok := m.sb.(interface{ RecoveryStatus(string) *RecoveryStatus }); ok {
+		st.Recovery = backend.RecoveryStatus(h)
+		if st.Recovery != nil {
+			st.Available, st.Error = false, st.Recovery.Message
+		}
+	}
 	st.UsedBytes, _ = dirSize(h)
 	st.Files, _ = m.List(bot, "")
 	return st, nil
@@ -545,6 +552,15 @@ func (m *Manager) Reset(bot string) error {
 	}
 	unlock := m.lock(bot)
 	defer unlock()
+	if d, ok := m.sb.(interface {
+		Destroy(context.Context, string) error
+	}); ok {
+		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cancel()
+		if err := d.Destroy(ctx, h); err != nil {
+			return err
+		}
+	}
 	_ = filepath.WalkDir(h, func(p string, d fs.DirEntry, err error) error {
 		if err == nil && d.IsDir() {
 			_ = os.Chmod(p, 0o700) // sandboxed code may have dropped write bits
@@ -553,11 +569,6 @@ func (m *Manager) Reset(bot string) error {
 	})
 	if err := os.RemoveAll(h); err != nil {
 		return err
-	}
-	if d, ok := m.sb.(interface {
-		Destroy(context.Context, string) error
-	}); ok {
-		_ = d.Destroy(context.Background(), h) // remote VM (Railway) goes too
 	}
 	x := m.load(bot)
 	x.Log = nil

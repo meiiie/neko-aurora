@@ -30,7 +30,7 @@ const API="/app/api";let selectionExcerpt=null;
 // iOS shell (Capacitor) native plugins, null in the browser
 const CAP=window.Capacitor&&window.Capacitor.isNativePlatform&&window.Capacitor.isNativePlatform()?window.Capacitor.Plugins:null;
 
-async function api(path,body,retry){const get=body===undefined;let r;try{r=await fetch(API+path,{method:get?"GET":"POST",credentials:"same-origin",cache:"no-store",headers:get?{}:{"Content-Type":"application/json"},body:get?undefined:JSON.stringify(body),signal:(get||path.endsWith("/messages")||path.endsWith("/computer/upload")||path.startsWith("/schedules/")&&path.endsWith("/edit"))&&AbortSignal.timeout?AbortSignal.timeout(get?15000:30000):undefined});
+async function api(path,body,retry){const get=body===undefined;let r;try{r=await fetch(API+path,{method:get?"GET":"POST",credentials:"same-origin",cache:"no-store",headers:get?{}:{"Content-Type":"application/json"},body:get?undefined:JSON.stringify(body),signal:(get||path.endsWith("/messages")||path.endsWith("/computer/upload")||path.endsWith("/computer/recover")||path.endsWith("/computer/reset")||path.startsWith("/schedules/")&&path.endsWith("/edit"))&&AbortSignal.timeout?AbortSignal.timeout(get?15000:30000):undefined});
  // a GET stuck on a container that is shutting down (deploy) or a 503 while the workspace opens: retry once on a fresh connection
  if(get&&!retry&&r.status===503){await new Promise(f=>setTimeout(f,1500));return api(path,body,true)}
  if(!r.ok){const e=new Error(String(r.status));e.status=r.status;e.body=await r.json().catch(()=>null);throw e}return get?await r.json():r.json()}catch(e){if(get&&!retry&&!e.status){await new Promise(f=>setTimeout(f,800));return api(path,body,true)}throw e}}
@@ -582,14 +582,24 @@ function renderProfile(){const a=byId(profId);const B=$("#profBody");if(!a){B.in
  $("#pmPinT").textContent=a.pin?"Bỏ ghim":"Ghim";$("#pmPin").classList.toggle("hidden",isGroup(a));$("#pmArch").classList.toggle("hidden",isGroup(a))}
 // bot computer: sandboxed home, recent commands, files, reset
 const kb=n=>n<1024?n+" B":n<1048576?(n/1024).toFixed(1)+" KB":(n/1048576).toFixed(1)+" MB";
-function renderComputer(id,box){api(`/agents/${id}/computer`).then(st=>{if(profId!==id)return;box.innerHTML="";
- const rows=[cell("monitor","Trạng thái",{static:1,value:st.available?"Sẵn sàng":"Đang tắt",sub:st.available?"Linux riêng · "+kb(st.usedBytes)+" / "+kb(st.quotaBytes):st.error||""})];
+function renderComputer(id,box,scope=S.workspaceId){return api(`/agents/${id}/computer`).then(st=>{if(profId!==id||scope!==S.workspaceId||!box.isConnected)return false;box.innerHTML="";
+ const rows=[cell("monitor","Trạng thái",{static:1,value:st.recovery?"Chờ phục hồi":st.available?"Sẵn sàng":"Đang tắt",sub:st.available?"Linux riêng · "+kb(st.usedBytes)+" / "+kb(st.quotaBytes):st.error||""})];
  box.append(card("Máy tính",...rows));
+ const actionStatus=el("p","caption");actionStatus.setAttribute("role","status");const refresh=el("button","pill soft","Tải lại trạng thái");refresh.type="button";refresh.hidden=true;refresh.onclick=()=>renderComputer(id,box,scope);
+ let changing=false,received=false;
+ const action=async kind=>{if(changing||received||scope!==S.workspaceId)return;changing=true;box.querySelectorAll("button").forEach(b=>b.disabled=true);actionStatus.textContent=kind==="recover"?"Đang tải lại file…":"Đang làm mới máy tính…";
+  try{await api(`/agents/${id}/computer/${kind}`,{workspaceId:scope});received=true;if(scope!==S.workspaceId||profId!==id||!box.isConnected)return;const message=kind==="recover"?"Đã tải lại file; lệnh không chạy lại.":"Đã làm mới máy tính.";toast(message);if(await renderComputer(id,box,scope)===false){actionStatus.textContent=message+" Chưa tải lại được trạng thái.";refresh.hidden=false}}
+  catch(e){if(scope!==S.workspaceId||profId!==id||!box.isConnected)return;actionStatus.textContent=e.body?.error==="computer_recovery_local_files_changed"?"File local đã thay đổi. Đã giữ nguyên dữ liệu; chưa tải đè từ máy ảo.":e.status===409?"Trạng thái máy hoặc tài khoản đã thay đổi. Tải lại trạng thái để kiểm tra.":"Chưa nhận được xác nhận. Tải lại trạng thái để kiểm tra trước khi thử lại.";refresh.hidden=false}
+  finally{changing=false;if(scope===S.workspaceId&&actionStatus.isConnected){box.querySelectorAll("button").forEach(b=>b.disabled=received);refresh.disabled=false}}
+ };
+ if(st.recovery?.canRecover){const recover=el("button","pill soft","Tải lại file từ máy ảo");recover.type="button";recover.onclick=()=>action("recover");box.append(recover)}
+ box.append(actionStatus,refresh);
  if(st.log.length){const w=el("section","card-group");w.append(el("h3",0,"Lệnh gần đây"));const c=el("div","card pc-log");st.log.slice(-5).reverse().forEach(r=>{const d=el("details","pc-run");const s=el("summary");s.append(el("code",0,"$ "+r.cmd),el("span","pc-exit"+(r.exitCode?" bad":""),r.timedOut?"hết giờ":r.exitCode?"lỗi "+r.exitCode:"xong"));d.append(s,el("pre",0,r.output||"(không có đầu ra)"));c.append(d)});w.append(c);box.append(w)}
  const files=st.files.filter(f=>!f.dir).slice(0,12);
  if(files.length)box.append(card("File",...files.map(f=>cell("folder",f.path,{value:kb(f.size),onClick:()=>/\.(pptx?|docx?|xlsx?|pdf|png|jpe?g|gif|webp|mp4|webm|mov|zip|gz|tar)$/i.test(f.path)?(location.href=API+`/agents/${id}/computer/download?path=${encodeURIComponent(f.path)}`):api(`/agents/${id}/computer/file?path=${encodeURIComponent(f.path)}`).then(x=>{const old=box.querySelector(".pc-view");if(old)old.remove();const p=el("pre","pc-view",x.text+(x.truncated?"\n…":""));box.append(p);p.scrollIntoView({behavior:"smooth",block:"nearest"})}).catch(()=>toast("Không mở được file"))}))));
- box.append(card(null,cell("x","Làm mới máy tính",{danger:1,id:"pcReset",onClick:()=>{if(!confirm("Xoá mọi file và lịch sử lệnh trên máy tính của bot này?"))return;api(`/agents/${id}/computer/reset`,{}).then(()=>{toast("Đã làm mới");renderComputer(id,box)}).catch(()=>toast("Không làm mới được"))}})),el("p","caption","Mỗi bot có một máy Linux riêng, cách ly với máy chủ, mặc định không có mạng. Bot tự chạy lệnh trên máy này; việc gửi ra ngoài, tiêu tiền hay dùng khoá của bạn luôn chờ bạn duyệt."))
-}).catch(()=>{box.innerHTML=""})}
+ box.append(card(null,cell("x","Làm mới máy tính",{danger:1,id:"pcReset",onClick:()=>{if(!confirm(st.recovery?"Làm mới sẽ xóa máy ảo, file và lịch sử lệnh, kể cả file chưa tải về. Hãy giữ bản sao cần thiết trước. Tiếp tục?":"Xoá mọi file và lịch sử lệnh trên máy tính của bot này?"))return;action("reset")}})),el("p","caption","Mỗi bot có một máy Linux riêng, cách ly với máy chủ, mặc định không có mạng. Bot tự chạy lệnh trên máy này; việc gửi ra ngoài, tiêu tiền hay dùng khoá của bạn luôn chờ bạn duyệt."))
+;return true
+}).catch(()=>{if(profId===id&&scope===S.workspaceId&&box.isConnected)toast("Chưa tải được trạng thái máy tính");return false})}
 $("#profBack").onclick=()=>closeProfile();
 $("#profShare").onclick=()=>{const a=byId(profId);if(a)shareLink(a)};
 $("#profMore").onclick=e=>{e.stopPropagation();toggleMenu($("#profMenu"),$("#profMore"))};

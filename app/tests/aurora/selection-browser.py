@@ -65,8 +65,11 @@ try:
    check('cross-message and non-message selections do not offer insertion')
    select('[data-message-id="m1"] .msg strong');page.locator('[data-message-id="m1"] .msg strong').evaluate('n=>n.textContent="changed while selected"');pill.click();expect(page.locator('#input')).to_have_value('');expect(pill).to_be_hidden()
    check('changed source range cannot insert a stale capture')
-   page.reload();page.wait_for_load_state('networkidle');page.evaluate('window.__I18N.set("en")');select('[data-message-id="m1"] .msg strong');expect(pill).to_have_text('Add to chat');expect(pill).to_have_attribute('aria-label','Add selected text to draft');pill.click();assert '> đoạn cần chọn' in page.locator('#input').input_value()
-   page.evaluate('window.__I18N.set("vi")');select('[data-message-id="m1"] .msg p:first-child');pill.click();assert '👩🏽‍💻' in page.locator('#input').input_value()
+   page.reload();page.wait_for_load_state('networkidle')
+   with page.expect_navigation(wait_until="networkidle"):page.evaluate('window.__I18N.set("en")')
+   select('[data-message-id="m1"] .msg strong');expect(pill).to_have_text('Add to chat');expect(pill).to_have_attribute('aria-label','Add selected text to draft');pill.click();assert '> đoạn cần chọn' in page.locator('#input').input_value()
+   with page.expect_navigation(wait_until="networkidle"):page.evaluate('window.__I18N.set("vi")')
+   select('[data-message-id="m1"] .msg p:first-child');pill.click();assert '👩🏽‍💻' in page.locator('#input').input_value()
    assert not fx.posts and not errors,errors
    check('translated control leaves Vietnamese and Unicode selected content unchanged')
    (OUT/'selection-browser-result.json').write_text(json.dumps({'result':'PASS','scenarios':10,'browser':browser.version,'viewport':[390,844],'chatPosts':len(fx.posts),'errors':errors},indent=2),encoding='utf-8')

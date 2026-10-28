@@ -309,10 +309,47 @@ func (s *Service) computerRoutes() {
 			_, _ = io.Copy(w, f)
 		}
 	})
+	controlScope := func(w http.ResponseWriter, r *http.Request) bool {
+		var in struct {
+			WorkspaceID string `json:"workspaceId"`
+		}
+		if decodeStrict(r, &in) != nil {
+			fail(w, ErrInvalid)
+			return false
+		}
+		if in.WorkspaceID != s.workspaceID {
+			fail(w, ledger.ErrConflict)
+			return false
+		}
+		if s.L.ReadOnly() {
+			fail(w, ledger.ErrReadOnly)
+			return false
+		}
+		return true
+	}
+	m.HandleFunc("POST /app/api/agents/{id}/computer/recover", func(w http.ResponseWriter, r *http.Request) {
+		if id, ok := bot(w, r); ok {
+			if !controlScope(w, r) {
+				return
+			}
+			if err := s.PC.Recover(r.Context(), id); err != nil {
+				if errors.Is(err, computer.ErrRecoveryPending) || errors.Is(err, computer.ErrRecoveryConflict) {
+					writeJSON(w, http.StatusConflict, map[string]string{"error": err.Error()})
+				} else {
+					fail(w, err)
+				}
+				return
+			}
+			writeJSON(w, 200, map[string]bool{"ok": true})
+		}
+	})
 	m.HandleFunc("POST /app/api/agents/{id}/computer/reset", func(w http.ResponseWriter, r *http.Request) {
 		if id, ok := bot(w, r); ok {
+			if !controlScope(w, r) {
+				return
+			}
 			if err := s.PC.Reset(id); err != nil {
-				fail(w, ErrInvalid)
+				fail(w, err)
 				return
 			}
 			s.record(id, "", "agent", "Bạn làm mới máy tính của "+s.botName(id))
