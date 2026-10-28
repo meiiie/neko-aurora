@@ -975,7 +975,8 @@
         "memory-questions"
       ],
       "coverage": "partial-local-validation",
-      "implementation": "persistent-answer-receipt-only",
+      "implementation": "journaled-form-definition-and-answer-receipt-with-group-author-routing",
+      "historyEvidence": "docs/research/grokbot-form-history-2026-10-28.md",
       "evictionReplayEvidence": "docs/research/grokbot-form-replay-2026-10-28.md",
       "evictionReplayCodeCommit": "9c49a07883773ff26fe212822e82ba82b6052ad5"
     },
