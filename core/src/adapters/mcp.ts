@@ -407,6 +407,7 @@ export class McpHub {
   private configs = new Map<string, McpServerConfig>(); // kept so a dead server can be reconnected
   private transports = new Map<string, any>(); // stdio transports kept for pid -> tree-kill on close
   private pendingClients = new Map<string, Promise<Client>>(); // one lazy connect per server
+  private pendingOAuth = new Map<string, { controller: AbortController; done: Promise<StreamableHTTPClientTransport> }>();
   private closing = false;
   constructor(
     private filter: { allow?: string[]; deny?: string[] } = {},
@@ -426,8 +427,20 @@ export class McpHub {
   private async makeClient(name: string, cfg: McpServerConfig): Promise<{ client: Client; type: string }> {
     const client = new Client({ name: "neko-code", version: VERSION }, { capabilities: {} });
     if (cfg.oauth && cfg.url) {
-      await connectWithOAuth(client, name, cfg.url);
-      return { client, type: "http+oauth" };
+      const controller = new AbortController();
+      const pending = { controller, done: connectWithOAuth(client, name, cfg.url, { signal: controller.signal }) };
+      this.pendingOAuth.set(name, pending);
+      try {
+        const transport = await pending.done;
+        if (this.closing) {
+          await this.discardConnection(name, client, transport);
+          throw new Error("MCP hub is closing");
+        }
+        this.transports.set(name, transport);
+        return { client, type: "http+oauth" };
+      } finally {
+        if (this.pendingOAuth.get(name) === pending) this.pendingOAuth.delete(name);
+      }
     }
     const made = makeTransport(cfg, this.childSecretEnvNames);
     // Track before connect so a timeout can close/kill a transport that never finishes initialize.
@@ -468,7 +481,7 @@ export class McpHub {
     if (this.closing) throw new Error("MCP hub is closing");
     const cfg = this.configs.get(name);
     if (!cfg) throw new Error(`no MCP server '${name}' configured`);
-    // OAuth is user-paced (browser authorize) so only the non-OAuth makeClient path is bounded.
+    // OAuth allows a bounded browser authorization window and is canceled by close().
     const { client, type } = await this.makeClient(name, cfg);
     try {
       const requestDeadline = { timeout: MCP_CONNECT_TIMEOUT_MS, maxTotalTimeout: MCP_CONNECT_TIMEOUT_MS };
@@ -731,6 +744,10 @@ export class McpHub {
 
   async close(): Promise<void> {
     this.closing = true;
+    const oauth = [...this.pendingOAuth.values()];
+    for (const pending of oauth) pending.controller.abort();
+    await Promise.allSettled(oauth.map(pending => pending.done));
+    this.pendingOAuth.clear();
     // Kill a stdio launcher tree before SDK close clears its pid; remote/pending transports are
     // closed through the same path. The executable is absolute on Windows, never cwd/PATH-resolved.
     const names = new Set([...this.clients.keys(), ...this.transports.keys()]);
