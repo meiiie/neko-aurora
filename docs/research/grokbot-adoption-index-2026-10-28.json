@@ -1074,7 +1074,9 @@
       "coreMCPReplayEvidence": "docs/research/grokbot-core-mcp-replay-2026-10-28.md",
       "coreMCPReplayCodeCommit": "dbda8cf18bed46a739d7ace20de398911ae27c34",
       "configurationEvidence": "docs/research/grokbot-mcp-config-2026-10-28.md",
-      "configurationCodeCommit": "a105fb8560467226f94ae2fb9d5032657b839c2c"
+      "configurationCodeCommit": "a105fb8560467226f94ae2fb9d5032657b839c2c",
+      "connectionLifetimeEvidence": "docs/research/grokbot-mcp-lifetime-2026-10-28.md",
+      "connectionLifetimeCodeCommit": "b8975cc255e8530e51bb648b1c66671f6f0d342e"
     },
     {
       "id": "0.77.0-Fixed-14",
@@ -4943,7 +4945,9 @@
       "coreMCPReplayEvidence": "docs/research/grokbot-core-mcp-replay-2026-10-28.md",
       "coreMCPReplayCodeCommit": "dbda8cf18bed46a739d7ace20de398911ae27c34",
       "configurationEvidence": "docs/research/grokbot-mcp-config-2026-10-28.md",
-      "configurationCodeCommit": "a105fb8560467226f94ae2fb9d5032657b839c2c"
+      "configurationCodeCommit": "a105fb8560467226f94ae2fb9d5032657b839c2c",
+      "connectionLifetimeEvidence": "docs/research/grokbot-mcp-lifetime-2026-10-28.md",
+      "connectionLifetimeCodeCommit": "b8975cc255e8530e51bb648b1c66671f6f0d342e"
     },
     {
       "id": "0.70.2-Fixed-3",
