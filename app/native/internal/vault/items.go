@@ -68,6 +68,8 @@ func (v *Vault) SaveItem(id, typ, label string, fields map[string]string) (Item,
 	if utf8.RuneCountInString(label) > 80 {
 		return Item{}, ErrType
 	}
+	v.mu.Lock()
+	defer v.mu.Unlock()
 	old := map[string]string{}
 	if id == "" {
 		b := make([]byte, 8)
@@ -77,11 +79,15 @@ func (v *Vault) SaveItem(id, typ, label string, fields map[string]string) (Item,
 		if !ValidItemID(id) {
 			return Item{}, ErrMissing
 		}
-		m, ok := v.Meta(itemName(id))
+		m, ok := v.items[itemName(id)]
 		if !ok || m.Kind != "vault:"+typ {
 			return Item{}, ErrMissing
 		}
-		old, _ = v.Fields(id)
+		var err error
+		old, err = v.fieldsLocked(id)
+		if err != nil {
+			return Item{}, err
+		}
 	}
 	out := map[string]string{}
 	for _, k := range allowed {
@@ -124,7 +130,10 @@ func (v *Vault) SaveItem(id, typ, label string, fields map[string]string) (Item,
 	}
 	hint, _ := json.Marshal(hintOf(typ, out))
 	b, _ := json.Marshal(out)
-	m, err := v.Set(Meta{Name: itemName(id), Label: label, Kind: "vault:" + typ, Hint: string(hint)}, string(b))
+	if len(b) > 8192 {
+		return Item{}, ErrValue
+	}
+	m, err := v.setLocked(Meta{Name: itemName(id), Label: label, Kind: "vault:" + typ, Hint: string(hint)}, string(b))
 	if err != nil {
 		return Item{}, err
 	}
@@ -273,26 +282,38 @@ func (v *Vault) Item(id string) (Item, bool) {
 
 // Fields returns an item's plaintext values for in-process use only.
 func (v *Vault) Fields(id string) (map[string]string, bool) {
-	if !ValidItemID(id) {
+	if v == nil || !ValidItemID(id) {
 		return nil, false
 	}
-	m, ok := v.Meta(itemName(id))
+	v.mu.RLock()
+	defer v.mu.RUnlock()
+	f, err := v.fieldsLocked(id)
+	return f, err == nil
+}
+
+func (v *Vault) fieldsLocked(id string) (map[string]string, error) {
+	name := itemName(id)
+	m, ok := v.items[name]
 	if !ok || !isItemKind(m.Kind) {
-		return nil, false
+		return nil, ErrMissing
 	}
-	s, _ := v.Get(itemName(id))
 	var f map[string]string
-	if json.Unmarshal([]byte(s), &f) != nil {
-		return nil, false
+	if json.Unmarshal([]byte(v.cache[name]), &f) != nil || f == nil {
+		return nil, ErrCorrupt
 	}
-	return f, true
+	return f, nil
 }
 
 func (v *Vault) DeleteItem(id string) error {
-	if _, ok := v.Fields(id); !ok {
+	if v == nil || !ValidItemID(id) {
 		return ErrMissing
 	}
-	return v.Delete(itemName(id))
+	v.mu.Lock()
+	defer v.mu.Unlock()
+	if _, err := v.fieldsLocked(id); err != nil {
+		return err
+	}
+	return v.deleteLocked(itemName(id))
 }
 
 // TOTP is RFC 6238 (SHA-1, 30 s, 6 digits) from a base32 secret.

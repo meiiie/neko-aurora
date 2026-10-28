@@ -190,13 +190,17 @@ func (v *Vault) set(m Meta, value string) (Meta, error) {
 	if v == nil {
 		return Meta{}, ErrMissing
 	}
+	v.mu.Lock()
+	defer v.mu.Unlock()
+	return v.setLocked(m, value)
+}
+
+func (v *Vault) setLocked(m Meta, value string) (Meta, error) {
 	nonce := make([]byte, v.aead.NonceSize())
 	if _, err := io.ReadFull(rand.Reader, nonce); err != nil {
 		return Meta{}, err
 	}
 	m.Updated = time.Now().UTC().Format(time.RFC3339)
-	v.mu.Lock()
-	defer v.mu.Unlock()
 	old, had := v.items[m.Name]
 	oldv := v.cache[m.Name]
 	v.items[m.Name] = entry{Meta: m, V: 1, Nonce: nonce, CT: v.aead.Seal(nil, nonce, []byte(value), aad(1, m.Name))}
@@ -226,6 +230,10 @@ func (v *Vault) delete(name string) error {
 	}
 	v.mu.Lock()
 	defer v.mu.Unlock()
+	return v.deleteLocked(name)
+}
+
+func (v *Vault) deleteLocked(name string) error {
 	old, ok := v.items[name]
 	if !ok {
 		return ErrMissing
