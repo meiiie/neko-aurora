@@ -4717,7 +4717,13 @@
         "chat-navigation"
       ],
       "coverage": "partial-local-validation",
-      "implementation": "receipt-pinned-quoted-replies"
+      "implementation": "receipt-pinned-quoted-replies",
+      "selectionEvidence": "docs/research/grokbot-selected-excerpts-2026-10-28.md",
+      "selectionCodeCommit": "1c8f558324c83dad9982249ce7c9816d54a23428",
+      "evidence": [
+        "app/tests/aurora/selection-browser.py"
+      ],
+      "limits": "Server-pinned full-message replies plus local plain-text selection excerpts; loopback API/browser evidence, no physical-phone touch handles, cross-browser or native acceptance."
     },
     {
       "id": "0.70.2-Improved-9",
