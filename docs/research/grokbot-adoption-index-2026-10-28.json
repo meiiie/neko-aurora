@@ -975,10 +975,12 @@
         "memory-questions"
       ],
       "coverage": "partial-local-validation",
-      "implementation": "journaled-form-definition-and-answer-receipt-with-group-author-routing",
+      "implementation": "journaled-form-schema-typed-receipt-validation-and-scoped-unsent-drafts",
       "historyEvidence": "docs/research/grokbot-form-history-2026-10-28.md",
       "evictionReplayEvidence": "docs/research/grokbot-form-replay-2026-10-28.md",
-      "evictionReplayCodeCommit": "9c49a07883773ff26fe212822e82ba82b6052ad5"
+      "evictionReplayCodeCommit": "9c49a07883773ff26fe212822e82ba82b6052ad5",
+      "draftEvidence": "docs/research/grokbot-form-drafts-2026-10-28.md",
+      "draftCodeCommit": "b08cee56b3c1a52650037fbcc81366323c85df8a"
     },
     {
       "id": "0.77.0-Fixed-7",
