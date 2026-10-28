@@ -601,17 +601,21 @@ func (s *Service) mcpDrop(ctx context.Context, bot string, srv mcpServer) error 
 	}
 	defer unlock()
 	mcps.mu.Lock()
-	if c := mcps.conns[k]; c != nil {
-		c.close()
-	}
-	delete(mcps.conns, k)
-	delete(mcps.tools, k)
-	delete(mcps.at, k)
-	delete(mcps.failures, k)
-	delete(mcps.auth, k)
-	delete(mcps.toolsRevision, k)
+	mcps.dropLocked(k)
 	mcps.mu.Unlock()
 	return nil
+}
+
+func (c *mcpCache) dropLocked(k string) {
+	if c := c.conns[k]; c != nil {
+		c.close()
+	}
+	delete(c.conns, k)
+	delete(c.tools, k)
+	delete(c.at, k)
+	delete(c.failures, k)
+	delete(c.auth, k)
+	delete(c.toolsRevision, k)
 }
 
 func (s *Service) mcpCall(ctx context.Context, bot string, srv mcpServer, tool string, args json.RawMessage) (string, error) {

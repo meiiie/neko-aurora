@@ -89,7 +89,7 @@ class Fixture:
             self.mcp_state = 'ready'
             data = {'ok': True}
         elif path.endswith('/ext'):
-            data = {'menu': [], 'allSkills': [], 'mcp': [{'name': 'Fixture MCP', 'url': 'https://example.invalid/mcp', 'state': self.mcp_state, 'error': '' if self.mcp_state == 'ready' else 'Cần kiểm tra kết nối', 'retryAt': '2099-01-01T00:00:00Z' if self.mcp_state == 'rate_limited' else '', 'tools': [{'name': 'fixture_lookup'}] if self.mcp_state == 'ready' else []}]}
+            data = {'workspaceId': self.scope, 'mcpRevision': 0, 'menu': [], 'allSkills': [], 'mcp': [{'name': 'Fixture MCP', 'url': 'https://example.invalid/mcp', 'state': self.mcp_state, 'error': '' if self.mcp_state == 'ready' else 'Cần kiểm tra kết nối', 'retryAt': '2099-01-01T00:00:00Z' if self.mcp_state == 'rate_limited' else '', 'tools': [{'name': 'fixture_lookup'}] if self.mcp_state == 'ready' else []}]}
         elif path.endswith('/memory/import/preview'):
             data = {'revision': 'fixture-revision', 'items': ['Dùng tiếng Việt', 'Câu trả lời ngắn'], 'remaining': 30, 'duplicates': 1, 'rejected': 1}
         elif path.endswith('/memory/import'):

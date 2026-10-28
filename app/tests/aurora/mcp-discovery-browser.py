@@ -39,7 +39,7 @@ class Fixture:
         elif path.endswith('/messages'): data=[]
         elif path.endswith('/computer'): data=dict(backend='files',available=True,files=[],log=[],usedBytes=0,quotaBytes=1000)
         elif path.endswith('/ext'):
-            data=dict(menu=[],allSkills=[],mcp=[dict(name='Fixture MCP',url=RESOURCE,state='reconnect_required',error='Cần cấp quyền',tools=[])])
+            data=dict(workspaceId=self.scope,mcpRevision=0,menu=[],allSkills=[],mcp=[dict(name='Fixture MCP',url=RESOURCE,state='reconnect_required',error='Cần cấp quyền',tools=[])])
         elif path.endswith('/authorization/preview'):
             body=route.request.post_data_json;self.posts.append(body)
             if self.mode=='hold': self.held.append((route,body));return

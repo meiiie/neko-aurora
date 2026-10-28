@@ -209,17 +209,29 @@ func (s *Service) extRoutes() {
 			}
 			srv = append(srv, map[string]any{"name": x.Name, "url": x.URL, "header": x.Header, "secret": x.Secret, "tools": names, "error": s.redact(e), "state": state, "retryAt": retryAt})
 		}
-		writeJSON(w, 200, map[string]any{"model": be.Model, "thinking": be.Thinking, "folder": be.Folder, "skills": be.Skills, "mcp": srv, "off": be.Off, "menu": s.modelMenu(), "allSkills": s.ext.skills()})
+		writeJSON(w, 200, map[string]any{"workspaceId": s.workspaceID, "mcpRevision": be.MCPRevision, "model": be.Model, "thinking": be.Thinking, "folder": be.Folder, "skills": be.Skills, "mcp": srv, "off": be.Off, "menu": s.modelMenu(), "allSkills": s.ext.skills()})
 	})
 	m.HandleFunc("POST /app/api/agents/{id}/mcp/reconnect", func(w http.ResponseWriter, r *http.Request) {
 		var in struct {
-			Name string `json:"name"`
+			Name        string `json:"name"`
+			WorkspaceID string `json:"workspaceId"`
+			MCPRevision uint64 `json:"mcpRevision"`
 		}
 		if decodeStrict(r, &in) != nil {
 			fail(w, ErrInvalid)
 			return
 		}
 		id := r.PathValue("id")
+		unlock, err := s.mcpState().lock(r.Context(), "configuration\x00"+id)
+		if err != nil {
+			fail(w, err)
+			return
+		}
+		defer unlock()
+		if in.WorkspaceID != s.workspaceID || in.MCPRevision != s.ext.bot(id).MCPRevision {
+			writeJSON(w, 409, map[string]string{"error": "mcp_configuration_changed"})
+			return
+		}
 		srv, ok := s.mcpServerOf(id, in.Name)
 		if !ok {
 			fail(w, ErrNotFound)
@@ -247,18 +259,30 @@ func (s *Service) extRoutes() {
 			return
 		}
 		var in struct {
-			Model    *string          `json:"model"`
-			Thinking *bool            `json:"thinking"`
-			Folder   *string          `json:"folder"`
-			Skills   *[]string        `json:"skills"`
-			MCP      *[]mcpServer     `json:"mcp"`
-			Off      *map[string]bool `json:"off"`
+			WorkspaceID string           `json:"workspaceId"`
+			MCPRevision uint64           `json:"mcpRevision"`
+			Model       *string          `json:"model"`
+			Thinking    *bool            `json:"thinking"`
+			Folder      *string          `json:"folder"`
+			Skills      *[]string        `json:"skills"`
+			MCP         *[]mcpServer     `json:"mcp"`
+			Off         *map[string]bool `json:"off"`
 		}
 		if decodeStrict(r, &in) != nil {
 			fail(w, ErrInvalid)
 			return
 		}
+		unlock, err := s.mcpState().lock(r.Context(), "configuration\x00"+id)
+		if err != nil {
+			fail(w, err)
+			return
+		}
+		defer unlock()
 		be := s.ext.bot(id)
+		if (in.WorkspaceID != "" && in.WorkspaceID != s.workspaceID) || (in.MCP != nil && (in.WorkspaceID != s.workspaceID || in.MCPRevision != be.MCPRevision || be.MCPRevision >= 9007199254740991)) {
+			writeJSON(w, 409, map[string]string{"error": "mcp_configuration_changed"})
+			return
+		}
 		if in.Model != nil {
 			if !validModel(s.modelMenu(), *in.Model) {
 				fail(w, ErrInvalid)
@@ -293,28 +317,58 @@ func (s *Service) extRoutes() {
 				}
 			}
 		}
+		var dropKeys []string
 		if in.MCP != nil {
 			if len(*in.MCP) > 6 {
 				fail(w, ErrInvalid)
 				return
 			}
-			for _, x := range be.MCP {
-				if err := s.mcpDrop(r.Context(), id, x); err != nil {
-					fail(w, err)
-					return
-				}
-			}
-			be.MCP = nil
+			next := []mcpServer{}
 			for _, x := range *in.MCP {
 				x.Name, x.URL, x.Header, x.Secret = clean(x.Name, 32), strings.TrimSpace(x.URL), clean(x.Header, 64), strings.ToUpper(strings.TrimSpace(x.Secret))
-				if x.Name == "" || strings.ContainsAny(x.Name, "/ ") || !ownerURL(x.URL) || (x.Secret != "" && !vault.ValidName(x.Secret)) {
+				duplicate := false
+				for _, existing := range next {
+					if strings.EqualFold(existing.Name, x.Name) {
+						duplicate = true
+						break
+					}
+				}
+				if x.Name == "" || duplicate || strings.ContainsAny(x.Name, "/ ") || !ownerURL(x.URL) || (x.Secret != "" && !vault.ValidName(x.Secret)) {
 					writeJSON(w, 400, map[string]string{"error": "mcp_server"})
 					return
 				}
-				be.MCP = append(be.MCP, x)
+				next = append(next, x)
 			}
+			locked := map[string]bool{}
+			for _, x := range be.MCP {
+				key := mcpKey(id, x)
+				if locked[key] {
+					continue
+				}
+				release, err := s.mcpState().lock(r.Context(), key)
+				if err != nil {
+					fail(w, err)
+					return
+				}
+				defer release()
+				locked[key] = true
+				dropKeys = append(dropKeys, key)
+			}
+			be.MCP = next
+			be.MCPRevision++
 		}
-		s.ext.setBot(id, be)
+		if err := s.ext.setBot(id, be); err != nil {
+			writeJSON(w, 500, map[string]string{"error": "settings_save_failed"})
+			return
+		}
+		if len(dropKeys) > 0 {
+			cache := s.mcpState()
+			cache.mu.Lock()
+			for _, key := range dropKeys {
+				cache.dropLocked(key)
+			}
+			cache.mu.Unlock()
+		}
 		writeJSON(w, 200, map[string]bool{"ok": true})
 	})
 	m.HandleFunc("GET /app/api/skills", func(w http.ResponseWriter, r *http.Request) {

@@ -244,7 +244,7 @@ func TestDefaultsDirectLikeDSBot(t *testing.T) {
 		tool(map[string]any{"name": "mcp", "server": "kb", "tool": "post_note", "args": map[string]any{}}), "Đã đăng.",
 		tool(map[string]any{"name": "bot_create", "bot": "Kế toán", "desc": "ghi sổ", "folder": "so-sach"}), "Đã tạo.",
 		tool(map[string]any{"name": "bot_update", "thinking": true}), "Đã bật.")
-	post(t, u+"/app/api/agents/"+bot+"/ext", `{"mcp":[{"name":"kb","url":"`+m.URL+`"}]}`)
+	post(t, u+"/app/api/agents/"+bot+"/ext", `{"workspaceId":"`+svc.workspaceID+`","mcpRevision":0,"mcp":[{"name":"kb","url":"`+m.URL+`"}]}`)
 	post(t, u+"/app/api/agents/"+bot+"/messages", `{"text":"đăng ghi chú","clientNonce":"d-1"}`)
 	waitTask(t, svc, bot)
 	if calls.Load() != 1 {

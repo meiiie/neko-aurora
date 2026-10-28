@@ -318,6 +318,15 @@ func (s *Service) applyBotChange(body string) (string, error) {
 	} else if err := s.editBot(id, name, desc); err != nil {
 		return "", err
 	}
+	ctx := s.ctx
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	unlock, err := s.mcpState().lock(ctx, "configuration\x00"+id)
+	if err != nil {
+		return "", err
+	}
+	defer unlock()
 	be := s.ext.bot(id)
 	ch := false
 	for _, l := range strings.Split(body, "\n") {
@@ -337,7 +346,9 @@ func (s *Service) applyBotChange(body string) (string, error) {
 		}
 	}
 	if ch {
-		s.ext.setBot(id, be)
+		if err := s.ext.setBot(id, be); err != nil {
+			return "", errors.New("không lưu được cấu hình bot")
+		}
 	}
 	if act == "tạo" {
 		return "Đã tạo bot " + name + ".", nil

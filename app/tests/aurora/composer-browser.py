@@ -69,7 +69,7 @@ class Fixture:
             self.uploads.append(route)
             return
         elif path.endswith('/ext'):
-            data = {'menu': [], 'allSkills': [], 'mcp': []}
+            data = {'workspaceId': self.scope, 'mcpRevision': 0, 'menu': [], 'allSkills': [], 'mcp': []}
         route.fulfill(status=202 if req.method == 'POST' and path.endswith('/messages') else 200, content_type='application/json', body=json.dumps(data))
 
 
