@@ -1072,7 +1072,9 @@
       "coreOAuthEvidence": "docs/research/grokbot-core-mcp-oauth-2026-10-28.md",
       "coreOAuthCodeCommit": "ec5ee166e052a2e2f3191e2cb02295cf09adfc8a",
       "coreMCPReplayEvidence": "docs/research/grokbot-core-mcp-replay-2026-10-28.md",
-      "coreMCPReplayCodeCommit": "dbda8cf18bed46a739d7ace20de398911ae27c34"
+      "coreMCPReplayCodeCommit": "dbda8cf18bed46a739d7ace20de398911ae27c34",
+      "configurationEvidence": "docs/research/grokbot-mcp-config-2026-10-28.md",
+      "configurationCodeCommit": "a105fb8560467226f94ae2fb9d5032657b839c2c"
     },
     {
       "id": "0.77.0-Fixed-14",
@@ -4939,7 +4941,9 @@
       "coreOAuthEvidence": "docs/research/grokbot-core-mcp-oauth-2026-10-28.md",
       "coreOAuthCodeCommit": "ec5ee166e052a2e2f3191e2cb02295cf09adfc8a",
       "coreMCPReplayEvidence": "docs/research/grokbot-core-mcp-replay-2026-10-28.md",
-      "coreMCPReplayCodeCommit": "dbda8cf18bed46a739d7ace20de398911ae27c34"
+      "coreMCPReplayCodeCommit": "dbda8cf18bed46a739d7ace20de398911ae27c34",
+      "configurationEvidence": "docs/research/grokbot-mcp-config-2026-10-28.md",
+      "configurationCodeCommit": "a105fb8560467226f94ae2fb9d5032657b839c2c"
     },
     {
       "id": "0.70.2-Fixed-3",
