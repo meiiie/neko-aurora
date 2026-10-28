@@ -52,7 +52,7 @@ Các implementation chính nằm trong [Aurora service](../app/native/internal/a
 
 Mục đổi model để vượt một lần dừng của bộ lọc an toàn không được tiếp nhận. Fallback vì lỗi vận hành không phải cơ chế bỏ qua quyết định an toàn.
 
-Ưu tiên tiếp: contract/acceptance provider và hoàn thiện lưu trữ/transport OAuth Core; lịch/webhook, tài liệu, voice và quyền nhóm. Mỗi mục cần bằng chứng riêng trong index; không tự chuyển trạng thái theo keyword hay theo việc có file tương tự. Mười chín dòng nguồn hiện có bằng chứng cục bộ một phần; 800 dòng vẫn chưa được ghi nhận có kiểm chứng tương ứng. Thay đổi admission là cải thiện độ bền của Aurora, không tự được tính thành hoàn tất thêm dòng changelog. Chi tiết: [giữ nháp và ảnh theo chat](research/grokbot-composer-drafts-2026-10-28.md), [câu hỏi nhiều bước](research/grokbot-structured-questions-2026-10-28.md), [catalog và hủy chờ MCP](research/grokbot-mcp-refresh-2026-10-28.md), [trích dẫn tin nhắn](research/grokbot-quoted-replies-2026-10-28.md).
+Ưu tiên tiếp: contract/acceptance provider và hoàn thiện lưu trữ/transport OAuth Core; lịch/webhook, tài liệu, voice và quyền nhóm. Mỗi mục cần bằng chứng riêng trong index; không tự chuyển trạng thái theo keyword hay theo việc có file tương tự. Hai mươi dòng nguồn hiện có bằng chứng cục bộ một phần; 799 dòng vẫn chưa được ghi nhận có kiểm chứng tương ứng. Thay đổi admission là cải thiện độ bền của Aurora, không tự được tính thành hoàn tất thêm dòng changelog. Chi tiết: [giữ nháp và ảnh theo chat](research/grokbot-composer-drafts-2026-10-28.md), [câu hỏi nhiều bước](research/grokbot-structured-questions-2026-10-28.md), [catalog và hủy chờ MCP](research/grokbot-mcp-refresh-2026-10-28.md), [trích dẫn tin nhắn](research/grokbot-quoted-replies-2026-10-28.md).
 
 ## Bằng chứng kiểm tra
 
@@ -129,3 +129,6 @@ Vòng đời bảng Bộ nhớ bổ sung tại `d9f2d8b31a0554d1edb916427140a112
 
 
 Bộ nhớ: checkpoint `7cd0cfe417336fb13c42ef37c736d987d248b83a` chỉ xác nhận thao tác sau khi lưu thành công, khôi phục RAM khi ghi lỗi và không ghi đè kho bị hỏng. Full Go đạt 1.922 PASS / 38 SKIP; 35 nhóm trình duyệt, vet và build PASS. Xem [bằng chứng lưu bộ nhớ](research/grokbot-memory-persistence-2026-10-29.md). Kiểm tra revision/workspace trên server vẫn là phần tiếp theo; không tăng số mục changelog đã xác minh.
+
+
+Bộ nhớ: checkpoint `a07a27955b65114c8c82c956b5debad580211b11` bổ sung workspace và revision cho giao diện, chặn sửa/xóa theo vị trí cũ, gắn đề xuất gộp với dữ liệu nguồn và giữ nháp khi tải lại sau xung đột. Full Go 1.949 PASS / 38 SKIP; 198 nhóm trình duyệt và 8 test Node PASS. [Báo cáo hợp đồng bộ nhớ](research/grokbot-memory-revisions-2026-10-29.md) ghi rõ tương thích client cũ và các phần chưa kiểm chứng; index hiện có 20 mục được kiểm chứng cục bộ một phần.
