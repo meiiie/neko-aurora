@@ -35,6 +35,7 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -145,6 +146,9 @@ func (r *Railway) gql(ctx context.Context, query string, vars map[string]any, ou
 		}
 	}
 	defer res.Body.Close()
+	if res.StatusCode < 200 || res.StatusCode >= 300 {
+		return fmt.Errorf("railway: http %d", res.StatusCode)
+	}
 	var env struct {
 		Data   json.RawMessage `json:"data"`
 		Errors []struct {
@@ -308,6 +312,18 @@ func (r *Railway) exec(ctx context.Context, id, cmd string, timeout int) (execOu
 	return out.SandboxExec, err
 }
 
+// HTTP success alone does not confirm a file-transfer command completed.
+func (r *Railway) syncExec(ctx context.Context, id, cmd string, timeout int, phase string) (execOut, error) {
+	o, err := r.exec(ctx, id, cmd, timeout)
+	if err != nil {
+		return o, err
+	}
+	if o.ExitCode == nil || *o.ExitCode != 0 || o.TimedOut || o.Truncated {
+		return o, fmt.Errorf("railway file sync %s: command result unconfirmed", phase)
+	}
+	return o, nil
+}
+
 // Destroy tears down a bot's VM (Reset / account deletion).
 func (r *Railway) Destroy(ctx context.Context, home string) error {
 	reg.Lock()
@@ -446,26 +462,26 @@ func (r *Railway) push(ctx context.Context, id, home string, tgz []byte) error {
 	}
 	if r.Relay != nil && len(tgz) > 0 {
 		u := r.Relay.Offer(tgz)
-		o, err := r.exec(ctx, id, "rm -rf /home/bot /tmp/h.tgz && mkdir -p /home/bot && python3 -c "+shq(pyGet)+" "+shq(u)+" && tar xzf /tmp/h.tgz -C /home/bot && rm -f /tmp/h.tgz", 120)
-		if err == nil && o.ExitCode != nil && *o.ExitCode == 0 {
+		_, err := r.syncExec(ctx, id, "rm -rf /home/bot /tmp/h.tgz && mkdir -p /home/bot && python3 -c "+shq(pyGet)+" "+shq(u)+" && tar xzf /tmp/h.tgz -C /home/bot && rm -f /tmp/h.tgz", 120, "relay push")
+		if err == nil {
 			return nil
 		}
 		if errors.Is(err, errSandboxGone) {
 			return err
 		}
-		log.Printf("railway relay push failed, using chunks: %v %s", err, strings.TrimSpace(o.Stderr))
+		log.Print("railway relay push unconfirmed, using chunks")
 	}
 	b64 := base64.StdEncoding.EncodeToString(tgz)
-	if _, err := r.exec(ctx, id, "rm -rf /home/bot /tmp/h.b64 && mkdir -p /home/bot", 30); err != nil {
+	if _, err := r.syncExec(ctx, id, "rm -rf /home/bot /tmp/h.b64 && mkdir -p /home/bot", 30, "prepare push"); err != nil {
 		return err
 	}
 	for i := 0; i < len(b64); i += 48000 {
-		if _, err := r.exec(ctx, id, "printf %s "+shq(b64[i:min(i+48000, len(b64))])+" >> /tmp/h.b64", 30); err != nil {
+		if _, err := r.syncExec(ctx, id, "printf %s "+shq(b64[i:min(i+48000, len(b64))])+" >> /tmp/h.b64", 30, "push chunk"); err != nil {
 			return err
 		}
 	}
 	if len(b64) > 0 {
-		if _, err := r.exec(ctx, id, "base64 -d /tmp/h.b64 | tar xzf - -C /home/bot", 60); err != nil {
+		if _, err := r.syncExec(ctx, id, "base64 -d /tmp/h.b64 > /tmp/h.tgz && tar xzf /tmp/h.tgz -C /home/bot && rm -f /tmp/h.b64 /tmp/h.tgz", 60, "extract push"); err != nil {
 			return err
 		}
 	}
@@ -513,8 +529,8 @@ func (r *Railway) pull(ctx context.Context, id string, s Spec) error {
 func (r *Railway) fetchHome(ctx context.Context, id string, s Spec) ([]byte, error) {
 	if r.Relay != nil {
 		u, wait := r.Relay.Expect(s.Limits.HomeBytes * 2)
-		o, err := r.exec(ctx, id, "cd /home/bot && tar czf /tmp/o.tgz . && python3 -c "+shq(pyPut)+" "+shq(u)+" && rm -f /tmp/o.tgz", 180)
-		if err == nil && o.ExitCode != nil && *o.ExitCode == 0 {
+		_, err := r.syncExec(ctx, id, "cd /home/bot && tar czf /tmp/o.tgz . && python3 -c "+shq(pyPut)+" "+shq(u)+" && rm -f /tmp/o.tgz", 180, "relay pull")
+		if err == nil {
 			if b, werr := wait(ctx); werr == nil && b != nil {
 				return b, nil
 			} else {
@@ -524,25 +540,28 @@ func (r *Railway) fetchHome(ctx context.Context, id string, s Spec) ([]byte, err
 		if errors.Is(err, errSandboxGone) {
 			return nil, err
 		}
-		log.Printf("railway relay pull failed, using chunks: %v %s", err, strings.TrimSpace(o.Stderr))
+		log.Print("railway relay pull unconfirmed, using chunks")
 	}
 	return r.fetchChunks(ctx, id, s)
 }
 
 func (r *Railway) fetchChunks(ctx context.Context, id string, s Spec) ([]byte, error) {
-	sz, err := r.exec(ctx, id, "cd /home/bot && tar czf /tmp/o.tgz . && base64 -w0 /tmp/o.tgz > /tmp/o.b64 && wc -c < /tmp/o.b64", 60)
+	sz, err := r.syncExec(ctx, id, "cd /home/bot && tar czf /tmp/o.tgz . && base64 -w0 /tmp/o.tgz > /tmp/o.b64 && wc -c < /tmp/o.b64", 60, "prepare pull")
 	if err != nil {
 		return nil, err
 	}
-	var n int
-	if _, err := fmt.Sscan(strings.TrimSpace(sz.Stdout), &n); err != nil || int64(n) > s.Limits.HomeBytes*2 {
-		return nil, errors.New("home too large")
+	n, err := strconv.ParseInt(strings.TrimSpace(sz.Stdout), 10, 64)
+	if err != nil || n <= 0 || n%4 != 0 || n > s.Limits.HomeBytes*2 {
+		return nil, errors.New("railway file sync: invalid archive size")
 	}
 	var b strings.Builder
-	for off := 0; off < n; off += chunk {
-		o, err := r.exec(ctx, id, fmt.Sprintf("tail -c +%d /tmp/o.b64 | head -c %d", off+1, chunk), 30)
+	for off := int64(0); off < n; off += chunk {
+		o, err := r.syncExec(ctx, id, fmt.Sprintf("tail -c +%d /tmp/o.b64 | head -c %d", off+1, chunk), 30, "pull chunk")
 		if err != nil {
 			return nil, err
+		}
+		if int64(len(o.Stdout)) != min(int64(chunk), n-off) {
+			return nil, errors.New("railway file sync: incomplete archive chunk")
 		}
 		b.WriteString(o.Stdout)
 	}
