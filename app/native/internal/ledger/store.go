@@ -180,6 +180,7 @@ type record struct {
 }
 type Store struct {
 	ownerMessages            map[string]OwnerMessageReceipt
+	ownerMessageByWork       map[string]string
 	networkSessions          map[string]NetworkSession
 	networkMessages          map[string]NetworkMessage
 	networkNonces            map[string]Event

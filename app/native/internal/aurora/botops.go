@@ -244,6 +244,7 @@ func parseForm(js string) *form {
 // decorate adds the side data (thinking, forms) to messages by task.
 func (s *Service) decorate(ms []*Message) []*Message {
 	s.networkDecorateMessages(ms)
+	s.ownerDecorateMessages(ms)
 	if s.ext == nil {
 		return ms
 	}

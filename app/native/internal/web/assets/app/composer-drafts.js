@@ -1,11 +1,12 @@
 "use strict";
 (() => {
   const prefix = "aurora.composer.v1.";
-  const empty = () => ({text:"", ref:null});
+  const empty = () => ({text:"", ref:null, reply:null});
   function copy(value) {
     if (!value || typeof value.text !== "string") return empty();
     const ref = value.ref;
-    return {text:value.text, ref:ref && typeof ref.id === "string" && ref.id && typeof ref.name === "string" ? {id:ref.id, name:ref.name} : null};
+    const reply=value.reply;
+    return {text:value.text, ref:ref && typeof ref.id === "string" && ref.id && typeof ref.name === "string" ? {id:ref.id, name:ref.name} : null, reply:reply&&typeof reply.id==="string"&&reply.id&&typeof reply.author==="string"&&typeof reply.text==="string"?{id:reply.id,author:reply.author,text:reply.text}:null};
   }
   function create(storage) {
     const memory = new Map(), pending = new Set();
@@ -24,7 +25,7 @@
       memory.set(k, draft);
       pending.add(k);
       try {
-        if (!draft.text && !draft.ref) {
+        if (!draft.text && !draft.ref && !draft.reply) {
           storage.removeItem(k);
           if (storage.getItem(k) !== null) throw Error("draft_not_removed");
         } else {

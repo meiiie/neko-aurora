@@ -74,6 +74,7 @@ type Plan struct {
 type Approval = ledger.DirectApproval
 
 type Message struct {
+	Quote         *ledger.MessageQuote    `json:"quote,omitempty"`
 	AnswerFor     string                  `json:"answerFor,omitempty"`
 	FormFor       string                  `json:"formFor,omitempty"`
 	ID            string                  `json:"id"`

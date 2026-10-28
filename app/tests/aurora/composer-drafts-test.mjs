@@ -37,3 +37,12 @@ test('malformed data and mutable callers cannot poison another draft',()=>{
  assert.equal(create(disk).get('a.b','c').text,'');assert.equal(create(disk).get('a','b.c').text,'Other');
  assert.equal(s.put('','c',{text:'No scope'}),false);
 });
+
+test('a quote-only draft survives reload and does not share mutable source data',()=>{
+ const disk=storage(),s=create(disk),reply={id:'message-1',author:'Bot',text:'Original'};
+ s.put('owner','chat',{text:'',reply});reply.text='changed';
+ const loaded=create(disk).get('owner','chat');assert.equal(loaded.reply.text,'Original');
+ loaded.reply.text='mutated';assert.equal(s.get('owner','chat').reply.text,'Original');
+ assert.equal(s.get('owner','other').reply,null);
+ s.put('owner','chat',{text:'',reply:null});assert.equal(disk.values.size,0);
+});

@@ -4712,7 +4712,8 @@
       "topics": [
         "chat-navigation"
       ],
-      "coverage": "not-validated"
+      "coverage": "partial-local-validation",
+      "implementation": "receipt-pinned-quoted-replies"
     },
     {
       "id": "0.70.2-Improved-9",

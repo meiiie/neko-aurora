@@ -235,7 +235,7 @@ func (s *Service) sync() {
 		if s.seen["a:"+b.ID] != string(j) && !first {
 			s.publish("agent", a)
 		}
-		for _, m := range s.networkDecorateMessages(v.messages(b.ID, 0)) {
+		for _, m := range s.ownerDecorateMessages(s.networkDecorateMessages(v.messages(b.ID, 0))) {
 			j, _ := json.Marshal(m)
 			next["m:"+m.ID] = string(j)
 			if s.seen["m:"+m.ID] != string(j) && !first {
@@ -250,7 +250,7 @@ func (s *Service) sync() {
 		if s.seen["a:"+c.ID] != string(j) && !first {
 			s.publish("agent", a)
 		}
-		for _, m := range s.networkDecorateMessages(v.groupMessages(c.ID, 0)) {
+		for _, m := range s.ownerDecorateMessages(s.networkDecorateMessages(v.groupMessages(c.ID, 0))) {
 			j, _ := json.Marshal(m)
 			next["m:"+m.ID] = string(j)
 			if s.seen["m:"+m.ID] != string(j) && !first {
@@ -694,6 +694,7 @@ func (s *Service) routes() {
 			AnswerFor       string           `json:"answerFor"`
 			FormFor         string           `json:"formFor"`
 			QuestionAnswers []questionAnswer `json:"questionAnswers"`
+			ReplyTo         string           `json:"replyTo"`
 		}
 		if err := decode(r, &in); err != nil {
 			fail(w, err)
@@ -716,7 +717,7 @@ func (s *Service) routes() {
 		if in.FormFor != "" {
 			question, err := s.L.Get(in.FormFor)
 			_, form := s.ext.side(in.FormFor)
-			if err != nil || threadOf(question) != id || form == nil || nonce != "form-"+in.FormFor || in.AnswerFor != "" || in.Ref != "" {
+			if err != nil || threadOf(question) != id || form == nil || nonce != "form-"+in.FormFor || in.AnswerFor != "" || in.Ref != "" || in.ReplyTo != "" {
 				fail(w, ErrInvalid)
 				return
 			}
@@ -727,7 +728,7 @@ func (s *Service) routes() {
 		answerBot := ""
 		if in.AnswerFor != "" {
 			question, err := s.L.Get(in.AnswerFor)
-			if err != nil || threadOf(question) != id || question.Direct == nil || len(question.Direct.Choices) == 0 && len(question.Direct.Questions) == 0 || nonce != "choice-"+in.AnswerFor || in.Ref != "" {
+			if err != nil || threadOf(question) != id || question.Direct == nil || len(question.Direct.Choices) == 0 && len(question.Direct.Questions) == 0 || nonce != "choice-"+in.AnswerFor || in.Ref != "" || in.ReplyTo != "" {
 				fail(w, ErrInvalid)
 				return
 			}
@@ -763,7 +764,7 @@ func (s *Service) routes() {
 			fail(w, ErrNotFound)
 			return
 		}
-		works, duplicate, err := s.acceptMessage(id, text, nonce, in.Ref, answerBot)
+		works, duplicate, err := s.acceptMessage(id, text, nonce, in.Ref, answerBot, in.ReplyTo)
 		if err != nil {
 			fail(w, err)
 			return
@@ -776,10 +777,12 @@ func (s *Service) routes() {
 		work := works[0]
 		if isGroupID(id) {
 			at, _ := time.Parse(time.RFC3339Nano, work.CreatedAt)
-			writeJSON(w, 202, &Message{ID: nonce + ":u", TaskID: work.RequestID, AgentID: id, Role: "user", Text: stripRef(work.Text), Ref: refName(work.Text), Created: at, AnswerFor: questionAnswered(nonce), FormFor: formAnswered(nonce)})
+			message := &Message{ID: nonce + ":u", TaskID: work.RequestID, AgentID: id, Role: "user", Text: stripRef(work.Text), Ref: refName(work.Text), Created: at, AnswerFor: questionAnswered(nonce), FormFor: formAnswered(nonce)}
+			s.ownerDecorateMessages([]*Message{message})
+			writeJSON(w, 202, message)
 			return
 		}
-		for _, msg := range workMessages(work, false) {
+		for _, msg := range s.ownerDecorateMessages(workMessages(work, false)) {
 			if msg.Role == "user" {
 				msg.Queued = s.isRunning(id)
 				writeJSON(w, 202, msg)

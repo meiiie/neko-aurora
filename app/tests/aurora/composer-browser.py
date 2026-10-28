@@ -55,6 +55,9 @@ class Fixture:
                     return
                 if body['clientNonce'] not in self.receipts:
                     data = {'id': body['clientNonce']+':u', 'taskId': body['clientNonce'], 'agentId': path.split('/')[2], 'role': 'user', 'text': body['text'], 'answerFor':body.get('answerFor'), 't': '2026-10-28T04:01:00Z'}
+                    if body.get('replyTo'):
+                        source=next(m for m in self.messages if m['id']==body['replyTo'])
+                        data['quote']={'id':source['id'],'taskId':source['taskId'],'author':'Chat A','role':source['role'],'text':source['text']}
                     self.messages.append(data)
                     self.receipts[body['clientNonce']] = data
                 data = self.receipts[body['clientNonce']]
@@ -262,6 +265,67 @@ try:
             page.screenshot(path=str(OUT/'questions-mobile.png'))
             assert not errors,errors
             check('question card has no uncaught browser errors')
+            quote_text='Q4 <img src=x onerror=alert(1)> stays text\n'+'Chi tiết phiên bản. '*20
+            fixture.messages.append({'id':'quote-source','taskId':'quote-source','agentId':'bot-a','role':'agent','text':quote_text,'t':'2026-10-28T04:02:00Z'})
+            page.reload()
+            page.locator('.reply-action[data-id="quote-source"]').click()
+            expect(page.locator('#replyChip')).to_contain_text(quote_text)
+            expect(page.locator('#replyChip img')).to_have_count(0)
+            page.locator('#input').fill('Phân tích mốc này')
+            switch('b')
+            expect(page.locator('#replyChip')).to_have_count(0)
+            switch('a')
+            expect(page.locator('#replyChip')).to_contain_text(quote_text)
+            expect(page.locator('#input')).to_have_value('Phân tích mốc này')
+            page.reload()
+            expect(page.locator('#replyChip')).to_contain_text(quote_text)
+            check('quoted reply draft is scoped to its chat and survives reload')
+            original_scope=fixture.scope
+            fixture.scope='quote-other-owner'
+            page.evaluate('window.__AURORA.reload()')
+            expect(page.locator('#replyChip')).to_have_count(0)
+            fixture.scope=original_scope
+            page.evaluate('window.__AURORA.reload()')
+            page.locator('#rows .row[data-id="bot-a"] .rowin').click()
+            expect(page.locator('#replyChip')).to_contain_text(quote_text)
+            check('workspace changes isolate and restore quote drafts')
+            fixture.offline=True
+            page.locator('#composer').evaluate('(form)=>form.requestSubmit()')
+            expect(page.locator('#replyChip')).to_have_count(0)
+            expect(page.locator('.pending .quoted-message')).to_contain_text(quote_text)
+            page.reload()
+            expect(page.locator('.pending .quoted-message')).to_contain_text(quote_text)
+            check('offline outbox retains the selected quote after reload')
+            fixture.offline=False
+            fixture.lose_response=True
+            expect(page.locator('.pending')).to_have_count(0,timeout=15000)
+            sent=[x for x in fixture.posts if x.get('replyTo')=='quote-source']
+            assert len({x['clientNonce'] for x in sent})==1
+            accepted=[x for x in fixture.receipts.values() if x.get('quote',{}).get('id')=='quote-source']
+            assert len(accepted)==1
+            fixture.messages[-1:-1]=[{'id':'quote-window-'+str(i),'taskId':'quote-window-'+str(i),'agentId':'bot-a','role':'agent','text':'Window fixture '+str(i),'t':'2026-10-28T04:02:01Z'} for i in range(65)]
+            page.reload()
+            expect(page.locator('.message-item[data-message-id="quote-source"]')).to_have_count(0)
+            expect(page.locator('.message-item.mine>.quoted-message')).to_contain_text(quote_text)
+            expect(page.locator('.quoted-message img')).to_have_count(0)
+            expand=page.locator('.message-item.mine>.quoted-message .quote-expand')
+            expand.click()
+            expect(expand).to_have_attribute('aria-expanded','true')
+            expand.click()
+            page.wait_for_function('''()=>{const r=document.querySelector('#thread').getBoundingClientRect();return r.left>=0&&r.right<=innerWidth+0.5}''')
+            page.screenshot(path=str(OUT/'quoted-reply-mobile.png'),animations='disabled')
+            check('lost quote receipt is replayed once and history renders source as text')
+            page.locator('.message-item.mine>.quoted-message .quote-source').click()
+            expect(page.locator('.message-item[data-message-id="quote-source"]')).to_be_focused()
+            check('quote navigation reveals its source beyond the current rendered window')
+            page.locator('.reply-action[data-id="quote-source"]').click()
+            page.locator('#input').fill('Giữ nội dung này')
+            page.get_by_role('button',name='Bỏ trích dẫn',exact=True).click()
+            page.reload()
+            expect(page.locator('#replyChip')).to_have_count(0)
+            expect(page.locator('#input')).to_have_value('Giữ nội dung này')
+            assert not errors,errors
+            check('removing a quote preserves typed text and remains removed after reload')
         except Exception:
             print('BROWSER DIAGNOSTICS', json.dumps(page.evaluate('''()=>({ready:document.readyState,url:location.href,body:document.body.innerText.slice(-800),screens:[...document.querySelectorAll('.screen')].map(e=>({id:e.id,cls:e.className,transform:getComputedStyle(e).transform,bounds:e.getBoundingClientRect().toJSON()})),scripts:[...document.scripts].map(e=>e.src)})''')))
             page.screenshot(path=str(OUT/'composer-failure.png'))

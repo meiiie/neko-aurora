@@ -142,7 +142,7 @@ func (s *Service) createGroup(name string, bots []string) (ledger.Channel, error
 	return c, err
 }
 
-func (s *Service) acceptMessage(id, text, nonce, ref, answerBot string) ([]ledger.Work, bool, error) {
+func (s *Service) acceptMessage(id, text, nonce, ref, answerBot, replyTo string) ([]ledger.Work, bool, error) {
 	v := s.view()
 	plan := ledger.OwnerMessagePlan{BotIDs: []string{id}}
 	if isGroupID(id) {
@@ -158,7 +158,8 @@ func (s *Service) acceptMessage(id, text, nonce, ref, answerBot string) ([]ledge
 	if ref != "" {
 		plan.ReferenceText = v.refBlock(ref)
 	}
-	return s.L.AcceptOwnerMessage(ledger.OwnerMessageInput{ThreadID: id, Text: text, ClientNonce: nonce, ReferenceID: ref}, plan)
+	plan.Quote = s.quoteOf(v, id, replyTo)
+	return s.L.AcceptOwnerMessage(ledger.OwnerMessageInput{ThreadID: id, Text: text, ClientNonce: nonce, ReferenceID: ref, ReplyTo: replyTo}, plan)
 }
 
 func formAnswered(nonce string) string {
@@ -526,6 +527,9 @@ func (v *view) refBlock(id string) string {
 
 // stripRef: the owner's own words, without an attached reference block.
 func stripRef(t string) string {
+	if i := strings.Index(t, ledger.MessageQuoteMark); i >= 0 {
+		t = t[:i]
+	}
 	if i := strings.Index(t, refMark); i >= 0 {
 		return t[:i]
 	}
