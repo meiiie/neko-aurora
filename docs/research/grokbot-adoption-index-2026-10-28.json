@@ -571,7 +571,14 @@
         "memory-questions",
         "chat-navigation"
       ],
-      "coverage": "not-validated"
+      "coverage": "partial-local-validation",
+      "implementation": "vault-masked-password-editor-and-removal",
+      "codeCommit": "43aed1963cae8b7978becd5db1520222217d22b3",
+      "evidence": [
+        "docs/research/grokbot-vault-editor-2026-10-29.md",
+        "app/tests/aurora/vault-editor-browser.py"
+      ],
+      "limits": "Masked empty password editor, owner-confirmed Remove, local save/delete exclusion and view lifecycle. Bot-email ordering in the same source bullet is not implemented. No real credential/provider, Tauri, cloud multi-device or physical-device acceptance."
     },
     {
       "id": "0.77.0-Improved-22",
@@ -10263,6 +10270,6 @@
       "coverage": "not-validated"
     }
   ],
-  "note": "Every source bullet is indexed, including fixes and bundled changes. Tags are routing hints, not proof of feature coverage. Twenty-three entries have narrower local implementations; no complete upstream parity is claimed. Source prose is not redistributed.",
+  "note": "Every source bullet is indexed, including fixes and bundled changes. Tags are routing hints, not proof of feature coverage. Twenty-four entries have narrower local implementations; no complete upstream parity is claimed. Source prose is not redistributed.",
   "baseCommit": "66376d68691d8bce16b6565c6268c4331802ef57"
 }

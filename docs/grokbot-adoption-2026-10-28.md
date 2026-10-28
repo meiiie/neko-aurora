@@ -52,7 +52,7 @@ Các implementation chính nằm trong [Aurora service](../app/native/internal/a
 
 Mục đổi model để vượt một lần dừng của bộ lọc an toàn không được tiếp nhận. Fallback vì lỗi vận hành không phải cơ chế bỏ qua quyết định an toàn.
 
-Ưu tiên tiếp: contract/acceptance provider và hoàn thiện lưu trữ/transport OAuth Core; lịch/webhook, tài liệu, voice và quyền nhóm. Mỗi mục cần bằng chứng riêng trong index; không tự chuyển trạng thái theo keyword hay theo việc có file tương tự. Hai mươi ba dòng nguồn hiện có bằng chứng cục bộ một phần; 796 dòng vẫn chưa được ghi nhận có kiểm chứng tương ứng. Thay đổi admission là cải thiện độ bền của Aurora, không tự được tính thành hoàn tất thêm dòng changelog. Chi tiết: [giữ nháp và ảnh theo chat](research/grokbot-composer-drafts-2026-10-28.md), [câu hỏi nhiều bước](research/grokbot-structured-questions-2026-10-28.md), [catalog và hủy chờ MCP](research/grokbot-mcp-refresh-2026-10-28.md), [trích dẫn tin nhắn](research/grokbot-quoted-replies-2026-10-28.md).
+Ưu tiên tiếp: contract/acceptance provider và hoàn thiện lưu trữ/transport OAuth Core; lịch/webhook, tài liệu, voice và quyền nhóm. Mỗi mục cần bằng chứng riêng trong index; không tự chuyển trạng thái theo keyword hay theo việc có file tương tự. Hai mươi bốn dòng nguồn hiện có bằng chứng cục bộ một phần; 795 dòng vẫn chưa được ghi nhận có kiểm chứng tương ứng. Thay đổi admission là cải thiện độ bền của Aurora, không tự được tính thành hoàn tất thêm dòng changelog. Chi tiết: [giữ nháp và ảnh theo chat](research/grokbot-composer-drafts-2026-10-28.md), [câu hỏi nhiều bước](research/grokbot-structured-questions-2026-10-28.md), [catalog và hủy chờ MCP](research/grokbot-mcp-refresh-2026-10-28.md), [trích dẫn tin nhắn](research/grokbot-quoted-replies-2026-10-28.md).
 
 ## Bằng chứng kiểm tra
 
@@ -153,3 +153,6 @@ Vòng đời thẻ nhập bí mật: checkpoint `73e92ebd948e717f112dcd984435550
 
 
 Thanh toán ưu tiên trong Vault (0.77.0): checkpoint `92d9658a9acd2c5c4ff9765bcb08d23fa8b61cde` thêm tab Thanh toán, chọn/đổi/bỏ thẻ ưu tiên, lưu bền lựa chọn và đưa dấu ưu tiên vào metadata bot đọc. Mỗi lần dùng vẫn tạo yêu cầu duyệt; đổi ưu tiên không đổi đích của yêu cầu đã chờ. Full Go 2,022 PASS / 38 SKIP; 131 nhóm trình duyệt và 8 kiểm thử Node, vet/syntax/assets/build PASS. [Báo cáo thanh toán ưu tiên](research/grokbot-vault-payments-2026-10-29.md) phân biệt lựa chọn metadata với giao dịch thật và ghi rõ kiểm chứng còn thiếu. Index có 23 dòng nguồn được kiểm chứng cục bộ một phần.
+
+
+Form sửa Vault (0.77.0): checkpoint `43aed1963cae8b7978becd5db1520222217d22b3` hiển thị mật khẩu đã lưu bằng gợi ý che giá trị, thêm Xóa ngay trên form và dùng chung hành vi xóa với màn hình chi tiết. Lưu/xóa loại trừ nhau trong một form; lỗi/hủy giữ nháp, phản hồi cũ không thay đổi màn hình mới. 170 nhóm trình duyệt, 8 kiểm thử Node, syntax/assets/build PASS. Go/Core/Rust không đổi; bằng chứng full Go 2.022 PASS / 38 SKIP kế thừa từ checkpoint thanh toán đã đối chiếu hash. [Báo cáo form sửa Vault](research/grokbot-vault-editor-2026-10-29.md) ghi rõ phạm vi UI; thứ tự email riêng của bot trong cùng dòng changelog chưa được áp dụng. Index có 24 dòng được kiểm chứng cục bộ một phần.
