@@ -4,11 +4,11 @@ Source: [official changelog](https://x.ai/changelog/bot). The captured page cont
 
 The [machine-readable index](grokbot-adoption-index-2026-10-28.json) gives each bullet a release/section/ordinal, source line, SHA256 and routing tags. It deliberately omits the original prose. Source snapshot SHA256: `2867c15909b70226035a2513e38c8905abf91f5849bc4f0b3d8179354c472e4d`.
 
-Coverage is conservative: twenty-one entries have partial local validation, one behavior is intentionally not adopted, and 798 entries have no feature-specific implementation evidence recorded in these changes. The connector entries cover only Aurora's remote MCP/OAuth lifecycle fixtures, not live provider integrations. The new attachment entry covers local draft preservation and upload-failure feedback. The question entry now also has local evidence for multi-step cards and durable structured-answer receipts; it was already counted, so the coverage totals do not increase. Existing Aurora capabilities are not automatically credited. See the [implementation and remaining work](../grokbot-adoption-2026-10-28.md).
+Coverage is conservative: twenty-two entries have partial local validation, one behavior is intentionally not adopted, and 797 entries have no feature-specific implementation evidence recorded in these changes. The connector entries cover only Aurora's remote MCP/OAuth lifecycle fixtures, not live provider integrations. The new attachment entry covers local draft preservation and upload-failure feedback. The question entry now also has local evidence for multi-step cards and durable structured-answer receipts; it was already counted, so the coverage totals do not increase. Existing Aurora capabilities are not automatically credited. See the [implementation and remaining work](../grokbot-adoption-2026-10-28.md).
 
 | Release | Source bullets | Validation |
 |---|---:|---|
-| [0.77.0](https://x.ai/changelog/bot#v0.77.0) | 133 | 11 partially validated entries |
+| [0.77.0](https://x.ai/changelog/bot#v0.77.0) | 133 | 12 partially validated entries |
 | [0.75.8](https://x.ai/changelog/bot#v0.75.8) | 19 | No parity claim |
 | [0.75.5](https://x.ai/changelog/bot#v0.75.5) | 25 | No parity claim |
 | [0.75.2](https://x.ai/changelog/bot#v0.75.2) | 77 | 2 partially validated entries |

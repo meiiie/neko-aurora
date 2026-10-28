@@ -513,7 +513,16 @@
         "permissions-vault",
         "chat-navigation"
       ],
-      "coverage": "not-validated"
+      "coverage": "partial-local-validation",
+      "implementation": "owner-authored-vault-usage-guidance",
+      "codeCommit": "f6ebaed0d7ba316d40e804021db3b6b413d484a8",
+      "evidence": [
+        "docs/research/grokbot-vault-hints-2026-10-29.md",
+        "app/native/internal/aurora/vault_hints_test.go",
+        "app/native/internal/vault/item_hints_test.go",
+        "app/tests/aurora/vault-hints-browser.py"
+      ],
+      "limits": "Owner API, encrypted Vault storage, quoted tool metadata and local browser lifecycle fixtures. No real-model selection/adherence, live provider, payment, Tauri or physical-device acceptance; no bot-authored edits or new execution permission."
     },
     {
       "id": "0.77.0-Improved-19",
@@ -10245,6 +10254,6 @@
       "coverage": "not-validated"
     }
   ],
-  "note": "Every source bullet is indexed, including fixes and bundled changes. Tags are routing hints, not proof of feature coverage. Twenty-one entries have narrower local implementations; no complete upstream parity is claimed. Source prose is not redistributed.",
+  "note": "Every source bullet is indexed, including fixes and bundled changes. Tags are routing hints, not proof of feature coverage. Twenty-two entries have narrower local implementations; no complete upstream parity is claimed. Source prose is not redistributed.",
   "baseCommit": "66376d68691d8bce16b6565c6268c4331802ef57"
 }

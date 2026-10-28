@@ -52,7 +52,7 @@ Các implementation chính nằm trong [Aurora service](../app/native/internal/a
 
 Mục đổi model để vượt một lần dừng của bộ lọc an toàn không được tiếp nhận. Fallback vì lỗi vận hành không phải cơ chế bỏ qua quyết định an toàn.
 
-Ưu tiên tiếp: contract/acceptance provider và hoàn thiện lưu trữ/transport OAuth Core; lịch/webhook, tài liệu, voice và quyền nhóm. Mỗi mục cần bằng chứng riêng trong index; không tự chuyển trạng thái theo keyword hay theo việc có file tương tự. Hai mươi mốt dòng nguồn hiện có bằng chứng cục bộ một phần; 798 dòng vẫn chưa được ghi nhận có kiểm chứng tương ứng. Thay đổi admission là cải thiện độ bền của Aurora, không tự được tính thành hoàn tất thêm dòng changelog. Chi tiết: [giữ nháp và ảnh theo chat](research/grokbot-composer-drafts-2026-10-28.md), [câu hỏi nhiều bước](research/grokbot-structured-questions-2026-10-28.md), [catalog và hủy chờ MCP](research/grokbot-mcp-refresh-2026-10-28.md), [trích dẫn tin nhắn](research/grokbot-quoted-replies-2026-10-28.md).
+Ưu tiên tiếp: contract/acceptance provider và hoàn thiện lưu trữ/transport OAuth Core; lịch/webhook, tài liệu, voice và quyền nhóm. Mỗi mục cần bằng chứng riêng trong index; không tự chuyển trạng thái theo keyword hay theo việc có file tương tự. Hai mươi hai dòng nguồn hiện có bằng chứng cục bộ một phần; 797 dòng vẫn chưa được ghi nhận có kiểm chứng tương ứng. Thay đổi admission là cải thiện độ bền của Aurora, không tự được tính thành hoàn tất thêm dòng changelog. Chi tiết: [giữ nháp và ảnh theo chat](research/grokbot-composer-drafts-2026-10-28.md), [câu hỏi nhiều bước](research/grokbot-structured-questions-2026-10-28.md), [catalog và hủy chờ MCP](research/grokbot-mcp-refresh-2026-10-28.md), [trích dẫn tin nhắn](research/grokbot-quoted-replies-2026-10-28.md).
 
 ## Bằng chứng kiểm tra
 
@@ -144,3 +144,6 @@ Nội dung người dùng khi đổi ngôn ngữ: checkpoint `b0f8acc90ab38e7f7c
 
 
 Vault: checkpoint `13e09e265e2ae36ed973c083ca8f19a30f9adb86` sửa việc cập nhật đồng thời làm mất trường và cập nhật cũ khôi phục mục vừa xóa; từ chối ghi đè mục có dữ liệu hỏng, giữ rollback khi lưu lỗi. Full Go 1,972 PASS / 38 SKIP, 44 nhóm trình duyệt, vet/build PASS. [Báo cáo tính nhất quán khi sửa Vault](research/grokbot-vault-merge-2026-10-29.md) giới hạn rõ bảo vệ trong một tiến trình và phần kiểm chứng còn thiếu.
+
+
+Gợi ý sử dụng Vault (0.77.0): checkpoint `f6ebaed0d7ba316d40e804021db3b6b413d484a8` bổ sung nội dung do chủ sở hữu nhập để bot chọn mục, lưu trong payload mã hóa, có sửa/xóa và giữ nháp khi thẻ chat cập nhật. Gợi ý không trở thành trường điền form và mỗi lần dùng vẫn tạo yêu cầu duyệt. Full Go 1,980 PASS / 38 SKIP; 134 nhóm trình duyệt, 8 kiểm thử Node, vet/syntax/assets/build PASS. [Báo cáo gợi ý sử dụng Vault](research/grokbot-vault-hints-2026-10-29.md) ghi rõ contract, phạm vi mô phỏng và kiểm chứng model/provider còn thiếu. Index hiện có 22 mục được kiểm chứng cục bộ một phần.
