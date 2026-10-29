@@ -420,7 +420,13 @@
       "section": "Fixed",
       "sourceLine": 87,
       "sourceSHA256": "082449a737943d7eba92a11534b29d7c237005b9624b1971557d32cc85a76396",
-      "coverage": "not-validated"
+      "coverage": "partial-local-validation",
+      "implementation": "chat-identity-refresh",
+      "evidence": {
+        "codeCommit": "b9a800d4398a13734e9a7fe211ae997c99dba0b1",
+        "report": "grokbot-chat-identity-reload-2026-10-29.md",
+        "scope": "Bot/group header names and composer prompts refresh after real browser EventSource reconnects with synthetic state. Task lists and real remote acceptance remain unvalidated."
+      }
     },
     {
       "id": "0.78.1-Fixed-12",
