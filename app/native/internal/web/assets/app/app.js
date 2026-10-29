@@ -51,7 +51,7 @@ async function loadState(){
  try{st=await api("/state")}catch(e){if(request!==stateRequest)return;if(e.status===401)await expiredState(request);throw e}
  if(request!==stateRequest||window.AURORA_STARTUP?.blocked)return;
  const changed=S.workspaceId&&S.workspaceId!==st.workspaceId;
- if(changed){S.msgs={};S.drafts={};messageLoads.clear();nodeCache.clear();resetVault();closeThread();closeCtx();if(sheetOpen)closeSheet(true)}
+ if(changed){window.AURORA_PAGES?.close();S.msgs={};S.drafts={};messageLoads.clear();nodeCache.clear();resetVault();closeThread();closeCtx();if(sheetOpen)closeSheet(true)}
  $("#login").classList.add("hidden");S.workspaceId=st.workspaceId;bindOutbox();S.agents=st.agents;S.pending=st.pending;S.brief=st.brief;S.ai=st.ai;S.vapid=st.vapidPublicKey;S.outbound=st.outbound||{};S.secrets=st.secrets||[];S.pushSubs=st.pushSubscriptions|0;seedSeen();renderList();
  if(changed&&es)connect();
  if(profId&&!isGroup(byId(profId)))void schedCard(profId,$("#profBody"),S.workspaceId,true);
@@ -433,6 +433,8 @@ const syncCreate=()=>{$("#createBtn").disabled=!$("#agentName").value.trim()};
 $("#agentName").oninput=syncCreate;
 let editing_bot=null;
 function openCreator(edit){if(sheetOpen)return;editing_bot=edit||null;draft=edit?{shape:edit.av?.shape|0,color:edit.av?.color|0}:{shape:Math.random()*SHAPES.length|0,color:Math.random()*COLORS.length|0};$("#agentName").value=edit?edit.name:"";$("#agentDesc").value=edit?edit.desc||"":"";$("#sheetTitle").textContent=edit?"Sửa bot":"Bot mới";$("#createBtn").textContent=edit?"Lưu":"Tạo bot";renderCreator();$("#sheetBody").scrollTop=0;openSheet($("#sheet"))}
+function openPages(create){closeMenu();if(sheetOpen)closeSheet(true);AURORA_PAGES.open({getScope:()=>S.workspaceId,create,returnFocus:$(create?"#newBtn":"#meBtn")})}
+$("#menuPage").onclick=()=>openPages(true);
 $("#menuBot").onclick=()=>{closeMenu();openCreator()};
 $("#cancelBtn").onclick=()=>closeSheet(true);
 let creating=false;
@@ -465,6 +467,7 @@ function renderSettings(){const B=$("#settingsBody");B.innerHTML="";
  const acc=el("div","account");const m=el("img");m.src="/app/icon.svg";m.alt="";m.width=m.height=52;const at=el("div");at.append(el("b",0,"Chủ sở hữu"),el("small",0,location.host));acc.append(m,at);B.append(card(null,acc));
  fetch("/app/auth/me").then(r=>r.ok?r.json():null).then(me=>{if(!me)return;const q=me.quota||{};at.replaceChildren(el("b",0,me.name||"Bạn"),el("small",0,[me.email,q.daily?`Gói ${me.plan||"free"} · ${q.used||0}/${q.daily} tin hôm nay`:""].filter(Boolean).join(" · ")))}).catch(()=>{});
  B.append(card("Mức dùng",cell("sparkles","Mô hình AI",{static:1,value:S.ai.configured?(S.ai.model||"đã cấu hình"):"chưa cấu hình"}),cell("activity","Lõi chạy",{static:1,value:S.ai.runtime||"Neko Core"}),cell("users","Bot & nhóm",{static:1,value:`${bots().length} bot · ${S.agents.length-bots().length} nhóm`})));
+ B.append(card("Tài liệu",cell("folder","Thư viện trang",{id:"openPages",sub:"Ghi chú và lịch sử phiên bản",onClick:()=>openPages(false)})));
  B.append(card("Ứng dụng",cell("layout-grid","Kết nối ứng dụng",{id:"openConnectors",value:connectedCount()+" đã kết nối",onClick:()=>{renderConnectors();swapSheet($("#connectors"))}})));
  B.append(card("Bot",cell("check","Luôn duyệt trước khi gửi",{toggle:true,locked:true,sub:"Không gì rời máy chủ khi bạn chưa bấm Duyệt"}),
   cell("bell","Thông báo",{id:"notifyCell",toggle:pushOn||notifOn,sub:pushOn?"Thông báo đẩy đang bật":notifOn?"Khi app đang mở":"Báo khi bot cần bạn",onToggle:sw=>{if(sw.getAttribute("aria-checked")==="true"){toast("Tắt trong Cài đặt của máy");return}enableNotify().then(renderSettings).catch(()=>toast("Không bật được thông báo"))}}),
@@ -484,7 +487,7 @@ function renderDelAcct(){const B=$("#delAcctBody");B.innerHTML="";
  go.onclick=async()=>{go.disabled=true;go.textContent="Đang xoá…";try{await api("/account/delete",{confirm:f.i.value.trim().normalize("NFC").replace(/xóa/i,"XOÁ")});buzz("confirm");try{localStorage.clear()}catch{}if(es){es.close();es=null}closeSheet(true);toast("Đã xoá tài khoản và dữ liệu");setTimeout(()=>location.reload(),2500)}catch{go.disabled=false;go.textContent="Xoá vĩnh viễn";toast("Không xoá được, thử lại")}};
  B.append(f.w,go)}
 $("#closeDelAcct").onclick=()=>closeSheet(true);
-async function logout(){if(await fetch("/app/auth/config").then(r=>r.ok).catch(()=>false)){await fetch("/app/logout",{method:"POST",credentials:"same-origin",headers:{"Content-Type":"application/json"},body:"{}"}).catch(()=>{});location.replace("/app/signin.html");return}try{await fetch("/app/logout",{method:"POST",credentials:"same-origin",headers:{"Content-Type":"application/json"},body:"{}"})}catch{}closeSheet(true);if(es){es.close();es=null}const r=await fetch(API+"/state",{credentials:"same-origin",cache:"no-store"}).catch(()=>null);if(r&&r.status===401)$("#login").classList.remove("hidden");else toast("Máy chủ cục bộ: phiên luôn mở trên máy này")}
+async function logout(){window.AURORA_PAGES?.close();if(await fetch("/app/auth/config").then(r=>r.ok).catch(()=>false)){await fetch("/app/logout",{method:"POST",credentials:"same-origin",headers:{"Content-Type":"application/json"},body:"{}"}).catch(()=>{});location.replace("/app/signin.html");return}try{await fetch("/app/logout",{method:"POST",credentials:"same-origin",headers:{"Content-Type":"application/json"},body:"{}"})}catch{}closeSheet(true);if(es){es.close();es=null}const r=await fetch(API+"/state",{credentials:"same-origin",cache:"no-store"}).catch(()=>null);if(r&&r.status===401)$("#login").classList.remove("hidden");else toast("Máy chủ cục bộ: phiên luôn mở trên máy này")}
 $("#meBtn").onclick=()=>{if(sheetOpen)return;renderSettings();openSheet($("#settings"))};$("#closeSettings").onclick=()=>closeSheet(true);
 // ---------- connectors (sheet + setup; credentials live in the server vault) ----------
 // Layout follows the iOS connectors sheet pattern; brand marks: Simple Icons (CC0), else Lucide glyphs.
@@ -672,6 +675,7 @@ inp.onkeydown=e=>{if(e.key==="Enter"&&!e.shiftKey&&!composerComposing(e)){e.prev
 document.addEventListener("visibilitychange",()=>{if(!document.hidden&&es)loadState().catch(()=>{})});
 if("serviceWorker"in navigator)navigator.serviceWorker.register("/app/sw.js",{scope:"/app/"}).then(r=>r.pushManager?.getSubscription()).then(s=>{if(s)pushOn=true}).catch(()=>{});
 async function expiredState(request){
+ window.AURORA_PAGES?.close();
  resetVault();closeThread();closeCtx();if(sheetOpen)closeSheet(true);messageLoads.clear();nodeCache.clear();document.querySelectorAll("input[data-secret]").forEach(i=>{i.value=""});
  const config=await fetch("/app/auth/config",{credentials:"same-origin",cache:"no-store",signal:AbortSignal.timeout?AbortSignal.timeout(15000):undefined}).then(r=>r.ok?r.json():null).catch(()=>null);
  if(request!==stateRequest)return;

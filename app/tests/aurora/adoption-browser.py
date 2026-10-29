@@ -18,7 +18,7 @@ class FixtureHTTPServer(http.server.ThreadingHTTPServer):
 
 
 ROOT = Path(__file__).resolve().parents[3]
-OUT = ROOT / '.audit/2026-10-28-grok'
+OUT = Path(os.environ.get('AURORA_BROWSER_AUDIT_DIR', ROOT / '.audit/2026-10-28-grok'))
 URL = os.environ.get('AURORA_TEST_URL', '')
 server = None
 if not URL:
