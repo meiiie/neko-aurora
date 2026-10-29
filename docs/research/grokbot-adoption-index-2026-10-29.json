@@ -362,7 +362,13 @@
       "section": "Fixed",
       "sourceLine": 78,
       "sourceSHA256": "f386b76d211c1fa495e4aee6d7df62ed4dac7387346f5dcb09b44dda17eaf1fa",
-      "coverage": "not-validated"
+      "coverage": "partial-local-validation",
+      "implementation": "existing-long-chat-anchoring-validation",
+      "evidence": {
+        "codeCommit": "9c9c36dc0f1b335f5a7569b8c026e34ecb076778",
+        "report": "grokbot-chat-resize-2026-10-29.md",
+        "scope": "Seven Chrome fixture scenarios preserve reading location through width/height changes, later wheel input, older-message expansion, DOM selection, bottom follow and chat switching. Existing runtime passes; no scroll fix was necessary for these cases. Native WebViews, other browsers, physical devices and live streaming remain unvalidated."
+      }
     },
     {
       "id": "0.78.1-Fixed-3",
