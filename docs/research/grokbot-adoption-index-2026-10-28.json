@@ -1150,7 +1150,9 @@
       "coreOAuthExclusionEvidence": "docs/research/grokbot-core-oauth-exclusion-2026-10-29.md",
       "coreOAuthExclusionCodeCommit": "60fe223a2b1f40093569bbc2cba28e9069766557",
       "coreOAuthStorageEvidence": "docs/research/grokbot-core-oauth-storage-2026-10-29.md",
-      "coreOAuthStorageCodeCommit": "6487abbf25bca2123b3090e58c5ca652ed9e6087"
+      "coreOAuthStorageCodeCommit": "6487abbf25bca2123b3090e58c5ca652ed9e6087",
+      "coreOAuthNetworkEvidence": "docs/research/grokbot-core-oauth-network-2026-10-29.md",
+      "coreOAuthNetworkCodeCommit": "0260fb0c781315f06cc970b197db0087b7f72079"
     },
     {
       "id": "0.77.0-Fixed-14",
@@ -5067,7 +5069,9 @@
       "coreOAuthExclusionEvidence": "docs/research/grokbot-core-oauth-exclusion-2026-10-29.md",
       "coreOAuthExclusionCodeCommit": "60fe223a2b1f40093569bbc2cba28e9069766557",
       "coreOAuthStorageEvidence": "docs/research/grokbot-core-oauth-storage-2026-10-29.md",
-      "coreOAuthStorageCodeCommit": "6487abbf25bca2123b3090e58c5ca652ed9e6087"
+      "coreOAuthStorageCodeCommit": "6487abbf25bca2123b3090e58c5ca652ed9e6087",
+      "coreOAuthNetworkEvidence": "docs/research/grokbot-core-oauth-network-2026-10-29.md",
+      "coreOAuthNetworkCodeCommit": "0260fb0c781315f06cc970b197db0087b7f72079"
     },
     {
       "id": "0.70.2-Fixed-3",
