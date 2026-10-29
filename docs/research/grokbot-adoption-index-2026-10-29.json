@@ -376,7 +376,13 @@
       "section": "Fixed",
       "sourceLine": 79,
       "sourceSHA256": "83637ecfeb453441f546b5f833b28fb2d8491f57ab11a33988b29b453fd475f8",
-      "coverage": "not-validated"
+      "coverage": "partial-local-validation",
+      "implementation": "honest-working-status-feedback",
+      "evidence": {
+        "codeCommit": "a29ef574b04489bf6fb197940aebdd2725350555",
+        "report": "grokbot-working-status-2026-10-29.md",
+        "scope": "Specific actions are immediate; generic text waits while Stop remains available. Neutral fallback avoids elapsed-time progress claims, including greetings/thanks. Ten Chrome fixture groups and eight dedicated Node tests pass; live providers, native WebViews, physical devices and screen readers remain unvalidated."
+      }
     },
     {
       "id": "0.78.1-Fixed-4",
@@ -384,7 +390,13 @@
       "section": "Fixed",
       "sourceLine": 80,
       "sourceSHA256": "cdc32dcfe51214584e5f6731b31b760c390cad28aec3ad7619770279d69920b0",
-      "coverage": "not-validated"
+      "coverage": "partial-local-validation",
+      "implementation": "honest-working-status-feedback",
+      "evidence": {
+        "codeCommit": "a29ef574b04489bf6fb197940aebdd2725350555",
+        "report": "grokbot-working-status-2026-10-29.md",
+        "scope": "Specific actions are immediate; generic text waits while Stop remains available. Neutral fallback avoids elapsed-time progress claims, including greetings/thanks. Ten Chrome fixture groups and eight dedicated Node tests pass; live providers, native WebViews, physical devices and screen readers remain unvalidated."
+      }
     },
     {
       "id": "0.78.1-Fixed-5",

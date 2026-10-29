@@ -1,0 +1,30 @@
+# Working status feedback — 2026-10-29
+
+Code commit: `a29ef574b04489bf6fb197940aebdd2725350555`, based on `e48435eeaeffe3428f0abe633f8d19e7e89d84fe` on `codex/grokbot-adoption`. This partially adopts [Grok Bot 0.78.1](https://x.ai/changelog/bot#v0.78.1), Fixed-3 and Fixed-4. Work followed pstack Feature / Prove It Works / Show Me Your Work and webapp-testing, performed by one agent with self-review. No subagents, provider calls, credentials, grants, push or deployment.
+
+## Behavior
+
+Previously the chat immediately displayed generic thinking text, then claimed to organize or finish an answer solely because eight or twenty seconds had elapsed. A completed tool also implied a summarizing phase without evidence of that operation. The [UX helper](../../app/native/internal/web/assets/app/ux.js) now uses neutral working wording when no specific action is known, including greetings and thanks. It does not classify small talk or infer an internal model reasoning phase.
+
+Generic wording waits at least 1500 ms. The existing one-second repaint tick makes the usual active-tab appearance approximately 1.5–2.5 seconds after observation; background throttling can take longer. Specific running tools, plan steps and approval waits display immediately. Unknown tools can supply a specific summary; without one they use the delayed fallback. The mascot and Stop control remain available while generic words are withheld because Stop is hosted on this row.
+
+The [chat integration](../../app/native/internal/web/assets/app/app.js) scopes the display delay to workspace, chat and latest user-message identity. Completion, hidden feedback or a specific phase reset the gate. Visible streamed answers continue to suppress the working row. New turns and other chats cannot inherit the old wording. Original labels are compared independently of translation, so unchanged English feedback retains its DOM node instead of restarting its animation every second. The service-worker cache advances to v87.
+
+## Validation
+
+Windows amd64, PowerShell 7.6, Python 3.13.7, Chrome 156.0.8078.49, Node 25.9.0 and Go 1.27.1. Commands run through a credential-excluding local harness. Full commands, timestamps and manifests are in `.audit/2026-10-29-working-status/validation.jsonl`; decisions.tsv retains framing and self-review decisions.
+
+- **RED:** `status-browser-144429.log` fails against the previous runtime because the generic status is immediately nonempty after the working event.
+- **Fixture corrections:** `status-browser-144521.log` used default English while asserting Vietnamese. `status-browser-144610.log` advanced only 2100 ms, shorter than the possible repaint interval after the 1500 ms gate. The fixture now specifies its locale and covers the repaint window. These are recorded separately from the initial product failure.
+- **Dedicated checks:** `status-browser-144659.log` passes 10 browser scenario groups; `status-unit-144709.log` passes eight Node tests. The [browser fixture](../../app/tests/aurora/working-status-browser.py) uses controlled browser time and synthetic EventSource callbacks. It covers delay, neutral greetings/thanks, immediate tools/plans/approval, return from specific work, stop before the text appears, completion, visible streaming, chat/workspace switches and stable English rendering. The [unit suite](../../app/tests/aurora/working-status-test.mjs) verifies the exact 1500 ms boundary, state reset and concrete/generic phase selection.
+- **Final regression set:** **180 browser scenario groups and 35 Node checks PASS**, on one unchanged source manifest. Browser coverage includes adoption, loading, read state, resizing, composer/reload, IME, downloads, Computer recovery, uploads, selection/copy, localization, startup and table viewing. JavaScript syntax, embedded web tests and the native build pass. Mobile Vietnamese and desktop English screenshots were inspected.
+
+Reproduce the new tests with `python -u app/tests/aurora/working-status-browser.py` and `node --test app/tests/aurora/working-status-test.mjs`. Existing Node commands are `node app/tests/aurora/ux-test.mjs` and `node --test app/tests/aurora/composer-drafts-test.mjs app/tests/aurora/outbox-test.mjs`. Other browser fixtures use `python -u app/tests/aurora/<fixture>.py`. Embedded web: `go test -count=1 ./internal/web`; build: `go build -o <audit>/neko-aurora.exe ./cmd/neko-aurora`, both from app/native. Documentation uses `python tools/check_docs.py` plus report-link resolution; the three existing issue forms also pass structure validation.
+
+Final source manifest: `be345e18ef8cafb1aeb2ce6b6b06320b492dc7b4fb356efeb26c0ed6d24448c6`, 1849 files verified against the code commit with existing LF normalization accounted for. validation-source-equivalence.json confirms only four UI assets and two new fixtures differ from the [download checkpoint](grokbot-file-downloads-2026-10-29.md). Backend code is unchanged, so that report's full Go **2062 PASS / 38 SKIP across 25 packages**, vet and filesystem/HTTP results remain applicable to those unchanged files; the full suite was not repeated for this UI-only change. The pre-checkpoint recognizable-secret scan covered six candidates and 658 newly reachable history blobs, with zero matches. This is not exhaustive secret detection. The unrelated pre-existing adoption-document edit remains excluded.
+
+## Limits and backlog
+
+These are local Chrome fixture results, not live provider status accuracy, physical-device/native WebView acceptance or screen-reader testing. Existing header/sidebar work badges remain immediate; only generic words in the chat status row are delayed. Tool-specific labels still depend on the reported tool state and existing argument-derived labels. No cloud or release readiness is implied.
+
+The [incremental index](grokbot-adoption-index-2026-10-29.json) records partial local evidence for both bullets. Across the two stored indexes: **34 partial, one excluded to preserve safeguards and 885 unvalidated source bullets**, 920 total. These are source bullets, not independent feature counts. The broader Grok Bot backlog remains open.
