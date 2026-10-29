@@ -7,7 +7,7 @@
     const root=el("section",null,"vault-contacts"),error=el("p",null,"sec-err"),status=el("p",null,"caption");
     error.setAttribute("role","alert");status.setAttribute("role","status");
     let contacts=item.contacts||{revision:"0",emails:(item.filled||[]).includes("email")?[{id:"legacy-email",hint:"••••••••"}]:[],phones:(item.filled||[]).includes("phone")?[{id:"legacy-phone",hint:"••••••••"}]:[]},busy=false,external=false;
-    const editors=[];
+    const editors=[],composing=AURORA_UX.compositionGuard(root);
     const current=()=>active()&&root.isConnected;
     const hasDraft=()=>editors.some(e=>e.input.value.trim()||e.entryId);
     function disabled() {
@@ -33,12 +33,12 @@
       group.dataset.contactKind=kind;group.append(el("legend",title));input.type="text";input.inputMode=kind==="email"?"email":"tel";input.autocomplete="off";input.autocapitalize="off";input.spellcheck=false;input.maxLength=kind==="email"?254:64;input.setAttribute("aria-label",t(addTitle));input.setAttribute("data-1p-ignore","");input.setAttribute("data-lpignore","true");
       const reset=()=>{entry.entryId="";input.value="";input.placeholder="";entry.save.textContent=t(addTitle);entry.save.dataset.fixedDisabled=String((contacts[key]||[]).length>=10);disabled();};
       const submit=()=>{
-        if(!input.value.trim()||!current()||busy||external)return;
+        if(composing()||!input.value.trim()||!current()||busy||external)return;
         const value=input.value.trim(),entryId=entry.entryId;
         run(()=>change({revision:contacts.revision,kind,action:entryId?"replace":"add",entryId,value}),()=>{reset();return input});
       };
       entry.save=button(addTitle,submit);entry.save.dataset.contactSave=kind;
-      input.oninput=()=>disabled();input.onkeydown=e=>{if(e.key==="Enter"){e.preventDefault();if(!e.isComposing&&e.keyCode!==229)submit()}};
+      input.oninput=()=>disabled();input.onkeydown=e=>{if(e.key==="Enter"&&!composing(e)){e.preventDefault();submit()}};
       label.append(el("span",addTitle),input);const controls=el("div",null,"contact-actions");controls.append(entry.save,button("Huỷ nhập",reset));
       group.append(rows,label,controls);editors.push(entry);root.append(group);
     }

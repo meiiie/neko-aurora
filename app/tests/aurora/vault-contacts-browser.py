@@ -96,7 +96,12 @@ try:
             email.locator('input').fill('ime@example.test');count=len(fx.posts);email.locator('input').evaluate("n=>n.dispatchEvent(new KeyboardEvent('keydown',{key:'Enter',isComposing:true,bubbles:true,cancelable:true}))");assert len(fx.posts)==count
             page.locator('#vaultSave').click();expect(page.locator('.vault-form > [role=alert]')).to_contain_text('Lưu hoặc hủy');assert len(fx.posts)==count
             email.get_by_role('button',name='Huỷ nhập',exact=True).click()
-            print('PASS composing Enter and unrelated Save cannot submit or discard a contact draft')
+            email.locator('input').focus();email.locator('input').dispatch_event('compositionstart',dict(data='日本語'));email.locator('input').press('Enter');page.wait_for_timeout(80);assert len(fx.posts)==count
+            page.locator('.vault-form').evaluate('n=>n.requestSubmit()');page.wait_for_timeout(80);assert len(fx.posts)==count
+            email.locator('input').dispatch_event('compositionend',dict(data='日本語'));email.locator('input').fill('ime@example.test')
+            blocked=email.locator('input').evaluate("n=>{const e=new KeyboardEvent('keydown',{key:'Enter',keyCode:229,bubbles:true,cancelable:true});n.dispatchEvent(e);n.form.requestSubmit();return e.defaultPrevented}");page.wait_for_timeout(80);assert len(fx.posts)==count and not blocked
+            email.locator('input').dispatch_event('keyup',dict(key='Enter'));email.get_by_role('button',name='Huỷ nhập',exact=True).click()
+            print('PASS composition state and keyCode229 prevent contact and enclosing form submission while preserving drafts')
             fx.status=500;email.locator('input').fill('retry@example.test');save(page,'email');expect(page.locator('.vault-contacts [role=alert]')).to_contain_text('Chưa xác nhận');expect(email.locator('input')).to_have_value('retry@example.test');expect(page.locator('#vaultSave')).to_be_enabled()
             fx.status=200;fx.hold='contact';save(page,'email');r,status,data=held(page,fx);expect(page.locator('#vaultSave')).to_be_disabled();expect(page.locator('.vault-form > [data-vdelete]')).to_be_disabled();count=len(fx.posts);page.locator('.vault-form').evaluate('n=>n.requestSubmit()');assert len(fx.posts)==count
             r.fulfill(status=status,content_type='application/json',body=json.dumps(data));expect(email.locator('input')).to_have_value('');expect(page.locator('#vaultSave')).to_be_enabled();fx.hold=''

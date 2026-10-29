@@ -86,8 +86,9 @@
         };root.append(reset);
       }
     }
+    const composing=AURORA_UX.compositionGuard(root);
     root.onsubmit=event=>{
-      event.preventDefault();if(locked||blocked||!active()||!root.isConnected||!root.reportValidity()||!save())return;
+      event.preventDefault();if(composing(event)||locked||blocked||!active()||!root.isConnected||!root.reportValidity()||!save())return;
       const text="📋 "+f.title+"\n"+f.fields.map((x,i)=>"- "+x.label+": "+(values[i].trim()||"(bỏ trống)")).join("\n");
       send(text,{formFor:m.taskId,formValues:[...values],formAnswerVersion:f.answerVersion===1?1:undefined});
     };

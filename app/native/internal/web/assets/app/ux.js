@@ -40,5 +40,17 @@ function phase(a,L){L=L||[];const t=statusText(a,L);if(!t)return null;if(t==="Ch
   return{k:p[0],t:p[1]}}
  if(t==="Đang chạy lệnh…")return{k:"run",t:"Đang chạy lệnh"};if(/^Bước \d+/.test(t))return{k:"step",t};if(t==="Đang tổng hợp")return{k:"write",t};if(t==="Đang làm tiếp…")return{k:"run",t:"Đang làm tiếp"};
  return{k:"think",t}}
-const X={CHECKPOINT,phase,cmdShown,foldCmd,outSummary,fileInfo,kb,isDownload,isCheckpoint,isNoise,statusText};
+function compositionGuard(root){
+ let composing=null,imeKey=false;
+ const blocked=e=>!!(composing||imeKey||e?.isComposing||e?.keyCode===229);
+ root.addEventListener("compositionstart",e=>{composing=e.target;imeKey=false},true);
+ root.addEventListener("compositionend",e=>{if(composing===e.target)composing=null},true);
+ // Keep the composition key marked through an implicit submit, without cancelling its native text commit.
+ root.addEventListener("keydown",e=>{imeKey=!!(composing||e.isComposing||e.keyCode===229)},true);
+ root.addEventListener("keyup",()=>{imeKey=false},true);
+ root.addEventListener("focusout",()=>{composing=null;imeKey=false},true);
+ root.addEventListener("pointerdown",()=>{imeKey=false},true);
+ return blocked;
+}
+const X={compositionGuard,CHECKPOINT,phase,cmdShown,foldCmd,outSummary,fileInfo,kb,isDownload,isCheckpoint,isNoise,statusText};
 g.AURORA_UX=X;if(typeof module!=="undefined")module.exports=X})(typeof window!=="undefined"?window:globalThis);
