@@ -59,6 +59,7 @@ Các chức năng dưới đây có source và bằng chứng kiểm thử local
 | Công việc bền vững | Journal, idempotency/receipt, phục hồi, hủy và các control có hợp đồng riêng | Một số trạng thái cần thao tác phục hồi tường minh; không tuyên bố exactly-once cho mọi effect bên ngoài |
 | Tương tác đang chạy | Foreground/background, bổ sung/thay thế yêu cầu và nhóm cộng tác hữu hạn | Bằng chứng native/Core dùng provider loopback có kiểm soát, chưa là đánh giá model thật |
 | Project và file | Nguồn UTF-8/DOCX có giới hạn, chọn nguồn liên quan, preview/download kết quả theo scope | Không phải dịch vụ lưu trữ hoặc chia sẻ file cloud hoàn chỉnh |
+| [Thư viện trang](docs/pages.md) | Ghi chú Markdown, lịch sử phiên bản, nháp theo workspace, phục hồi lần lưu và xuất đúng phiên bản | Local cho chủ sở hữu; chưa có chia sẻ, đồng bộ cloud hay bot tự xuất bản trang |
 | Tài khoản và runtime | Secure input qua Rust/Windows DPAPI, metadata và pin runtime/profile | Tài khoản lưu vẫn có thể là `stored_unverified`; broker/OAuth và vòng đời provider thật chưa nghiệm thu |
 | Giao diện | UI thích ứng, kiểm thử trình duyệt về interaction/focus và viewport | Chưa phải ứng dụng iOS/Android được phát hành; chưa nghiệm thu điện thoại thật hoặc AT speech |
 
