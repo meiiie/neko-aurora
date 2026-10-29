@@ -125,11 +125,12 @@ var (
 
 // Manager owns every bot's computer under dir (state/computers).
 type Manager struct {
-	dir    string
-	sb     Sandbox
-	Limits Limits
-	mu     sync.Mutex
-	busy   map[string]*sync.Mutex
+	dir       string
+	sb        Sandbox
+	Limits    Limits
+	mu        sync.Mutex
+	busy      map[string]*sync.Mutex
+	downloads chan struct{}
 }
 
 func New(dir string, sb Sandbox) (*Manager, error) {
@@ -141,7 +142,7 @@ func New(dir string, sb Sandbox) (*Manager, error) {
 		// a VM, billed per use: room for pip installs and renders
 		l.Timeout, l.CPUSeconds = 8*time.Minute, 480
 	}
-	return &Manager{dir: dir, sb: sb, Limits: l, busy: map[string]*sync.Mutex{}}, nil
+	return &Manager{dir: dir, sb: sb, Limits: l, busy: map[string]*sync.Mutex{}, downloads: make(chan struct{}, 2)}, nil
 }
 
 func (m *Manager) Backend() string { return m.sb.Name() }

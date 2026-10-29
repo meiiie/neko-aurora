@@ -293,20 +293,43 @@ func (s *Service) computerRoutes() {
 		}
 	})
 	m.HandleFunc("GET /app/api/agents/{id}/computer/download", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Cache-Control", "no-store")
+		if scope, supplied := r.URL.Query()["workspaceId"]; supplied && (len(scope) != 1 || scope[0] != s.workspaceID) {
+			fail(w, ledger.ErrConflict)
+			return
+		}
 		if id, ok := bot(w, r); ok {
-			f, size, err := s.PC.OpenFile(id, r.URL.Query().Get("path"))
+			ctx, cancel := context.WithTimeout(r.Context(), 30*time.Second)
+			defer cancel()
+			f, err := s.PC.OpenDownload(ctx, id, r.URL.Query().Get("path"))
 			if err != nil {
-				fail(w, ErrNotFound)
+				code, message := http.StatusInternalServerError, "download_failed"
+				switch {
+				case errors.Is(err, computer.ErrPath):
+					code, message = 404, "file_not_found"
+				case errors.Is(err, computer.ErrDownloadChanged):
+					code, message = 409, "download_source_changed"
+				case errors.Is(err, computer.ErrDownloadBusy):
+					code, message = 503, "download_busy"
+				case errors.Is(err, computer.ErrTooLarge):
+					code, message = 413, "file_too_large"
+				case errors.Is(err, context.DeadlineExceeded), errors.Is(err, context.Canceled):
+					code, message = 408, "download_cancelled"
+				}
+				writeJSON(w, code, map[string]string{"error": message})
 				return
 			}
 			defer f.Close()
-			name := filepath.Base(f.Name())
 			w.Header().Set("Content-Type", "application/octet-stream")
-			w.Header().Set("Content-Disposition", mime.FormatMediaType("attachment", map[string]string{"filename": name}))
-			w.Header().Set("Content-Length", strconv.FormatInt(size, 10))
+			w.Header().Set("Content-Disposition", mime.FormatMediaType("attachment", map[string]string{"filename": f.Filename}))
+			w.Header().Set("Content-Length", strconv.FormatInt(f.Size, 10))
+			w.Header().Set("ETag", `"`+f.SHA256+`"`)
+			w.Header().Set("X-Aurora-Workspace", s.workspaceID)
+			w.Header().Set("X-Aurora-Bot", id)
 			w.Header().Set("X-Content-Type-Options", "nosniff")
-			w.Header().Set("Cache-Control", "no-store")
-			_, _ = io.Copy(w, f)
+			if r.Method != "HEAD" {
+				_, _ = io.Copy(w, f)
+			}
 		}
 	})
 	controlScope := func(w http.ResponseWriter, r *http.Request) bool {
