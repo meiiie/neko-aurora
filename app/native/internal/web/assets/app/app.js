@@ -328,10 +328,10 @@ function emptyThread(a){const w=el("div","thread-empty enter");const f=el("div",
 // button sits on the line. Hidden at once when the answer starts.
 let stEl=null;const shownIds=new Set();const sent=new Map();const sentRecently=t=>{const x=sent.get(t);return x&&Date.now()-x<120e3};
 function statusEl(){if(!stEl){stEl=el("div","status off");stEl.setAttribute("role","status");stEl.setAttribute("aria-live","polite");const x=el("button","st-stop");x.type="button";x.setAttribute("aria-label","Dừng");x.append(I("square",12));x.onclick=()=>stopAgent();stEl.append(el("span","st-mascot"),el("span","st-t"),x)}return stEl}
-function phaseOf(a,L){const p=AURORA_UX.phase(a,L);if(!p)return null;if(p.k==="think"){const u=[...L].reverse().find(m=>m.role==="user");const s=u?(Date.now()-T(u.t))/1e3:0;p.t=s>20?"Đang hoàn thiện câu trả lời":s>8?"Đang sắp xếp ý":"Đang suy nghĩ"}return p}
-function setStatus(a,L,on){const st=statusEl(),p=on&&phaseOf(a,L);st.classList.toggle("off",!p);if(!p)return;
+const statusGate=AURORA_UX.statusGate();
+function setStatus(a,L,on){const st=statusEl(),u=[...L].reverse().find(m=>m.role==="user"),p=statusGate(JSON.stringify([S.workspaceId,a.id,u?.id||u?.t||""]),on?AURORA_UX.phase(a,L):null),t=st.children[1];st.classList.toggle("off",!p);if(!p){t.replaceChildren();t.dataset.label="";return}
  const key=a.id+JSON.stringify(a.av||{});if(st.dataset.av!==key){st.dataset.av=key;st.firstChild.replaceChildren(face(a.av||{},28))}
- st.dataset.k=p.k;st.lastChild.hidden=a.status!=="working";const t=st.children[1],old=t.querySelector("span:not(.out)");if(old&&old.textContent===p.t)return;
+ st.dataset.k=p.k;st.lastChild.hidden=a.status!=="working";if(!p.t){t.replaceChildren();t.dataset.label="";return}if(t.dataset.label===p.t)return;t.dataset.label=p.t;const old=t.querySelector("span:not(.out)");
  if(old){old.classList.add("out");setTimeout(()=>old.remove(),260)}t.append(el("span",old?"in":"",p.t))}
 setInterval(()=>{if(cur&&stEl&&!stEl.classList.contains("off"))setStatus(cur,S.msgs[cur.id]||[],true)},1000);
 // download links in a reply become file chips (type, name, size; 48px tap target)
