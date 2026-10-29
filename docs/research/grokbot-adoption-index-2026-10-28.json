@@ -1146,7 +1146,9 @@
       "browserOpenerEvidence": "docs/research/grokbot-browser-opener-2026-10-28.md",
       "browserOpenerCodeCommit": "fd822355b0fe60fa4363d695b9b7b43955942079",
       "coreOAuthBodyEvidence": "docs/research/grokbot-core-oauth-body-2026-10-28.md",
-      "coreOAuthBodyCodeCommit": "bbc1a4553c593556be7a672773157effff6d4580"
+      "coreOAuthBodyCodeCommit": "bbc1a4553c593556be7a672773157effff6d4580",
+      "coreOAuthExclusionEvidence": "docs/research/grokbot-core-oauth-exclusion-2026-10-29.md",
+      "coreOAuthExclusionCodeCommit": "60fe223a2b1f40093569bbc2cba28e9069766557"
     },
     {
       "id": "0.77.0-Fixed-14",
@@ -5055,7 +5057,9 @@
       "browserOpenerEvidence": "docs/research/grokbot-browser-opener-2026-10-28.md",
       "browserOpenerCodeCommit": "fd822355b0fe60fa4363d695b9b7b43955942079",
       "coreOAuthBodyEvidence": "docs/research/grokbot-core-oauth-body-2026-10-28.md",
-      "coreOAuthBodyCodeCommit": "bbc1a4553c593556be7a672773157effff6d4580"
+      "coreOAuthBodyCodeCommit": "bbc1a4553c593556be7a672773157effff6d4580",
+      "coreOAuthExclusionEvidence": "docs/research/grokbot-core-oauth-exclusion-2026-10-29.md",
+      "coreOAuthExclusionCodeCommit": "60fe223a2b1f40093569bbc2cba28e9069766557"
     },
     {
       "id": "0.70.2-Fixed-3",
