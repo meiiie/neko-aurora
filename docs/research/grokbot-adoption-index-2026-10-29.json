@@ -334,7 +334,13 @@
       "section": "Fixed",
       "sourceLine": 77,
       "sourceSHA256": "c65f66f5f10a495954bc162472ae5bb42b5384720c30c03ca44b63830ff6c8d8",
-      "coverage": "not-validated"
+      "coverage": "partial-local-validation",
+      "implementation": "formatted-whole-reply-copy",
+      "evidence": {
+        "codeCommit": "e3dfacde724fab906b1866340b154eb23f94d506",
+        "report": "grokbot-reply-copy-2026-10-29.md",
+        "scope": "Whole normal agent replies only; real MIME objects with a synthetic sink. Selection-to-Markdown and external paste acceptance remain unvalidated."
+      }
     },
     {
       "id": "0.78.1-Fixed-2",
