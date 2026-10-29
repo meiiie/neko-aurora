@@ -7,10 +7,7 @@ package aurora
 // one ledger nonce, so a restart never runs it twice.
 
 import (
-	"encoding/json"
 	"net/http"
-	"os"
-	"path/filepath"
 	"regexp"
 	"sort"
 	"strings"
@@ -62,26 +59,10 @@ func scheduleLocation(zone string) (*time.Location, error) {
 }
 
 type schedStore struct {
-	mu   sync.Mutex
-	path string
-	L    []schedule
-}
-
-func openSchedules(dir string) *schedStore {
-	st := &schedStore{path: filepath.Join(dir, "schedules.json")}
-	if b, err := os.ReadFile(st.path); err == nil {
-		_ = json.Unmarshal(b, &st.L)
-	}
-	return st
-}
-
-func (st *schedStore) saveLocked() error {
-	b, _ := json.Marshal(st.L)
-	tmp := st.path + ".tmp"
-	if err := os.WriteFile(tmp, b, 0o600); err != nil {
-		return err
-	}
-	return os.Rename(tmp, st.path)
+	mu      sync.Mutex
+	path    string
+	L       []schedule
+	loadErr error
 }
 
 var hhmm = regexp.MustCompile(`^([01]?\d|2[0-3]):([0-5]\d)$`)
@@ -172,10 +153,13 @@ func (x schedule) due(now time.Time) string {
 func (st *schedStore) add(x schedule) bool {
 	st.mu.Lock()
 	defer st.mu.Unlock()
-	if len(st.L) >= maxSchedules {
+	if st.loadErr != nil || x.ID == "" || len(st.L) >= maxSchedules {
 		return false
 	}
 	for _, y := range st.L {
+		if y.ID == x.ID {
+			return false
+		}
 		if y.Bot == x.Bot && y.At == x.At && y.zoneName() == x.zoneName() && y.Repeat == x.Repeat && strings.EqualFold(y.Text, x.Text) {
 			return false
 		}
@@ -206,10 +190,17 @@ func (st *schedStore) list(bot string) []schedule {
 func (st *schedStore) remove(id string) bool {
 	st.mu.Lock()
 	defer st.mu.Unlock()
+	if st.loadErr != nil {
+		return false
+	}
 	for i, x := range st.L {
 		if x.ID == id {
+			before := append([]schedule(nil), st.L...)
 			st.L = append(st.L[:i], st.L[i+1:]...)
-			st.saveLocked()
+			if st.saveLocked() != nil {
+				st.L = before
+				return false
+			}
 			return true
 		}
 	}
@@ -221,6 +212,10 @@ func (s *Service) scheduleTick(now time.Time) {
 	st := s.sched
 	st.mu.Lock()
 	defer st.mu.Unlock()
+	if st.loadErr != nil || s.L.ReadOnly() {
+		return
+	}
+	before := append([]schedule(nil), st.L...)
 	changed := false
 	for i := range st.L {
 		if _, err := scheduleLocation(st.L[i].Timezone); err != nil {
@@ -268,11 +263,16 @@ func (s *Service) scheduleTick(now time.Time) {
 	for _, x := range st.L {
 		if !(x.Repeat == "once" && x.Last != "") {
 			keep = append(keep, x)
+		} else {
+			changed = true
 		}
 	}
 	st.L = keep
 	if changed {
-		st.saveLocked()
+		if st.saveLocked() != nil {
+			st.L = before
+		}
+		// Admitted work is already durable in the ledger even if saving routine progress failed.
 		s.poke()
 	}
 }
@@ -284,6 +284,9 @@ func (s *Service) controlSchedule(id string, revision uint64, paused *bool) erro
 	st := s.sched
 	st.mu.Lock()
 	defer st.mu.Unlock()
+	if st.loadErr != nil {
+		return errScheduleStorage
+	}
 	for i, x := range st.L {
 		if x.ID != id {
 			continue
@@ -350,6 +353,9 @@ func (s *Service) editSchedule(id string, in scheduleEdit) (schedule, error) {
 	st := s.sched
 	st.mu.Lock()
 	defer st.mu.Unlock()
+	if st.loadErr != nil {
+		return schedule{}, errScheduleStorage
+	}
 	for i, old := range st.L {
 		if old.ID != id {
 			continue
@@ -457,6 +463,10 @@ func (s *Service) scheduleRoutes() {
 		writeJSON(w, 200, map[string]any{"schedule": x})
 	})
 	s.mux.HandleFunc("GET /app/api/schedules", func(w http.ResponseWriter, r *http.Request) {
+		if err := s.sched.storageError(); err != nil {
+			fail(w, err)
+			return
+		}
 		writeJSON(w, 200, map[string]any{"schedules": s.sched.list(r.URL.Query().Get("bot"))})
 	})
 	s.mux.HandleFunc("POST /app/api/schedules/{id}/delete", func(w http.ResponseWriter, r *http.Request) {

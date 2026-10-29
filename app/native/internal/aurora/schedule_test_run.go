@@ -77,6 +77,9 @@ func (s *Service) runScheduleTest(id string, in scheduleTestInput) (scheduleTest
 	if receipt, err := s.scheduleTestReceipt(id, in); err != nil || receipt.Found {
 		return receipt, err
 	}
+	if s.sched.loadErr != nil {
+		return scheduleTestReceipt{}, errScheduleStorage
+	}
 	if s.L.ReadOnly() {
 		return scheduleTestReceipt{}, ledger.ErrReadOnly
 	}

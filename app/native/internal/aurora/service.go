@@ -459,6 +459,8 @@ func fail(w http.ResponseWriter, err error) {
 		code = 409
 	case errors.Is(err, ledger.ErrReadOnly):
 		code = 423
+	case errors.Is(err, errScheduleStorage):
+		code = 503
 	}
 	writeJSON(w, code, map[string]string{"error": err.Error()})
 }

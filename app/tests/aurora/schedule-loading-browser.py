@@ -4,7 +4,7 @@ from pathlib import Path
 from urllib.parse import urlsplit
 from playwright.sync_api import expect,sync_playwright
 ROOT=Path(__file__).resolve().parents[3]
-OUT=ROOT/'.audit/2026-10-29-schedule-loading';OUT.mkdir(exist_ok=True)
+OUT=Path(os.environ.get('AURORA_BROWSER_AUDIT_DIR',ROOT/'.audit/2026-10-29-schedule-loading'));OUT.mkdir(parents=True,exist_ok=True)
 class Server(http.server.ThreadingHTTPServer):request_queue_size=64
 class Handler(http.server.SimpleHTTPRequestHandler):
     def log_message(self,*_):pass
@@ -18,7 +18,7 @@ class Fixture:
         elif path.endswith('/messages'):data=[];status=500 if self.fail_messages else 200;hold=self.hold_messages
         elif path.endswith('/computer'):data={'available':False,'log':[],'files':[]}
         elif path=='/schedules':
-            self.gets+=1;data={'schedules':[dict(self.item)]} if self.item else {'schedules':[]};status=500 if self.fail else 200;hold=self.hold
+            self.gets+=1;data={'schedules':[dict(self.item)]} if self.item else {'schedules':[]};status=503 if self.fail else 200;hold=self.hold
         elif path.startswith('/schedules/') and r.request.method=='POST':
             self.posts.append((path,r.request.post_data_json));self.item['paused']=r.request.post_data_json.get('paused',False);self.item['revision']+=1;hold=self.hold_post
             if self.fail_after_post:self.fail=True

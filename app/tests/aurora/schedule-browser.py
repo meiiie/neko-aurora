@@ -10,7 +10,7 @@ from urllib.parse import urlsplit
 from playwright.sync_api import expect, sync_playwright
 
 ROOT = Path(__file__).resolve().parents[3]
-OUT = ROOT / '.audit/2026-10-28-schedule-edit'
+OUT = Path(os.environ.get('AURORA_BROWSER_AUDIT_DIR', ROOT / '.audit/2026-10-28-schedule-edit'))
 OUT.mkdir(parents=True, exist_ok=True)
 
 class Handler(http.server.SimpleHTTPRequestHandler):
@@ -50,7 +50,7 @@ class Fixture:
             if self.mode == 'conflict':
                 self.item.update(revision=self.item['revision']+1, text='Phiên bản mới ở máy chủ')
                 status = 409
-            elif self.mode == 'error': status = 500
+            elif self.mode == 'error': status = 503
             elif body['revision'] != self.item['revision']: status = 409
             else:
                 self.item.update({k: body[k] for k in ('text', 'at', 'repeat', 'date', 'timezone')})

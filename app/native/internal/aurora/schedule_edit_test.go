@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"net/http/httptest"
-	"os"
 	"path/filepath"
 	"reflect"
 	"strings"
@@ -178,16 +177,15 @@ func TestScheduleEditRejectsInvalidScopeFieldsAndSaveFailure(t *testing.T) {
 		}
 	}
 	before := s.sched.list("")
-	if err := os.Mkdir(s.sched.path+".tmp", 0700); err != nil {
-		t.Fatal(err)
-	}
+	storedPath := s.sched.path
+	s.sched.path = filepath.Join(storedPath+".missing", "schedules.json")
 	if code, _ := request("schedule-edit-fixture", scheduleEditBody(s)); code < 400 {
 		t.Fatal("failed save acknowledged")
 	}
 	if !reflect.DeepEqual(before, s.sched.list("")) {
 		t.Fatal("failed save was not rolled back")
 	}
-	if !reflect.DeepEqual(before, openSchedules(filepath.Dir(s.sched.path)).list("")) {
+	if !reflect.DeepEqual(before, openSchedules(filepath.Dir(storedPath)).list("")) {
 		t.Fatal("failed edit changed persisted schedule")
 	}
 }

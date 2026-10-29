@@ -2,7 +2,6 @@ package aurora
 
 import (
 	"errors"
-	"os"
 	"path/filepath"
 	"testing"
 
@@ -71,9 +70,7 @@ func TestScheduleControlWriteFailureAndAdmissionFailure(t *testing.T) {
 	if len(s.sched.list("")) != 1 || s.sched.list("")[0].Last != "" {
 		t.Fatal("failed admission consumed reminder")
 	}
-	if err := os.Mkdir(filepath.Join(dir, "schedules.json.tmp"), 0o700); err != nil {
-		t.Fatal(err)
-	}
+	s.sched.path = filepath.Join(dir, "missing", "schedules.json")
 	pause := true
 	if s.controlSchedule("missing", 1, &pause) == nil || s.sched.list("")[0].Paused {
 		t.Fatal("failed save changed schedule")
