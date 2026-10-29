@@ -9,7 +9,7 @@
 const el=(t,c,x)=>{const e=document.createElement(t);if(c)e.className=c;if(x!=null)e.textContent=x;return e};
 const ui=s=>self.__I18N?.t(s)||s;
 const host=u=>{try{return new URL(u).hostname.replace(/^www\./,"")}catch{return u}};
-const INL=/(\\[\\`*_~\[\]()#+\-.!>|]|`+[^`\n]*?`+|\*\*(?=\S)[^\n]*?\S\*\*|__(?=\S)[^\n]*?\S__|~~(?=\S)[^\n]*?\S~~|\[[^\]\n]+\]\((?:https?:\/\/|mailto:|\/app\/api\/agents\/[\w-]+\/computer\/download\?path=)[^\s)]+\)|https?:\/\/[^\s<>()]+[^\s<>().,;:!?'"]|\[\d{1,2}\](?:\s*,?\s*\[\d{1,2}\])*|(?<![\w*])\*(?=\S)[^*\n]*?\S\*(?![\w*])|(?<![\p{L}\p{N}_])_(?=\S)[^_\n]*?\S_(?![\p{L}\p{N}_]))/gu;
+const INL=/(\\[\\`*_~\[\]()#+\-.!>|]|(?<!`)(?<ticks>`+)(?!`)[^\n]*?(?<!`)\k<ticks>(?!`)|\*\*(?=\S)[^\n]*?\S\*\*|__(?=\S)[^\n]*?\S__|~~(?=\S)[^\n]*?\S~~|\[[^\]\n]+\]\((?:https?:\/\/|mailto:|\/app\/api\/agents\/[\w-]+\/computer\/download\?path=)[^\s)]+\)|https?:\/\/[^\s<>()]+[^\s<>().,;:!?'"]|\[\d{1,2}\](?:\s*,?\s*\[\d{1,2}\])*|(?<![\w*])\*(?=\S)[^*\n]*?\S\*(?![\w*])|(?<![\p{L}\p{N}_])_(?=\S)[^_\n]*?\S_(?![\p{L}\p{N}_]))/gu;
 function link(t,u){const a=el("a","lnk",t);a.href=u;a.target="_blank";a.rel="noopener noreferrer";return a}
 function inline(node,text,src){let last=0,m;INL.lastIndex=0;const re=new RegExp(INL.source,"gu");
  while((m=re.exec(text))){if(m.index>last)node.append(text.slice(last,m.index));const t=m[0];
@@ -74,7 +74,7 @@ function blocks(node,lines,src){let i=0;
  while(i<lines.length){const l=lines[i];
   if(!l.trim()){i++;continue}
   let m=l.match(FENCE);if(m){const f=m[2],body=[];i++;while(i<lines.length&&!new RegExp("^\\s{0,3}"+f[0]+"{"+f.length+",}\\s*$").test(lines[i]))body.push(lines[i++].replace(new RegExp("^ {0,"+m[1].length+"}"),""));i++;code(node,m[3],body.join("\n"));continue}
-  if((m=l.match(HEAD))){const lv=m[1].length,e=el(lv<=2?"h3":lv===3?"h4":"h5");inline(e,m[2],src);node.append(e);i++;continue}
+  if((m=l.match(HEAD))){const lv=m[1].length,e=el(lv<=2?"h3":lv===3?"h4":"h5");e.dataset.markdownLevel=lv;inline(e,m[2],src);node.append(e);i++;continue}
   if(HR.test(l)){node.append(el("hr"));i++;continue}
   if(ROW.test(l)&&i+1<lines.length&&DELIM.test(lines[i+1])){const start=i,al=cells(lines[i+1]).map(c=>c.startsWith(":")&&c.endsWith(":")?"center":c.endsWith(":")?"right":"");
    const wrap=el("div","tbl"),t=el("table"),th=el("thead"),tr=el("tr");wrap.tabIndex=0;wrap.setAttribute("role","region");wrap.setAttribute("aria-label",ui("Bảng, vuốt ngang để xem"));
@@ -150,4 +150,115 @@ self.AURORA_MD={render,inline,closeViewer};
     return node;
   }
   self.AURORA_MD.copyReplyButton = button;
+})();
+
+(() => {
+  "use strict";
+  const replies = new WeakMap();
+  const excluded = ".code-h,.table-actions,.table-scroll,.tick,button,input,textarea,select,svg,script,style,img,iframe,object,[hidden],[contenteditable]";
+  const escape = text => text.replace(/([\\`*_~\[\]<>|&])/g, "\\$1");
+  const escapeBlock = text => text.replace(/^(\s*)([#+-])(?=\s)/gm, "$1\\$2").replace(/^(\s*\d+)([.)])(?=\s)/gm, "$1\\$2");
+  const block = text => text.trim() ? "\n\n" + text.trim() + "\n\n" : "";
+  const tidy = text => text.trim();
+  const join = parts => parts.reduce((out, part) => {
+    const tail = out.match(/\n+$/)?.[0].length || 0, head = part.match(/^\n+/)?.[0].length || 0;
+    return tail && head ? out.slice(0, -tail) + "\n".repeat(Math.min(2, Math.max(tail, head))) + part.slice(head) : out + part;
+  }, "");
+  const longestTicks = text => Math.max(0, ...(text.match(/`+/g) || []).map(s => s.length));
+  const mark = (text, token) => text.replace(/^(\s*)([\s\S]*?)(\s*)$/, (_, before, body, after) => body ? before + token + body + token + after : text);
+
+  function markdown(root, range) {
+    function selected(node, raw = false) {
+      if (!range.intersectsNode(node)) return "";
+      if (node.nodeType === Node.TEXT_NODE) {
+        const text = node.textContent.slice(node === range.startContainer ? range.startOffset : 0, node === range.endContainer ? range.endOffset : undefined);
+        return raw ? text : escape(text);
+      }
+      if (node.nodeType !== Node.ELEMENT_NODE || node.matches(excluded)) return "";
+      const children = mode => {
+        const parts = [...node.childNodes].map(n => selected(n, mode));
+        return mode ? parts.join("") : join(parts);
+      };
+      if (raw) return children(true);
+      if (node.tagName === "TABLE") {
+        const bounds = document.createRange();
+        bounds.selectNodeContents(node);
+        const whole = range.compareBoundaryPoints(Range.START_TO_START, bounds) <= 0 && range.compareBoundaryPoints(Range.END_TO_END, bounds) >= 0;
+        const rows = [...node.rows].map(row => [...row.cells].map(cell => tidy(selected(cell))));
+        if (!whole) return block(rows.map(row => row.filter(Boolean).join("\t")).filter(Boolean).join("\n"));
+        const lines = rows.map(row => "| " + row.map(cell => cell.replace(/\n/g, " ")).join(" | ") + " |");
+        if (lines.length) lines.splice(1, 0, "| " + rows[0].map(() => "---").join(" | ") + " |");
+        return block(lines.join("\n"));
+      }
+      if (node.tagName === "UL" || node.tagName === "OL") {
+        const items = [...node.children].filter(n => n.tagName === "LI").map((item, index) => {
+          const body = tidy(selected(item));
+          if (!body) return "";
+          const prefix = node.tagName === "OL" ? (node.start + index) + ". " : "- ";
+          const tick = item.querySelector(":scope > .tick");
+          const task = tick ? (tick.classList.contains("on") ? "[x] " : "[ ] ") : "";
+          return prefix + task + body.replace(/\n/g, "\n" + " ".repeat(prefix.length));
+        }).filter(Boolean);
+        return items.length ? "\n" + items.join("\n") + "\n" : "";
+      }
+      if (node.tagName === "PRE") {
+        const text = children(true);
+        if (!text) return "";
+        const fence = "`".repeat(Math.max(3, longestTicks(text) + 1));
+        const lang = node.querySelector("code")?.className.match(/^lang-([\w+#.-]+)$/)?.[1] || "";
+        return block(fence + (/^[\w+#.-]+$/.test(lang) ? lang : "") + "\n" + text + "\n" + fence);
+      }
+      if (node.tagName === "CODE") {
+        const text = children(true);
+        if (!text) return "";
+        const fence = "`".repeat(longestTicks(text) + 1);
+        const pad = /^`|`$/.test(text) || (/^ .* $/.test(text) && /\S/.test(text)) ? " " : "";
+        return fence + pad + text + pad + fence;
+      }
+      if (node.classList.contains("li-b")) {
+        const parts = []; let inline = "";
+        for (const child of node.childNodes) {
+          if (child.nodeType === Node.ELEMENT_NODE && child.matches("p,ul,ol,pre,blockquote,table,div,h1,h2,h3,h4,h5,h6,hr")) {
+            parts.push(escapeBlock(inline), selected(child)); inline = "";
+          } else inline += selected(child);
+        }
+        return join([...parts, escapeBlock(inline)]);
+      }
+      const text = children(false);
+      if (node.tagName === "BR") return "\n";
+      if (node.tagName === "HR") return "\n\n---\n\n";
+      if (!text) return "";
+      if (node.tagName === "STRONG") return mark(text, "**");
+      if (node.tagName === "EM") return mark(text, "*");
+      if (node.tagName === "S" || node.tagName === "DEL") return mark(text, "~~");
+      if (/^H[1-6]$/.test(node.tagName)) return block("#".repeat(Number(node.dataset.markdownLevel) || Number(node.tagName[1])) + " " + text);
+      if (node.tagName === "P") return block(escapeBlock(text));
+      if (node.tagName === "BLOCKQUOTE") return block(tidy(text).split("\n").map(line => line ? "> " + line : ">").join("\n"));
+      if (node.tagName === "A") {
+        try {
+          const url = new URL(node.getAttribute("href"), location.href);
+          if (["http:", "https:", "mailto:"].includes(url.protocol)) return "[" + text + "](" + url.href.replace(/[()\\]/g, c => "%" + c.charCodeAt(0).toString(16).toUpperCase()) + ")";
+        } catch {}
+      }
+      return text;
+    }
+    return tidy(selected(root));
+  }
+
+  document.addEventListener("copy", event => {
+    if (event.defaultPrevented || !event.clipboardData || event.target.closest?.("input,textarea,[contenteditable]")) return;
+    const selection = getSelection();
+    if (!selection || selection.isCollapsed || selection.rangeCount !== 1) return;
+    const range = selection.getRangeAt(0);
+    const element = range.startContainer.nodeType === Node.ELEMENT_NODE ? range.startContainer : range.startContainer.parentElement;
+    const root = element?.closest(".msg.bot");
+    if (!root?.isConnected || root.classList.contains("typing") || !root.contains(range.endContainer) || !replies.get(root)?.()) return;
+    try {
+      const text = markdown(root, range);
+      if (!text) return;
+      event.clipboardData.setData("text/plain", text);
+      event.preventDefault();
+    } catch {}
+  });
+  self.AURORA_MD.enableSelectionCopy = (root, active) => replies.set(root, active);
 })();
