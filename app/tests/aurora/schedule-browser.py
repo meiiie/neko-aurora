@@ -54,6 +54,7 @@ class Fixture:
             elif body['revision'] != self.item['revision']: status = 409
             else:
                 self.item.update({k: body[k] for k in ('text', 'at', 'repeat', 'date', 'timezone')})
+                self.item['intervalMinutes'] = body.get('intervalMinutes',0)
                 self.item['revision'] += 1
                 data = dict(schedule=self.item)
                 if self.mode == 'lost':
@@ -188,7 +189,27 @@ try:
             expect(prompt).to_have_value('Nháp của tài khoản B')
             assert not fx.other_posts and not errors, errors
             check('late edit receipt cannot reopen or replace another account editor')
-            (OUT/'schedule-browser-result.json').write_text(json.dumps(dict(result='PASS', scenarios=9, browser=browser.version, viewport=[390,844], editRequests=len(fx.edits), otherPosts=fx.other_posts, errors=errors), indent=2), encoding='utf-8')
+            fx.mode = 'ok'
+            expect(form.locator('option[value="interval"]')).to_have_count(1,timeout=1500)
+            form.get_by_label('Lặp lại').select_option('interval')
+            interval = form.get_by_label('Khoảng lặp (phút)',exact=True)
+            expect(interval).to_be_visible();expect(form.get_by_label('Giờ hẹn',exact=True)).to_be_hidden();expect(form.get_by_label('Múi giờ',exact=True)).to_be_hidden();expect(date).to_be_hidden()
+            before=len(fx.edits)
+            for value in ['14','15.5','10081']:
+                interval.fill(value);save.click();assert len(fx.edits)==before
+            interval.fill('60');page.screenshot(path=str(OUT/'interval-mobile.png'));save.click();expect(form).to_have_count(0)
+            assert fx.edits[-1]==dict(workspaceId='schedule-owner-b',revision=1,text='Nháp của tài khoản B',at='',repeat='interval',date='',timezone='Asia/Ho_Chi_Minh',intervalMinutes=60)
+            expect(box).to_contain_text('Mỗi 60 phút')
+            check('interval mode validates whole minutes and sends exact workspace revision and cadence')
+            edit.click();expect(interval).to_have_value('60');prompt.fill('Nội dung mới cùng nhịp');save.click();expect(form).to_have_count(0)
+            assert fx.edits[-1]['intervalMinutes']==60 and fx.edits[-1]['revision']==2
+            check('reopening and a text-only edit retain the interval value')
+            edit.click();form.get_by_label('Lặp lại').select_option('daily');expect(interval).to_be_hidden()
+            expect(form.get_by_label('Giờ hẹn',exact=True)).to_be_visible();form.get_by_label('Giờ hẹn').fill('08:30');form.get_by_label('Múi giờ').select_option('America/New_York');save.click();expect(form).to_have_count(0)
+            assert 'intervalMinutes' not in fx.edits[-1] and fx.edits[-1]['at']=='08:30' and fx.edits[-1]['timezone']=='America/New_York'
+            assert not errors, errors
+            check('switching back to a calendar schedule sends no interval metadata')
+            (OUT/'schedule-browser-result.json').write_text(json.dumps(dict(result='PASS', scenarios=12, browser=browser.version, viewport=[390,844], editRequests=len(fx.edits), otherPosts=fx.other_posts, errors=errors), indent=2), encoding='utf-8')
         finally: browser.close()
 finally:
     server.shutdown(); server.server_close()
