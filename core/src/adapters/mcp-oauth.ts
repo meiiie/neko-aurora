@@ -1,5 +1,5 @@
 import { createHash, randomBytes } from "node:crypto";
-import { existsSync, lstatSync, mkdirSync, readFileSync, rmSync } from "node:fs";
+import { rmSync } from "node:fs";
 import { join } from "node:path";
 import type { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { UnauthorizedError, type OAuthClientProvider, type OAuthDiscoveryState } from "@modelcontextprotocol/sdk/client/auth.js";
@@ -7,13 +7,12 @@ import { OAuthClientInformationSchema, OAuthTokensSchema, type OAuthClientInform
 import type { FetchLike } from "@modelcontextprotocol/sdk/shared/transport.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
 import { homeDir } from "../shared/home.ts";
-import { atomicWriteFileSync } from "../shared/atomic.ts";
 import { throwIfAborted } from "../shared/abort.ts";
 import { isJsonObject, isText, type JsonValue } from "../shared/wire.ts";
 import { openBrowser } from "./chatgpt-auth.ts";
 import { McpOAuthCallback } from "./mcp-oauth-callback.ts";
 import { boundedOAuthResponse } from "./mcp-oauth-http.ts";
-import { withOAuthRecordLock } from "./mcp-oauth-lock.ts";
+import { readOAuthRecord, writeOAuthRecord, withOAuthStorageLock, type OAuthRecordCache } from "./mcp-oauth-storage.ts";
 
 function httpsEndpoint(raw: string | undefined): boolean {
   try { const u = new URL(raw ?? ""); return u.protocol === "https:" && !u.username && !u.password && !u.hash; } catch { return false; }
@@ -30,6 +29,7 @@ export class NekoOAuthProvider implements OAuthClientProvider {
   private dir?: string;
   private tokenAttempted = false;
   private attempt?: string;
+  private readonly records: OAuthRecordCache = new Map();
   private readonly root = join(homeDir(), ".neko-core", "mcp-auth", "v2");
   redirected = false;
 
@@ -49,6 +49,7 @@ export class NekoOAuthProvider implements OAuthClientProvider {
     }
     if (this.redirected && this.discovery?.authorizationServerUrl !== state.authorizationServerUrl) throw new Error("MCP OAuth issuer changed during authorization");
     this.discovery = structuredClone(state);
+    this.records.clear();
     this.dir = join(this.root, createHash("sha256").update(JSON.stringify([this.server, this.resource, state.authorizationServerUrl, this.redirectUrl])).digest("hex"));
   }
 
@@ -58,30 +59,23 @@ export class NekoOAuthProvider implements OAuthClientProvider {
     return new URL(this.resource);
   }
 
-  private read<T>(file: string, parse: (value: JsonValue) => T): T | undefined {
+  private read<T>(file: string, parse: (value: JsonValue) => T, lockHeld = false): T | undefined {
     if (!this.dir) return undefined;
-    const path = join(this.dir, file);
-    if (!existsSync(path)) return undefined;
-    try {
-      const st = lstatSync(path);
-      if (!st.isFile() || st.size > 65536) throw new Error("invalid record");
-      return parse(JSON.parse(readFileSync(path, "utf8")));
-    } catch { throw new Error("MCP OAuth credential record cannot be read"); }
+    return readOAuthRecord(join(this.dir, file), parse, lockHeld, this.records);
   }
 
   private save(file: string, value: OAuthClientInformationMixed | TokenRecord): void {
     if (!this.dir) throw new Error("MCP OAuth discovery is required before saving credentials");
-    const data = JSON.stringify(value);
-    if (Buffer.byteLength(data) > 65536) throw new Error("MCP OAuth credential record is too large");
-    try {
-      mkdirSync(this.dir, { recursive: true, mode: 0o700 });
-      atomicWriteFileSync(join(this.dir, file), data, 0o600);
-    } catch { throw new Error("MCP OAuth credential record cannot be saved"); }
+    writeOAuthRecord(join(this.dir, file), JSON.stringify(value), this.records);
   }
 
   clientInformation(): OAuthClientInformationMixed | undefined { return this.read("client.json", value => OAuthClientInformationSchema.parse(value)); }
-  saveClientInformation(value: OAuthClientInformationMixed): void { this.save("client.json", OAuthClientInformationSchema.parse(value)); }
-  tokens(): OAuthTokens | undefined {
+  saveClientInformation(value: OAuthClientInformationMixed): void {
+    if (!this.dir) throw new Error("MCP OAuth discovery is required before saving credentials");
+    withOAuthStorageLock(this.dir, () => this.save("client.json", OAuthClientInformationSchema.parse(value)));
+  }
+  tokens(): OAuthTokens | undefined { return this.readTokens(); }
+  private readTokens(lockHeld = false): OAuthTokens | undefined {
     return this.read("tokens.json", value => {
       if (isJsonObject(value) && (Object.hasOwn(value, "version") || Object.hasOwn(value, "phase"))) {
         if (value.version === 2 && value.phase === "consuming" && Object.keys(value).length === 3 && isText(value.attempt) && /^[a-f0-9]{32}$/.test(value.attempt)) return undefined;
@@ -91,14 +85,14 @@ export class NekoOAuthProvider implements OAuthClientProvider {
         return OAuthTokensSchema.parse(value.tokens);
       }
       return OAuthTokensSchema.parse(value);
-    });
+    }, lockHeld);
   }
   saveTokens(value: OAuthTokens): void {
     if (!this.dir) throw new Error("MCP OAuth discovery is required before saving credentials");
     const tokens = OAuthTokensSchema.parse(value);
-    withOAuthRecordLock(this.dir, () => {
+    withOAuthStorageLock(this.dir, () => {
       if (this.tokenAttempted) {
-        const current = this.read("tokens.json", value => value);
+        const current = this.read("tokens.json", value => value, true);
         if (!this.attempt || !isJsonObject(current) || Object.keys(current).length !== 3 || current.version !== 2 || current.phase !== "consuming" || current.attempt !== this.attempt) throw new TokenAttemptError();
       }
       this.save("tokens.json", { version: 1, phase: "ready", tokens });
@@ -117,10 +111,10 @@ export class NekoOAuthProvider implements OAuthClientProvider {
     const params = new URLSearchParams(init.body);
     if (!["authorization_code", "refresh_token"].includes(params.get("grant_type") ?? "") || params.get("resource") !== new URL(this.resource).href) throw new TokenAttemptError();
     if (!this.dir) throw new TokenAttemptError();
-    withOAuthRecordLock(this.dir, () => {
+    withOAuthStorageLock(this.dir, () => {
       if (params.get("grant_type") === "refresh_token") {
         const refresh = params.get("refresh_token");
-        if (!refresh || this.tokens()?.refresh_token !== refresh) throw new TokenAttemptError();
+        if (!refresh || this.readTokens(true)?.refresh_token !== refresh) throw new TokenAttemptError();
       } else if (!params.get("code")) throw new TokenAttemptError();
       const attempt = randomBytes(16).toString("hex");
       this.save("tokens.json", { version: 2, phase: "consuming", attempt });
@@ -132,11 +126,12 @@ export class NekoOAuthProvider implements OAuthClientProvider {
 
   invalidateCredentials(scope: "all" | "client" | "tokens" | "verifier" | "discovery"): void {
     this.allowAuthorization();
-    if (this.dir) withOAuthRecordLock(this.dir, () => {
+    if (this.dir) withOAuthStorageLock(this.dir, () => {
       try {
         for (const [kind, file] of [["client", "client.json"], ["tokens", "tokens.json"]] as const) if (scope === "all" || scope === kind) rmSync(join(this.dir!, file), { force: true });
       } catch { throw new Error("MCP OAuth credential record cannot be removed"); }
     });
+    this.records.clear();
     if (scope === "all" || scope === "verifier") this.verifier = undefined;
     if (scope === "all" || scope === "discovery") { this.discovery = undefined; this.dir = undefined; }
   }

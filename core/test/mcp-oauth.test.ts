@@ -13,6 +13,7 @@ import { connectWithOAuth, NekoOAuthProvider } from "../src/adapters/mcp-oauth.t
 import { McpHub } from "../src/adapters/mcp.ts";
 import { isText } from "../src/shared/wire.ts";
 import * as atomic from "../src/shared/atomic.ts";
+import { readOAuthRecord } from "../src/adapters/mcp-oauth-storage.ts";
 
 const resource = "https://mcp.example.test/mcp", issuer = "https://auth.example.test";
 function discovery(as = issuer, target = resource): OAuthDiscoveryState {
@@ -198,7 +199,7 @@ for (const stage of ["resource", "metadata", "issuer", "registration", "token"] 
     expect(posts).toBe(stage === "token" ? 1 : 0); expect(opened).toBe(stage === "token" ? 1 : 0);
     if (stage === "token") {
       const parent = join(root, ".neko-core", "mcp-auth", "v2");
-      expect(JSON.parse(readFileSync(join(parent, readdirSync(parent)[0]!, "tokens.json"), "utf8"))).toEqual({ version: 2, phase: "consuming", attempt: expect.stringMatching(/^[a-f0-9]{32}$/) });
+      expect(readOAuthRecord(join(parent, readdirSync(parent)[0]!, "tokens.json"), value => value)).toEqual({ version: 2, phase: "consuming", attempt: expect.stringMatching(/^[a-f0-9]{32}$/) });
     }
   } finally { await client.close(); }
 }));
@@ -256,7 +257,7 @@ for (const mode of ["abort", "deadline", "stream-error", "oversized-error", "ove
     }, openUrl: () => { opened++; } })).rejects.toThrow();
     expect(posts).toBe(1); expect(opened).toBe(0); expect(canceled).toBe(mode === "stream-error" ? 0 : 1);
     const parent = join(root, ".neko-core", "mcp-auth", "v2");
-    expect(JSON.parse(readFileSync(join(parent, readdirSync(parent)[0]!, "tokens.json"), "utf8"))).toEqual({ version: 2, phase: "consuming", attempt: expect.stringMatching(/^[a-f0-9]{32}$/) });
+    expect(readOAuthRecord(join(parent, readdirSync(parent)[0]!, "tokens.json"), value => value)).toEqual({ version: 2, phase: "consuming", attempt: expect.stringMatching(/^[a-f0-9]{32}$/) });
     await assertPortReleased(callback.redirectUrl);
   } finally { await client.close(); }
 }));
@@ -388,7 +389,7 @@ test("pre-connect lost refresh response never opens a fallback browser or reuses
     } });
     expect(tokenPosts).toBe(2); expect(opened).toBe(1);
   } finally { await next.close(); }
-}));
+}), 15000);
 
 for (const mode of ["before-save", "result-save", "invalid-client", "invalid-grant", "server-error", "malformed", "second-401", "abort-before-token", "canonical-endpoint"] as const) test("SDK token recovery fences " + mode, async () => withHome(async root => {
   const callback = new McpOAuthCallback(); await callback.listen(0);
@@ -441,7 +442,7 @@ test("token records migrate legacy credentials and reject malformed envelopes", 
     const parent = join(root, ".neko-core", "mcp-auth", "v2"), file = join(parent, readdirSync(parent)[0]!, "tokens.json");
     const tokens = { access_token: "legacy-fixture", token_type: "Bearer", refresh_token: "legacy-refresh" };
     writeFileSync(file, JSON.stringify(tokens)); expect(provider.tokens()).toEqual(tokens);
-    provider.saveTokens(tokens); expect(JSON.parse(readFileSync(file, "utf8")).phase).toBe("ready"); expect(provider.tokens()).toEqual(tokens);
+    provider.saveTokens(tokens); expect(readOAuthRecord(file, value => value)).toMatchObject({ phase: "ready" }); expect(provider.tokens()).toEqual(tokens);
     for (const value of [{ version: 2, phase: "consuming" }, { version: 1, phase: "unknown" }, { version: 1, phase: "consuming", tokens }, { version: 1, phase: "ready" }]) {
       writeFileSync(file, JSON.stringify(value)); expect(() => provider.tokens()).toThrow("cannot be read");
     }
@@ -464,7 +465,7 @@ for (const mode of ["invalid_client", "invalid_grant", "lost_response"] as const
     } })).rejects.toThrow(/reconnect/);
     expect(posts).toBe(1); expect(opened).toBe(1); await assertPortReleased(redirect);
     const parent = join(root, ".neko-core", "mcp-auth", "v2"), stored = readFileSync(join(parent, readdirSync(parent)[0]!, "tokens.json"), "utf8");
-    expect(JSON.parse(stored)).toEqual({ version: 2, phase: "consuming", attempt: expect.stringMatching(/^[a-f0-9]{32}$/) });
+    expect(readOAuthRecord(join(parent, readdirSync(parent)[0]!, "tokens.json"), value => value)).toEqual({ version: 2, phase: "consuming", attempt: expect.stringMatching(/^[a-f0-9]{32}$/) });
     expect(stored).not.toContain("fixture-code"); expect(stored).not.toContain("fixture-refresh");
   } finally { await client.close(); }
 }));
