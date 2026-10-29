@@ -658,7 +658,14 @@
       "section": "Fixed",
       "sourceLine": 112,
       "sourceSHA256": "f5f9c314265a881f6608fb5983ac17c54eb1a539db69f423ee2c6d9bd8258042",
-      "coverage": "not-validated"
+      "coverage": "partial-local-validation",
+      "implementation": "verified-private-computer-downloads",
+      "evidence": {
+        "backendCommit": "a11d211c01f94f7b9c65744ff69032f4ddae8af3",
+        "codeCommit": "38a1dda6ee94a350c44622d14bdaf245447fb45a",
+        "report": "grokbot-file-downloads-2026-10-29.md",
+        "scope": "Private two-pass checked snapshots prevent mixed ordinary file versions; checked browser saves reject errors and stale responses. Windows filesystem/HTTP tests and 10 actual Chrome fixture groups pass. Adversarial atomic snapshots, crash cleanup, live cloud, native WebView and physical-device acceptance remain unvalidated."
+      }
     },
     {
       "id": "0.78.1-Fixed-37",
