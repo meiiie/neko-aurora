@@ -9146,7 +9146,10 @@
       "topics": [
         "routines-network"
       ],
-      "coverage": "not-validated"
+      "coverage": "partial-local-validation",
+      "implementation": "creation-anchored-interval-routines",
+      "evidence": ["grokbot-schedule-interval-2026-10-29.md"],
+      "codeCommits": ["a84df1989ee2a4168d7d7261eddf26959f61ffbf", "51b39b75f2ee689d0da5540747da7a7ae11b2926"]
     },
     {
       "id": "0.31.0-Fixed-1",
@@ -10297,6 +10300,6 @@
       "coverage": "not-validated"
     }
   ],
-  "note": "Every source bullet is indexed, including fixes and bundled changes. Tags are routing hints, not proof of feature coverage. Twenty-four entries have narrower local implementations; no complete upstream parity is claimed. Source prose is not redistributed.",
+  "note": "Every source bullet is indexed, including fixes and bundled changes. Tags are routing hints, not proof of feature coverage. Twenty-five entries have narrower local implementations; no complete upstream parity is claimed. Source prose is not redistributed.",
   "baseCommit": "66376d68691d8bce16b6565c6268c4331802ef57"
 }

@@ -49,7 +49,7 @@ Coverage is conservative: twenty-four entries have partial local validation, one
 | [0.34.0](https://x.ai/changelog/bot#v0.34.0) | 6 | No parity claim |
 | [0.33.0](https://x.ai/changelog/bot#v0.33.0) | 8 | No parity claim |
 | [0.32.0](https://x.ai/changelog/bot#v0.32.0) | 2 | No parity claim |
-| [0.31.0](https://x.ai/changelog/bot#v0.31.0) | 12 | No parity claim |
+| [0.31.0](https://x.ai/changelog/bot#v0.31.0) | 12 | 1 partially validated entry |
 | [0.30.0](https://x.ai/changelog/bot#v0.30.0) | 12 | No parity claim |
 | [0.29.0](https://x.ai/changelog/bot#v0.29.0) | 4 | No parity claim |
 | [0.28.0](https://x.ai/changelog/bot#v0.28.0) | 3 | No parity claim |

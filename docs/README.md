@@ -7,6 +7,7 @@
 - [Setup/build Windows, Tauri, Core và xử lý lỗi thường gặp](getting-started.md).
 - [Thư viện trang: bản nháp, phiên bản và phục hồi lần lưu](pages.md).
 - [Pages: kiểm thử local và các phần còn thiếu](research/grokbot-pages-2026-10-29.md).
+- [Lịch theo khoảng thời gian: cách dùng và giới hạn](routines.md).
 - [Kiến trúc và ranh giới trách nhiệm](architecture.md).
 - [Trạng thái nền tảng và phạm vi kiểm chứng](project-status.md).
 - [Mốc source alpha và version](releases.md).
