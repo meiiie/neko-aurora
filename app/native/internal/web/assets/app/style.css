@@ -553,3 +553,5 @@ details.sources[open]>:not(summary),details.think[open]>:not(summary),details.pl
 
 .vault-tabs{display:flex;gap:8px;margin:0 16px 14px}.vault-tabs [aria-selected=true]{background:var(--ink);color:var(--card)}.vault-tabs button:focus-visible{outline:2px solid var(--ink);outline-offset:3px}.vault-row .vault-preferred{font-weight:650;color:var(--ink);margin-top:3px}.vault-it .cell-t{overflow-wrap:anywhere}
 .vault-form .pill.ghost.danger{display:flex;align-items:center;justify-content:center;gap:8px;background:var(--sunk);color:var(--ink);box-shadow:inset 0 0 0 1px var(--line)}.vault-form [data-vdelete] svg{color:var(--danger)}
+
+.startup{margin:24px 16px;padding:20px;border-radius:18px;background:var(--sunk);text-align:center}.startup p{margin:0 0 16px;line-height:1.5}.startup .pill{min-height:44px}

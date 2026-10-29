@@ -49,13 +49,14 @@ let stateRequest=0;const messageLoads=new Map();
 async function loadState(){
  const request=++stateRequest;let st;
  try{st=await api("/state")}catch(e){if(request!==stateRequest)return;if(e.status===401)await expiredState(request);throw e}
- if(request!==stateRequest)return;
+ if(request!==stateRequest||window.AURORA_STARTUP?.blocked)return;
  const changed=S.workspaceId&&S.workspaceId!==st.workspaceId;
  if(changed){S.msgs={};S.drafts={};messageLoads.clear();nodeCache.clear();resetVault();closeThread();closeCtx();if(sheetOpen)closeSheet(true)}
  $("#login").classList.add("hidden");S.workspaceId=st.workspaceId;bindOutbox();S.agents=st.agents;S.pending=st.pending;S.brief=st.brief;S.ai=st.ai;S.vapid=st.vapidPublicKey;S.outbound=st.outbound||{};S.secrets=st.secrets||[];S.pushSubs=st.pushSubscriptions|0;seedSeen();renderList();
  if(changed&&es)connect();
  if(profId&&!isGroup(byId(profId)))void schedCard(profId,$("#profBody"),S.workspaceId,true);
  if(cur){const a=byId(cur.id);if(a){cur=a;await loadMsgs(a.id)}}
+ if(request===stateRequest)window.AURORA_STARTUP?.ready();
  return request===stateRequest;
 }
 async function loadMsgs(id){
@@ -673,10 +674,11 @@ async function expiredState(request){
  resetVault();closeThread();closeCtx();if(sheetOpen)closeSheet(true);messageLoads.clear();nodeCache.clear();document.querySelectorAll("input[data-secret]").forEach(i=>{i.value=""});
  const config=await fetch("/app/auth/config",{credentials:"same-origin",cache:"no-store",signal:AbortSignal.timeout?AbortSignal.timeout(15000):undefined}).then(r=>r.ok?r.json():null).catch(()=>null);
  if(request!==stateRequest)return;
+ window.AURORA_STARTUP?.ready();
  if(config&&config.hosted){location.replace("/app/signin.html");return}
  $("#login").classList.remove("hidden");
 }
-function boot(){return loadState().then(applied=>{if(!applied)return;if(!es)connect();const h=location.hash.slice(1);if(h)openThread(h)}).catch(e=>{if(e.status!==401)toast("Không kết nối được máy chủ")})}
+function boot(){return loadState().then(applied=>{if(!applied)return;if(!es)connect();const h=location.hash.slice(1);if(h)openThread(h)}).catch(e=>{if(e.status!==401){window.AURORA_STARTUP?.failed();toast("Không kết nối được máy chủ")}})}
 let logging=false;$("#loginForm").onsubmit=async e=>{e.preventDefault();if(logging)return;logging=true;try{const r=await fetch("/app/login",{method:"POST",credentials:"same-origin",headers:{"Content-Type":"application/json"},body:JSON.stringify({code:$("#loginCode").value})});if(!r.ok){toast(r.status===429?"Thử quá nhiều lần, đợi 5 phút":"Mã không đúng");return}$("#loginCode").value="";await boot()}catch{toast("Không kết nối được")}finally{logging=false}};
 boot();
 // ---------- Aurora icons (Lucide, ISC) + haptics ----------

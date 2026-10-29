@@ -91,6 +91,9 @@ try:
             context.add_init_script('window.SpeechRecognition=class{constructor(){window.fixtureRec=this}start(){}stop(){}}')
             page = context.new_page()
             fixture, errors = Fixture(), []
+            requests=[]
+            page.on('requestfailed',lambda q:requests.append({'url':q.url,'failure':q.failure}))
+            page.on('response',lambda q:requests.append({'url':q.url,'status':q.status}))
             page.on('pageerror', lambda e: errors.append(str(e)))
             page.route('**/app/api/**', fixture.route)
             page.goto(url+'/app/#bot-a')
@@ -206,11 +209,13 @@ try:
             ]})
             page.reload()
             card=page.locator('.question-card')
-            page.evaluate('window.__I18N.set("en")')
+            with page.expect_navigation(wait_until='load'):
+                page.evaluate('window.__I18N.set("en")')
             expect(card.get_by_role('button',name='Next',exact=True)).to_be_disabled()
             expect(card.get_by_role('radio',name='Sáng',exact=True)).to_have_count(1)
             expect(card.get_by_role('radio',name='Light',exact=True)).to_have_count(0)
-            page.evaluate('window.__I18N.set("vi")')
+            with page.expect_navigation(wait_until='load'):
+                page.evaluate('window.__I18N.set("vi")')
             check('UI language changes preserve model question wording')
             expect(card.get_by_role('button',name='Tiếp',exact=True)).to_be_disabled()
             page.locator('#input').fill('Tôi muốn hỏi thêm trước')
@@ -327,7 +332,8 @@ try:
             assert not errors,errors
             check('removing a quote preserves typed text and remains removed after reload')
         except Exception:
-            print('BROWSER DIAGNOSTICS', json.dumps(page.evaluate('''()=>({ready:document.readyState,url:location.href,body:document.body.innerText.slice(-800),screens:[...document.querySelectorAll('.screen')].map(e=>({id:e.id,cls:e.className,transform:getComputedStyle(e).transform,bounds:e.getBoundingClientRect().toJSON()})),scripts:[...document.scripts].map(e=>e.src)})''')))
+            print('BROWSER ERRORS',json.dumps({'errors':errors,'requests':requests[-60:]}))
+            print('BROWSER DIAGNOSTICS', json.dumps(page.evaluate('''()=>({ready:document.readyState,aurora:typeof window.__AURORA,workspace:window.__AURORA?.state().workspaceId,url:location.href,body:document.body?.innerText.slice(-800),screens:[...document.querySelectorAll('.screen')].map(e=>({id:e.id,cls:e.className,transform:getComputedStyle(e).transform,bounds:e.getBoundingClientRect().toJSON()})),scripts:[...document.scripts].map(e=>e.src)})''')))
             page.screenshot(path=str(OUT/'composer-failure.png'))
             raise
         finally:

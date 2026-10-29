@@ -39,6 +39,7 @@ var contentTypes = map[string]string{
 	"/app/cloud.js":                "text/javascript; charset=utf-8",
 	"/app/cloud.css":               "text/css; charset=utf-8",
 	"/app/i18n.js":                 "text/javascript; charset=utf-8",
+	"/app/startup.js":              "text/javascript; charset=utf-8",
 	"/app/md.js":                   "text/javascript; charset=utf-8",
 	"/app/ux.js":                   "text/javascript; charset=utf-8",
 	"/app/style.css":               "text/css; charset=utf-8",

@@ -21,6 +21,7 @@
 <link rel="stylesheet" href="/app/cloud.css">
 <script src="/app/theme.js"></script>
 <script src="/app/i18n.js"></script>
+<script src="/app/startup.js"></script>
   <script src="/app/md.js"></script><script src="/app/ux.js"></script>
 <script src="/app/aurora/icons.js" defer></script>
 <script src="/app/aurora/brands.js" defer></script>
@@ -49,6 +50,10 @@
       <button class="round" id="newBtn" aria-label="Tạo mới" aria-haspopup="menu"></button>
     </header>
     <div class="scroll" id="listScroll">
+      <section class="startup" id="startup" aria-label="Neko Aurora">
+        <p id="startupStatus" role="status">Đang mở Neko Aurora…</p>
+        <button class="pill soft" type="button" id="startupRetry">Tải lại</button>
+      </section>
       <div class="featured" id="featured"></div>
       <article class="brief" id="brief"></article>
       <ul class="rows" id="rows"></ul>
