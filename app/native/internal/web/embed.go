@@ -34,6 +34,7 @@ var contentTypes = map[string]string{
 	"/app/question-card.js":        "text/javascript; charset=utf-8",
 	"/app/mcp-authorization.js":    "text/javascript; charset=utf-8",
 	"/app/vault-contacts.js":       "text/javascript; charset=utf-8",
+	"/app/downloads.js":            "text/javascript; charset=utf-8",
 	"/app/form-card.js":            "text/javascript; charset=utf-8",
 	"/app/network.js":              "text/javascript; charset=utf-8",
 	"/app/network.css":             "text/css; charset=utf-8",
