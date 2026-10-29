@@ -2,11 +2,12 @@ package ledger
 
 // Aurora records: owner-side presentation and audit facts for the Aurora
 // UIs, journaled in the same hash chain as everything else so there is no
-// side file. Three kinds:
+// side file. These records include:
 //
 //	aurora.look      – a bot's avatar, pin and tag
 //	aurora.push      – this owner's Web Push subscriptions (add/remove)
 //	aurora.activity  – a dedicated, append-only activity journal
+//	aurora.page      – immutable owner document revisions and save receipts
 //
 // They never touch Work, so they cannot affect the runtime pipeline.
 
@@ -56,6 +57,7 @@ type AuroraRecord struct {
 	Look     *AuroraLook     `json:"look,omitempty"`
 	Push     *AuroraPush     `json:"push,omitempty"`
 	Activity *AuroraActivity `json:"activity,omitempty"`
+	Page     *PageChange     `json:"page,omitempty"`
 }
 
 const auroraActivityKeep = 2000
@@ -87,7 +89,7 @@ func (s *Store) validAuroraEvent(e Event) bool {
 		return false
 	}
 	n := 0
-	for _, set := range []bool{r.Look != nil, r.Push != nil, r.Activity != nil} {
+	for _, set := range []bool{r.Look != nil, r.Push != nil, r.Activity != nil, r.Page != nil} {
 		if set {
 			n++
 		}
@@ -96,6 +98,8 @@ func (s *Store) validAuroraEvent(e Event) bool {
 		return false
 	}
 	switch e.Type {
+	case "aurora.page":
+		return r.Page != nil && s.validPageChange(*r.Page)
 	case "aurora.look":
 		l := r.Look
 		return l != nil && s.hasBot(l.BotID) && directText(l.Tag, 40) && (l.Avatar == nil || ValidAuroraAvatar(*l.Avatar))
@@ -122,6 +126,15 @@ func (s *Store) validAuroraEvent(e Event) bool {
 func (s *Store) applyAurora(e Event) {
 	r := *e.Aurora
 	switch {
+	case r.Page != nil:
+		p := *r.Page
+		r.Page = &p
+		if s.pages == nil {
+			s.pages = map[string][]PageRevision{}
+			s.pageNonces = map[string]PageChange{}
+		}
+		s.pages[p.Page.ID] = append(s.pages[p.Page.ID], p.Page)
+		s.pageNonces[p.Input.ClientNonce] = p
 	case r.Look != nil:
 		l := *r.Look
 		if l.Avatar != nil {

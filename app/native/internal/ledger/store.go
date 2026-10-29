@@ -217,6 +217,8 @@ type Store struct {
 	auroraLooks              map[string]AuroraLook
 	auroraPush               []AuroraPush
 	auroraActivity           []AuroraActivity
+	pages                    map[string][]PageRevision
+	pageNonces               map[string]PageChange
 	botProfileNonces         map[string]Event
 	contextAdmissionRequired bool
 	executorRequired         bool
@@ -1287,6 +1289,11 @@ func (s *Store) eventsLocked(after uint64) ([]Event, error) {
 	}
 	out := append([]Event{}, s.events[int(after):]...)
 	for i := range out {
+		if out[i].Aurora != nil && out[i].Aurora.Page != nil {
+			a, p := *out[i].Aurora, *out[i].Aurora.Page
+			a.Page = &p
+			out[i].Aurora = &a
+		}
 		if out[i].ReportDelivery != nil {
 			d := s.publicReportDelivery(*out[i].ReportDelivery)
 			out[i].ReportDelivery = &d
