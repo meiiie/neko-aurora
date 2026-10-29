@@ -86,7 +86,16 @@
       "section": "New",
       "sourceLine": 44,
       "sourceSHA256": "f1c9e441862d5a6c8c3c2f4f0f8e28478ad8376e3bb5892f44a3115737470440",
-      "coverage": "not-validated"
+      "coverage": "partial-local-validation",
+      "implementation": "encrypted-contact-channels-and-primary-selection",
+      "codeCommit": "a01e3c8db8e6fdb81d45717b95576d40347119cc",
+      "evidence": [
+        "docs/research/grokbot-vault-contacts-2026-10-29.md",
+        "app/native/internal/vault/item_contacts_test.go",
+        "app/native/internal/aurora/vault_contacts_test.go",
+        "app/tests/aurora/vault-contacts-browser.py"
+      ],
+      "limits": "Local encrypted identity items and owner editor only; max ten emails and ten phones; primary fields feed existing fill consumers. No remote contacts import/sync, provider, native WebView or physical-device acceptance. Creation retains one initial email/phone; edit adds more."
     },
     {
       "id": "0.78.1-New-11",
