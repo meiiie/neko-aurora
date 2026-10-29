@@ -12,6 +12,7 @@ import { isJsonObject, isText, type JsonValue } from "../shared/wire.ts";
 import { openBrowser } from "./chatgpt-auth.ts";
 import { McpOAuthCallback } from "./mcp-oauth-callback.ts";
 import { boundedOAuthResponse } from "./mcp-oauth-http.ts";
+import { oauthHttpFetch } from "./mcp-oauth-network.ts";
 import { readOAuthRecord, writeOAuthRecord, withOAuthStorageLock, type OAuthRecordCache } from "./mcp-oauth-storage.ts";
 
 function httpsEndpoint(raw: string | undefined): boolean {
@@ -162,7 +163,7 @@ export async function connectWithOAuth(client: Client, server: string, url: stri
     // including when a server uses the same URL for resource and OAuth endpoints.
     const resourceRequest = target.href === new URL(url).href && new Headers(init?.headers).get("accept")?.includes("text/event-stream");
     if (!resourceRequest) provider?.beforeTokenRequest(input, init, signal);
-    const response = await (options.fetch ?? fetch)(input, { ...init, redirect: "error", credentials: "omit", signal });
+    const response = await (options.fetch ?? (resourceRequest ? fetch : oauthHttpFetch))(input, { ...init, redirect: "error", credentials: "omit", signal });
     // The SDK refreshes and resends the original RPC on 401/403. After initialization that
     // RPC may already have mutated remote state; require an explicit reconnect instead.
     if (connected && (response.status === 401 || response.status === 403)) {
