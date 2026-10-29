@@ -4020,6 +4020,8 @@
       ],
       "coverage": "partial-local-validation",
       "implementation": "schedule-profile-load-recovery",
+      "scheduleStorageEvidence": "docs/research/grokbot-schedule-storage-2026-10-29.md",
+      "scheduleStorageCommit": "3a7868f2d25534611361217ec5206f9e848b2e21",
       "evidence": [
         "app/tests/aurora/schedule-loading-browser.py",
         "docs/research/grokbot-schedule-loading-2026-10-29.md"
@@ -4123,6 +4125,8 @@
       ],
       "coverage": "partial-local-validation",
       "implementation": "schedule-profile-load-recovery",
+      "scheduleStorageEvidence": "docs/research/grokbot-schedule-storage-2026-10-29.md",
+      "scheduleStorageCommit": "3a7868f2d25534611361217ec5206f9e848b2e21",
       "evidence": [
         "app/tests/aurora/schedule-loading-browser.py",
         "docs/research/grokbot-schedule-loading-2026-10-29.md"
@@ -5180,6 +5184,8 @@
       ],
       "coverage": "partial-local-validation",
       "implementation": "schedule-profile-load-recovery",
+      "scheduleStorageEvidence": "docs/research/grokbot-schedule-storage-2026-10-29.md",
+      "scheduleStorageCommit": "3a7868f2d25534611361217ec5206f9e848b2e21",
       "evidence": [
         "app/tests/aurora/schedule-loading-browser.py",
         "docs/research/grokbot-schedule-loading-2026-10-29.md"
