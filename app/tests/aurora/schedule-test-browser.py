@@ -6,6 +6,7 @@ import os
 import re
 import threading
 from pathlib import Path
+from fixture_http import FixtureHTTPServer
 from urllib.parse import urlsplit, parse_qs
 from playwright.sync_api import expect, sync_playwright
 
@@ -56,7 +57,7 @@ class Fixture:
 
 def check(message): print('PASS ' + message, flush=True)
 
-server = http.server.ThreadingHTTPServer(('127.0.0.1', 0), functools.partial(Handler, directory=str(ROOT/'app/native/internal/web/assets')))
+server = FixtureHTTPServer(('127.0.0.1', 0), functools.partial(Handler, directory=str(ROOT/'app/native/internal/web/assets')))
 threading.Thread(target=server.serve_forever, daemon=True).start()
 try:
     with sync_playwright() as p:

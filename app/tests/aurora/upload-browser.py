@@ -8,6 +8,7 @@ import os
 import threading
 import time
 from pathlib import Path
+from fixture_http import FixtureHTTPServer
 from urllib.parse import urlsplit
 from playwright.sync_api import expect, sync_playwright
 
@@ -40,7 +41,7 @@ class Fixture:
             if self.mode=='invalid':data={'path':'uploads/bad]\nINJECT'}
         route.fulfill(status=200,content_type='application/json',body=json.dumps(data))
 def check(s):print('PASS '+s,flush=True)
-server=http.server.ThreadingHTTPServer(('127.0.0.1',0),functools.partial(Handler,directory=str(ROOT/'app/native/internal/web/assets')))
+server=FixtureHTTPServer(('127.0.0.1',0),functools.partial(Handler,directory=str(ROOT/'app/native/internal/web/assets')))
 threading.Thread(target=server.serve_forever,daemon=True).start()
 url=f'http://127.0.0.1:{server.server_port}/app/#bot-a'
 try:
