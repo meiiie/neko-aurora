@@ -96,3 +96,58 @@ function blocks(node,lines,src){let i=0;
 function render(node,text,src,opt){node.classList.add("md");node.replaceChildren();text=String(text||"").replace(/\r\n?/g,"\n");if(opt&&opt.streaming)text=settle(text);blocks(node,text.split("\n"),src)}
 self.AURORA_MD={render,inline,closeViewer};
 })();
+
+"use strict";
+(() => {
+  const tags = new Set("P H1 H2 H3 H4 H5 H6 STRONG EM S DEL UL OL LI PRE CODE BLOCKQUOTE HR BR A TABLE THEAD TBODY TR TH TD".split(" "));
+  function html(text, sources) {
+    const source = document.createElement("div"), target = document.createElement("div");
+    AURORA_MD.render(source, text, sources);
+    source.querySelectorAll(".code-h,.table-actions,.table-scroll").forEach(node => node.remove());
+    function append(node, parent) {
+      if (node.nodeType === Node.TEXT_NODE) { parent.append(node.textContent); return; }
+      if (node.nodeType !== Node.ELEMENT_NODE) return;
+      if (node.classList.contains("tick")) { parent.append(node.classList.contains("on") ? "[x] " : "[ ] "); return; }
+      if (["SCRIPT","STYLE","BUTTON","INPUT","TEXTAREA","SELECT","SVG","IMG","IFRAME","OBJECT"].includes(node.tagName)) return;
+      let output = parent;
+      if (tags.has(node.tagName)) {
+        output = document.createElement(node.tagName);
+        if (node.tagName === "A") {
+          try { const url = new URL(node.getAttribute("href"), location.href); if (["https:","http:","mailto:"].includes(url.protocol)) output.setAttribute("href", url.href); } catch {}
+        }
+        if (node.tagName === "OL" && /^\d+$/.test(node.getAttribute("start"))) output.setAttribute("start", node.getAttribute("start"));
+        parent.append(output);
+      }
+      node.childNodes.forEach(child => append(child, output));
+    }
+    source.childNodes.forEach(node => append(node, target));
+    return target.innerHTML;
+  }
+  function button({text, sources, active, notice}) {
+    const node = document.createElement("button");
+    node.type = "button";
+    node.className = "copy-reply-action text-btn";
+    node.textContent = "Sao chép câu trả lời";
+    let copying = false;
+    const current = () => node.isConnected && active();
+    node.onclick = async () => {
+      if (copying || !current()) return;
+      copying = true;
+      node.setAttribute("aria-disabled", "true");
+      node.setAttribute("aria-busy", "true");
+      try {
+        if (navigator.clipboard?.write && typeof ClipboardItem === "function") {
+          await navigator.clipboard.write([new ClipboardItem({
+            "text/plain": new Blob([text], {type:"text/plain"}),
+            "text/html": new Blob([html(text, sources)], {type:"text/html"}),
+          })]);
+        } else if (navigator.clipboard?.writeText) await navigator.clipboard.writeText(text);
+        else throw Error("clipboard_unavailable");
+        if (current()) notice("Đã sao chép");
+      } catch { if (current()) notice("Không sao chép được. Hãy chọn và sao chép văn bản."); }
+      finally { copying = false; node.removeAttribute("aria-disabled"); node.removeAttribute("aria-busy"); }
+    };
+    return node;
+  }
+  self.AURORA_MD.copyReplyButton = button;
+})();
