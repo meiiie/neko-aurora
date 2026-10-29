@@ -402,7 +402,13 @@
       "section": "Fixed",
       "sourceLine": 83,
       "sourceSHA256": "e54fe894f19cb632ce8aa425608e3071c7130022dfb83753369a5b0fe7c4c920",
-      "coverage": "not-validated"
+      "coverage": "partial-local-validation",
+      "implementation": "own-answer-validation-and-ime-submission-guards",
+      "evidence": {
+        "codeCommit": "2107c7e513a71cc4e7a14fcb8d45f7baea672d1e",
+        "report": "grokbot-ime-input-2026-10-29.md",
+        "scope": "Real Chrome with synthetic composition lifecycles, isComposing/keyCode229 flags and trusted keyboard actions. Existing single-choice own-answer review/reload is validated. OS IMEs, native WebView, other browsers and physical devices remain unvalidated."
+      }
     },
     {
       "id": "0.78.1-Fixed-8",
@@ -410,7 +416,13 @@
       "section": "Fixed",
       "sourceLine": 84,
       "sourceSHA256": "f7f8d2bbd04104cea1415ca8e71e598b2d0410101c65cea94f2921dd0c0dcd41",
-      "coverage": "not-validated"
+      "coverage": "partial-local-validation",
+      "implementation": "own-answer-validation-and-ime-submission-guards",
+      "evidence": {
+        "codeCommit": "2107c7e513a71cc4e7a14fcb8d45f7baea672d1e",
+        "report": "grokbot-ime-input-2026-10-29.md",
+        "scope": "Real Chrome with synthetic composition lifecycles, isComposing/keyCode229 flags and trusted keyboard actions. Existing single-choice own-answer review/reload is validated. OS IMEs, native WebView, other browsers and physical devices remain unvalidated."
+      }
     },
     {
       "id": "0.78.1-Fixed-9",
