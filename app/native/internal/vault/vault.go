@@ -343,6 +343,16 @@ func redactItem(s, n, val string) string {
 	if json.Unmarshal([]byte(val), &f) != nil {
 		return s
 	}
+	if c, err := contactValues(f); err == nil {
+		for kind, list := range map[string][]ContactValue{"email": c.Emails, "phone": c.Phones} {
+			for _, entry := range list {
+				if entry.Value == f[kind] {
+					continue
+				}
+				f["contacts."+kind+"."+entry.ID] = entry.Value
+			}
+		}
+	}
 	keys := make([]string, 0, len(f))
 	for k := range f {
 		keys = append(keys, k)

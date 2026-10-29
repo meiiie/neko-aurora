@@ -324,6 +324,40 @@ func (s *Service) vaultActionRequest(w http.ResponseWriter, r *http.Request) boo
 
 func (s *Service) vaultRoutes() {
 	m := s.mux
+	m.HandleFunc("POST /app/api/vault/{id}/contacts", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Cache-Control", "no-store")
+		if s.L.ReadOnly() {
+			fail(w, ledger.ErrConflict)
+			return
+		}
+		var in struct {
+			WorkspaceID string `json:"workspaceId"`
+			vault.ContactChange
+		}
+		if err := decodeVaultRequest(w, r, &in); err != nil || in.WorkspaceID == "" || in.Revision == "" {
+			fail(w, ledger.ErrInvalid)
+			return
+		}
+		if !s.vaultWorkspace(w, in.WorkspaceID) {
+			return
+		}
+		it, err := s.V.ChangeContact(r.PathValue("id"), in.ContactChange)
+		in.Value = ""
+		if err != nil {
+			if errors.Is(err, vault.ErrContactConflict) {
+				fail(w, ledger.ErrConflict)
+			} else if errors.Is(err, vault.ErrType) {
+				fail(w, ledger.ErrInvalid)
+			} else {
+				vaultErr(w, err)
+			}
+			return
+		}
+		s.V.LogUse(vault.Use{Item: it.ID, Label: it.Label, Action: "save"})
+		s.record("", "", "vault", "Đã cập nhật liên hệ trong Vault")
+		s.sync()
+		writeJSON(w, 200, map[string]any{"workspaceId": s.workspaceID, "item": it})
+	})
 	m.HandleFunc("POST /app/api/vault/payments", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Cache-Control", "no-store")
 		if s.L.ReadOnly() {
@@ -421,13 +455,16 @@ func (s *Service) vaultRoutes() {
 			return
 		}
 		id := r.PathValue("id")
-		f, ok := s.V.Fields(id)
+		f, contacts, err := s.V.RevealItem(id)
 		it, _ := s.V.Item(id)
-		if !ok {
-			fail(w, ErrNotFound)
+		if err != nil {
+			vaultErr(w, err)
 			return
 		}
 		out := map[string]any{"workspaceId": s.workspaceID, "fields": f}
+		if contacts != nil {
+			out["contacts"] = contacts
+		}
 		if f["totp"] != "" {
 			if c, err := vault.TOTP(f["totp"], time.Now()); err == nil {
 				out["code"], out["codeTTL"] = c, 30-time.Now().Unix()%30

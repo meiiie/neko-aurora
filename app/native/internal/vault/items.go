@@ -50,6 +50,7 @@ type Item struct {
 	Updated          string            `json:"updated"`
 	UseHint          string            `json:"useHint,omitempty"`
 	PreferredPayment bool              `json:"preferredPayment,omitempty"`
+	Contacts         *ContactMetadata  `json:"contacts,omitempty"`
 }
 
 var idRe = regexp.MustCompile(`^[a-f0-9]{8,32}$`)
@@ -119,6 +120,11 @@ func (v *Vault) SaveItem(id, typ, label string, fields map[string]string, useHin
 	for k := range fields {
 		if !contains(allowed, k) {
 			return Item{}, ErrType
+		}
+	}
+	if typ == "identity" {
+		if err := mergeContacts(old, out); err != nil {
+			return Item{}, err
 		}
 	}
 	switch {
@@ -264,6 +270,9 @@ func itemOf(m Meta) Item {
 
 func itemWithFields(m Meta, fields map[string]string) Item {
 	it := itemOf(m)
+	if it.Type == "identity" {
+		it.Contacts = contactMetadata(fields)
+	}
 	it.UseHint = fields[itemUseHint]
 	for _, k := range ItemFields[it.Type] {
 		if fields[k] != "" {
@@ -363,6 +372,7 @@ func (v *Vault) Fields(id string) (map[string]string, bool) {
 	defer v.mu.RUnlock()
 	f, err := v.fieldsLocked(id)
 	delete(f, itemUseHint)
+	delete(f, itemContacts)
 	return f, err == nil
 }
 
