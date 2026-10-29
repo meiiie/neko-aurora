@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"regexp"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -23,18 +24,21 @@ const maxSchedules = 12
 const defaultScheduleTimezone = "Asia/Ho_Chi_Minh"
 
 type schedule struct {
-	ID        string `json:"id"`
-	Timezone  string `json:"timezone,omitempty"`
-	Bot       string `json:"bot"`
-	Text      string `json:"text"`
-	At        string `json:"at"`             // HH:MM in Timezone
-	Repeat    string `json:"repeat"`         // daily | weekdays | once
-	Date      string `json:"date,omitempty"` // once: YYYY-MM-DD
-	Last      string `json:"last,omitempty"` // last occurrence key run
-	Paused    bool   `json:"paused"`
-	Revision  uint64 `json:"revision"`
-	StartDate string `json:"startDate,omitempty"` // earliest day after an owner edit
-	Blocked   string `json:"blocked,omitempty"`
+	ID                 string `json:"id"`
+	Timezone           string `json:"timezone,omitempty"`
+	Bot                string `json:"bot"`
+	Text               string `json:"text"`
+	At                 string `json:"at"`             // HH:MM in Timezone
+	Repeat             string `json:"repeat"`         // daily | weekdays | once
+	Date               string `json:"date,omitempty"` // once: YYYY-MM-DD
+	Last               string `json:"last,omitempty"` // last occurrence key run
+	Paused             bool   `json:"paused"`
+	Revision           uint64 `json:"revision"`
+	StartDate          string `json:"startDate,omitempty"` // earliest day after an owner edit
+	Blocked            string `json:"blocked,omitempty"`
+	IntervalMinutes    int    `json:"intervalMinutes,omitempty"`
+	IntervalAnchor     string `json:"intervalAnchor,omitempty"`
+	IntervalGeneration uint64 `json:"intervalGeneration,omitempty"`
 }
 
 func (x schedule) zoneName() string {
@@ -78,6 +82,14 @@ func (x schedule) normalize(now time.Time) (schedule, bool) {
 	x.StartDate = ""
 	x.Blocked = ""
 	x.Text = clean(x.Text, 1000)
+	if x.Repeat == "interval" {
+		if x.Text == "" || !validScheduleInterval(x.IntervalMinutes) || x.At != "" || x.Date != "" {
+			return x, false
+		}
+		x.startInterval(now, 1)
+		return x, true
+	}
+	x.clearInterval()
 	m := hhmm.FindStringSubmatch(strings.TrimSpace(x.At))
 	if x.Text == "" || m == nil {
 		return x, false
@@ -118,6 +130,9 @@ func (x schedule) due(now time.Time) string {
 	}
 	if x.Paused {
 		return ""
+	}
+	if x.Repeat == "interval" {
+		return x.intervalDue(now)
 	}
 	t := now.In(loc)
 	day := t.Format("2006-01-02")
@@ -160,7 +175,7 @@ func (st *schedStore) add(x schedule) bool {
 		if y.ID == x.ID {
 			return false
 		}
-		if y.Bot == x.Bot && y.At == x.At && y.zoneName() == x.zoneName() && y.Repeat == x.Repeat && strings.EqualFold(y.Text, x.Text) {
+		if y.Bot == x.Bot && y.At == x.At && y.zoneName() == x.zoneName() && y.Repeat == x.Repeat && y.IntervalMinutes == x.IntervalMinutes && strings.EqualFold(y.Text, x.Text) {
 			return false
 		}
 	}
@@ -228,6 +243,9 @@ func (s *Service) scheduleTick(now time.Time) {
 		if k := st.L[i].due(now); k != "" {
 			x := st.L[i]
 			text := "[Lịch hẹn " + x.At + " " + x.zoneName() + "] " + x.Text
+			if x.Repeat == "interval" {
+				text = "[Lịch hẹn mỗi " + strconv.Itoa(x.IntervalMinutes) + " phút] " + x.Text
+			}
 			nonce := "sched-" + x.ID + "-" + k
 			admitted := false
 			for _, work := range s.L.Snapshot().Work {
@@ -320,13 +338,14 @@ func (s *Service) controlSchedule(id string, revision uint64, paused *bool) erro
 }
 
 type scheduleEdit struct {
-	Timezone    *string `json:"timezone"`
-	WorkspaceID string  `json:"workspaceId"`
-	Revision    uint64  `json:"revision"`
-	Text        string  `json:"text"`
-	At          string  `json:"at"`
-	Repeat      string  `json:"repeat"`
-	Date        string  `json:"date"`
+	IntervalMinutes int     `json:"intervalMinutes"`
+	Timezone        *string `json:"timezone"`
+	WorkspaceID     string  `json:"workspaceId"`
+	Revision        uint64  `json:"revision"`
+	Text            string  `json:"text"`
+	At              string  `json:"at"`
+	Repeat          string  `json:"repeat"`
+	Date            string  `json:"date"`
 }
 
 func (s *Service) editSchedule(id string, in scheduleEdit) (schedule, error) {
@@ -334,19 +353,28 @@ func (s *Service) editSchedule(id string, in scheduleEdit) (schedule, error) {
 		return schedule{}, ledger.ErrConflict
 	}
 	m := hhmm.FindStringSubmatch(strings.TrimSpace(in.At))
-	if m == nil || strings.TrimSpace(in.Text) == "" || utf8.RuneCountInString(in.Text) > 1000 {
+	if strings.TrimSpace(in.Text) == "" || !utf8.ValidString(in.Text) || utf8.RuneCountInString(in.Text) > 1000 || in.Revision >= 1<<53-1 {
 		return schedule{}, ErrInvalid
 	}
-	if len(m[1]) == 1 {
-		m[1] = "0" + m[1]
+	if in.Repeat == "interval" {
+		if !validScheduleInterval(in.IntervalMinutes) || in.At != "" || in.Date != "" {
+			return schedule{}, ErrInvalid
+		}
+	} else {
+		if m == nil || in.IntervalMinutes != 0 {
+			return schedule{}, ErrInvalid
+		}
+		if len(m[1]) == 1 {
+			m[1] = "0" + m[1]
+		}
+		in.At = m[1] + ":" + m[2]
 	}
-	in.At = m[1] + ":" + m[2]
 	switch in.Repeat {
 	case "daily", "weekdays":
 		if in.Date != "" {
 			return schedule{}, ErrInvalid
 		}
-	case "once":
+	case "once", "interval":
 	default:
 		return schedule{}, ErrInvalid
 	}
@@ -375,6 +403,23 @@ func (s *Service) editSchedule(id string, in scheduleEdit) (schedule, error) {
 			return schedule{}, ErrInvalid
 		}
 		now := s.Now().In(loc)
+		if in.Repeat == "interval" {
+			x := old
+			x.Timezone, x.Text, x.Repeat, x.Blocked = zone, clean(in.Text, 1000), in.Repeat, ""
+			x.Revision, x.IntervalMinutes = max(1, old.Revision)+1, in.IntervalMinutes
+			if old.Repeat != "interval" || old.IntervalMinutes != in.IntervalMinutes {
+				x.startInterval(now, x.Revision)
+			}
+			if _, _, valid := x.intervalState(); !valid {
+				return schedule{}, ErrInvalid
+			}
+			st.L[i] = x
+			if err := st.saveLocked(); err != nil {
+				st.L[i] = old
+				return schedule{}, err
+			}
+			return x, nil
+		}
 		day := now.Format("2006-01-02")
 		if in.Repeat == "once" {
 			at, err := time.ParseInLocation("2006-01-02 15:04", in.Date+" "+in.At, loc)
@@ -383,6 +428,10 @@ func (s *Service) editSchedule(id string, in scheduleEdit) (schedule, error) {
 			}
 		}
 		x := old
+		x.clearInterval()
+		if old.Repeat == "interval" {
+			x.Last = ""
+		}
 		x.Timezone = zone
 		x.Text, x.At, x.Repeat, x.Date = clean(in.Text, 1000), in.At, in.Repeat, in.Date
 		x.Revision, x.StartDate = max(1, old.Revision)+1, ""
@@ -438,6 +487,10 @@ func (s *Service) addSchedules(w ledger.Work, xs []schedule) {
 		x.Bot, x.ID = w.BotID, newID("s-")
 		if n, ok := x.normalize(s.Now()); ok && s.sched.add(n) {
 			when := map[string]string{"daily": "mỗi ngày", "weekdays": "các ngày trong tuần", "once": "ngày " + n.Date}[n.Repeat]
+			if n.Repeat == "interval" {
+				s.record(w.BotID, w.RequestID, "step", "Đã đặt lịch mỗi "+strconv.Itoa(n.IntervalMinutes)+" phút: "+clean(n.Text, 80))
+				continue
+			}
 			s.record(w.BotID, w.RequestID, "step", "Đã đặt lịch "+n.At+" "+n.zoneName()+" "+when+": "+clean(n.Text, 80))
 		}
 	}

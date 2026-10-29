@@ -55,6 +55,15 @@ func readSchedules(path string) ([]schedule, error) {
 			return nil, errScheduleStorage
 		}
 		ids[x.ID] = true
+		if x.Repeat == "interval" {
+			if _, _, valid := x.intervalState(); !valid {
+				return nil, errScheduleStorage
+			}
+			continue
+		}
+		if x.IntervalMinutes != 0 || x.IntervalAnchor != "" || x.IntervalGeneration != 0 {
+			return nil, errScheduleStorage
+		}
 		if !hhmm.MatchString(x.At) {
 			return nil, errScheduleStorage
 		}
