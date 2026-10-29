@@ -198,7 +198,7 @@ for (const stage of ["resource", "metadata", "issuer", "registration", "token"] 
     expect(posts).toBe(stage === "token" ? 1 : 0); expect(opened).toBe(stage === "token" ? 1 : 0);
     if (stage === "token") {
       const parent = join(root, ".neko-core", "mcp-auth", "v2");
-      expect(JSON.parse(readFileSync(join(parent, readdirSync(parent)[0]!, "tokens.json"), "utf8"))).toEqual({ version: 1, phase: "consuming" });
+      expect(JSON.parse(readFileSync(join(parent, readdirSync(parent)[0]!, "tokens.json"), "utf8"))).toEqual({ version: 2, phase: "consuming", attempt: expect.stringMatching(/^[a-f0-9]{32}$/) });
     }
   } finally { await client.close(); }
 }));
@@ -256,7 +256,7 @@ for (const mode of ["abort", "deadline", "stream-error", "oversized-error", "ove
     }, openUrl: () => { opened++; } })).rejects.toThrow();
     expect(posts).toBe(1); expect(opened).toBe(0); expect(canceled).toBe(mode === "stream-error" ? 0 : 1);
     const parent = join(root, ".neko-core", "mcp-auth", "v2");
-    expect(JSON.parse(readFileSync(join(parent, readdirSync(parent)[0]!, "tokens.json"), "utf8"))).toEqual({ version: 1, phase: "consuming" });
+    expect(JSON.parse(readFileSync(join(parent, readdirSync(parent)[0]!, "tokens.json"), "utf8"))).toEqual({ version: 2, phase: "consuming", attempt: expect.stringMatching(/^[a-f0-9]{32}$/) });
     await assertPortReleased(callback.redirectUrl);
   } finally { await client.close(); }
 }));
@@ -464,7 +464,7 @@ for (const mode of ["invalid_client", "invalid_grant", "lost_response"] as const
     } })).rejects.toThrow(/reconnect/);
     expect(posts).toBe(1); expect(opened).toBe(1); await assertPortReleased(redirect);
     const parent = join(root, ".neko-core", "mcp-auth", "v2"), stored = readFileSync(join(parent, readdirSync(parent)[0]!, "tokens.json"), "utf8");
-    expect(JSON.parse(stored)).toEqual({ version: 1, phase: "consuming" });
+    expect(JSON.parse(stored)).toEqual({ version: 2, phase: "consuming", attempt: expect.stringMatching(/^[a-f0-9]{32}$/) });
     expect(stored).not.toContain("fixture-code"); expect(stored).not.toContain("fixture-refresh");
   } finally { await client.close(); }
 }));
