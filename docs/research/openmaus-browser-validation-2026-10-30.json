@@ -1,0 +1,793 @@
+{
+  "version": 1,
+  "currentCodeCommit": "6f93ea26dbe7d99e60b0e63fc6df2fee1c5fc471",
+  "environment": "Windows amd64; PowerShell 7.6; Go 1.27.1; Python 3.13.7; Chrome 156.0.8078.49; isolated synthetic local fixtures, credential-excluding environment; actual service worker in OAuth fixture",
+  "scope": "Latest successful execution of each browser fixture during this change. Per-entry source hashes and differences distinguish earlier iterations from final source. This is not native WebView, physical-phone or live-provider acceptance.",
+  "browser": [
+    {
+      "script": "adoption-browser",
+      "result": "PASS",
+      "startedUTC": "2026-10-30T14:30:39.627809+00:00",
+      "command": [
+        "python",
+        "-u",
+        "app/tests/aurora/adoption-browser.py"
+      ],
+      "cwd": ".",
+      "environmentFlag": null,
+      "reportedPassLines": 22,
+      "seconds": 25.07,
+      "baseCommit": "9740419f12e624db65bb1cc77a24764ccca6fccc",
+      "workingTree": true,
+      "sourceManifestSHA256": "80977f7bff121a0eb00d28d7934c402048a359a907135ee82a14cbb718dcf8f9",
+      "sourceChangedDuringCheck": [],
+      "filesDifferentFromCurrentSource": [],
+      "log": "browser-213039.log"
+    },
+    {
+      "script": "chat-identity-browser",
+      "result": "PASS",
+      "startedUTC": "2026-10-30T14:31:30.218791+00:00",
+      "command": [
+        "python",
+        "-u",
+        "app/tests/aurora/chat-identity-browser.py"
+      ],
+      "cwd": ".",
+      "environmentFlag": null,
+      "reportedPassLines": 7,
+      "seconds": 7.92,
+      "baseCommit": "9740419f12e624db65bb1cc77a24764ccca6fccc",
+      "workingTree": true,
+      "sourceManifestSHA256": "80977f7bff121a0eb00d28d7934c402048a359a907135ee82a14cbb718dcf8f9",
+      "sourceChangedDuringCheck": [],
+      "filesDifferentFromCurrentSource": [],
+      "log": "chat-identity-browser-213130.log"
+    },
+    {
+      "script": "chat-loading-browser",
+      "result": "PASS",
+      "startedUTC": "2026-10-30T14:31:22.085317+00:00",
+      "command": [
+        "python",
+        "-u",
+        "app/tests/aurora/chat-loading-browser.py"
+      ],
+      "cwd": ".",
+      "environmentFlag": null,
+      "reportedPassLines": 12,
+      "seconds": 7.98,
+      "baseCommit": "9740419f12e624db65bb1cc77a24764ccca6fccc",
+      "workingTree": true,
+      "sourceManifestSHA256": "80977f7bff121a0eb00d28d7934c402048a359a907135ee82a14cbb718dcf8f9",
+      "sourceChangedDuringCheck": [],
+      "filesDifferentFromCurrentSource": [],
+      "log": "chat-loading-browser-213122.log"
+    },
+    {
+      "script": "chat-resize-browser",
+      "result": "PASS",
+      "startedUTC": "2026-10-30T14:31:38.280441+00:00",
+      "command": [
+        "python",
+        "-u",
+        "app/tests/aurora/chat-resize-browser.py"
+      ],
+      "cwd": ".",
+      "environmentFlag": null,
+      "reportedPassLines": 8,
+      "seconds": 7.63,
+      "baseCommit": "9740419f12e624db65bb1cc77a24764ccca6fccc",
+      "workingTree": true,
+      "sourceManifestSHA256": "80977f7bff121a0eb00d28d7934c402048a359a907135ee82a14cbb718dcf8f9",
+      "sourceChangedDuringCheck": [],
+      "filesDifferentFromCurrentSource": [],
+      "log": "chat-resize-browser-213138.log"
+    },
+    {
+      "script": "composer-browser",
+      "result": "PASS",
+      "startedUTC": "2026-10-30T14:38:48.402900+00:00",
+      "command": [
+        "python",
+        "-u",
+        "app/tests/aurora/composer-browser.py"
+      ],
+      "cwd": ".",
+      "environmentFlag": null,
+      "reportedPassLines": 23,
+      "seconds": 34.37,
+      "baseCommit": "6f93ea26dbe7d99e60b0e63fc6df2fee1c5fc471",
+      "workingTree": true,
+      "sourceManifestSHA256": "80977f7bff121a0eb00d28d7934c402048a359a907135ee82a14cbb718dcf8f9",
+      "sourceChangedDuringCheck": [],
+      "filesDifferentFromCurrentSource": [],
+      "log": "composer-browser-213848.log"
+    },
+    {
+      "script": "computer-recovery-browser",
+      "result": "PASS",
+      "startedUTC": "2026-10-30T14:39:22.910708+00:00",
+      "command": [
+        "python",
+        "-u",
+        "app/tests/aurora/computer-recovery-browser.py"
+      ],
+      "cwd": ".",
+      "environmentFlag": null,
+      "reportedPassLines": 7,
+      "seconds": 5.65,
+      "baseCommit": "6f93ea26dbe7d99e60b0e63fc6df2fee1c5fc471",
+      "workingTree": true,
+      "sourceManifestSHA256": "80977f7bff121a0eb00d28d7934c402048a359a907135ee82a14cbb718dcf8f9",
+      "sourceChangedDuringCheck": [],
+      "filesDifferentFromCurrentSource": [],
+      "log": "computer-recovery-browser-213922.log"
+    },
+    {
+      "script": "content-i18n-browser",
+      "result": "PASS",
+      "startedUTC": "2026-10-30T14:39:28.718325+00:00",
+      "command": [
+        "python",
+        "-u",
+        "app/tests/aurora/content-i18n-browser.py"
+      ],
+      "cwd": ".",
+      "environmentFlag": null,
+      "reportedPassLines": 10,
+      "seconds": 7.97,
+      "baseCommit": "6f93ea26dbe7d99e60b0e63fc6df2fee1c5fc471",
+      "workingTree": true,
+      "sourceManifestSHA256": "80977f7bff121a0eb00d28d7934c402048a359a907135ee82a14cbb718dcf8f9",
+      "sourceChangedDuringCheck": [],
+      "filesDifferentFromCurrentSource": [],
+      "log": "content-i18n-browser-213928.log"
+    },
+    {
+      "script": "dictation-browser",
+      "result": "PASS",
+      "startedUTC": "2026-10-30T14:39:36.822466+00:00",
+      "command": [
+        "python",
+        "-u",
+        "app/tests/aurora/dictation-browser.py"
+      ],
+      "cwd": ".",
+      "environmentFlag": null,
+      "reportedPassLines": 11,
+      "seconds": 5.83,
+      "baseCommit": "6f93ea26dbe7d99e60b0e63fc6df2fee1c5fc471",
+      "workingTree": true,
+      "sourceManifestSHA256": "80977f7bff121a0eb00d28d7934c402048a359a907135ee82a14cbb718dcf8f9",
+      "sourceChangedDuringCheck": [],
+      "filesDifferentFromCurrentSource": [],
+      "log": "dictation-browser-213936.log"
+    },
+    {
+      "script": "download-browser",
+      "result": "PASS",
+      "startedUTC": "2026-10-30T14:39:42.778209+00:00",
+      "command": [
+        "python",
+        "-u",
+        "app/tests/aurora/download-browser.py"
+      ],
+      "cwd": ".",
+      "environmentFlag": null,
+      "reportedPassLines": 10,
+      "seconds": 6.38,
+      "baseCommit": "6f93ea26dbe7d99e60b0e63fc6df2fee1c5fc471",
+      "workingTree": true,
+      "sourceManifestSHA256": "80977f7bff121a0eb00d28d7934c402048a359a907135ee82a14cbb718dcf8f9",
+      "sourceChangedDuringCheck": [],
+      "filesDifferentFromCurrentSource": [],
+      "log": "download-browser-213942.log"
+    },
+    {
+      "script": "form-browser",
+      "result": "PASS",
+      "startedUTC": "2026-10-30T14:39:49.285293+00:00",
+      "command": [
+        "python",
+        "-u",
+        "app/tests/aurora/form-browser.py"
+      ],
+      "cwd": ".",
+      "environmentFlag": null,
+      "reportedPassLines": 16,
+      "seconds": 26.11,
+      "baseCommit": "6f93ea26dbe7d99e60b0e63fc6df2fee1c5fc471",
+      "workingTree": true,
+      "sourceManifestSHA256": "80977f7bff121a0eb00d28d7934c402048a359a907135ee82a14cbb718dcf8f9",
+      "sourceChangedDuringCheck": [],
+      "filesDifferentFromCurrentSource": [],
+      "log": "form-browser-213949.log"
+    },
+    {
+      "script": "ime-browser",
+      "result": "PASS",
+      "startedUTC": "2026-10-30T14:40:15.523855+00:00",
+      "command": [
+        "python",
+        "-u",
+        "app/tests/aurora/ime-browser.py"
+      ],
+      "cwd": ".",
+      "environmentFlag": null,
+      "reportedPassLines": 10,
+      "seconds": 20.33,
+      "baseCommit": "6f93ea26dbe7d99e60b0e63fc6df2fee1c5fc471",
+      "workingTree": true,
+      "sourceManifestSHA256": "80977f7bff121a0eb00d28d7934c402048a359a907135ee82a14cbb718dcf8f9",
+      "sourceChangedDuringCheck": [],
+      "filesDifferentFromCurrentSource": [],
+      "log": "ime-browser-214015.log"
+    },
+    {
+      "script": "list-focus-browser",
+      "result": "PASS",
+      "startedUTC": "2026-10-30T14:26:05.667066+00:00",
+      "command": [
+        "python",
+        "-u",
+        "app/tests/aurora/list-focus-browser.py"
+      ],
+      "cwd": ".",
+      "environmentFlag": null,
+      "reportedPassLines": 12,
+      "seconds": 4.82,
+      "baseCommit": "9740419f12e624db65bb1cc77a24764ccca6fccc",
+      "workingTree": true,
+      "sourceManifestSHA256": "80977f7bff121a0eb00d28d7934c402048a359a907135ee82a14cbb718dcf8f9",
+      "sourceChangedDuringCheck": [],
+      "filesDifferentFromCurrentSource": [],
+      "log": "list-focus-browser-212605.log"
+    },
+    {
+      "script": "mcp-config-browser",
+      "result": "PASS",
+      "startedUTC": "2026-10-30T14:40:35.975907+00:00",
+      "command": [
+        "python",
+        "-u",
+        "app/tests/aurora/mcp-config-browser.py"
+      ],
+      "cwd": ".",
+      "environmentFlag": null,
+      "reportedPassLines": 10,
+      "seconds": 27.5,
+      "baseCommit": "6f93ea26dbe7d99e60b0e63fc6df2fee1c5fc471",
+      "workingTree": true,
+      "sourceManifestSHA256": "80977f7bff121a0eb00d28d7934c402048a359a907135ee82a14cbb718dcf8f9",
+      "sourceChangedDuringCheck": [],
+      "filesDifferentFromCurrentSource": [],
+      "log": "mcp-config-browser-214035.log"
+    },
+    {
+      "script": "mcp-discovery-browser",
+      "result": "PASS",
+      "startedUTC": "2026-10-30T14:41:03.611010+00:00",
+      "command": [
+        "python",
+        "-u",
+        "app/tests/aurora/mcp-discovery-browser.py"
+      ],
+      "cwd": ".",
+      "environmentFlag": null,
+      "reportedPassLines": 7,
+      "seconds": 11.61,
+      "baseCommit": "6f93ea26dbe7d99e60b0e63fc6df2fee1c5fc471",
+      "workingTree": true,
+      "sourceManifestSHA256": "80977f7bff121a0eb00d28d7934c402048a359a907135ee82a14cbb718dcf8f9",
+      "sourceChangedDuringCheck": [],
+      "filesDifferentFromCurrentSource": [],
+      "log": "mcp-discovery-browser-214103.log"
+    },
+    {
+      "script": "mcp-oauth-browser",
+      "result": "PASS",
+      "startedUTC": "2026-10-30T14:26:10.616388+00:00",
+      "command": [
+        "go",
+        "test",
+        "-v",
+        "-count=1",
+        "-timeout=180s",
+        "-run",
+        "^TestMCPOAuthBrowserLocalCookieFlow$",
+        "./internal/aurora"
+      ],
+      "cwd": "app/native",
+      "environmentFlag": "AURORA_TEST_MCP_BROWSER=<repo>/app/tests/aurora/mcp-oauth-browser.py",
+      "reportedPassLines": 7,
+      "seconds": 18.65,
+      "baseCommit": "9740419f12e624db65bb1cc77a24764ccca6fccc",
+      "workingTree": true,
+      "sourceManifestSHA256": "80977f7bff121a0eb00d28d7934c402048a359a907135ee82a14cbb718dcf8f9",
+      "sourceChangedDuringCheck": [],
+      "filesDifferentFromCurrentSource": [],
+      "log": "mcp-oauth-browser-212610.log"
+    },
+    {
+      "script": "memory-lifecycle-browser",
+      "result": "PASS",
+      "startedUTC": "2026-10-30T14:26:29.399888+00:00",
+      "command": [
+        "python",
+        "-u",
+        "app/tests/aurora/memory-lifecycle-browser.py"
+      ],
+      "cwd": ".",
+      "environmentFlag": null,
+      "reportedPassLines": 27,
+      "seconds": 19.0,
+      "baseCommit": "9740419f12e624db65bb1cc77a24764ccca6fccc",
+      "workingTree": true,
+      "sourceManifestSHA256": "80977f7bff121a0eb00d28d7934c402048a359a907135ee82a14cbb718dcf8f9",
+      "sourceChangedDuringCheck": [],
+      "filesDifferentFromCurrentSource": [],
+      "log": "memory-lifecycle-browser-212629.log"
+    },
+    {
+      "script": "pages-browser",
+      "result": "PASS",
+      "startedUTC": "2026-10-30T14:29:08.500011+00:00",
+      "command": [
+        "python",
+        "-u",
+        "app/tests/aurora/pages-browser.py"
+      ],
+      "cwd": ".",
+      "environmentFlag": null,
+      "reportedPassLines": 16,
+      "seconds": 11.33,
+      "baseCommit": "9740419f12e624db65bb1cc77a24764ccca6fccc",
+      "workingTree": true,
+      "sourceManifestSHA256": "80977f7bff121a0eb00d28d7934c402048a359a907135ee82a14cbb718dcf8f9",
+      "sourceChangedDuringCheck": [],
+      "filesDifferentFromCurrentSource": [],
+      "log": "pages-browser-212908.log"
+    },
+    {
+      "script": "read-state-browser",
+      "result": "PASS",
+      "startedUTC": "2026-10-30T14:41:15.354153+00:00",
+      "command": [
+        "python",
+        "-u",
+        "app/tests/aurora/read-state-browser.py"
+      ],
+      "cwd": ".",
+      "environmentFlag": null,
+      "reportedPassLines": 9,
+      "seconds": 15.24,
+      "baseCommit": "6f93ea26dbe7d99e60b0e63fc6df2fee1c5fc471",
+      "workingTree": true,
+      "sourceManifestSHA256": "80977f7bff121a0eb00d28d7934c402048a359a907135ee82a14cbb718dcf8f9",
+      "sourceChangedDuringCheck": [],
+      "filesDifferentFromCurrentSource": [],
+      "log": "read-state-browser-214115.log"
+    },
+    {
+      "script": "reply-copy-browser",
+      "result": "PASS",
+      "startedUTC": "2026-10-30T14:41:30.717886+00:00",
+      "command": [
+        "python",
+        "-u",
+        "app/tests/aurora/reply-copy-browser.py"
+      ],
+      "cwd": ".",
+      "environmentFlag": null,
+      "reportedPassLines": 8,
+      "seconds": 4.4,
+      "baseCommit": "6f93ea26dbe7d99e60b0e63fc6df2fee1c5fc471",
+      "workingTree": true,
+      "sourceManifestSHA256": "80977f7bff121a0eb00d28d7934c402048a359a907135ee82a14cbb718dcf8f9",
+      "sourceChangedDuringCheck": [],
+      "filesDifferentFromCurrentSource": [],
+      "log": "reply-copy-browser-214130.log"
+    },
+    {
+      "script": "schedule-browser",
+      "result": "PASS",
+      "startedUTC": "2026-10-30T14:29:19.977759+00:00",
+      "command": [
+        "python",
+        "-u",
+        "app/tests/aurora/schedule-browser.py"
+      ],
+      "cwd": ".",
+      "environmentFlag": null,
+      "reportedPassLines": 12,
+      "seconds": 8.53,
+      "baseCommit": "9740419f12e624db65bb1cc77a24764ccca6fccc",
+      "workingTree": true,
+      "sourceManifestSHA256": "80977f7bff121a0eb00d28d7934c402048a359a907135ee82a14cbb718dcf8f9",
+      "sourceChangedDuringCheck": [],
+      "filesDifferentFromCurrentSource": [],
+      "log": "schedule-browser-212919.log"
+    },
+    {
+      "script": "schedule-loading-browser",
+      "result": "PASS",
+      "startedUTC": "2026-10-30T14:29:28.648038+00:00",
+      "command": [
+        "python",
+        "-u",
+        "app/tests/aurora/schedule-loading-browser.py"
+      ],
+      "cwd": ".",
+      "environmentFlag": null,
+      "reportedPassLines": 14,
+      "seconds": 12.96,
+      "baseCommit": "9740419f12e624db65bb1cc77a24764ccca6fccc",
+      "workingTree": true,
+      "sourceManifestSHA256": "80977f7bff121a0eb00d28d7934c402048a359a907135ee82a14cbb718dcf8f9",
+      "sourceChangedDuringCheck": [],
+      "filesDifferentFromCurrentSource": [],
+      "log": "schedule-loading-browser-212928.log"
+    },
+    {
+      "script": "schedule-test-browser",
+      "result": "PASS",
+      "startedUTC": "2026-10-30T14:28:43.558925+00:00",
+      "command": [
+        "python",
+        "-u",
+        "app/tests/aurora/schedule-test-browser.py"
+      ],
+      "cwd": ".",
+      "environmentFlag": null,
+      "reportedPassLines": 9,
+      "seconds": 15.2,
+      "baseCommit": "9740419f12e624db65bb1cc77a24764ccca6fccc",
+      "workingTree": true,
+      "sourceManifestSHA256": "80977f7bff121a0eb00d28d7934c402048a359a907135ee82a14cbb718dcf8f9",
+      "sourceChangedDuringCheck": [],
+      "filesDifferentFromCurrentSource": [],
+      "log": "schedule-test-browser-212843.log"
+    },
+    {
+      "script": "schedule-timezone-browser",
+      "result": "PASS",
+      "startedUTC": "2026-10-30T14:28:58.986976+00:00",
+      "command": [
+        "python",
+        "-u",
+        "app/tests/aurora/schedule-timezone-browser.py"
+      ],
+      "cwd": ".",
+      "environmentFlag": null,
+      "reportedPassLines": 6,
+      "seconds": 9.36,
+      "baseCommit": "9740419f12e624db65bb1cc77a24764ccca6fccc",
+      "workingTree": true,
+      "sourceManifestSHA256": "80977f7bff121a0eb00d28d7934c402048a359a907135ee82a14cbb718dcf8f9",
+      "sourceChangedDuringCheck": [],
+      "filesDifferentFromCurrentSource": [],
+      "log": "schedule-timezone-browser-212858.log"
+    },
+    {
+      "script": "secret-lifecycle-browser",
+      "result": "PASS",
+      "startedUTC": "2026-10-30T14:26:48.525190+00:00",
+      "command": [
+        "python",
+        "-u",
+        "app/tests/aurora/secret-lifecycle-browser.py"
+      ],
+      "cwd": ".",
+      "environmentFlag": null,
+      "reportedPassLines": 14,
+      "seconds": 18.63,
+      "baseCommit": "9740419f12e624db65bb1cc77a24764ccca6fccc",
+      "workingTree": true,
+      "sourceManifestSHA256": "80977f7bff121a0eb00d28d7934c402048a359a907135ee82a14cbb718dcf8f9",
+      "sourceChangedDuringCheck": [],
+      "filesDifferentFromCurrentSource": [],
+      "log": "secret-lifecycle-browser-212648.log"
+    },
+    {
+      "script": "selection-browser",
+      "result": "PASS",
+      "startedUTC": "2026-10-30T14:41:35.247242+00:00",
+      "command": [
+        "python",
+        "-u",
+        "app/tests/aurora/selection-browser.py"
+      ],
+      "cwd": ".",
+      "environmentFlag": null,
+      "reportedPassLines": 10,
+      "seconds": 11.18,
+      "baseCommit": "6f93ea26dbe7d99e60b0e63fc6df2fee1c5fc471",
+      "workingTree": true,
+      "sourceManifestSHA256": "80977f7bff121a0eb00d28d7934c402048a359a907135ee82a14cbb718dcf8f9",
+      "sourceChangedDuringCheck": [],
+      "filesDifferentFromCurrentSource": [],
+      "log": "selection-browser-214135.log"
+    },
+    {
+      "script": "selection-copy-browser",
+      "result": "PASS",
+      "startedUTC": "2026-10-30T14:41:46.557194+00:00",
+      "command": [
+        "python",
+        "-u",
+        "app/tests/aurora/selection-copy-browser.py"
+      ],
+      "cwd": ".",
+      "environmentFlag": null,
+      "reportedPassLines": 11,
+      "seconds": 4.92,
+      "baseCommit": "6f93ea26dbe7d99e60b0e63fc6df2fee1c5fc471",
+      "workingTree": true,
+      "sourceManifestSHA256": "80977f7bff121a0eb00d28d7934c402048a359a907135ee82a14cbb718dcf8f9",
+      "sourceChangedDuringCheck": [],
+      "filesDifferentFromCurrentSource": [],
+      "log": "selection-copy-browser-214146.log"
+    },
+    {
+      "script": "startup-browser",
+      "result": "PASS",
+      "startedUTC": "2026-10-30T14:31:04.848036+00:00",
+      "command": [
+        "python",
+        "-u",
+        "app/tests/aurora/startup-browser.py"
+      ],
+      "cwd": ".",
+      "environmentFlag": null,
+      "reportedPassLines": 9,
+      "seconds": 17.1,
+      "baseCommit": "9740419f12e624db65bb1cc77a24764ccca6fccc",
+      "workingTree": true,
+      "sourceManifestSHA256": "80977f7bff121a0eb00d28d7934c402048a359a907135ee82a14cbb718dcf8f9",
+      "sourceChangedDuringCheck": [],
+      "filesDifferentFromCurrentSource": [],
+      "log": "startup-browser-213104.log"
+    },
+    {
+      "script": "table-scroll-browser",
+      "result": "PASS",
+      "startedUTC": "2026-10-30T14:30:32.864895+00:00",
+      "command": [
+        "python",
+        "-u",
+        "app/tests/aurora/table-scroll-browser.py"
+      ],
+      "cwd": ".",
+      "environmentFlag": null,
+      "reportedPassLines": 8,
+      "seconds": 6.61,
+      "baseCommit": "9740419f12e624db65bb1cc77a24764ccca6fccc",
+      "workingTree": true,
+      "sourceManifestSHA256": "80977f7bff121a0eb00d28d7934c402048a359a907135ee82a14cbb718dcf8f9",
+      "sourceChangedDuringCheck": [],
+      "filesDifferentFromCurrentSource": [],
+      "log": "table-scroll-browser-213032.log"
+    },
+    {
+      "script": "table-viewer-browser",
+      "result": "PASS",
+      "startedUTC": "2026-10-30T14:41:51.604394+00:00",
+      "command": [
+        "python",
+        "-u",
+        "app/tests/aurora/table-viewer-browser.py"
+      ],
+      "cwd": ".",
+      "environmentFlag": null,
+      "reportedPassLines": 11,
+      "seconds": 6.29,
+      "baseCommit": "6f93ea26dbe7d99e60b0e63fc6df2fee1c5fc471",
+      "workingTree": true,
+      "sourceManifestSHA256": "80977f7bff121a0eb00d28d7934c402048a359a907135ee82a14cbb718dcf8f9",
+      "sourceChangedDuringCheck": [],
+      "filesDifferentFromCurrentSource": [],
+      "log": "table-viewer-browser-214151.log"
+    },
+    {
+      "script": "upload-browser",
+      "result": "PASS",
+      "startedUTC": "2026-10-30T14:41:58.023336+00:00",
+      "command": [
+        "python",
+        "-u",
+        "app/tests/aurora/upload-browser.py"
+      ],
+      "cwd": ".",
+      "environmentFlag": null,
+      "reportedPassLines": 11,
+      "seconds": 10.51,
+      "baseCommit": "6f93ea26dbe7d99e60b0e63fc6df2fee1c5fc471",
+      "workingTree": true,
+      "sourceManifestSHA256": "80977f7bff121a0eb00d28d7934c402048a359a907135ee82a14cbb718dcf8f9",
+      "sourceChangedDuringCheck": [],
+      "filesDifferentFromCurrentSource": [],
+      "log": "upload-browser-214158.log"
+    },
+    {
+      "script": "usage-recovery-browser",
+      "result": "PASS",
+      "startedUTC": "2026-10-30T14:27:07.277080+00:00",
+      "command": [
+        "python",
+        "-u",
+        "app/tests/aurora/usage-recovery-browser.py"
+      ],
+      "cwd": ".",
+      "environmentFlag": null,
+      "reportedPassLines": 12,
+      "seconds": 11.65,
+      "baseCommit": "9740419f12e624db65bb1cc77a24764ccca6fccc",
+      "workingTree": true,
+      "sourceManifestSHA256": "80977f7bff121a0eb00d28d7934c402048a359a907135ee82a14cbb718dcf8f9",
+      "sourceChangedDuringCheck": [],
+      "filesDifferentFromCurrentSource": [],
+      "log": "usage-recovery-browser-212707.log"
+    },
+    {
+      "script": "vault-cards-browser",
+      "result": "PASS",
+      "startedUTC": "2026-10-30T14:27:19.053174+00:00",
+      "command": [
+        "python",
+        "-u",
+        "app/tests/aurora/vault-cards-browser.py"
+      ],
+      "cwd": ".",
+      "environmentFlag": null,
+      "reportedPassLines": 10,
+      "seconds": 13.55,
+      "baseCommit": "9740419f12e624db65bb1cc77a24764ccca6fccc",
+      "workingTree": true,
+      "sourceManifestSHA256": "80977f7bff121a0eb00d28d7934c402048a359a907135ee82a14cbb718dcf8f9",
+      "sourceChangedDuringCheck": [],
+      "filesDifferentFromCurrentSource": [],
+      "log": "vault-cards-browser-212719.log"
+    },
+    {
+      "script": "vault-contacts-browser",
+      "result": "PASS",
+      "startedUTC": "2026-10-30T14:27:32.726351+00:00",
+      "command": [
+        "python",
+        "-u",
+        "app/tests/aurora/vault-contacts-browser.py"
+      ],
+      "cwd": ".",
+      "environmentFlag": null,
+      "reportedPassLines": 11,
+      "seconds": 14.23,
+      "baseCommit": "9740419f12e624db65bb1cc77a24764ccca6fccc",
+      "workingTree": true,
+      "sourceManifestSHA256": "80977f7bff121a0eb00d28d7934c402048a359a907135ee82a14cbb718dcf8f9",
+      "sourceChangedDuringCheck": [],
+      "filesDifferentFromCurrentSource": [],
+      "log": "vault-contacts-browser-212732.log"
+    },
+    {
+      "script": "vault-editor-browser",
+      "result": "PASS",
+      "startedUTC": "2026-10-30T14:27:47.143970+00:00",
+      "command": [
+        "python",
+        "-u",
+        "app/tests/aurora/vault-editor-browser.py"
+      ],
+      "cwd": ".",
+      "environmentFlag": null,
+      "reportedPassLines": 12,
+      "seconds": 19.23,
+      "baseCommit": "9740419f12e624db65bb1cc77a24764ccca6fccc",
+      "workingTree": true,
+      "sourceManifestSHA256": "80977f7bff121a0eb00d28d7934c402048a359a907135ee82a14cbb718dcf8f9",
+      "sourceChangedDuringCheck": [],
+      "filesDifferentFromCurrentSource": [],
+      "log": "vault-editor-browser-212747.log"
+    },
+    {
+      "script": "vault-hints-browser",
+      "result": "PASS",
+      "startedUTC": "2026-10-30T14:28:07.223122+00:00",
+      "command": [
+        "python",
+        "-u",
+        "app/tests/aurora/vault-hints-browser.py"
+      ],
+      "cwd": ".",
+      "environmentFlag": null,
+      "reportedPassLines": 9,
+      "seconds": 13.1,
+      "baseCommit": "9740419f12e624db65bb1cc77a24764ccca6fccc",
+      "workingTree": true,
+      "sourceManifestSHA256": "80977f7bff121a0eb00d28d7934c402048a359a907135ee82a14cbb718dcf8f9",
+      "sourceChangedDuringCheck": [],
+      "filesDifferentFromCurrentSource": [],
+      "log": "vault-hints-browser-212807.log"
+    },
+    {
+      "script": "vault-lifecycle-browser",
+      "result": "PASS",
+      "startedUTC": "2026-10-30T14:28:20.480645+00:00",
+      "command": [
+        "python",
+        "-u",
+        "app/tests/aurora/vault-lifecycle-browser.py"
+      ],
+      "cwd": ".",
+      "environmentFlag": null,
+      "reportedPassLines": 12,
+      "seconds": 11.98,
+      "baseCommit": "9740419f12e624db65bb1cc77a24764ccca6fccc",
+      "workingTree": true,
+      "sourceManifestSHA256": "80977f7bff121a0eb00d28d7934c402048a359a907135ee82a14cbb718dcf8f9",
+      "sourceChangedDuringCheck": [],
+      "filesDifferentFromCurrentSource": [],
+      "log": "vault-lifecycle-browser-212820.log"
+    },
+    {
+      "script": "vault-payments-browser",
+      "result": "PASS",
+      "startedUTC": "2026-10-30T14:28:32.615107+00:00",
+      "command": [
+        "python",
+        "-u",
+        "app/tests/aurora/vault-payments-browser.py"
+      ],
+      "cwd": ".",
+      "environmentFlag": null,
+      "reportedPassLines": 10,
+      "seconds": 10.8,
+      "baseCommit": "9740419f12e624db65bb1cc77a24764ccca6fccc",
+      "workingTree": true,
+      "sourceManifestSHA256": "80977f7bff121a0eb00d28d7934c402048a359a907135ee82a14cbb718dcf8f9",
+      "sourceChangedDuringCheck": [],
+      "filesDifferentFromCurrentSource": [],
+      "log": "vault-payments-browser-212832.log"
+    },
+    {
+      "script": "working-status-browser",
+      "result": "PASS",
+      "startedUTC": "2026-10-30T14:42:08.658242+00:00",
+      "command": [
+        "python",
+        "-u",
+        "app/tests/aurora/working-status-browser.py"
+      ],
+      "cwd": ".",
+      "environmentFlag": null,
+      "reportedPassLines": 10,
+      "seconds": 9.75,
+      "baseCommit": "6f93ea26dbe7d99e60b0e63fc6df2fee1c5fc471",
+      "workingTree": true,
+      "sourceManifestSHA256": "80977f7bff121a0eb00d28d7934c402048a359a907135ee82a14cbb718dcf8f9",
+      "sourceChangedDuringCheck": [],
+      "filesDifferentFromCurrentSource": [],
+      "log": "working-status-browser-214208.log"
+    },
+    {
+      "script": "workspace-browser",
+      "result": "PASS",
+      "startedUTC": "2026-10-30T14:25:56.128267+00:00",
+      "command": [
+        "python",
+        "-u",
+        "app/tests/aurora/workspace-browser.py"
+      ],
+      "cwd": ".",
+      "environmentFlag": null,
+      "reportedPassLines": 15,
+      "seconds": 9.42,
+      "baseCommit": "9740419f12e624db65bb1cc77a24764ccca6fccc",
+      "workingTree": true,
+      "sourceManifestSHA256": "80977f7bff121a0eb00d28d7934c402048a359a907135ee82a14cbb718dcf8f9",
+      "sourceChangedDuringCheck": [],
+      "filesDifferentFromCurrentSource": [],
+      "log": "workspace-browser-212556.log"
+    }
+  ]
+}
