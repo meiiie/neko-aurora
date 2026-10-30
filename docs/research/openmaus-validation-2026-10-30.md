@@ -1,5 +1,7 @@
 # Kiểm chứng workspace tham khảo OpenMausBot — 2026-10-30
 
+Lượt sửa thông báo chưa kết nối AI và nút thiết lập được ghi riêng tại [AI setup validation](ai-setup-validation-2026-10-30.md).
+
 Code commit: `6f93ea26dbe7d99e60b0e63fc6df2fee1c5fc471`, gồm API ở `9740419f12e624db65bb1cc77a24764ccca6fccc`, trên base đã merge `35dfbe46b79d25bb6df780befbd345938f643aef`. Nhánh local: `codex/openmaus-interface`. Source manifest SHA256: `80977f7bff121a0eb00d28d7934c402048a359a907135ee82a14cbb718dcf8f9`; 1.873 file đã đối chiếu với Git, có xét chuẩn hóa LF sẵn có. Tài liệu/ảnh đi sau không thay source ứng dụng.
 
 Một agent tự thực hiện theo pstack, redesign-existing-projects và webapp-testing. Không có subagent hoặc independent reviewer. Reference chỉ đọc, code/assets không được chép vào Aurora. Không dùng account/provider thật, tạo grant, push hoặc deploy trong lượt UI này.
