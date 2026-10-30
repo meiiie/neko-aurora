@@ -26,13 +26,17 @@ class Fixture:
         self.failure = 0
         self.login = 'waiting'
         self.available = True
+    def effective(self):
+        if not self.selection: return {'configured':False,'inherited':True}
+        provider,model=self.selection.removeprefix('core-').split(':',1)
+        return {'configured':provider in self.configured,'inherited':False,'selection':self.selection,'model':model,'provider':{'zai':'GLM Coding Plan','zai-openai':'GLM API','chatgpt':'ChatGPT Plus/Pro'}[provider],'runtime':'neko-core-cli'}
     def route(self, route):
         req = route.request
         path = urlsplit(req.url).path.removeprefix('/app/api')
         status, data = 200, {}
         if req.method != 'GET': self.posts.append((path, req.post_data_json))
         if path == '/state':
-            data = {'workspaceId':'quick-fixture','agents':[{'id':'bot-a','name':'An','status':'idle','snip':'Sẵn sàng nhận việc.'}], 'pending':[], 'ai':{'configured':False}, 'secrets':[], 'outbound':{}}
+            data = {'workspaceId':'quick-fixture','agents':[{'id':'bot-a','name':'An','status':'idle','snip':'Sẵn sàng nhận việc.','ai':self.effective()}], 'pending':[], 'ai':{'configured':False}, 'secrets':[], 'outbound':{}}
         elif path == '/events':
             route.fulfill(content_type='text/event-stream',body='');return
         elif path.endswith('/messages'):
@@ -48,7 +52,7 @@ class Fixture:
                     assert body['expectedSelection'] == self.selection
                     self.selection = 'core-'+body['provider']+':'+body['model']
                     self.configured.add(body['provider'])
-            data = {'workspaceId':self.scope,'available':self.available,'selection':self.selection,'providers':[
+            data = {'workspaceId':self.scope,'available':self.available,'selection':self.selection,'effective':self.effective(),'providers':[
                 {'id':pid,'label':pid,'auth':'chatgpt_oauth' if pid=='chatgpt' else 'api_key','model':model,'models':[model], 'configured':pid in self.configured}
                 for pid,model in [('zai','glm-fixture'),('zai-openai','glm-api-fixture'),('chatgpt','gpt-fixture')]
             ]}
@@ -74,6 +78,7 @@ with sync_playwright() as p:
     try:
         page.goto(f'http://127.0.0.1:{server.server_port}/app/#bot-a')
         page.locator('#input').fill('Bản nháp cần giữ.')
+        expect(page.locator('#threadModel')).to_have_text('Chưa kết nối AI')
         setup();expect(page.locator('#quickProvider')).to_have_value('zai')
         expect(page.locator('#provForm')).not_to_be_visible();expect(page.locator('#quickKey')).to_have_attribute('type','password')
         page.screenshot(path=str(OUT/'quick-desktop.png'),full_page=True)
@@ -87,6 +92,8 @@ with sync_playwright() as p:
         expect(page.locator('#quickSetup')).to_contain_text('Đã chọn AI.')
         expect(page.locator('#quickKey')).to_have_value('')
         assert fixture.selection=='core-zai:glm-fixture'
+        expect(page.locator('#threadModel')).to_contain_text('GLM Coding Plan · glm-fixture')
+        expect(page.locator('.quick-current')).to_contain_text('GLM Coding Plan · glm-fixture')
         page.get_by_role('button',name='Quay lại trò chuyện',exact=True).click();page.wait_for_timeout(450)
         expect(page.locator('#input')).to_have_value('Bản nháp cần giữ.')
         page.reload();setup();expect(page.locator('#quickKey')).to_have_attribute('placeholder','Đã lưu khóa · để trống để dùng tiếp')
@@ -116,9 +123,18 @@ with sync_playwright() as p:
         page.get_by_role('button',name='Dùng kết nối này',exact=True).click()
         expect(page.locator('#quickSetup')).to_contain_text('Đã chọn AI.')
         assert fixture.selection=='core-chatgpt:gpt-fixture'
+        expect(page.locator('#threadModel')).to_contain_text('ChatGPT Plus/Pro · gpt-fixture')
+        expect(page.locator('.quick-current')).to_contain_text('ChatGPT Plus/Pro · gpt-fixture')
         assert fixture.posts[-1][1]['key']==''
         assert not any(path.endswith('/messages') for path,_ in fixture.posts)
         print('PASS OAuth link, cancel, failed retry, explicit activation and no API fallback/no auto-send')
+
+        close();page.reload();expect(page.locator('#threadModel')).to_contain_text('gpt-fixture')
+        page.locator('#whoBtn').click()
+        expect(page.locator('#prAI')).to_contain_text('gpt-fixture')
+        page.locator('#prAI').click();expect(page.locator('.quick-current')).to_contain_text('gpt-fixture')
+        print('PASS selected bot model visible in header, profile and setup after save/reload')
+        close();page.locator('#profBack').click();setup()
 
         close();fixture.scope='another-workspace';setup()
         expect(page.locator('#quickSetup')).to_contain_text('Tài khoản đã thay đổi.')

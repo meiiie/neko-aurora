@@ -177,17 +177,42 @@ func (s *Service) modelConfigured(bot string) bool {
 	return m != nil && m.Configured()
 }
 func (s *Service) aiView() map[string]any {
-	m := s.configuredModel("")
-	if m == nil {
-		return map[string]any{"configured": false}
+	return s.aiViewFor("")
+}
+
+func (s *Service) aiViewFor(bot string) map[string]any {
+	selection := s.quickSelection(bot)
+	inherited := bot != "" && selection == ""
+	if selection == "" {
+		selection = s.quickSelection("")
 	}
-	provider := "z.ai"
-	if c, ok := m.(*Core); ok && c.Quick {
-		if p, found := s.quick.provider(c.Profile); found {
-			provider = p.Label
+	view := map[string]any{"configured": false, "selection": selection, "inherited": inherited}
+	if selection != "" {
+		id, model, _ := strings.Cut(selection, ":")
+		view["model"], view["provider"] = model, strings.TrimPrefix(id, "core-")
+		if strings.HasPrefix(id, "core-") {
+			view["runtime"] = "neko-core-cli"
+			if p, ok := s.quick.provider(strings.TrimPrefix(id, "core-")); ok {
+				view["provider"], view["configured"] = p.Label, s.quickReady(p)
+			}
+		} else {
+			view["runtime"] = "direct-http"
+			for _, m := range s.modelMenu() {
+				if m.ID == selection {
+					view["provider"] = m.Provider
+					break
+				}
+			}
+			_, ai, ok := s.callFor(selection)
+			view["configured"] = ok && ai.Configured()
 		}
+		return view
 	}
-	return map[string]any{"configured": m.Configured(), "model": m.ModelName(), "provider": provider, "runtime": m.Runtime()}
+	if s.AI != nil {
+		view["configured"], view["model"] = s.AI.Configured(), s.AI.ModelName()
+		view["provider"], view["runtime"] = "z.ai", s.AI.Runtime()
+	}
+	return view
 }
 func (s *Service) quickScope(bot string) bool {
 	if bot == "" {
@@ -203,7 +228,7 @@ func (s *Service) quickView(bot string) map[string]any {
 			rows = append(rows, map[string]any{"id": p.ID, "label": p.Label, "auth": p.Auth, "model": p.Model, "models": p.Models, "configured": s.quickReady(p)})
 		}
 	}
-	return map[string]any{"workspaceId": s.workspaceID, "available": s.quick != nil, "providers": rows, "selection": s.quickSelection(bot)}
+	return map[string]any{"workspaceId": s.workspaceID, "available": s.quick != nil, "providers": rows, "selection": s.quickSelection(bot), "effective": s.aiViewFor(bot)}
 }
 
 func (s *Service) quickSetupRoutes() {
@@ -290,6 +315,7 @@ func (s *Service) quickSetupRoutes() {
 			fail(w, err)
 			return
 		}
+		s.resync()
 		writeJSON(w, 200, s.quickView(in.BotID))
 	})
 	s.mux.HandleFunc("POST /app/api/quick-setup/login", func(w http.ResponseWriter, r *http.Request) {

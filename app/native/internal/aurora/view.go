@@ -52,19 +52,20 @@ func plainMD(v string) string {
 // ---- views: the mobile JSON shapes, projected from ledger bots and work ----
 
 type Agent struct {
-	ID      string    `json:"id"`
-	Name    string    `json:"name"`
-	Desc    string    `json:"desc"`
-	Tag     string    `json:"tag,omitempty"`
-	Face    *Face     `json:"av,omitempty"`
-	Status  string    `json:"status"` // idle|working|waiting|done|error
-	Task    string    `json:"task"`   // OpenMuse-style TaskStatus of the latest task
-	Snip    string    `json:"snip"`
-	Doing   string    `json:"doing,omitempty"` // live activity while working ("Đang tìm nguồn…")
-	Pinned  bool      `json:"pin"`
-	Kind    string    `json:"kind,omitempty"` // ""|group
-	Members []string  `json:"members,omitempty"`
-	Updated time.Time `json:"t"`
+	AI      map[string]any `json:"ai,omitempty"`
+	ID      string         `json:"id"`
+	Name    string         `json:"name"`
+	Desc    string         `json:"desc"`
+	Tag     string         `json:"tag,omitempty"`
+	Face    *Face          `json:"av,omitempty"`
+	Status  string         `json:"status"` // idle|working|waiting|done|error
+	Task    string         `json:"task"`   // OpenMuse-style TaskStatus of the latest task
+	Snip    string         `json:"snip"`
+	Doing   string         `json:"doing,omitempty"` // live activity while working ("Đang tìm nguồn…")
+	Pinned  bool           `json:"pin"`
+	Kind    string         `json:"kind,omitempty"` // ""|group
+	Members []string       `json:"members,omitempty"`
+	Updated time.Time      `json:"t"`
 }
 
 type Step = ledger.DirectStep
@@ -297,6 +298,14 @@ func failureText(code string) string {
 	switch {
 	case code == "ai_not_configured":
 		return "Tin nhắn đã được lưu nhưng chưa được xử lý vì chưa có kết nối AI. Hãy thiết lập AI, rồi gửi lại tin nhắn khi bạn muốn tiếp tục."
+	case code == "core_configuration_invalid":
+		return "Aurora chưa khởi động được AI do cấu hình ứng dụng. Hãy cập nhật hoặc khởi động lại Aurora rồi thử lại."
+	case code == "core_auth_required":
+		return "Kết nối ChatGPT cần đăng nhập lại. Mở thiết lập AI để kết nối, rồi gửi lại tin nhắn khi bạn sẵn sàng."
+	case code == "core_home_unavailable" || code == "core_runtime_unavailable":
+		return "Aurora chưa mở được bộ chạy AI trên máy này. Hãy kiểm tra cài đặt Neko Core rồi thử lại."
+	case code == "core_failed":
+		return "AI chưa trả lời được. Bạn có thể thử lại hoặc kiểm tra kết nối trong thiết lập AI."
 	case code == "interrupted_by_restart":
 		return "Tác vụ bị gián đoạn khi máy chủ khởi động lại. Nhắn lại để tiếp tục."
 	case code == "stopped_by_owner":

@@ -94,6 +94,54 @@ func TestQuickModelReadinessAndMetadata(t *testing.T) {
 	}
 }
 
+func TestQuickAIStatusSeparatesBotAndAuroraDefault(t *testing.T) {
+	s, srv := quickFixture(t)
+	bot := firstBot(s)
+	s.quick.ChatGPT = true
+	quickPost(t, srv, "", map[string]any{"workspaceId": s.workspaceID, "botId": bot, "provider": "chatgpt", "model": "gpt-fixture", "expectedSelection": ""}, 200)
+	if s.aiView()["configured"] != false || s.aiViewFor(bot)["model"] != "gpt-fixture" || s.aiViewFor(bot)["inherited"] != false {
+		t.Fatal("bot-specific selection confused with Aurora default")
+	}
+	quickPost(t, srv, "", map[string]any{"workspaceId": s.workspaceID, "provider": "zai", "model": "glm-fixture", "key": "fixture-status-key", "expectedSelection": ""}, 200)
+	if s.aiView()["model"] != "glm-fixture" || s.aiViewFor(bot)["model"] != "gpt-fixture" || s.aiViewFor("other-bot")["inherited"] != true {
+		t.Fatal("default overrode explicit selection or inheritance metadata")
+	}
+	r, err := http.Get(srv.URL + "/app/api/state")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer r.Body.Close()
+	var state struct {
+		AI     map[string]any `json:"ai"`
+		Agents []Agent        `json:"agents"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&state); err != nil {
+		t.Fatal(err)
+	}
+	found := false
+	for _, a := range state.Agents {
+		if a.ID == bot {
+			found = a.AI["model"] == "gpt-fixture" && a.AI["runtime"] == "neko-core-cli"
+		}
+	}
+	if !found || state.AI["model"] != "glm-fixture" {
+		t.Fatal("state does not expose each bot's effective selection")
+	}
+	s.quick.ChatGPT = false
+	if view := s.aiViewFor(bot); view["configured"] != false || view["model"] != "gpt-fixture" {
+		t.Fatal("missing auth hid selection or fell back to default")
+	}
+	s.ext.d.Providers = append(s.ext.d.Providers, provider{ID: "local", Name: "Local fixture", Base: "http://127.0.0.1:1", Models: []string{"local-model"}})
+	be := s.ext.bot(bot)
+	be.Model = "local:local-model"
+	if err := s.ext.setBot(bot, be); err != nil {
+		t.Fatal(err)
+	}
+	if view := s.aiViewFor(bot); view["model"] != "local-model" || view["provider"] != "Local fixture" || view["runtime"] != "direct-http" {
+		t.Fatal("custom provider incorrectly described as default")
+	}
+}
+
 func quickFixture(t *testing.T) (*Service, *httptest.Server) {
 	t.Helper()
 	t.Setenv("AURORA_RUNTIME", "http")

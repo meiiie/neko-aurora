@@ -166,7 +166,7 @@ func (c *Core) Stream(ctx context.Context, msgs []ChatMsg, onDelta func(string))
 		return "", err
 	}
 	if c.Quick && privatefs.CheckDirectory(c.Home) != nil {
-		return "", ErrCore
+		return "", errors.New("core_home_unavailable")
 	}
 	args := []string{c.Entry, "--profile", c.Profile, "--no-tools", "run", corePrompt(msgs)}
 	if c.Quick {
@@ -187,6 +187,9 @@ func (c *Core) Stream(ctx context.Context, msgs []ChatMsg, onDelta func(string))
 	var stderr limited
 	cmd.Stderr = &stderr
 	if err := cmd.Start(); err != nil {
+		if c.Quick {
+			return "", errors.New("core_runtime_unavailable")
+		}
 		return "", err
 	}
 	var full strings.Builder
@@ -232,7 +235,7 @@ func (c *Core) Stream(ctx context.Context, msgs []ChatMsg, onDelta func(string))
 	}
 	if werr != nil {
 		if c.Quick {
-			return reply, ErrCore
+			return reply, coreExitError(stderr.String())
 		}
 		line := strings.TrimSpace(strings.SplitN(stderr.String(), "\n", 2)[0])
 		return reply, fmt.Errorf("%w: %s", ErrCore, scrub(clean(line, 160), c.key))
@@ -241,13 +244,27 @@ func (c *Core) Stream(ctx context.Context, msgs []ChatMsg, onDelta func(string))
 }
 
 func (c *Core) environment() []string {
-	env := []string{"HOME=" + c.Home, "USERPROFILE=" + c.Home, "NEKO_CREDENTIAL_HOME=" + c.Home, "XDG_CONFIG_HOME=" + filepath.Join(c.Home, "config"), "NO_COLOR=1", "TERM=dumb", "LANG=C.UTF-8"}
+	env := []string{"HOME=" + c.Home, "USERPROFILE=" + c.Home, "XDG_CONFIG_HOME=" + filepath.Join(c.Home, "config"), "NO_COLOR=1", "TERM=dumb", "LANG=C.UTF-8"}
 	for _, name := range []string{"PATH", "SystemRoot", "WINDIR", "COMSPEC", "PATHEXT", "TEMP", "TMP"} {
 		if value := os.Getenv(name); value != "" {
 			env = append(env, name+"="+value)
 		}
 	}
 	return env
+}
+
+func coreExitError(stderr string) error {
+	for _, marker := range []string{"Credential home requires the trusted profile bridge entrypoint", "Profile auth requires a trusted entrypoint"} {
+		if strings.Contains(stderr, marker) {
+			return errors.New("core_configuration_invalid")
+		}
+	}
+	for _, marker := range []string{"ChatGPT is not signed in.", "ChatGPT token refresh failed (HTTP 401)", "ChatGPT token refresh failed (HTTP 403)"} {
+		if strings.Contains(stderr, marker) {
+			return errors.New("core_auth_required")
+		}
+	}
+	return ErrCore
 }
 
 func (c *Core) bunFlags() []string {

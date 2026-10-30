@@ -38,6 +38,8 @@ const T=x=>new Date(x).getTime();
 const isGroup=a=>a&&a.kind==="group";
 const bots=()=>S.agents.filter(a=>!isGroup(a));
 const byId=id=>S.agents.find(x=>x.id===id);
+function aiLabel(ai){const tr=s=>window.__I18N?.t(s)||s;if(!ai?.model||(!ai.configured&&!ai.selection))return tr("Chưa kết nối AI");return [ai.provider,ai.model].filter(Boolean).join(" · ")+(ai.configured?"":" · "+tr("Chưa kết nối"))}
+function renderThreadModel(a){const n=$("#threadModel");n.hidden=isGroup(a);n.textContent=isGroup(a)?"":aiLabel(a.ai||S.ai);n.title=window.__I18N?.t("AI được chọn cho tin nhắn mới")||"AI được chọn cho tin nhắn mới"}
 const waiting=a=>S.pending.some(m=>m.agentId===a.id)||a.status==="waiting";
 const ago=t=>{t=T(t);if(!(t>0))return"";const s=(Date.now()-t)/1e3;if(s<60)return"bây giờ";if(s<3600)return Math.floor(s/60)+" phút";if(s<86400&&new Date(t).getDate()===new Date().getDate())return new Date(t).toLocaleTimeString("vi-VN",{hour:"2-digit",minute:"2-digit"});return new Date(t).toLocaleDateString("vi-VN",{day:"numeric",month:"numeric"})};
 const el=(t,c,x)=>{const e=document.createElement(t);if(c)e.className=c;if(x!=null)e.textContent=x;return e};
@@ -222,7 +224,7 @@ function swipeRow(li,inn){let x0,y0,dx=0,mode=null,base=0;
 let cur=null;
 const stateTxt={working:"Đang làm việc…",waiting:"Chờ bạn duyệt",idle:"Sẵn sàng",done:"Đã xong",error:"Có lỗi"};
 const stateLine=a=>isGroup(a)&&a.status!=="working"&&!waiting(a)?(a.members||[]).map(id=>byId(id)?.name).filter(Boolean).join(", "):a.status==="working"&&a.snip&&a.snip.startsWith("Bước")?a.snip:waiting(a)?"Chờ bạn duyệt":stateTxt[a.status]||"";
-function openThread(id){selectionExcerpt?.clear();const a=byId(id);if(!a)return;closeMenu();if(cur?.id!==id){AURORA_MD.closeViewer(false);clearVaultChat();stopVoice();saveComposerDraft();cur=a;restoreComposerDraft()}else cur=a;markSeen(id);headAvatar(a);$("#threadName").textContent=a.name;$("#threadState").toggleAttribute("data-noi18n",isGroup(a)&&a.status!=="working"&&!waiting(a));$("#threadState").textContent=stateLine(a);$("#input").placeholder=isGroup(a)?"Hỏi cả nhóm":"Hỏi "+a.name;closeFind();renderThread();const cache=S.msgs,loading=loadMsgs(id).catch(()=>{if(S.msgs===cache&&cur?.id===id)toast("Không tải được hội thoại")});$("#thread").classList.remove("off");$("#list").classList.add("under");buzz("tap");const hs=history.state;if(hs&&hs.spent)history.replaceState({t:1},"","#"+id);else if(!(hs&&hs.t))history.pushState({t:1},"","#"+id);return loading}
+function openThread(id){selectionExcerpt?.clear();const a=byId(id);if(!a)return;closeMenu();if(cur?.id!==id){AURORA_MD.closeViewer(false);clearVaultChat();stopVoice();saveComposerDraft();cur=a;restoreComposerDraft()}else cur=a;markSeen(id);headAvatar(a);$("#threadName").textContent=a.name;renderThreadModel(a);$("#threadState").toggleAttribute("data-noi18n",isGroup(a)&&a.status!=="working"&&!waiting(a));$("#threadState").textContent=stateLine(a);$("#input").placeholder=isGroup(a)?"Hỏi cả nhóm":"Hỏi "+a.name;closeFind();renderThread();const cache=S.msgs,loading=loadMsgs(id).catch(()=>{if(S.msgs===cache&&cur?.id===id)toast("Không tải được hội thoại")});$("#thread").classList.remove("off");$("#list").classList.add("under");buzz("tap");const hs=history.state;if(hs&&hs.spent)history.replaceState({t:1},"","#"+id);else if(!(hs&&hs.t))history.pushState({t:1},"","#"+id);return loading}
 document.addEventListener("aurora-network-open-task",async e=>{const {botId,conversationId,workId}=e.detail||{},id=byId(conversationId)?conversationId:botId;if(!byId(id)){toast("Phiên bot không còn trong danh sách");return}const cache=S.msgs;openThread(id);try{await loadMsgs(id);if(S.msgs!==cache||cur?.id!==id)return;const card=[...$("#messages").querySelectorAll(".approval")].find(n=>n.dataset.id===workId);if(card){stick=false;card.scrollIntoView({block:"center"});card.querySelector("button")?.focus()}}catch{if(S.msgs===cache&&cur?.id===id)toast("Không tải được tác vụ, thử mở lại hội thoại")}});
 function closeThread(fromPop){selectionExcerpt?.clear();AURORA_MD.closeViewer(false);if(!cur)return;clearVaultChat();if(profId)closeProfile(true);closeFind();markSeen(cur.id);stopVoice();saveComposerDraft();cur=null;inp.value="";setRef(null,false);setReply(null,false);inp.oninput();$("#thread").classList.add("off");$("#list").classList.remove("under");$("#thread").style.transform="";$("#list").style.transform="";renderList();if(!fromPop&&history.state&&history.state.t)history.replaceState({spent:1},"",location.pathname)}
 const deciding=new Set();
@@ -259,7 +261,7 @@ function sourceList(m){const w=el("details","sources");const sm=el("summary");co
  (m.tools||[]).forEach(t=>{const r=el("p","tool-line"+(t.status==="failed"?" bad":""),(t.summary||t.name)+(t.ms?" · "+(t.ms/1000).toFixed(1).replace(".",",")+"s":""));w.append(r)});const ol=el("ol");
  u.forEach(x=>{const li=el("li");const l=el("a");l.href=x.url;l.target="_blank";l.rel="noopener noreferrer";l.append(el("b",0,"["+x.n+"] "+(x.title||srcHost(x.url))),el("small",0,srcHost(x.url)+(x.at?" · "+new Date(x.at).toLocaleTimeString("vi-VN",{hour:"2-digit",minute:"2-digit"}):"")));li.append(l);ol.append(li)});w.append(ol);return w}
 function speaker(box,m,last){if(!isGroup(cur)||m.role!=="agent"||!m.from)return;if(last.v===m.from)return;last.v=m.from;const b=byId(m.from);const h=el("div","speaker");h.append(face(b&&b.av,20),literalEl("span",0,b?b.name:"Bot"));box.append(h)}
-function renderThread(){const a=cur;if(!a)return;$("#threadName").textContent=a.name;$("#input").placeholder=isGroup(a)?"Hỏi cả nhóm":"Hỏi "+a.name;const restoreSelection=selectionExcerpt?.beforeRender();$("#threadState").toggleAttribute("data-noi18n",isGroup(a)&&a.status!=="working"&&!waiting(a));$("#threadState").textContent=stateLine(a);headAvatar(a);const box=$("#messages");
+function renderThread(){const a=cur;if(!a)return;$("#threadName").textContent=a.name;renderThreadModel(a);$("#input").placeholder=isGroup(a)?"Hỏi cả nhóm":"Hỏi "+a.name;const restoreSelection=selectionExcerpt?.beforeRender();$("#threadState").toggleAttribute("data-noi18n",isGroup(a)&&a.status!=="working"&&!waiting(a));$("#threadState").textContent=stateLine(a);headAvatar(a);const box=$("#messages");
  const focused=document.activeElement,focusMessage=box.contains(focused)&&focused.classList.contains("message-item")?focused.dataset.messageId:null;
  const keepSec=[...box.querySelectorAll(".secret input[data-secret]")].map(i=>[i.closest(".secret").dataset.inputKey,i.dataset.secret,i.value]);
  const keepHints=[...box.querySelectorAll(".vault-card textarea[name=useHint]")].map(i=>({key:i.closest(".vault-card").dataset.hintKey,value:i.value,focused:i===focused,start:i.selectionStart,end:i.selectionEnd,direction:i.selectionDirection}));
@@ -440,7 +442,7 @@ $("#menuBot").onclick=()=>{closeMenu();openCreator()};
 $("#cancelBtn").onclick=()=>closeSheet(true);
 let creating=false;
 $("#createBtn").onclick=async()=>{if(sheetOpen!==$("#sheet")||creating)return;const name=$("#agentName").value.trim(),desc=$("#agentDesc").value.trim();if(!name)return;creating=true;$("#createBtn").disabled=true;
- try{const ed=editing_bot;const a=await api(ed?`/agents/${ed.id}`:"/agents",{name,desc,av:{...draft}});upsert(a);markSeen(a.id);closeSheet(true);renderList();if(ed){if(cur&&cur.id===a.id){cur=a;$("#threadName").textContent=a.name;$("#threadAvatar").replaceChildren(avatarOf(a,32))}if(profId===a.id)renderProfile()}buzz("confirm");toast((ed?"Đã lưu ":"Đã tạo ")+a.name)}catch(e){toast(editing_bot?"Không lưu được":e.status===409&&!editing_bot?"Đã đạt giới hạn 32 bot (kể cả bot đã lưu trữ)":"Không tạo được bot");syncCreate()}finally{creating=false}};
+ try{const ed=editing_bot;const a=await api(ed?`/agents/${ed.id}`:"/agents",{name,desc,av:{...draft}});upsert(a);markSeen(a.id);closeSheet(true);renderList();if(ed){if(cur&&cur.id===a.id){cur=a;$("#threadName").textContent=a.name;renderThreadModel(a);$("#threadAvatar").replaceChildren(avatarOf(a,32))}if(profId===a.id)renderProfile()}buzz("confirm");toast((ed?"Đã lưu ":"Đã tạo ")+a.name)}catch(e){toast(editing_bot?"Không lưu được":e.status===409&&!editing_bot?"Đã đạt giới hạn 32 bot (kể cả bot đã lưu trữ)":"Không tạo được bot");syncCreate()}finally{creating=false}};
 $("#agentName").onkeydown=e=>{if(e.key==="Enter"){e.preventDefault();$("#createBtn").click()}};
 // ---------- new group chat ----------
 let picked=[];
@@ -467,7 +469,7 @@ const card=(title,...cells)=>{const w=el("section","card-group");if(title)w.appe
 function renderSettings(){const B=$("#settingsBody");B.innerHTML="";
  const acc=el("div","account");const m=el("img");m.src="/app/icon.svg";m.alt="";m.width=m.height=52;const at=el("div");at.append(el("b",0,"Chủ sở hữu"),el("small",0,location.host));acc.append(m,at);B.append(card(null,acc));
  fetch("/app/auth/me").then(r=>r.ok?r.json():null).then(me=>{if(!me)return;const q=me.quota||{};at.replaceChildren(el("b",0,me.name||"Bạn"),el("small",0,[me.email,q.daily?`Gói ${me.plan||"free"} · ${q.used||0}/${q.daily} tin hôm nay`:""].filter(Boolean).join(" · ")))}).catch(()=>{});
- B.append(card("Mức dùng",cell("sparkles","Mô hình AI",{static:1,value:S.ai.configured?(S.ai.model||"đã cấu hình"):"chưa cấu hình"}),cell("activity","Lõi chạy",{static:1,value:S.ai.runtime||"Neko Core"}),cell("users","Bot & nhóm",{static:1,value:`${bots().length} bot · ${S.agents.length-bots().length} nhóm`})));
+ B.append(card("Mức dùng",cell("sparkles","AI mặc định Aurora",{value:aiLabel(S.ai),onClick:()=>openModels()}),cell("activity","Lõi chạy",{static:1,value:S.ai.runtime||"Neko Core"}),cell("users","Bot & nhóm",{static:1,value:`${bots().length} bot · ${S.agents.length-bots().length} nhóm`})));
  B.append(card("Tài liệu",cell("folder","Thư viện trang",{id:"openPages",sub:"Ghi chú và lịch sử phiên bản",onClick:()=>openPages(false)})));
  B.append(card("Ứng dụng",cell("layout-grid","Kết nối ứng dụng",{id:"openConnectors",value:connectedCount()+" đã kết nối",onClick:()=>{renderConnectors();swapSheet($("#connectors"))}})));
  B.append(card("Bot",cell("check","Luôn duyệt trước khi gửi",{toggle:true,locked:true,sub:"Không gì rời máy chủ khi bạn chưa bấm Duyệt"}),
@@ -618,7 +620,8 @@ function renderProfile(){profileVersion++;const a=byId(profId);const B=$("#profB
  if(isGroup(a))rows.push(cell("users","Thành viên",{static:1,value:(a.members||[]).map(id=>byId(id)?.name).filter(Boolean).join(", ")}));
  else rows.push(cell("users","Nhóm",{static:1,value:S.agents.filter(g=>isGroup(g)&&(g.members||[]).includes(a.id)).length+" nhóm"}));
  rows.push(cell("folder","Hoạt động",{id:"prLog",onClick:()=>{renderLog([]);openSheet($("#activity"));api("/activity?limit=80").then(x=>renderLog(x)).catch(()=>toast("Không tải được hoạt động"))}}));
- rows.push(cell("monitor","Máy chạy",{id:"prRun",value:a.status==="working"?"Đang làm":waiting(a)?"Chờ bạn":"Rảnh",onClick:()=>toast((S.ai.runtime||"Neko Core")+" · "+(S.ai.model||"AI chưa cấu hình"))}));
+ if(!isGroup(a))rows.push(cell("sparkles","AI của bot",{id:"prAI",value:aiLabel(a.ai||S.ai),sub:a.ai?.inherited?"Theo mặc định Aurora":"Đã chọn riêng cho bot này",onClick:()=>openModels(false,a.id)}));
+ rows.push(cell("monitor","Máy chạy",{id:"prRun",value:a.status==="working"?"Đang làm":waiting(a)?"Chờ bạn":"Rảnh",onClick:()=>toast(((a.ai||S.ai).runtime||"Neko Core")+" · "+aiLabel(a.ai||S.ai))}));
  B.append(card(null,...rows));
  const on=!muted.includes(a.id);const nc=card(null,cell("bell","Thông báo",{id:"prNotify",toggle:on,onToggle:sw=>{const now=sw.getAttribute("aria-checked")!=="true";muted=now?muted.filter(x=>x!==a.id):[...muted,a.id];store.set("neko-aurora-muted",muted);sw.setAttribute("aria-checked",now);buzz("tap");if(now&&!pushOn&&!notifOn)enableNotify().catch(()=>{})}}));
  B.append(nc,el("p","caption","Báo khi bot này xong việc hoặc đang chờ bạn (trên máy này)."));
@@ -881,7 +884,7 @@ async function openExt(id,keep){const a=byId(id),{body:B,scope,current}=startExt
  if(x.workspaceId!==scope){B.replaceChildren(el("p","caption","Tài khoản đã thay đổi. Mở lại cài đặt để tải phiên bản mới."));return}
  B.replaceChildren();const notice=el("p","caption"),reload=el("button","pill soft","Tải lại cấu hình");notice.setAttribute("role","status");notice.tabIndex=-1;reload.type="button";reload.hidden=true;reload.onclick=()=>{if(current())openExt(id,true)};B.append(notice,reload);
  let saving=false;const save=async(p,msg)=>{if(!current()||saving)return;saving=true;const enabled=[...B.querySelectorAll("input,select,button,textarea")].filter(n=>!n.disabled);enabled.forEach(n=>n.disabled=true);notice.textContent="Đang lưu…";reload.hidden=true;
-  try{await api(`/agents/${id}/ext`,{...p,workspaceId:scope,...(Object.hasOwn(p,"mcp")?{mcpRevision:x.mcpRevision}:{})});if(!current())return;buzz("tap");toast(msg||"Đã lưu");await openExt(id,true)}
+  try{await api(`/agents/${id}/ext`,{...p,workspaceId:scope,...(Object.hasOwn(p,"mcp")?{mcpRevision:x.mcpRevision}:{})});if(!current())return;buzz("tap");toast(msg||"Đã lưu");await loadState();if(current())await openExt(id,true)}
   catch(e){if(!current())return;notice.textContent=e.status===409?"Cấu hình đã thay đổi. Nhập liệu vẫn được giữ; tải lại để xem phiên bản mới trước khi sửa tiếp.":"Chưa xác nhận được thay đổi. Nhập liệu vẫn được giữ; tải lại cấu hình để kiểm tra.";reload.hidden=false;notice.focus({preventScroll:true});notice.scrollIntoView({block:"nearest"})}
   finally{if(current()){saving=false;enabled.forEach(n=>n.disabled=false)}}};
  const ms=sel([["","Mặc định máy chủ"],...x.menu.map(m=>[m.id,m.label+" · "+m.provider])],x.model||"");ms.id="extModel";ms.onchange=()=>save({model:ms.value},"Đã đổi mô hình");
@@ -908,7 +911,9 @@ async function quickSetupCard(B,botId,scope,current){
  if(!x.available||!x.providers?.length){loading.textContent="Thiết lập nhanh cần Neko Core trên máy chạy Aurora. Bạn vẫn có thể thêm kết nối trong Cấu hình nâng cao.";return}
  panel.replaceChildren(el("h3",0,"Chọn AI của bạn"),el("p","caption",botId?"Kết nối này sẽ dùng cho bot đang mở.":"Dùng mặc định cho các bot chưa chọn mô hình riêng."));
  const names={zai:"GLM · Coding Plan","zai-openai":"GLM · API",chatgpt:"ChatGPT",openai:"OpenAI · API",claude:"Claude · API","gemini-api":"Gemini · API",deepseek:"DeepSeek · API"};
- const chosen=x.providers.find(p=>x.selection?.startsWith("core-"+p.id+":"))||x.providers[0];
+ const summary=el("div","quick-current"),renderCurrent=()=>{const ai=x.effective;summary.hidden=!ai?.selection&&!ai?.configured;summary.replaceChildren(el("span","caption",botId?"AI của bot":"AI mặc định Aurora"),literalEl("strong",0,aiLabel(ai)));if(botId&&ai?.inherited)summary.append(el("small","caption","Theo mặc định Aurora"))};renderCurrent();panel.append(summary);
+ const selected=x.selection||x.effective?.selection||"";
+ const chosen=x.providers.find(p=>selected.startsWith("core-"+p.id+":"))||x.providers[0];
  const picker=sel(x.providers.map(p=>[p.id,names[p.id]||p.label]),chosen.id);picker.id="quickProvider";const content=el("div","quick-content");panel.append(field("Nhà cung cấp AI",picker),content);
  let generation=0;
  const render=()=>{const version=++generation,active=()=>current()&&version===generation,p=x.providers.find(p=>p.id===picker.value);content.replaceChildren();
@@ -916,7 +921,7 @@ async function quickSetupCard(B,botId,scope,current){
   content.append(el("p","caption",hint));const form=el("form","quick-form"),notice=el("p","caption");notice.setAttribute("role","status");notice.setAttribute("aria-live","polite");
   const key=el("input","ext-in");key.type="password";key.autocomplete="off";key.maxLength=8192;key.id="quickKey";key.placeholder=p.configured?"Đã lưu khóa · để trống để dùng tiếp":"Dán API key tại đây";
   if(p.auth!=="chatgpt_oauth"){key.required=!p.configured;form.append(field("API key",key,"Khóa được lưu trong kho bí mật trên máy chạy Aurora."))}
-  const model=sel(p.models.map(m=>[m,m]),x.selection?.startsWith("core-"+p.id+":")?x.selection.slice(x.selection.indexOf(":")+1):p.model);model.id="quickModel";
+  const activeSelection=x.selection||x.effective?.selection||"",model=sel(p.models.map(m=>[m,m]),activeSelection.startsWith("core-"+p.id+":")?activeSelection.slice(activeSelection.indexOf(":")+1):p.model);model.id="quickModel";
   const options=el("details","quick-options");options.append(el("summary",0,"Tùy chọn mô hình"),field("Mô hình",model));form.append(options);
   const save=el("button","pill",p.configured?"Dùng kết nối này":"Lưu và dùng"),back=el("button","pill soft","Quay lại trò chuyện");save.type="submit";back.type="button";back.hidden=true;back.onclick=()=>{if(active())closeSheet(true)};
   const login=el("button","pill","Đăng nhập ChatGPT"),cancel=el("button","pill soft","Hủy đăng nhập"),link=el("a","pill","Mở trang đăng nhập");login.type=cancel.type="button";link.target="_blank";link.rel="noopener noreferrer";link.hidden=cancel.hidden=true;
@@ -934,7 +939,7 @@ async function quickSetupCard(B,botId,scope,current){
   form.append(save,back,notice);content.append(form);
   if(p.configured)notice.textContent=p.auth==="chatgpt_oauth"?"Đã đăng nhập ChatGPT.":"Đã lưu khóa · chưa kiểm tra kết nối.";
   form.onsubmit=async e=>{e.preventDefault();if(!active()||busy)return;const secret=key.value.trim();lock(true);notice.textContent="Đang lưu…";
-   try{const r=await api("/quick-setup",{workspaceId:scope,botId:botId||"",provider:p.id,model:model.value,key:secret,expectedSelection:x.selection||""});key.value="";if(!active())return;x.selection=r.selection;p.configured=true;key.required=false;key.placeholder="Đã lưu khóa · để trống để dùng tiếp";save.textContent="Dùng kết nối này";back.hidden=false;notice.textContent="Đã chọn AI. Bạn có thể quay lại trò chuyện và gửi tin nhắn khi sẵn sàng."}
+   try{const r=await api("/quick-setup",{workspaceId:scope,botId:botId||"",provider:p.id,model:model.value,key:secret,expectedSelection:x.selection||""});key.value="";if(!active())return;x.selection=r.selection;x.effective=r.effective;renderCurrent();p.configured=true;key.required=false;key.placeholder="Đã lưu khóa · để trống để dùng tiếp";save.textContent="Dùng kết nối này";back.hidden=false;notice.textContent="Đã chọn AI. Bạn có thể quay lại trò chuyện và gửi tin nhắn khi sẵn sàng.";loadState().catch(()=>{})}
    catch(e){if(active())notice.textContent=e.status===409?"Cấu hình đã thay đổi. Mở lại thiết lập để chọn lại; chưa đổi AI cho bot.":"Chưa lưu được. Kiểm tra API key hoặc thử lại."}
    finally{if(active())lock(false)}
   };

@@ -242,6 +242,7 @@ func (s *Service) sync() {
 			continue
 		}
 		a := v.agent(b, s.Prefs.Bot(b.ID))
+		a.AI = s.aiViewFor(b.ID)
 		j, _ := json.Marshal(a)
 		next["a:"+b.ID] = string(j)
 		if s.seen["a:"+b.ID] != string(j) && !first {
@@ -557,7 +558,9 @@ func (s *Service) routes() {
 		agents := []*Agent{}
 		for _, b := range v.snap.Bots {
 			if !v.archived[b.ID] {
-				agents = append(agents, v.agent(b, s.Prefs.Bot(b.ID)))
+				a := v.agent(b, s.Prefs.Bot(b.ID))
+				a.AI = s.aiViewFor(b.ID)
+				agents = append(agents, a)
 			}
 		}
 		for _, c := range v.groups() {
