@@ -562,3 +562,8 @@ details.sources[open]>:not(summary),details.think[open]>:not(summary),details.pl
 .copy-reply-action[aria-disabled=true]{opacity:.55}
 
 .vault-contacts{display:grid;gap:16px}.vault-contacts fieldset{min-width:0;border:1px solid var(--line);border-radius:16px;padding:12px}.vault-contacts legend{font-weight:600;padding:0 6px}.contact-row{display:flex;flex-wrap:wrap;align-items:center;gap:8px;padding:10px 0;border-bottom:1px solid var(--line)}.contact-row code{overflow-wrap:anywhere;min-width:0;flex:1 1 160px}.contact-actions{display:flex;flex-wrap:wrap;gap:6px;margin:6px 0}.contact-primary{font-weight:600}.vault-contacts .fld{margin-top:12px}
+
+.msg.ai-setup-card{max-width:38rem;padding:20px;background:var(--sunk);border-radius:16px;text-align:left;line-height:1.6}
+.ai-setup-card h3{margin:0 0 8px;color:var(--ink);font-size:16px;font-weight:600}
+.ai-setup-card p{margin:0 0 16px;text-wrap:pretty}
+.ai-setup-card button{min-height:44px}

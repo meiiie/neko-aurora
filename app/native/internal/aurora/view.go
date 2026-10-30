@@ -83,6 +83,7 @@ type Message struct {
 	AgentID       string                  `json:"agentId"`
 	Role          string                  `json:"role"` // user|agent|system
 	Text          string                  `json:"text"`
+	Recovery      string                  `json:"recovery,omitempty"`
 	Approval      *Approval               `json:"approval,omitempty"`
 	Plan          *Plan                   `json:"plan,omitempty"`
 	Choices       []string                `json:"choices,omitempty"`
@@ -265,6 +266,9 @@ func (v *view) agent(b ledger.Bot, prefs botPrefs) *Agent {
 		a.Status, a.Snip = "idle", "Đã dừng theo yêu cầu của bạn."
 	case TaskFailed:
 		a.Status, a.Snip = "error", failureText(last.Failure)
+		if last.Failure == "ai_not_configured" {
+			a.Snip = "Cần thiết lập AI để trả lời."
+		}
 	}
 	return a
 }
@@ -292,7 +296,7 @@ func firstLine(s string) string {
 func failureText(code string) string {
 	switch {
 	case code == "ai_not_configured":
-		return "Chưa cấu hình AI trên máy chủ (thiếu ZAI_API_KEY). Yêu cầu đã được lưu, hãy nhắn lại sau khi cấu hình."
+		return "Tin nhắn đã được lưu nhưng chưa được xử lý vì chưa có kết nối AI. Hãy thiết lập AI, rồi gửi lại tin nhắn khi bạn muốn tiếp tục."
 	case code == "interrupted_by_restart":
 		return "Tác vụ bị gián đoạn khi máy chủ khởi động lại. Nhắn lại để tiếp tục."
 	case code == "stopped_by_owner":
@@ -413,7 +417,11 @@ func workMessages(w ledger.Work, botRunning bool) []*Message {
 		out = append(out, &Message{ID: w.RequestID + ":outcome", TaskID: w.RequestID, AgentID: w.BotID, Role: "agent", Text: d.Approval.Outcome, Created: ts(d.Approval.DecidedAt)})
 	}
 	if w.Status == "failed" || w.Status == "cancelled" {
-		out = append(out, &Message{ID: w.RequestID + ":end", TaskID: w.RequestID, AgentID: w.BotID, Role: "system", Text: failureText(w.Failure), Created: at})
+		m := &Message{ID: w.RequestID + ":end", TaskID: w.RequestID, AgentID: w.BotID, Role: "system", Text: failureText(w.Failure), Created: at}
+		if w.Failure == "ai_not_configured" {
+			m.Recovery = "configure_ai"
+		}
+		out = append(out, m)
 	}
 	return out
 }

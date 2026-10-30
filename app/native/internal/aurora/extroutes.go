@@ -70,7 +70,7 @@ func (s *Service) extRoutes() {
 	s.mcpOAuthRoutes()
 	m := s.mux
 	m.HandleFunc("GET /app/api/models", func(w http.ResponseWriter, r *http.Request) {
-		writeJSON(w, 200, map[string]any{"models": s.modelMenu(), "providers": s.providersView(), "vision": s.visionModel(), "browser": browserBin() != ""})
+		writeJSON(w, 200, map[string]any{"models": s.modelMenu(), "providers": s.providersView(), "defaultConfigured": s.AI.Configured(), "vision": s.visionModel(), "browser": browserBin() != ""})
 	})
 	m.HandleFunc("POST /app/api/providers", func(w http.ResponseWriter, r *http.Request) {
 		var in struct {

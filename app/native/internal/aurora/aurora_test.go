@@ -194,7 +194,7 @@ func TestNoKeyIsHonest(t *testing.T) {
 	svc.poke()
 	waitTask(t, svc, bot)
 	ms := svc.view().messages(bot, 0)
-	if last := ms[len(ms)-1]; last.Role != "system" || !strings.Contains(last.Text, "ZAI_API_KEY") {
+	if last := ms[len(ms)-1]; last.Role != "system" || strings.Contains(last.Text, "ZAI_API_KEY") || !strings.Contains(last.Text, "đã được lưu") || !strings.Contains(mustJSON(last), `"recovery":"configure_ai"`) {
 		t.Fatalf("%+v", last)
 	}
 }
