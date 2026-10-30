@@ -164,6 +164,9 @@ with sync_playwright() as p:
         page.get_by_role('button',name='Dùng kết nối này',exact=True).click()
         expect(page.locator('#quickSetup')).to_contain_text('Đã chọn AI.')
         assert fixture.selection=='core-chatgpt:gpt-next'
+        expect(page.locator('#quickCatalogNote')).to_contain_text('Danh sách từ tài khoản ChatGPT.')
+        expect(page.locator('#quickCatalogNote')).not_to_contain_text('không khả dụng')
+        expect(page.locator('#quickModel')).to_have_value('gpt-next')
         assert not any(path.endswith('/messages') for path,_ in fixture.posts)
         print('PASS live catalog refresh/retry, unavailable selection retained, disabled support and explicit model change')
 
