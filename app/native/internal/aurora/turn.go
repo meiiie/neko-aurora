@@ -543,7 +543,9 @@ func (s *Service) runWork(w ledger.Work) {
 	if strings.HasPrefix(w.ClientNonce, handoffPrefix) {
 		run.Kind = "handoff" // a member's message to another: no owner bubble
 	}
-	if !s.AI.Configured() {
+	if model := s.configuredModel(w.BotID); model != nil && model.Configured() {
+		run.Runtime, run.Model = model.Runtime(), model.ModelName()
+	} else {
 		run.Model = ""
 	}
 	w, err := s.L.DirectStart(w.RequestID, w.Epoch, run)

@@ -105,7 +105,7 @@ Không có lỗi: trả lời đúng một chữ OK.`
 // factCheck runs one model pass over a built deck. Results are cached by the
 // deck text so an unchanged rerun costs nothing.
 func (s *Service) factCheck(ctx context.Context, bot string, rep deckReport) []string {
-	if s.AI == nil || !s.AI.Configured() || len(rep.SlideText) < 2 {
+	if !s.modelConfigured(bot) || len(rep.SlideText) < 2 {
 		return nil
 	}
 	var b strings.Builder

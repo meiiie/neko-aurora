@@ -10,9 +10,12 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"sync"
 	"unicode/utf8"
+
+	"nekoaurora.local/native/internal/privatefs"
 )
 
 // Model is what an agent turn runs on. Two implementations:
@@ -34,6 +37,8 @@ func (a *AI) ModelName() string { return a.Model }
 type Core struct {
 	Bun, Entry, Home, Model, Profile string
 	key                              string
+	KeyEnv                           string
+	Quick, SignedIn                  bool
 }
 
 // Hybrid streams turns straight from z.ai over HTTP (TTFT ~3s vs ~23s through
@@ -64,8 +69,8 @@ func CoreFromEnv(stateDir string) *Core {
 	if Env("RUNTIME") == "http" {
 		return nil
 	}
-	bun, err := exec.LookPath("bun")
-	if err != nil {
+	bun := findCoreBun()
+	if bun == "" {
 		return nil
 	}
 	var dirs []string
@@ -104,7 +109,7 @@ func CoreFromEnv(stateDir string) *Core {
 	return nil
 }
 
-func (c *Core) Configured() bool  { return c != nil && c.key != "" }
+func (c *Core) Configured() bool  { return c != nil && (c.key != "" || c.SignedIn) }
 func (c *Core) Runtime() string   { return "neko-core-cli" }
 func (c *Core) ModelName() string { return c.Model }
 
@@ -160,9 +165,21 @@ func (c *Core) Stream(ctx context.Context, msgs []ChatMsg, onDelta func(string))
 	if err := os.MkdirAll(c.Home, 0o700); err != nil {
 		return "", err
 	}
-	cmd := exec.CommandContext(ctx, c.Bun, c.Entry, "--profile", c.Profile, "--no-tools", "run", corePrompt(msgs))
+	if c.Quick && privatefs.CheckDirectory(c.Home) != nil {
+		return "", ErrCore
+	}
+	args := []string{c.Entry, "--profile", c.Profile, "--no-tools", "run", corePrompt(msgs)}
+	if c.Quick {
+		args = append(c.bunFlags(), args...)
+	}
+	cmd := exec.CommandContext(ctx, c.Bun, args...)
 	cmd.Dir = c.Home
-	cmd.Env = []string{"HOME=" + c.Home, "PATH=" + os.Getenv("PATH"), "ZAI_API_KEY=" + c.key, "NEKO_MODEL=" + c.Model, "NO_COLOR=1", "TERM=dumb", "LANG=C.UTF-8"}
+	cmd.Env = c.environment()
+	cmd.Env = append(cmd.Env, "NEKO_MODEL="+c.Model)
+	if c.key != "" {
+		cmd.Env = append(cmd.Env, first(c.KeyEnv, "ZAI_API_KEY")+"="+c.key)
+	}
+	hideCoreWindow(cmd)
 	out, err := cmd.StdoutPipe()
 	if err != nil {
 		return "", err
@@ -214,10 +231,75 @@ func (c *Core) Stream(ctx context.Context, msgs []ChatMsg, onDelta func(string))
 		return reply, ctx.Err()
 	}
 	if werr != nil {
+		if c.Quick {
+			return reply, ErrCore
+		}
 		line := strings.TrimSpace(strings.SplitN(stderr.String(), "\n", 2)[0])
 		return reply, fmt.Errorf("%w: %s", ErrCore, scrub(clean(line, 160), c.key))
 	}
 	return reply, err
+}
+
+func (c *Core) environment() []string {
+	env := []string{"HOME=" + c.Home, "USERPROFILE=" + c.Home, "NEKO_CREDENTIAL_HOME=" + c.Home, "XDG_CONFIG_HOME=" + filepath.Join(c.Home, "config"), "NO_COLOR=1", "TERM=dumb", "LANG=C.UTF-8"}
+	for _, name := range []string{"PATH", "SystemRoot", "WINDIR", "COMSPEC", "PATHEXT", "TEMP", "TMP"} {
+		if value := os.Getenv(name); value != "" {
+			env = append(env, name+"="+value)
+		}
+	}
+	return env
+}
+
+func (c *Core) bunFlags() []string {
+	return []string{"--no-env-file", "--no-install", "--config=" + filepath.Join(filepath.Dir(filepath.Dir(c.Entry)), "bunfig.neko.toml")}
+}
+
+// Match Core's source bootstrap: resolve the executable, never an npm shell shim.
+func findCoreBun() string {
+	name := "bun"
+	if runtime.GOOS == "windows" {
+		name = "bun.exe"
+	}
+	var candidates []string
+	explicit := strings.TrimSpace(os.Getenv("NEKO_BUN_PATH"))
+	if explicit != "" {
+		candidates = []string{explicit}
+	} else {
+		if install := os.Getenv("BUN_INSTALL"); filepath.IsAbs(install) {
+			candidates = append(candidates, filepath.Join(install, "bin", name))
+		}
+		if home, err := os.UserHomeDir(); err == nil {
+			candidates = append(candidates, filepath.Join(home, ".bun", "bin", name))
+		}
+		for _, dir := range filepath.SplitList(os.Getenv("PATH")) {
+			if !filepath.IsAbs(dir) {
+				continue
+			}
+			candidates = append(candidates, filepath.Join(dir, name))
+			if runtime.GOOS == "windows" {
+				candidates = append(candidates, filepath.Join(dir, "node_modules", "bun", "bin", name))
+			}
+		}
+	}
+	wd, _ := os.Getwd()
+	for _, path := range candidates {
+		if !filepath.IsAbs(path) {
+			continue
+		}
+		real, err := filepath.EvalSymlinks(path)
+		if err != nil {
+			continue
+		}
+		if explicit == "" {
+			if rel, err := filepath.Rel(wd, real); err == nil && rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator)) && !filepath.IsAbs(rel) {
+				continue
+			}
+		}
+		if st, err := os.Stat(real); err == nil && st.Mode().IsRegular() {
+			return real
+		}
+	}
+	return ""
 }
 
 type limited struct {

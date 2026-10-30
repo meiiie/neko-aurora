@@ -94,6 +94,7 @@ with sync_playwright() as playwright:
         expect(page.locator('#extBody')).to_contain_text('Chưa thiết lập kết nối AI')
         expect(page.locator('#extBody')).not_to_contain_text('Có sẵn trên máy chủ')
         expect(page.locator('#extBody')).to_contain_text('không tự gửi lại')
+        page.get_by_text('Cấu hình nâng cao', exact=True).click()
         page.get_by_role('button', name='Chọn mô hình cho bot này', exact=True).click()
         expect(page.locator('#extModel')).to_be_visible()
         assert fixture.ext_reads == ['/agents/bot-a/ext']

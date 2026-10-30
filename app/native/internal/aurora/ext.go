@@ -63,10 +63,11 @@ type formField = ledger.DirectFormField
 type form = ledger.DirectForm
 
 type extData struct {
-	Providers []provider         `json:"providers"`
-	Bots      map[string]*botExt `json:"bots"`
-	Skills    []skill            `json:"skills"`
-	Vision    string             `json:"vision,omitempty"`
+	Providers    []provider         `json:"providers"`
+	Bots         map[string]*botExt `json:"bots"`
+	Skills       []skill            `json:"skills"`
+	Vision       string             `json:"vision,omitempty"`
+	DefaultModel string             `json:"defaultModel,omitempty"`
 
 	Thoughts map[string]string `json:"thoughts"`
 	Forms    map[string]*form  `json:"forms"`
@@ -307,6 +308,19 @@ func (s *Service) streamExt(ctx context.Context, bot, kind string, msgs []ChatMs
 		return "", false, nil
 	}
 	be := s.ext.bot(bot)
+	if be.Model == "" {
+		s.ext.mu.Lock()
+		be.Model = s.ext.d.DefaultModel
+		s.ext.mu.Unlock()
+	}
+	if strings.HasPrefix(be.Model, "core-") {
+		c := s.quickModel(be.Model)
+		if c == nil {
+			return "", true, ErrNoAI
+		}
+		out, err := c.Stream(ctx, msgs, on)
+		return out, true, err
+	}
 	think := be.Thinking && kind == "chat"
 	if be.Model == "" && !think {
 		return "", false, nil

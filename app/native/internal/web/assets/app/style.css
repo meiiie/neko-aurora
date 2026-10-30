@@ -567,3 +567,15 @@ details.sources[open]>:not(summary),details.think[open]>:not(summary),details.pl
 .ai-setup-card h3{margin:0 0 8px;color:var(--ink);font-size:16px;font-weight:600}
 .ai-setup-card p{margin:0 0 16px;text-wrap:pretty}
 .ai-setup-card button{min-height:44px}
+/* Quick provider setup keeps connection choices ahead of technical settings. */
+.quick-setup{margin:20px 0;padding:24px;display:grid;gap:16px}
+.quick-setup h3{font-size:22px;letter-spacing:-.03em;margin:0}
+.quick-setup p{margin:0;line-height:1.6}
+.quick-content,.quick-form{display:grid;gap:16px;min-width:0}
+.quick-form>.pill{justify-self:start;max-width:100%}
+.quick-options,.quick-advanced{border-top:1px solid var(--line);padding-top:16px}
+.quick-options summary,.quick-advanced>summary{cursor:pointer;padding:8px 0;font-size:14px;font-weight:600}
+.quick-options[open] summary{margin-bottom:12px}
+.quick-advanced{margin-top:24px}
+.quick-setup [hidden]{display:none!important}
+@media(max-width:520px){.quick-setup{padding:18px}.quick-form>.pill{width:100%;justify-self:stretch}}
