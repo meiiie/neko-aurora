@@ -15,6 +15,12 @@ Thanh trên hội thoại có lối vào **AI & công cụ**, **Bộ nhớ** và
 
 Vị trí đang đọc được giữ khi đổi chiều rộng hoặc thu gọn danh sách. Các thao tác gửi, phê duyệt, lưu file và thử lại vẫn dùng luồng xác nhận hiện có.
 
+## Kết nối AI nhanh
+
+Trong hội thoại, chọn **Thiết lập AI**, hoặc mở **AI & công cụ → Thiết lập nhanh**. Chọn **GLM · Coding Plan** hoặc **GLM · API** đúng với loại khóa đang dùng, dán API key rồi bấm **Lưu và dùng**. Với **ChatGPT**, chọn **Đăng nhập ChatGPT**, hoàn tất trong trình duyệt rồi quay lại bấm **Dùng kết nối này**. Có thể hủy hoặc đăng nhập lại.
+
+Mở thiết lập từ bot sẽ chọn AI cho bot đó; mở từ cài đặt chung sẽ đặt mặc định cho bot chưa có model riêng. Khóa provider được lưu trong workspace. Các trường endpoint, provider tùy chỉnh và model đọc ảnh nằm ở **Cấu hình nâng cao**. Model, preset và đăng nhập dùng Neko Core đã có trên máy; không cần sửa biến môi trường để dùng luồng này. Tin nhắn cũ không tự gửi lại. [Kiểm thử và giới hạn](research/quick-ai-setup-validation-2026-10-30.md).
+
 ## Xem lịch của các bot
 
 Mở **Lịch chạy** từ thanh điều hướng hoặc đầu danh sách bot. Trang này tập hợp lịch hiện có, cho phép lọc bot và hiển thị giờ/múi giờ hoặc khoảng lặp, cùng trạng thái bật, tạm dừng hay cần kiểm tra.
