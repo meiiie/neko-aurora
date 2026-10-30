@@ -23,6 +23,8 @@ Mở thiết lập từ bot sẽ chọn AI cho bot đó; mở từ cài đặt c
 
 Provider và model được chọn cho tin nhắn mới hiện ngay dưới tên bot. Bấm tên bot → **AI của bot** để xem hoặc đổi; nhãn **Theo mặc định Aurora** cho biết bot đang kế thừa lựa chọn chung. Trong cài đặt, **AI mặc định Aurora** chỉ áp dụng cho các bot chưa chọn riêng. [Sửa lỗi Core và kiểm chứng model](research/core-runtime-model-visibility-2026-10-30.md).
 
+Với **ChatGPT**, Aurora tải model từ tài khoản khi mở thiết lập hoặc đăng nhập xong. Dùng **Tải lại danh sách model** nếu cần; model đang chọn mà không còn trong danh sách vẫn hiện rõ để bạn đổi, không tự chuyển sang model khác. Tên hiển thị và yêu cầu thành phần hỗ trợ lấy từ Neko Core. Các provider API khác hiện dùng danh sách gợi ý và ghi rõ giới hạn đó. [Kiểm chứng catalog và lỗi model](research/chatgpt-account-catalog-2026-10-31.md).
+
 ## Xem lịch của các bot
 
 Mở **Lịch chạy** từ thanh điều hướng hoặc đầu danh sách bot. Trang này tập hợp lịch hiện có, cho phép lọc bot và hiển thị giờ/múi giờ hoặc khoảng lặp, cùng trạng thái bật, tạm dừng hay cần kiểm tra.
