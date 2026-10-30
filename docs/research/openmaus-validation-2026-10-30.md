@@ -46,3 +46,26 @@ Bộ hồi quy bao phủ startup/reload composer, chat loading/identity/reading 
 Quét recognizable secrets trước checkpoint API: 2 candidate files, 0 newly reachable blobs, 0 match; trước checkpoint UI: 42 candidate files, 2 newly reachable blobs, 0 match. Quét tài liệu/ảnh: 9 candidate files và 44 newly reachable blobs, 0 match. Không in matched values. Đây không phải chứng nhận phát hiện mọi secret. Manifest và kết quả riêng từng checkpoint nằm trong audit local.
 
 Kiểm thử viewport không thay thế điện thoại vật lý hoặc native WebView. Fixtures không chứng minh chất lượng model, cloud sync, provider OAuth certification hay hoạt động trong môi trường production. Service worker thực đã được kiểm tra ở OAuth fixture; chưa có bài acceptance mất mạng đầy đủ cho cả workspace. Không tuyên bố tương đương tất cả OpenMausBot; [bản đồ nghiên cứu](openmaus-interface-2026-10-30.md) tách rõ các khả năng chưa triển khai.
+
+## Bổ sung kiểm tra desktop thật và sửa entrypoint
+
+Code commit: `6a6a57412847374384ad4ed27f3a027eb3e7cfd5`, trên base `5df46cf8690ae90ebf5b3b88d31c9e493c479ae7`. Lần mở Tauri thực tế phát hiện cửa sổ đi vào `/`, tức UI cũ, dù workspace mới ở `/app/`. Đây là lỗi tích hợp đã lọt qua bộ browser fixture ở trên. Sửa URL khởi đầu trong `app/desktop/src/main.rs` và hướng dẫn chạy; giữ nguyên xác minh receipt, process, port, hash, state và giới hạn điều hướng loopback.
+
+Một agent tự thao tác cửa sổ bằng skill computer-use, không có subagent. Môi trường: Windows amd64, PowerShell 7.6, Rust 1.97.1, MSVC 14.43.34618, Windows SDK 10.0.22621.0, WebView2 156.0.4314.50. Build và launcher dùng biến môi trường OS theo allowlist, không credentials provider; `AURORA_BRIEF_LOOP=off`, `AURORA_COMPUTER=off`, state kiểm thử riêng dưới `.audit/2026-10-30-native-workspace/state`. Các gate chạy tuần tự, không sửa source trong lúc build/test.
+
+| Kiểm tra | Lệnh hoặc thao tác | Kết quả |
+|---|---|---|
+| Host build | `pwsh -NoProfile -File tools/cargo-windows.ps1 build --locked --offline --manifest-path app/host/Cargo.toml` | PASS |
+| Desktop build | `pwsh -NoProfile -File tools/cargo-windows.ps1 build --locked --offline --manifest-path app/desktop/Cargo.toml` | PASS |
+| Rust desktop | `pwsh -NoProfile -File tools/cargo-windows.ps1 test --locked --offline --manifest-path app/desktop/Cargo.toml` | PASS: 2 tests về endpoint và binding arguments |
+| Rust format | `cargo fmt --check --manifest-path app/desktop/Cargo.toml` | PASS |
+| Native startup | `pwsh -NoProfile -File app/scripts/run-prebuilt-local.ps1 -Manifest app/.build/native-workspace-20261030/launch.json -StateDirectory .audit/2026-10-30-native-workspace/state -Port 63501 -Desktop` | PASS: launcher xác minh instance; WebView2 mở `/app/`, hiển thị workspace mới với hai bot từ Go API thật |
+| Tìm nhanh | `Ctrl+K`, nhập Davin, Enter | PASS: lọc và mở đúng hội thoại |
+| Composer | Nhập bản nháp tổng hợp chưa gửi, chuyển Meiiie rồi quay lại Davin | PASS: Meiiie rỗng, Davin giữ đúng bản nháp |
+| Reload | `Ctrl+R`, quan sát document mới và composer | PASS: vẫn ở `/app/#bot-davin`, giữ nguyên bản nháp, ô nhập không disabled |
+| Điều hướng/hiển thị | Mở Lịch chạy, Cài đặt, chuyển ngôn ngữ sang tiếng Việt, trở về Tổng quan và maximize | PASS: lịch rỗng đúng state kiểm thử; workspace tiếng Việt hiển thị trong cửa sổ desktop thật |
+| Docs | `python tools/check_docs.py`; `git diff --check` | PASS: 15 tài liệu, 166 link; không lỗi whitespace |
+
+Binary SHA256: desktop `0a878ed896baeb95f40afec2cceaee6980eba99b339879e748ed7cef0133b77d`; host `8a13f92096bab351cc492506bfe192ce4bb19d3a52c3e74b764a4eb68958a1e4`; Go control plane `cd92da910b2b44719f3edc2b0c5193b6af0d1c448411e53978618c24da5f1a32`. Rust binary được build từ working tree trước checkpoint, sau đó đối chiếu source với commit `6a6a574`; trường appCommit trong manifest của phiên chạy vẫn ghi base `5df46cf`. Go binary tái sử dụng build đã kiểm chứng ở trên vì source Go/UI không đổi. Log và manifest hash lưu cục bộ trong audit, không đưa state/receipt vào Git.
+
+Trước checkpoint sửa entrypoint: quét 2 candidate files và 53 newly reachable blobs, không có recognizable secret match. Không push hoặc deploy. Kiểm tra native này bổ sung cho browser fixtures, chưa phải acceptance toàn bộ chức năng: không gửi tin cho model, không cấu hình provider, không tạo grant. Cài đặt xác nhận model chưa được cấu hình; không suy diễn rằng AI đã thực thi thành công.
