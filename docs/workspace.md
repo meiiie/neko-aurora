@@ -21,6 +21,8 @@ Trong hội thoại, chọn **Thiết lập AI**, hoặc mở **AI & công cụ 
 
 Mở thiết lập từ bot sẽ chọn AI cho bot đó; mở từ cài đặt chung sẽ đặt mặc định cho bot chưa có model riêng. Khóa provider được lưu trong workspace. Các trường endpoint, provider tùy chỉnh và model đọc ảnh nằm ở **Cấu hình nâng cao**. Model, preset và đăng nhập dùng Neko Core đã có trên máy; không cần sửa biến môi trường để dùng luồng này. Tin nhắn cũ không tự gửi lại. [Kiểm thử và giới hạn](research/quick-ai-setup-validation-2026-10-30.md).
 
+Provider và model được chọn cho tin nhắn mới hiện ngay dưới tên bot. Bấm tên bot → **AI của bot** để xem hoặc đổi; nhãn **Theo mặc định Aurora** cho biết bot đang kế thừa lựa chọn chung. Trong cài đặt, **AI mặc định Aurora** chỉ áp dụng cho các bot chưa chọn riêng. [Sửa lỗi Core và kiểm chứng model](research/core-runtime-model-visibility-2026-10-30.md).
+
 ## Xem lịch của các bot
 
 Mở **Lịch chạy** từ thanh điều hướng hoặc đầu danh sách bot. Trang này tập hợp lịch hiện có, cho phép lọc bot và hiển thị giờ/múi giờ hoặc khoảng lặp, cùng trạng thái bật, tạm dừng hay cần kiểm tra.
