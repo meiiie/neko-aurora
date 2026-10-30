@@ -23,7 +23,7 @@ Quy trình dùng pstack [Feature](https://github.com/cursor/plugins/blob/main/ps
 | Lỗi nền và tài liệu | Đóng ledger trong test public-host; tách deadline lỗi giả lập với deadline production khi kiểm tra worker tái sử dụng; giữ ngữ cảnh file khi computer không chạy được; sửa hai link tài sản lịch sử, phục hồi nguyên bản notice Geist cho banner. | Kiểm tra đích và docs checker |
 | Sáu lỗi Windows và Rust | Fixture Core chạy child process native; Railway dùng Git Bash/Python, stdin cho lệnh dài và tar local. Vault/backup tạo file với DACL chỉ SID hiện tại trước khi ghi, kiểm tra và sửa ACL file cũ. Pin Rust 1.97.1 và helper chọn MSVC/SDK đã cài. | Sáu test đều PASS; toàn bộ Go 25 package PASS; 43 test Rust host PASS; Tauri check PASS |
 
-Các implementation chính nằm trong [Aurora service](../app/native/internal/aurora/service.go), [memory import](../app/native/internal/aurora/memory_import.go), [schedules](../app/native/internal/aurora/schedule.go), [hosted admission](../app/native/internal/hub/message_quota.go) và [PWA](../app/native/internal/web/assets/app/app.js).
+  Các implementation chính nằm trong [Aurora service](../app/native/internal/aurora/service.go), [memory import](../app/native/internal/aurora/memory_import.go), [schedules](../app/native/internal/aurora/schedule.go), [hosted admission](../app/native/internal/hub/message_quota.go) và [PWA](../app/native/internal/web/assets/app/app.js).
 
 ## Giới hạn của phần mới
 
