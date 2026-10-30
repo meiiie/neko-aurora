@@ -30,24 +30,27 @@ Quy tắc:
 - Cuối câu trả lời, bạn có thể thêm các dòng chỉ thị (mỗi loại tối đa một dòng, đúng JSON):
 PLAN: ["bước 1","bước 2"]   ← khi việc gồm nhiều phần (tra nhiều thứ, so sánh rồi viết báo cáo, lên lịch nhiều hạng mục): 3-6 bước ngắn, bước cuối là tổng hợp kết quả; khi đó phần trả lời chỉ cần 1 câu nêu cách làm, chưa tra cứu.
 CHOICES: ["lựa chọn A","lựa chọn B"]   ← khi cần Darren chọn nhanh (2-4 lựa chọn ngắn).
+QUESTIONS: [{"prompt":"Bạn muốn kết quả nào?","options":["Bản tóm tắt","Báo cáo đầy đủ"],"multiple":false}]   ← hỏi 1–4 câu trong một thẻ từng bước; mỗi câu có 2–8 lựa chọn, multiple=true nếu được chọn nhiều. Luôn có câu trả lời riêng. Không dùng cùng CHOICES; chỉ hỏi thông tin thật sự còn thiếu.
 APPROVAL: {"title":"<việc cần duyệt>","kind":"email|send|post|pay|other","to":"<email nếu là email>","subject":"<tiêu đề nếu là email>","body":"<toàn bộ nội dung đã soạn>"}   ← bắt buộc cho mọi hành động ra bên ngoài.
 SECRET: {"name":"TEN_IN_HOA","label":"<tên hiển thị>","desc":"<vì sao cần, lấy ở đâu>"}   ← khi cần Darren cung cấp mật khẩu/khoá API. Darren nhập vào thẻ ẩn, giá trị vào kho bí mật, bạn không bao giờ thấy. Không bao giờ xin Darren dán bí mật vào chat. Khi việc cần một mật khẩu/khoá chưa có, LUÔN thêm dòng SECRET (không chỉ mô tả bằng lời). Mật khẩu ứng dụng Gmail dùng tên GMAIL_APP_PASSWORD.
 TOOL: {"name":"web_search","q":"<truy vấn>"} | {"name":"web_fetch","url":"https://..."} | {"name":"gold_price"} | {"name":"chat_search","q":"<từ khoá>"} (tìm lại điều Darren/bạn đã nói trong các chat cũ, kể cả phần đã bị rút gọn)   ← công cụ đọc dữ liệu thật trên máy chủ. Khi cần số liệu/tin tức hiện tại mà chưa có trong KẾT QUẢ CÔNG CỤ, in dòng TOOL rồi dừng; nhiều tra cứu độc lập (vd. giá từng mặt hàng) thì in tối đa 3 dòng TOOL cùng lúc, hệ thống chạy song song rồi gọi lại bạn.
 TOOL: {"name":"computer_write_file","path":"<đường dẫn trong /home/bot>","content":"<nội dung>"} | {"name":"computer_edit_file","path":"...","old":"<đoạn cũ, đúng nguyên văn, duy nhất>","new":"<đoạn mới>"} (sửa một chỗ, không ghi lại cả file) | {"name":"computer_write_file","path":"...","content":"<phần tiếp>","append":true} (ghi file dài thành nhiều phần) | {"name":"computer_run","cmd":"<lệnh shell>"} | {"name":"computer_read_file","path":"..."} | {"name":"computer_list","path":""}   ← máy tính Linux riêng của bạn (thư mục nhà /home/bot giữ lại giữa các lượt; có python3; mặc định không có mạng). Dùng để viết và chạy script, phân tích file CSV/dữ liệu khi được nhờ chạy/tính thật. Người dùng chỉ xin đoạn code, bảng hay ví dụ thì viết thẳng vào câu trả lời (khối code markdown hoặc bảng markdown), không lưu file hay chạy lệnh. Ghi file trước rồi chạy NGAY bằng computer_run: đây là máy riêng, cách ly của bạn nên lệnh (ghi file, pip install, chạy python) chạy luôn, không cần Darren duyệt; chỉ việc gửi ra ngoài thì hệ thống tự tạo thẻ duyệt (bạn không cần viết APPROVAL cho lệnh). Không ghi lại cùng một file nhiều lần: ghi xong thì chạy. Mỗi lượt in tối đa 1 dòng computer_run. Nếu không làm được đúng điều được nhờ (vd. chụp màn hình), làm ngay phương án thay thế cụ thể bằng công cụ (vd. chạy lệnh rồi đưa kết quả thật) thay vì chỉ hỏi lại. Đầu ra của lệnh là sự thật: không tính nhẩm để phản bác nó; nghi ngờ thì chạy lệnh kiểm tra.
-SCHEDULE: {"at":"HH:MM","repeat":"daily"|"weekdays"|"once","date":"YYYY-MM-DD","text":"<việc cần làm lúc đó, đủ ngữ cảnh>"}   ← CHỈ khi tin nhắn hiện tại của Darren nhờ rõ làm/nhắc việc vào một giờ (giờ Việt Nam); không tự đặt lịch; hệ thống tự chạy đúng giờ, bạn chỉ xác nhận ngắn.
+SCHEDULE: {"at":"HH:MM","timezone":"<múi giờ IANA nếu người dùng chỉ định, ví dụ Europe/Kyiv>","repeat":"daily"|"weekdays"|"once","date":"YYYY-MM-DD","text":"<việc cần làm lúc đó, đủ ngữ cảnh>"}   ← CHỈ khi tin nhắn hiện tại của Darren nhờ rõ làm/nhắc việc vào một giờ (mặc định giờ Việt Nam; chỉ đặt timezone khác khi người dùng yêu cầu rõ); không tự đặt lịch; hệ thống tự chạy đúng giờ, bạn chỉ xác nhận ngắn.
+- Khi người dùng yêu cầu rõ lặp theo khoảng thời gian: SCHEDULE: {"repeat":"interval","intervalMinutes":60,"text":"<việc cần làm>"}. intervalMinutes là số nguyên 15–10080 phút; không gửi at/date/anchor/last. Mốc đầu sau một khoảng từ lúc tạo; khi máy dừng chỉ nhận một lượt đến hạn gần nhất. Không tự tạo lịch khi chưa được yêu cầu.
 MEMORY: {"text":"<một sở thích/bối cảnh lâu dài Darren vừa nói rõ hoặc xác nhận>"}   ← chỉ khi Darren nói rõ muốn bạn nhớ hoặc nêu sở thích lâu dài; thêm "scope":"team" nếu điều đó áp dụng cho mọi bot (tên, cách xưng hô, ngôn ngữ); không bao giờ ghi bí mật, mật khẩu.
 - Số liệu (giá, tỷ giá, ngày, phần trăm) chỉ được lấy từ KẾT QUẢ CÔNG CỤ, ghi nguồn dạng [1], [2]. Tuyệt đối không bịa hay ước đoán số; thiếu dữ liệu thì nói rõ thiếu. Khi đã có KẾT QUẢ CÔNG CỤ thì trả lời thẳng, không dùng PLAN.
 - Không bao giờ nhắc tên kỹ thuật của công cụ hay chỉ thị (web_search, web_fetch, gold_price, TOOL…) trong câu trả lời; nói bằng lời thường như "tìm trên web", "đọc trang".
 - Với email: kind là "email", dùng đúng địa chỉ Darren đưa; không lặp lại toàn văn thư ở phần trả lời.`
 
-var gluedDirective = regexp.MustCompile(`([^\s\n])[ \t]*((?:PLAN|CHOICES|APPROVAL|SECRET|TOOL|MEMORY|HANDOFF|SCHEDULE|FORM):\s*[\[{])`)
+var gluedDirective = regexp.MustCompile(`([^\s\n])[ \t]*((?:PLAN|CHOICES|QUESTIONS|APPROVAL|SECRET|TOOL|MEMORY|HANDOFF|SCHEDULE|FORM):\s*[\[{])`)
 
-var directiveRe = regexp.MustCompile(`(?m)^\s*(PLAN|CHOICES|APPROVAL|SECRET|TOOL|MEMORY|HANDOFF|SCHEDULE|FORM):\s*(.+?)\s*$`)
+var directiveRe = regexp.MustCompile(`(?m)^\s*(PLAN|CHOICES|QUESTIONS|APPROVAL|SECRET|TOOL|MEMORY|HANDOFF|SCHEDULE|FORM):\s*(.+?)\s*$`)
 
 type directives struct {
 	Text        string
 	Plan        []string
 	Choices     []string
+	Questions   []ledger.DirectQuestion
 	Approval    *Approval
 	Secret      *ledger.DirectSecret
 	Tools       []toolReq // independent lookups, run in parallel (max 3)
@@ -149,6 +152,7 @@ func ParseDirectives(text string) directives {
 	text = gluedDirective.ReplaceAllString(text, "$1\n$2")
 	// APPROVAL bodies may span lines; handle it first with the dedicated parser.
 	text, d.Approval = SplitApproval(text)
+	text, d.Questions = splitQuestions(text)
 	for _, m := range directiveRe.FindAllStringSubmatch(text, -1) {
 		if m[1] == "TOOL" {
 			var t toolReq
@@ -167,6 +171,12 @@ func ParseDirectives(text string) directives {
 		if m[1] == "FORM" {
 			if f := parseForm(m[2]); f != nil {
 				d.Form = f
+			}
+			continue
+		}
+		if m[1] == "QUESTIONS" {
+			if questions := parseQuestions(m[2]); questions != nil {
+				d.Questions = questions
 			}
 			continue
 		}
@@ -227,6 +237,9 @@ func ParseDirectives(text string) directives {
 		}
 	}
 	d.Text = strings.TrimSpace(directiveRe.ReplaceAllString(text, ""))
+	if len(d.Questions) > 0 {
+		d.Choices = nil
+	}
 	if d.Form != nil && d.Text == "" {
 		d.Text = "Bạn điền giúp mình mấy thông tin này nhé."
 	}
@@ -553,7 +566,7 @@ func (s *Service) runWork(w ledger.Work) {
 	defer cancel()
 	go s.watchCancel(ctx, cancel, w.RequestID)
 	go s.holdLease(ctx, w.RequestID)
-	appr, choices, err := s.runTurn(ctx, w)
+	appr, questions, err := s.runTurn(ctx, w)
 	if err != nil {
 		cur, gerr := s.L.Get(w.RequestID)
 		if gerr == nil && cur.Status == "cancelling" {
@@ -597,6 +610,11 @@ func (s *Service) runWork(w ledger.Work) {
 		s.agui(AGUIEvent{Type: RUN_ERROR, ThreadID: w.BotID, RunID: w.RequestID, Message: code})
 		return
 	}
+	s.finishWork(w, appr, questions)
+}
+
+func (s *Service) finishWork(w ledger.Work, appr *Approval, questions *questionSet) {
+	name := s.botName(w.BotID)
 	cur, gerr := s.L.Get(w.RequestID)
 	if gerr != nil || cur.Status != "running" {
 		if gerr == nil && cur.Status == "cancelling" {
@@ -605,12 +623,24 @@ func (s *Service) runWork(w ledger.Work) {
 		s.endDraft(w)
 		return
 	}
-	_, _ = s.L.DirectFinish(w.RequestID, cur.Epoch, "completed", "", func(d *ledger.DirectRun) {
+	_, err := s.L.DirectFinish(w.RequestID, cur.Epoch, "completed", "", func(d *ledger.DirectRun) {
 		if appr != nil {
 			d.Approval = appr
 		}
-		d.Choices = choices
+		d.Choices = nil
+		d.Questions = nil
+		d.Form = nil
+		if questions != nil {
+			d.Choices = append([]string(nil), questions.Choices...)
+			d.Questions = ledger.CopyDirectQuestions(questions.Questions)
+			d.Form = ledger.CopyDirectForm(questions.Form)
+		}
 	})
+	if err != nil {
+		s.endDraft(w)
+		s.agui(AGUIEvent{Type: RUN_ERROR, ThreadID: w.BotID, RunID: w.RequestID, Message: "completion_not_recorded"})
+		return
+	}
 	if appr != nil && appr.Kind == "computer" && !s.networkPeerWork(w) {
 		s.supersedeCommands(w.BotID, w.RequestID)
 	}
@@ -630,7 +660,9 @@ func (s *Service) runWork(w ledger.Work) {
 	switch {
 	case appr != nil:
 		s.notify(name+" cần bạn duyệt", appr.Title, "/app/#"+threadOf(w))
-	case len(choices) > 0:
+	case questions != nil && questions.Form != nil:
+		s.notify(name+" cần bạn điền thông tin", questions.Form.Title, "/app/#"+threadOf(w))
+	case questions != nil:
 		s.notify(name+" cần bạn chọn", "Chọn một phương án để tiếp tục", "/app/#"+threadOf(w))
 	default:
 		s.notify(name, "Đã xong việc bạn giao.", "/app/#"+threadOf(w))
@@ -679,11 +711,19 @@ func (s *Service) appendText(id, text string) error {
 	return s.L.AppendText(id, cur.Epoch, s.V.Redact(text))
 }
 
-func (s *Service) update(id string, fn func(*ledger.DirectRun)) {
-	if cur, err := s.L.Get(id); err == nil && cur.Status == "running" {
-		_, _ = s.L.DirectUpdate(id, cur.Epoch, fn)
+func (s *Service) update(id string, fn func(*ledger.DirectRun)) error {
+	cur, err := s.L.Get(id)
+	if err != nil {
+		return err
+	}
+	if cur.Status != "running" {
+		return ledger.ErrConflict
+	}
+	if _, err := s.L.DirectUpdate(id, cur.Epoch, fn); err != nil {
+		return err
 	}
 	s.sync()
+	return nil
 }
 
 // maxToolRounds bounds model-requested lookups per turn; multi-part research
@@ -709,17 +749,20 @@ var promiseRe = regexp.MustCompile(`(?i)(^|\s)(sẽ|để (em|mình|tôi) (tra|l
 // promiseOnly reports a short reply that only announces work it never does
 // (no directive, no question): dogfood v16 long-task failure.
 func promiseOnly(d directives) bool {
+	if d.Form != nil {
+		return false
+	}
 	if len(d.Tools) == 0 && toolMimicRe.MatchString(d.Text) {
 		// live run 3: the model copied the history's "(đã gọi công cụ
 		// computer_write_file, trạng thái: pending)" line instead of a TOOL line
 		return true
 	}
 	t := strings.TrimSpace(d.Text)
-	return len(d.Tools) == 0 && d.Approval == nil && d.Secret == nil && len(d.Plan) == 0 && len(d.Choices) == 0 &&
+	return len(d.Tools) == 0 && d.Approval == nil && d.Secret == nil && len(d.Plan) == 0 && len(d.Choices) == 0 && len(d.Questions) == 0 &&
 		t != "" && len([]rune(t)) < 220 && !strings.Contains(t, "?") && promiseRe.MatchString(t)
 }
 
-func (s *Service) runTurn(ctx context.Context, w ledger.Work) (*Approval, []string, error) {
+func (s *Service) runTurn(ctx context.Context, w ledger.Work) (*Approval, *questionSet, error) {
 	start := time.Now()
 	tc := &toolCtx{}
 	if !s.networkPeerWork(w) {
@@ -874,11 +917,11 @@ func (s *Service) runTurn(ctx context.Context, w ledger.Work) (*Approval, []stri
 		s.update(w.RequestID, func(r *ledger.DirectRun) { r.Secret = &sec })
 		s.record(w.BotID, w.RequestID, "secret", "Xin bí mật "+sec.Name)
 	}
-	if len(d.Plan) < 2 || d.Approval != nil {
+	if len(d.Plan) < 2 || d.Approval != nil || len(d.Questions) > 0 || d.Form != nil {
 		if d.Approval == nil {
 			s.verifyFinal(ctx, w, tc, &d)
 		}
-		return d.Approval, d.Choices, s.appendText(w.RequestID, normalizeCites(d.Text, len(tc.sources)))
+		return d.Approval, questionsOf(d), s.appendText(w.RequestID, normalizeCites(d.Text, len(tc.sources)))
 	}
 	steps := make([]Step, len(d.Plan))
 	for i, t := range d.Plan {
@@ -931,10 +974,10 @@ func (s *Service) runTurn(ctx context.Context, w ledger.Work) (*Approval, []stri
 		if len(sd.Choices) > 0 && sd.Approval == nil && (len([]rune(sd.Text)) > 300 || !strings.Contains(sd.Text, "?")) {
 			sd.Choices = nil // a finished step offering options is not a real question
 		}
-		if sd.Approval != nil || len(sd.Choices) > 0 {
+		if sd.Approval != nil || len(sd.Choices) > 0 || len(sd.Questions) > 0 || sd.Form != nil {
 			setStep(i, "waiting")
 			s.endDraft(w)
-			return sd.Approval, sd.Choices, s.appendText(w.RequestID, normalizeCites(sd.Text, len(tc.sources)))
+			return sd.Approval, questionsOf(sd), s.appendText(w.RequestID, normalizeCites(sd.Text, len(tc.sources)))
 		}
 		note := normalizeCites(clean(scrubInternal(stepNote(sd.Text)), 1500), len(tc.sources))
 		tc.note(fmt.Sprintf("KẾT QUẢ BƯỚC %d (%s): %s", i+1, title, note))
@@ -959,13 +1002,13 @@ func (s *Service) runTurn(ctx context.Context, w ledger.Work) (*Approval, []stri
 		return nil, nil, err
 	}
 	s.endDraft(w)
-	return fd.Approval, fd.Choices, nil
+	return fd.Approval, questionsOf(fd), nil
 }
 
 // verifyFinal: a final reply of a computer task that claims files which do
 // not exist is asked once more (with the real file list), then rewritten.
 func (s *Service) verifyFinal(ctx context.Context, w ledger.Work, tc *toolCtx, d *directives) {
-	if s.PC == nil || !computerTask(w) {
+	if s.PC == nil || !computerTask(w) || len(d.Questions) > 0 || d.Form != nil {
 		return
 	}
 	_, bad := s.verifyClaims(w.BotID, d.Text, true)
@@ -1220,9 +1263,6 @@ func callsOf(ts []toolReq) []toolCall {
 func (s *Service) rememberD(w ledger.Work, d directives) {
 	if s.networkPeerWork(w) {
 		return
-	}
-	if d.Form != nil && s.ext != nil {
-		s.ext.setForm(w.RequestID, d.Form)
 	}
 	if d.Memory != "" && d.MemoryScope == "team" {
 		if s.Mem.Remember(teamKey, d.Memory) {

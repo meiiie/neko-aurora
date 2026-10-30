@@ -6,7 +6,6 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
-	"path/filepath"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -45,9 +44,11 @@ func TestHybridFallsBackToCoreOnlyBeforeText(t *testing.T) {
 	down := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { http.Error(w, "x", 502) }))
 	defer down.Close()
 	dir := t.TempDir()
-	script := filepath.Join(dir, "bun")
-	os.WriteFile(script, []byte("#!/bin/sh\nprintf 'Từ Core.'\n"), 0o755)
-	h := &Hybrid{Fast: &AI{BaseURL: down.URL, Model: "glm-5.3", key: "k", http: down.Client()}, Core: &Core{Bun: script, Entry: "x", Home: dir, Model: "glm-5.3", Profile: "zai", key: "k"}}
+	executable, err := os.Executable()
+	if err != nil {
+		t.Fatal(err)
+	}
+	h := &Hybrid{Fast: &AI{BaseURL: down.URL, Model: "glm-5.3", key: "k", http: down.Client()}, Core: &Core{Bun: executable, Entry: "aurora-core-fixture-fallback", Home: dir, Model: "glm-5.3", Profile: "zai", key: "k"}}
 	out, err := h.Stream(context.Background(), []ChatMsg{{"user", "hi"}}, func(string) {})
 	if err != nil || out != "Từ Core." || h.Runtime() != "direct-http" {
 		t.Fatalf("%v %q", err, out)

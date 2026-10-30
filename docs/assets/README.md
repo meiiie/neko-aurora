@@ -4,10 +4,10 @@ The banner is a static, original composition for this repository, not an applica
 
 ## Artwork and typography
 
-- Existing Neko Aurora lockup is reused without changing its path geometry: [canonical local asset](../../app/native/internal/web/assets/brand/neko-peek/nekobot-lockup-light.svg).
+- Existing Neko Aurora lockup is reused without changing its path geometry: [historical source asset](https://github.com/meiiie/neko-aurora/blob/cfdb5cf21a02fcb3333aeea6f9f65ada6a77595c/app/native/internal/web/assets/brand/neko-peek/nekobot-lockup-light.svg).
 - Neko Peek is derived from `meiiie/wiii`, revision `6b1c30b15b4c67e3c841ae870e6989577fc228f8`. Preserve its [AGPL3 license](../../app/native/internal/web/assets/brand/neko-peek/licenses/AGPL-3.0.txt) and [provenance](../../app/native/internal/web/assets/brand/neko-peek/PROVENANCE.md).
-- Geist glyphs are outlined from the existing Latin/Vietnamese/Latin Extended WOFF2 subsets. The [SIL OFL1.1 notice](../../app/native/internal/web/assets/fonts/Geist-OFL-1.1.txt) remains with the font sources. No runtime font fetch is needed.
-- `generate_presentation.py` regenerates the two banners and three static badges, using fontTools with WOFF2/Brotli support. The new conversation motif is an abstract illustration, not a fabricated UI capture.
+- Geist glyphs are outlined from the existing Latin/Vietnamese/Latin Extended WOFF2 subsets. The [SIL OFL1.1 notice](licenses/Geist-OFL-1.1.txt) is preserved here byte-for-byte from revision `cfdb5cf21a02fcb3333aeea6f9f65ada6a77595c` for the historical banner glyphs. The product removed the Geist source fonts on 2026-10-22, as recorded in its provenance. No runtime font fetch is needed.
+- `generate_presentation.py` is the historical generator for the two banners and three static badges. Regeneration requires the source assets from the historical revision above and fontTools with WOFF2/Brotli support; the current checkout no longer contains those inputs. The new conversation motif is an abstract illustration, not a fabricated UI capture.
 - Badges describe development status and source architecture. They do not assert passing CI, a stable release or an application-wide license. No new license grant for unrelated application code is made here.
 
 ## Historical application screenshots

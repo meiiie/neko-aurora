@@ -10,6 +10,7 @@ import (
 	"context"
 	"encoding/json"
 	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
 	"sort"
@@ -157,6 +158,27 @@ func (s *Service) stream(ctx context.Context, bot, kind string, msgs []ChatMsg, 
 
 func (s *Service) usageRoutes() {
 	s.mux.HandleFunc("GET /app/api/usage", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Cache-Control", "no-store")
+		q, err := url.ParseQuery(r.URL.RawQuery)
+		if err != nil {
+			fail(w, ErrInvalid)
+			return
+		}
+		for _, key := range []string{"workspaceId", "range"} {
+			if values, ok := q[key]; ok && (len(values) != 1 || values[0] == "") {
+				fail(w, ErrInvalid)
+				return
+			}
+		}
+		if scope, ok := q["workspaceId"]; ok && scope[0] != s.workspaceID {
+			fail(w, ErrConflict)
+			return
+		}
+		if period := q.Get("range"); period != "" && period != "1" && period != "7" && period != "30" && period != "365" {
+			fail(w, ErrInvalid)
+			return
+		}
+
 		days := 7
 		switch r.URL.Query().Get("range") {
 		case "1":
@@ -174,6 +196,7 @@ func (s *Service) usageRoutes() {
 		}
 		rep["names"] = names
 		rep["range"] = days
+		rep["workspaceId"] = s.workspaceID
 		writeJSON(w, 200, rep)
 	})
 }

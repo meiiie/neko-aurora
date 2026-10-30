@@ -201,15 +201,38 @@ cookies, page content and the bridge capability never do. Full design: `BROWSER-
   ```json
   "linear": { "url": "https://mcp.linear.app/mcp", "oauth": true }
   ```
-  On first connect Neko opens your browser, captures the redirect on `http://localhost:41789/callback`,
-  and stores tokens (with refresh) under `~/.neko-core/mcp-auth/<server>/` — dynamic client
-  registration + PKCE via the MCP SDK. The browser-login step runs on your machine.
+  Core uses a loopback callback at `http://localhost:41789/callback`, per-attempt
+  state and S256 PKCE, and validates the discovered resource and issuer. Token/client
+  records are under `~/.neko-core/mcp-auth/v2/<binding-hash>/`; the hash binds the
+  server name, resource, issuer and callback. The SDK may register a public client
+  when required. Browser sign-in runs on your machine.
+
+  Before a token POST, the token record is atomically replaced with a credential-free
+  consuming marker. A successful response replaces it with ready tokens. Unknown
+  refresh/code-exchange outcomes require a later explicit connection and fresh sign-in;
+  Core prevents SDK retries or hidden browser fallback within the same attempt.
+  After initialization, 401/403 requires explicit reconnect and never automatically
+  replays the original tool call, whose remote outcome may already be unknown.
+
+  OAuth metadata responses are limited to 1 MiB, and token/registration responses
+  and HTTP error bodies to 64 KiB. Actual decoded bytes are counted; cancellation
+  and the connection deadline also interrupt body reading. A read failure cancels
+  discovery fallback, and a failed token response leaves the consuming marker.
+  Successful MCP JSON/SSE resource responses keep their existing behavior, outside
+  this OAuth budget. Public-DNS/dial pinning for OAuth is still pending.
+
+  Legacy bare token JSON in the v2 directory is readable and migrates on the next
+  write. Older binaries cannot read the new envelope; rollback requires a compatible
+  reader or a separately reviewed credential reset/migration. These Core files remain
+  plaintext with POSIX mode requests, without Windows sealing/DACL protection or a
+  cross-process lock. Local SDK/loopback fixtures do not establish provider acceptance.
 
 ## Connecting services (Google Drive, GitHub, Slack, …)
-Any such integration is an MCP server, and Neko speaks every MCP transport (stdio · http · sse) plus
-both auth styles above — so it connects to all of them.
+Core supports stdio, HTTP and SSE MCP transports and the authentication paths above.
+Compatibility with a particular service still depends on its MCP implementation,
+registration and OAuth policy; each provider needs its own contract and authorized account acceptance.
 
-**Google Drive** — two shapes, both supported:
+**Google Drive** — example configuration shapes (provider acceptance not established):
 ```json
 // (a) a local stdio Drive server with Google creds via env:
 "gdrive": { "command": "bunx", "args": ["@isaacphi/mcp-gdrive"],
@@ -218,9 +241,9 @@ both auth styles above — so it connects to all of them.
 // (b) a hosted Drive MCP that uses browser login:
 "gdrive": { "url": "https://<hosted-drive-mcp>/mcp", "oauth": true }
 ```
-Then `neko mcp` lists its tools (search/read/list files) and the agent can use them. (Drive needs
-your Google credentials — that setup is the server's, not Neko's; the connection itself is verified
-the same way as the deepwiki/server-everything servers Neko already talks to.)
+After a successful connection, `neko mcp` lists the tools advertised by that server.
+Drive credentials and scopes must be configured with the chosen server; generic MCP
+fixtures do not validate access to a Google account.
 
 ## Facebook / Meta (Pages, Messenger, Ads, Instagram)
 **Yes — Neko connects to Facebook via MCP, no Neko code.** Mature community servers cover it; pick by

@@ -19,13 +19,28 @@
 <link rel="stylesheet" href="/app/style.css">
 <link rel="stylesheet" href="/app/network.css">
 <link rel="stylesheet" href="/app/cloud.css">
+<link rel="stylesheet" href="/app/pages.css">
 <script src="/app/theme.js"></script>
 <script src="/app/i18n.js"></script>
+<script src="/app/startup.js"></script>
   <script src="/app/md.js"></script><script src="/app/ux.js"></script>
 <script src="/app/aurora/icons.js" defer></script>
 <script src="/app/aurora/brands.js" defer></script>
 <script src="/app/network.js" defer></script>
 <script src="/app/cloud.js" defer></script>
+<script src="/app/memory-import.js" defer></script>
+<script src="/app/outbox.js" defer></script>
+<script src="/app/composer-drafts.js" defer></script>
+<script src="/app/upload-queue.js" defer></script>
+<script src="/app/selection-excerpt.js" defer></script>
+<script src="/app/schedule-editor.js" defer></script>
+<script src="/app/schedule-test.js" defer></script>
+<script src="/app/question-card.js" defer></script>
+<script src="/app/form-card.js" defer></script>
+<script src="/app/vault-contacts.js" defer></script>
+<script src="/app/downloads.js" defer></script>
+<script src="/app/mcp-authorization.js" defer></script>
+<script src="/app/pages.js" defer></script>
 <script src="/app/app.js" defer></script>
 </head>
 <body>
@@ -39,6 +54,10 @@
       <button class="round" id="newBtn" aria-label="Tạo mới" aria-haspopup="menu"></button>
     </header>
     <div class="scroll" id="listScroll">
+      <section class="startup" id="startup" aria-label="Neko Aurora">
+        <p id="startupStatus" role="status">Đang mở Neko Aurora…</p>
+        <button class="pill soft" type="button" id="startupRetry">Tải lại</button>
+      </section>
       <div class="featured" id="featured"></div>
       <article class="brief" id="brief"></article>
       <ul class="rows" id="rows"></ul>
@@ -54,11 +73,12 @@
   <section class="screen thread off" id="thread" aria-label="Hội thoại">
     <header class="float-top">
       <button class="fab" id="backBtn" aria-label="Quay lại"></button>
-      <button class="who" id="whoBtn" aria-label="Xem hồ sơ"><span class="face-slot" id="threadAvatar" aria-hidden="true"></span><span class="title"><b id="threadName"></b><small id="threadState"></small></span></button>
+      <button class="who" id="whoBtn" aria-label="Xem hồ sơ"><span class="face-slot" id="threadAvatar" aria-hidden="true"></span><span class="title"><b id="threadName" data-noi18n></b><small id="threadState"></small></span></button>
       <button class="fab" id="threadMore" aria-label="Thêm" aria-haspopup="menu"></button>
     </header>
     <div class="scroll" id="messages"></div>
     <button class="jump hidden" id="jumpBtn" type="button" aria-label="Xuống tin mới nhất"></button>
+    <section id="uploadQueue" class="upload-queue hidden" aria-label="Ảnh chờ tải lên"></section>
     <form class="composer" id="composer">
       <button type="button" class="fab plus" id="plusBtn" aria-label="Thêm" aria-haspopup="menu"></button>
       <div class="ask">
@@ -97,6 +117,7 @@
   <div class="findbar glass hidden" id="findBar"><span class="mi" data-i="search"></span><input id="findInput" type="search" placeholder="Tìm trong chat" aria-label="Tìm trong chat"><span id="findCount"></span><button class="text-btn" id="findClose">Xong</button></div>
   <div class="menu glass hidden" id="newMenu" role="menu">
     <button role="menuitem" id="menuBot"><span class="mi" data-i="plus"></span>Bot mới</button>
+    <button role="menuitem" id="menuPage"><span class="mi" data-i="file-text"></span>Trang tài liệu mới</button>
     <button role="menuitem" id="menuGroup"><span class="mi" data-i="users"></span>Nhóm chat mới</button>
   </div>
 

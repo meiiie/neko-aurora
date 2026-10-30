@@ -102,14 +102,22 @@ func TestProviderModelThinkingAndForm(t *testing.T) {
 		t.Fatal(st)
 	}
 	// form side data
-	svc.ext.setForm(last.TaskID, parseForm(`{"title":"T","fields":[{"label":"Tên"}]}`))
+	legacyForm := parseForm(`{"title":"T","fields":[{"label":"Tên"}]}`)
+	legacyForm.AnswerVersion = 0
+	svc.ext.setForm(last.TaskID, legacyForm)
 	getJSON(t, u+"/app/api/agents/"+bot+"/messages", &ms)
 	if f := ms[len(ms)-1].Form; f == nil || f.Fields[0].Label != "Tên" {
 		t.Fatal("form")
 	}
-	post(t, u+"/app/api/forms/"+last.TaskID+"/done", `{}`)
-	if _, f := svc.ext.side(last.TaskID); !f.Done {
-		t.Fatal("done")
+	if r := post(t, u+"/app/api/forms/"+last.TaskID+"/done", `{}`); r.StatusCode != 409 {
+		t.Fatal("form completed without receipt")
+	}
+	answer := map[string]string{"text": "Tên: Aurora", "clientNonce": "form-" + last.TaskID, "formFor": last.TaskID}
+	if r := post(t, u+"/app/api/agents/"+bot+"/messages", mustJSON(answer)); r.StatusCode != 202 {
+		t.Fatal("form answer rejected", r.StatusCode)
+	}
+	if f := svc.decorate([]*Message{{Role: "agent", TaskID: last.TaskID}})[0].Form; f == nil || !f.Done {
+		t.Fatal("durable form receipt missing")
 	}
 }
 
@@ -236,7 +244,7 @@ func TestDefaultsDirectLikeDSBot(t *testing.T) {
 		tool(map[string]any{"name": "mcp", "server": "kb", "tool": "post_note", "args": map[string]any{}}), "Đã đăng.",
 		tool(map[string]any{"name": "bot_create", "bot": "Kế toán", "desc": "ghi sổ", "folder": "so-sach"}), "Đã tạo.",
 		tool(map[string]any{"name": "bot_update", "thinking": true}), "Đã bật.")
-	post(t, u+"/app/api/agents/"+bot+"/ext", `{"mcp":[{"name":"kb","url":"`+m.URL+`"}]}`)
+	post(t, u+"/app/api/agents/"+bot+"/ext", `{"workspaceId":"`+svc.workspaceID+`","mcpRevision":0,"mcp":[{"name":"kb","url":"`+m.URL+`"}]}`)
 	post(t, u+"/app/api/agents/"+bot+"/messages", `{"text":"đăng ghi chú","clientNonce":"d-1"}`)
 	waitTask(t, svc, bot)
 	if calls.Load() != 1 {
@@ -270,11 +278,14 @@ func TestImageUploadRoute(t *testing.T) {
 	svc, u, bot := liveSvc(t, "x")
 	big := strings.Repeat("\xff", 300<<10)
 	r := post(t, u+"/app/api/agents/"+bot+"/computer/upload", `{"name":"Doanh thu Q3.jpg","data":"`+std64([]byte(big))+`"}`)
-	b, _ := io.ReadAll(r.Body)
-	if r.StatusCode != 200 || !strings.Contains(string(b), `"uploads/Doanh-thu-Q3.jpg"`) {
-		t.Fatalf("%d %s", r.StatusCode, b)
+	var uploaded struct {
+		Path string `json:"path"`
 	}
-	if _, size, err := svc.PC.OpenFile(bot, "uploads/Doanh-thu-Q3.jpg"); err != nil || size != int64(len(big)) {
+	json.NewDecoder(r.Body).Decode(&uploaded)
+	if r.StatusCode != 200 || !strings.HasSuffix(uploaded.Path, "-Doanh-thu-Q3.jpg") {
+		t.Fatalf("%d %s", r.StatusCode, uploaded.Path)
+	}
+	if _, size, err := svc.PC.OpenFile(bot, uploaded.Path); err != nil || size != int64(len(big)) {
 		t.Fatal(err, size)
 	}
 }

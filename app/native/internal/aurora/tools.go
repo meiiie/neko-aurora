@@ -121,7 +121,7 @@ func (s *Service) runTool(ctx context.Context, w ledger.Work, tc *toolCtx, name,
 }
 
 // maxToolsPerTurn caps lookups per turn across all rounds.
-const maxToolsPerTurn = 10
+const maxToolsPerTurn = ledger.MaxDirectTools
 
 type toolRun struct {
 	call toolCall
@@ -169,12 +169,15 @@ func (s *Service) runTools(ctx context.Context, w ledger.Work, tc *toolCtx, call
 	if len(runs) == 0 {
 		return
 	}
-	s.update(w.RequestID, func(r *ledger.DirectRun) {
+	if err := s.update(w.RequestID, func(r *ledger.DirectRun) {
 		for _, x := range runs {
 			x.idx = len(r.Tools)
 			r.Tools = append(r.Tools, ledger.DirectTool{Name: x.call.name, Arg: displayArg(x.call), Status: "running", Summary: toolLabel[x.call.name]})
 		}
-	})
+	}); err != nil {
+		tc.note("Không lưu được trạng thái công cụ. Chưa chạy thao tác; hãy thử lại khi kho dữ liệu sẵn sàng.")
+		return
+	}
 	found := tc.found()
 	var wg sync.WaitGroup
 	for _, x := range runs {

@@ -5,6 +5,9 @@
 ## Bắt đầu
 
 - [Setup/build Windows, Tauri, Core và xử lý lỗi thường gặp](getting-started.md).
+- [Thư viện trang: bản nháp, phiên bản và phục hồi lần lưu](pages.md).
+- [Pages: kiểm thử local và các phần còn thiếu](research/grokbot-pages-2026-10-29.md).
+- [Lịch theo khoảng thời gian: cách dùng và giới hạn](routines.md).
 - [Kiến trúc và ranh giới trách nhiệm](architecture.md).
 - [Trạng thái nền tảng và phạm vi kiểm chứng](project-status.md).
 - [Mốc source alpha và version](releases.md).
@@ -21,6 +24,7 @@
 - [Core instructions](../core/AGENTS.md) và [Core testing](../core/docs/process/TESTING.md).
 - [Giao tiếp agent: cách dùng, hợp đồng và giới hạn](../app/docs/agent-network-20261025.md).
 - [Máy tính cloud: worker riêng, Vault và phạm vi kiểm chứng](../app/docs/cloud-browser-20261025.md).
+- [Nghiên cứu Grok Bot: phần đã áp dụng, giới hạn và backlog](grokbot-adoption-2026-10-28.md).
 - [Wiii overlay/base manifest](../migration/wiii-integration.json).
 - [Source provenance manifest](../migration/source-manifest.json).
 

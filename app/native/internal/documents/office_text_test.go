@@ -127,6 +127,30 @@ func TestOfficeXLSXNumericOrderUnicodeSharedStringsAndCachedFormula(t *testing.T
 	}
 }
 
+func TestOfficeXLSXSummaryUsesCellRowsAndRejectsPartialProof(t *testing.T) {
+	parts := officeTestXLSX()
+	summary, err := InspectXLSX(officeTestArchive(t, parts))
+	if err != nil || summary != (XLSXSummary{Sheets: 3, MaxPopulatedRows: 2, PopulatedCells: 6, FormulaCells: 1}) {
+		t.Fatalf("summary=%+v err=%v", summary, err)
+	}
+	parts["xl/worksheets/sheet2.xml"] = officeTestWorksheet(`<row r="1"><c r="A1" t="inlineStr"><is><t>first&#10;second&#10;third</t></is></c></row>`)
+	summary, err = InspectXLSX(officeTestArchive(t, parts))
+	if err != nil || summary.MaxPopulatedRows != 2 {
+		t.Fatal("text line breaks inflated row count", summary, err)
+	}
+	parts["xl/worksheets/sheet10.xml"] = `<worksheet>`
+	summary, err = InspectXLSX(officeTestArchive(t, parts))
+	if err == nil || summary != (XLSXSummary{}) {
+		t.Fatal("invalid later sheet returned partial proof", summary, err)
+	}
+	parts = officeTestXLSX()
+	parts["xl/worksheets/sheet1.xml"] = officeTestWorksheet(`<row r="1"><c r="A1"><f>1+1</f></c></row><row r="2"/><row r="3"/>`)
+	summary, err = InspectXLSX(officeTestArchive(t, parts))
+	if err != nil || summary.MaxPopulatedRows != 1 || summary.UncachedFormulaCells != 1 {
+		t.Fatal("blank rows or absent cached formula misreported", summary, err)
+	}
+}
+
 func TestOfficePPTXNumericSlideOrderAndProvenance(t *testing.T) {
 	result, err := ExtractPPTX(officeTestArchive(t, officeTestPPTX()))
 	if err != nil {

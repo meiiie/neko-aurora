@@ -4,7 +4,6 @@ import (
 	"log"
 	"sort"
 	"strings"
-	"time"
 
 	"nekoaurora.local/native/internal/ledger"
 )
@@ -143,38 +142,59 @@ func (s *Service) createGroup(name string, bots []string) (ledger.Channel, error
 	return c, err
 }
 
-// sendGroup fans one owner message out to every member bot.
-func (s *Service) sendGroup(id, text, nonce string) (*Message, error) {
+func (s *Service) acceptMessage(id, text, nonce, ref, answerBot, replyTo string) ([]ledger.Work, bool, error) {
+	return s.acceptMessageWithForm(id, text, nonce, ref, answerBot, replyTo, nil)
+}
+
+func (s *Service) acceptMessageWithForm(id, text, nonce, ref, answerBot, replyTo string, form *ledger.OwnerFormAnswer) ([]ledger.Work, bool, error) {
 	v := s.view()
-	c, ok := v.channels[id]
-	if !ok {
-		return nil, ErrNotFound
+	plan := ledger.OwnerMessagePlan{BotIDs: []string{id}}
+	if isGroupID(id) {
+		c := v.channels[id]
+		plan.BotIDs, plan.ChannelRevision = v.recipients(c, text), c.Revision
+		if answerBot != "" {
+			plan.BotIDs = []string{answerBot}
+		}
 	}
-	s.supersede(id)
-	rev := c.Revision
-	var first ledger.Work
-	n := 0
-	to := map[string]bool{}
-	for _, id := range v.recipients(c, text) {
-		to[id] = true
+	if ref == id {
+		ref = ""
 	}
-	for i, b := range c.BotIDs {
-		if v.archived[b] || !to[b] {
+	if ref != "" {
+		plan.ReferenceText = v.refBlock(ref)
+	}
+	plan.Quote = s.quoteOf(v, id, replyTo)
+	return s.L.AcceptOwnerMessage(ledger.OwnerMessageInput{ThreadID: id, Text: text, ClientNonce: nonce, ReferenceID: ref, ReplyTo: replyTo, Form: form}, plan)
+}
+
+func formAnswered(nonce string) string {
+	nonce = groupBase(nonce)
+	if strings.HasPrefix(nonce, "form-") {
+		return strings.TrimPrefix(nonce, "form-")
+	}
+	return ""
+}
+
+// A durable owner receipt can outlive the bounded form/think display cache.
+// A legacy work with a similar nonce is not enough to bypass that cache.
+func (s *Service) hasFormReceipt(task, thread string) bool {
+	for _, work := range s.L.Snapshot().Work {
+		if formAnswered(work.ClientNonce) != task {
 			continue
 		}
-		w, _, err := s.L.AcceptProduct(ledger.Input{BotID: b, ClientNonce: nonce + "_g" + itoa(i+1), Text: text}, ledger.SubmissionScope{ChannelID: id, ExpectedChannelRevision: &rev})
-		if err != nil {
-			return nil, err
+		receipt, ok := s.L.OwnerMessageForWork(work.RequestID)
+		if ok && receipt.Input.ThreadID == thread && receipt.Input.ClientNonce == "form-"+task && receipt.Input.ReferenceID == "" && receipt.Input.ReplyTo == "" {
+			return true
 		}
-		if n == 0 {
-			first = w
-		}
-		n++
 	}
-	if n == 0 {
-		return nil, ErrInvalid
+	return false
+}
+
+func questionAnswered(nonce string) string {
+	nonce = groupBase(nonce)
+	if strings.HasPrefix(nonce, "choice-") {
+		return strings.TrimPrefix(nonce, "choice-")
 	}
-	return &Message{ID: nonce + ":u", TaskID: first.RequestID, AgentID: id, Role: "user", Text: text, Created: time.Now()}, nil
+	return ""
 }
 
 func threadOf(w ledger.Work) string {
@@ -526,6 +546,9 @@ func (v *view) refBlock(id string) string {
 
 // stripRef: the owner's own words, without an attached reference block.
 func stripRef(t string) string {
+	if i := strings.Index(t, ledger.MessageQuoteMark); i >= 0 {
+		t = t[:i]
+	}
 	if i := strings.Index(t, refMark); i >= 0 {
 		return t[:i]
 	}

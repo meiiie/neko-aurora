@@ -7,8 +7,9 @@
 // no code copied from markdown-it/micromark).
 (()=>{
 const el=(t,c,x)=>{const e=document.createElement(t);if(c)e.className=c;if(x!=null)e.textContent=x;return e};
+const ui=s=>self.__I18N?.t(s)||s;
 const host=u=>{try{return new URL(u).hostname.replace(/^www\./,"")}catch{return u}};
-const INL=/(\\[\\`*_~\[\]()#+\-.!>|]|`+[^`\n]*?`+|\*\*(?=\S)[^\n]*?\S\*\*|__(?=\S)[^\n]*?\S__|~~(?=\S)[^\n]*?\S~~|\[[^\]\n]+\]\((?:https?:\/\/|mailto:|\/app\/api\/agents\/[\w-]+\/computer\/download\?path=)[^\s)]+\)|https?:\/\/[^\s<>()]+[^\s<>().,;:!?'"]|\[\d{1,2}\](?:\s*,?\s*\[\d{1,2}\])*|(?<![\w*])\*(?=\S)[^*\n]*?\S\*(?![\w*])|(?<![\p{L}\p{N}_])_(?=\S)[^_\n]*?\S_(?![\p{L}\p{N}_]))/gu;
+const INL=/(\\[\\`*_~\[\]()#+\-.!>|]|(?<!`)(?<ticks>`+)(?!`)[^\n]*?(?<!`)\k<ticks>(?!`)|\*\*(?=\S)[^\n]*?\S\*\*|__(?=\S)[^\n]*?\S__|~~(?=\S)[^\n]*?\S~~|\[[^\]\n]+\]\((?:https?:\/\/|mailto:|\/app\/api\/agents\/[\w-]+\/computer\/download\?path=)[^\s)]+\)|https?:\/\/[^\s<>()]+[^\s<>().,;:!?'"]|\[\d{1,2}\](?:\s*,?\s*\[\d{1,2}\])*|(?<![\w*])\*(?=\S)[^*\n]*?\S\*(?![\w*])|(?<![\p{L}\p{N}_])_(?=\S)[^_\n]*?\S_(?![\p{L}\p{N}_]))/gu;
 function link(t,u){const a=el("a","lnk",t);a.href=u;a.target="_blank";a.rel="noopener noreferrer";return a}
 function inline(node,text,src){let last=0,m;INL.lastIndex=0;const re=new RegExp(INL.source,"gu");
  while((m=re.exec(text))){if(m.index>last)node.append(text.slice(last,m.index));const t=m[0];
@@ -33,17 +34,53 @@ const indentOf=l=>l.match(/^\s*/)[0].replace(/\t/g,"    ").length;
 function code(node,lang,body){const w=el("div","code");const hd=el("div","code-h");hd.append(el("span","code-lang",lang||"code"));
  const cp=el("button","code-copy","Sao chép");cp.type="button";cp.setAttribute("aria-label","Sao chép mã");cp.onclick=()=>{(navigator.clipboard?navigator.clipboard.writeText(body):Promise.reject()).then(()=>{cp.textContent="Đã chép";setTimeout(()=>cp.textContent="Sao chép",1400);document.dispatchEvent(new CustomEvent("aurora-copied"))}).catch(()=>{})};
  hd.append(cp);const pre=el("pre");pre.tabIndex=0;pre.append(el("code",lang?"lang-"+lang:0,body));w.append(hd,pre);node.append(w)}
+let activeTableViewer=null;
+function closeViewer(restoreFocus=true){activeTableViewer?.close(restoreFocus)}
+let tableRegionId=0;
+function updateTableScroll(frame){
+ if(!frame.isConnected)return;const wrap=frame.querySelector(".tbl"),max=wrap.scrollWidth-wrap.clientWidth;
+ const atStart=wrap.scrollLeft<=1,atEnd=wrap.scrollLeft>=max-1;frame.dataset.atEnd=String(atEnd);
+ for(const [selector,atEdge] of [[".table-scroll-prev",atStart],[".table-scroll-next",atEnd]]){const b=frame.querySelector(selector);b.hidden=max<=1;b.setAttribute("aria-disabled",String(atEdge))}
+}
+function refreshTableScroll(){document.querySelectorAll(".table-frame").forEach(updateTableScroll)}
+addEventListener("resize",refreshTableScroll);
+document.fonts?.ready.then(refreshTableScroll);
+function tableCard(node,wrap,table,markdown){
+ const card=el("div","table-card"),bar=el("div","table-actions"),status=el("span","table-status");status.setAttribute("role","status");
+ const copy=(title,body)=>{const b=el("button","pill soft",ui(title));b.type="button";b.onclick=async()=>{try{await navigator.clipboard.writeText(body());status.textContent=ui("Đã sao chép")}catch{status.textContent=ui("Không sao chép được. Hãy chọn văn bản trong bảng.")}};return b};
+ bar.append(copy("Sao chép bảng",()=>Array.from(table.rows,row=>Array.from(row.cells,c=>c.textContent.replace(/\t|\n/g," ")).join("\t")).join("\n")),copy("Sao chép Markdown",()=>markdown));
+ const expand=el("button","pill soft",ui("Mở rộng bảng"));expand.type="button";expand.onclick=()=>{
+  if(!expand.isConnected)return;closeViewer(false);
+  const dialog=el("dialog","table-viewer"),head=el("div","table-actions"),body=el("div","table-stage md"),clone=table.cloneNode(true);
+  dialog.setAttribute("aria-label",ui("Bảng mở rộng"));body.tabIndex=0;body.setAttribute("role","region");body.setAttribute("aria-label",ui("Nội dung bảng, cuộn để xem"));
+  const zoom=el("button","pill soft","100%"),close=el("button","pill",ui("Đóng bảng"));zoom.type=close.type="button";zoom.setAttribute("aria-label",ui("Phóng to bảng"));
+  let scale=1;zoom.onclick=()=>{scale=scale>=2?1:scale+.25;body.style.setProperty("--table-scale",scale);zoom.textContent=Math.round(scale*100)+"%"};
+  let closed=false;const viewer={close(restoreFocus=true){if(closed)return;closed=true;observer.disconnect();if(activeTableViewer===viewer)activeTableViewer=null;if(dialog.open)dialog.close();dialog.remove();if(restoreFocus&&expand.isConnected)expand.focus({preventScroll:true})}};
+  const observer=new MutationObserver(()=>{if(!expand.isConnected)viewer.close(false)});observer.observe(document.body,{childList:true,subtree:true});activeTableViewer=viewer;
+  let backdropDown=false;const outside=e=>{const r=dialog.getBoundingClientRect();return e.clientX<r.left||e.clientX>r.right||e.clientY<r.top||e.clientY>r.bottom};
+  dialog.onpointerdown=e=>{backdropDown=e.target===dialog&&outside(e)};dialog.onpointercancel=()=>{backdropDown=false};
+  close.onclick=()=>viewer.close();dialog.onclose=()=>viewer.close();dialog.oncancel=e=>{e.preventDefault();viewer.close()};dialog.onclick=e=>{if(backdropDown&&e.target===dialog&&outside(e))viewer.close();backdropDown=false};
+  head.append(el("strong",0,ui("Bảng")),zoom,close);body.append(clone);dialog.append(head,body);document.body.append(dialog);dialog.showModal();close.focus();
+ };
+ const frame=el("div","table-frame");wrap.id="aurora-table-"+(++tableRegionId);frame.append(wrap);
+ for(const [direction,side,label,glyph] of [[-1,"prev","Cuộn bảng sang trái","‹"],[1,"next","Cuộn bảng sang phải","›"]]){
+  const b=el("button","table-scroll table-scroll-"+side,glyph);b.type="button";b.hidden=true;b.setAttribute("aria-label",ui(label));b.setAttribute("aria-controls",wrap.id);
+  b.onclick=()=>{updateTableScroll(frame);if(b.getAttribute("aria-disabled")==="true")return;wrap.scrollBy({left:direction*Math.max(80,wrap.clientWidth*.8),behavior:matchMedia("(prefers-reduced-motion: reduce)").matches?"auto":"smooth"})};frame.append(b);
+ }
+ const refresh=()=>updateTableScroll(frame);wrap.addEventListener("scroll",refresh,{passive:true});card.addEventListener("pointerenter",refresh);card.addEventListener("focusin",refresh);
+ bar.append(expand,status);card.append(bar,frame);node.append(card);requestAnimationFrame(refresh);
+}
 function blocks(node,lines,src){let i=0;
  while(i<lines.length){const l=lines[i];
   if(!l.trim()){i++;continue}
   let m=l.match(FENCE);if(m){const f=m[2],body=[];i++;while(i<lines.length&&!new RegExp("^\\s{0,3}"+f[0]+"{"+f.length+",}\\s*$").test(lines[i]))body.push(lines[i++].replace(new RegExp("^ {0,"+m[1].length+"}"),""));i++;code(node,m[3],body.join("\n"));continue}
-  if((m=l.match(HEAD))){const lv=m[1].length,e=el(lv<=2?"h3":lv===3?"h4":"h5");inline(e,m[2],src);node.append(e);i++;continue}
+  if((m=l.match(HEAD))){const lv=m[1].length,e=el(lv<=2?"h3":lv===3?"h4":"h5");e.dataset.markdownLevel=lv;inline(e,m[2],src);node.append(e);i++;continue}
   if(HR.test(l)){node.append(el("hr"));i++;continue}
-  if(ROW.test(l)&&i+1<lines.length&&DELIM.test(lines[i+1])){const al=cells(lines[i+1]).map(c=>c.startsWith(":")&&c.endsWith(":")?"center":c.endsWith(":")?"right":"");
-   const wrap=el("div","tbl"),t=el("table"),th=el("thead"),tr=el("tr");wrap.tabIndex=0;wrap.setAttribute("role","region");wrap.setAttribute("aria-label","Bảng, vuốt ngang để xem");
+  if(ROW.test(l)&&i+1<lines.length&&DELIM.test(lines[i+1])){const start=i,al=cells(lines[i+1]).map(c=>c.startsWith(":")&&c.endsWith(":")?"center":c.endsWith(":")?"right":"");
+   const wrap=el("div","tbl"),t=el("table"),th=el("thead"),tr=el("tr");wrap.tabIndex=0;wrap.setAttribute("role","region");wrap.setAttribute("aria-label",ui("Bảng, vuốt ngang để xem"));
    const cell=(tag,c,k)=>{const x=el(tag);if(al[k])x.style.textAlign=al[k];inline(x,c,src);return x};
    cells(l).forEach((c,k)=>tr.append(cell("th",c,k)));th.append(tr);t.append(th);const tb=el("tbody");i+=2;
-   while(i<lines.length&&lines[i].trim()&&ROW.test(lines[i])){const r=el("tr");cells(lines[i]).forEach((c,k)=>r.append(cell("td",c,k)));tb.append(r);i++}t.append(tb);wrap.append(t);node.append(wrap);continue}
+   while(i<lines.length&&lines[i].trim()&&ROW.test(lines[i])){const r=el("tr");cells(lines[i]).forEach((c,k)=>r.append(cell("td",c,k)));tb.append(r);i++}t.append(tb);wrap.append(t);tableCard(node,wrap,t,lines.slice(start,i).join("\n"));continue}
   if(QUOTE.test(l)){const buf=[];while(i<lines.length&&lines[i].trim()&&(QUOTE.test(lines[i])||(buf.length&&!startsBlock(lines[i],lines[i+1]))))buf.push(lines[i++].replace(QUOTE,""));const q=el("blockquote");blocks(q,buf,src);node.append(q);continue}
   if((m=l.match(ITEM))){const base=indentOf(l),ol=/\d/.test(m[2]),list=el(ol?"ol":"ul");if(ol&&parseInt(m[2])!==1)list.start=parseInt(m[2]);let loose=false;
    while(i<lines.length&&(m=lines[i].match(ITEM))&&indentOf(lines[i])<=base+1&&/\d/.test(m[2])===ol){const off=indentOf(lines[i])+m[2].length+1,body=[m[3]];i++;
@@ -57,5 +94,171 @@ function blocks(node,lines,src){let i=0;
   const p=el("p"),buf=[l.trim()];i++;while(i<lines.length&&lines[i].trim()&&!startsBlock(lines[i],lines[i+1]))buf.push(lines[i++].trim());
   buf.forEach((b,k)=>{if(k)p.append(el("br"));inline(p,b.replace(/\s{2,}$/,""),src)});node.append(p)}}
 function render(node,text,src,opt){node.classList.add("md");node.replaceChildren();text=String(text||"").replace(/\r\n?/g,"\n");if(opt&&opt.streaming)text=settle(text);blocks(node,text.split("\n"),src)}
-self.AURORA_MD={render,inline};
+self.AURORA_MD={render,inline,closeViewer};
+})();
+
+"use strict";
+(() => {
+  const tags = new Set("P H1 H2 H3 H4 H5 H6 STRONG EM S DEL UL OL LI PRE CODE BLOCKQUOTE HR BR A TABLE THEAD TBODY TR TH TD".split(" "));
+  function html(text, sources) {
+    const source = document.createElement("div"), target = document.createElement("div");
+    AURORA_MD.render(source, text, sources);
+    source.querySelectorAll(".code-h,.table-actions,.table-scroll").forEach(node => node.remove());
+    function append(node, parent) {
+      if (node.nodeType === Node.TEXT_NODE) { parent.append(node.textContent); return; }
+      if (node.nodeType !== Node.ELEMENT_NODE) return;
+      if (node.classList.contains("tick")) { parent.append(node.classList.contains("on") ? "[x] " : "[ ] "); return; }
+      if (["SCRIPT","STYLE","BUTTON","INPUT","TEXTAREA","SELECT","SVG","IMG","IFRAME","OBJECT"].includes(node.tagName)) return;
+      let output = parent;
+      if (tags.has(node.tagName)) {
+        output = document.createElement(node.tagName);
+        if (node.tagName === "A") {
+          try { const url = new URL(node.getAttribute("href"), location.href); if (["https:","http:","mailto:"].includes(url.protocol)) output.setAttribute("href", url.href); } catch {}
+        }
+        if (node.tagName === "OL" && /^\d+$/.test(node.getAttribute("start"))) output.setAttribute("start", node.getAttribute("start"));
+        parent.append(output);
+      }
+      node.childNodes.forEach(child => append(child, output));
+    }
+    source.childNodes.forEach(node => append(node, target));
+    return target.innerHTML;
+  }
+  function button({text, sources, active, notice}) {
+    const node = document.createElement("button");
+    node.type = "button";
+    node.className = "copy-reply-action text-btn";
+    node.textContent = "Sao chép câu trả lời";
+    let copying = false;
+    const current = () => node.isConnected && active();
+    node.onclick = async () => {
+      if (copying || !current()) return;
+      copying = true;
+      node.setAttribute("aria-disabled", "true");
+      node.setAttribute("aria-busy", "true");
+      try {
+        if (navigator.clipboard?.write && typeof ClipboardItem === "function") {
+          await navigator.clipboard.write([new ClipboardItem({
+            "text/plain": new Blob([text], {type:"text/plain"}),
+            "text/html": new Blob([html(text, sources)], {type:"text/html"}),
+          })]);
+        } else if (navigator.clipboard?.writeText) await navigator.clipboard.writeText(text);
+        else throw Error("clipboard_unavailable");
+        if (current()) notice("Đã sao chép");
+      } catch { if (current()) notice("Không sao chép được. Hãy chọn và sao chép văn bản."); }
+      finally { copying = false; node.removeAttribute("aria-disabled"); node.removeAttribute("aria-busy"); }
+    };
+    return node;
+  }
+  self.AURORA_MD.copyReplyButton = button;
+})();
+
+(() => {
+  "use strict";
+  const replies = new WeakMap();
+  const excluded = ".code-h,.table-actions,.table-scroll,.tick,button,input,textarea,select,svg,script,style,img,iframe,object,[hidden],[contenteditable]";
+  const escape = text => text.replace(/([\\`*_~\[\]<>|&])/g, "\\$1");
+  const escapeBlock = text => text.replace(/^(\s*)([#+-])(?=\s)/gm, "$1\\$2").replace(/^(\s*\d+)([.)])(?=\s)/gm, "$1\\$2");
+  const block = text => text.trim() ? "\n\n" + text.trim() + "\n\n" : "";
+  const tidy = text => text.trim();
+  const join = parts => parts.reduce((out, part) => {
+    const tail = out.match(/\n+$/)?.[0].length || 0, head = part.match(/^\n+/)?.[0].length || 0;
+    return tail && head ? out.slice(0, -tail) + "\n".repeat(Math.min(2, Math.max(tail, head))) + part.slice(head) : out + part;
+  }, "");
+  const longestTicks = text => Math.max(0, ...(text.match(/`+/g) || []).map(s => s.length));
+  const mark = (text, token) => text.replace(/^(\s*)([\s\S]*?)(\s*)$/, (_, before, body, after) => body ? before + token + body + token + after : text);
+
+  function markdown(root, range) {
+    function selected(node, raw = false) {
+      if (!range.intersectsNode(node)) return "";
+      if (node.nodeType === Node.TEXT_NODE) {
+        const text = node.textContent.slice(node === range.startContainer ? range.startOffset : 0, node === range.endContainer ? range.endOffset : undefined);
+        return raw ? text : escape(text);
+      }
+      if (node.nodeType !== Node.ELEMENT_NODE || node.matches(excluded)) return "";
+      const children = mode => {
+        const parts = [...node.childNodes].map(n => selected(n, mode));
+        return mode ? parts.join("") : join(parts);
+      };
+      if (raw) return children(true);
+      if (node.tagName === "TABLE") {
+        const bounds = document.createRange();
+        bounds.selectNodeContents(node);
+        const whole = range.compareBoundaryPoints(Range.START_TO_START, bounds) <= 0 && range.compareBoundaryPoints(Range.END_TO_END, bounds) >= 0;
+        const rows = [...node.rows].map(row => [...row.cells].map(cell => tidy(selected(cell))));
+        if (!whole) return block(rows.map(row => row.filter(Boolean).join("\t")).filter(Boolean).join("\n"));
+        const lines = rows.map(row => "| " + row.map(cell => cell.replace(/\n/g, " ")).join(" | ") + " |");
+        if (lines.length) lines.splice(1, 0, "| " + rows[0].map(() => "---").join(" | ") + " |");
+        return block(lines.join("\n"));
+      }
+      if (node.tagName === "UL" || node.tagName === "OL") {
+        const items = [...node.children].filter(n => n.tagName === "LI").map((item, index) => {
+          const body = tidy(selected(item));
+          if (!body) return "";
+          const prefix = node.tagName === "OL" ? (node.start + index) + ". " : "- ";
+          const tick = item.querySelector(":scope > .tick");
+          const task = tick ? (tick.classList.contains("on") ? "[x] " : "[ ] ") : "";
+          return prefix + task + body.replace(/\n/g, "\n" + " ".repeat(prefix.length));
+        }).filter(Boolean);
+        return items.length ? "\n" + items.join("\n") + "\n" : "";
+      }
+      if (node.tagName === "PRE") {
+        const text = children(true);
+        if (!text) return "";
+        const fence = "`".repeat(Math.max(3, longestTicks(text) + 1));
+        const lang = node.querySelector("code")?.className.match(/^lang-([\w+#.-]+)$/)?.[1] || "";
+        return block(fence + (/^[\w+#.-]+$/.test(lang) ? lang : "") + "\n" + text + "\n" + fence);
+      }
+      if (node.tagName === "CODE") {
+        const text = children(true);
+        if (!text) return "";
+        const fence = "`".repeat(longestTicks(text) + 1);
+        const pad = /^`|`$/.test(text) || (/^ .* $/.test(text) && /\S/.test(text)) ? " " : "";
+        return fence + pad + text + pad + fence;
+      }
+      if (node.classList.contains("li-b")) {
+        const parts = []; let inline = "";
+        for (const child of node.childNodes) {
+          if (child.nodeType === Node.ELEMENT_NODE && child.matches("p,ul,ol,pre,blockquote,table,div,h1,h2,h3,h4,h5,h6,hr")) {
+            parts.push(escapeBlock(inline), selected(child)); inline = "";
+          } else inline += selected(child);
+        }
+        return join([...parts, escapeBlock(inline)]);
+      }
+      const text = children(false);
+      if (node.tagName === "BR") return "\n";
+      if (node.tagName === "HR") return "\n\n---\n\n";
+      if (!text) return "";
+      if (node.tagName === "STRONG") return mark(text, "**");
+      if (node.tagName === "EM") return mark(text, "*");
+      if (node.tagName === "S" || node.tagName === "DEL") return mark(text, "~~");
+      if (/^H[1-6]$/.test(node.tagName)) return block("#".repeat(Number(node.dataset.markdownLevel) || Number(node.tagName[1])) + " " + text);
+      if (node.tagName === "P") return block(escapeBlock(text));
+      if (node.tagName === "BLOCKQUOTE") return block(tidy(text).split("\n").map(line => line ? "> " + line : ">").join("\n"));
+      if (node.tagName === "A") {
+        try {
+          const url = new URL(node.getAttribute("href"), location.href);
+          if (["http:", "https:", "mailto:"].includes(url.protocol)) return "[" + text + "](" + url.href.replace(/[()\\]/g, c => "%" + c.charCodeAt(0).toString(16).toUpperCase()) + ")";
+        } catch {}
+      }
+      return text;
+    }
+    return tidy(selected(root));
+  }
+
+  document.addEventListener("copy", event => {
+    if (event.defaultPrevented || !event.clipboardData || event.target.closest?.("input,textarea,[contenteditable]")) return;
+    const selection = getSelection();
+    if (!selection || selection.isCollapsed || selection.rangeCount !== 1) return;
+    const range = selection.getRangeAt(0);
+    const element = range.startContainer.nodeType === Node.ELEMENT_NODE ? range.startContainer : range.startContainer.parentElement;
+    const root = element?.closest(".msg.bot");
+    if (!root?.isConnected || root.classList.contains("typing") || !root.contains(range.endContainer) || !replies.get(root)?.()) return;
+    try {
+      const text = markdown(root, range);
+      if (!text) return;
+      event.clipboardData.setData("text/plain", text);
+      event.preventDefault();
+    } catch {}
+  });
+  self.AURORA_MD.enableSelectionCopy = (root, active) => replies.set(root, active);
 })();

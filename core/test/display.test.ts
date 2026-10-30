@@ -1,9 +1,9 @@
 import { afterAll, beforeAll, expect, test } from "bun:test";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { cachedRefreshRate, clampFps, normalizeHz, resolveUiFps } from "../src/adapters/display.ts";
+import { cachedRefreshRate, detectRefreshRate, clampFps, normalizeHz, resolveUiFps } from "../src/adapters/display.ts";
 import { savePrefs } from "../src/adapters/prefs.ts";
 
 // Isolate ~/.neko-core (display cache + prefs are read/written). See session.test.ts for the pattern.
@@ -72,4 +72,32 @@ test("normalizeHz snaps floor-reported fractional rates up, passes exact reads t
   expect(normalizeHz(144)).toBe(144);
   expect(normalizeHz(61)).toBe(61);
   expect(normalizeHz(48)).toBe(48);
+});
+
+
+test("display probes pin the originating home and discard late aborted results", async () => {
+  const first = mkdtempSync(join(tmpdir(), "neko-display-origin-"));
+  const second = mkdtempSync(join(tmpdir(), "neko-display-other-"));
+  const saved = {home: process.env.HOME, profile: process.env.USERPROFILE};
+  const output = process.platform === "win32" ? "144" : process.platform === "darwin" ? "144 Hz" : "144.0*";
+  try {
+    process.env.HOME = first; process.env.USERPROFILE = first;
+    let release!: (value: string) => void;
+    const pending = detectRefreshRate(undefined, async () => await new Promise<string>(r => { release = r; }));
+    process.env.HOME = second; process.env.USERPROFILE = second;
+    release(output); expect(await pending).toBe(144);
+    expect(JSON.parse(readFileSync(join(first, ".neko-core", ".display.json"), "utf8")).hz).toBe(144);
+    expect(existsSync(join(second, ".neko-core", ".display.json"))).toBe(false);
+    const controller = new AbortController();
+    const aborted = detectRefreshRate(controller.signal, async () => await new Promise<string>(r => { release = r; }));
+    controller.abort(); release(output); expect(await aborted).toBeNull();
+    expect(existsSync(join(second, ".neko-core", ".display.json"))).toBe(false);
+    let dispatched = false;
+    expect(await detectRefreshRate(controller.signal, async () => { dispatched = true; return output; })).toBeNull();
+    expect(dispatched).toBe(false);
+  } finally {
+    if (saved.home === undefined) delete process.env.HOME; else process.env.HOME = saved.home;
+    if (saved.profile === undefined) delete process.env.USERPROFILE; else process.env.USERPROFILE = saved.profile;
+    rmSync(first, {recursive:true, force:true}); rmSync(second, {recursive:true, force:true});
+  }
 });

@@ -5,14 +5,15 @@
 import { createHash, randomBytes } from "node:crypto";
 import { chmodSync, existsSync, mkdirSync, readFileSync, rmSync } from "node:fs";
 import { createServer } from "node:http";
-import { spawn } from "node:child_process";
-import { join } from "node:path";
+import { spawn, type SpawnOptions } from "node:child_process";
+import { dirname, join } from "node:path";
 
 import { atomicWriteFileSync } from "../shared/atomic.ts";
 import { abortable, abortableDelay, requestSignal, throwIfAborted, userAbortError } from "../shared/abort.ts";
 import { credentialPath } from "../shared/credential-home.ts";
 import { assertProfileBridgeCurrent } from "../shared/profile-bridge-guard.ts";
 import { VERSION } from "../shared/version.ts";
+import { minimalWindowsSystemEnv, resolveWindowsSystemExecutable } from "../shared/windows-system.ts";
 
 import { isText } from "../shared/wire.ts";
 
@@ -182,10 +183,21 @@ async function exchangeCode(code: string, verifier: string, redirectUri: string,
 }
 
 export function openBrowser(url: string): void {
-  const command = process.platform === "win32" ? "rundll32" : process.platform === "darwin" ? "open" : "xdg-open";
-  const args = process.platform === "win32" ? ["url.dll,FileProtocolHandler", url] : [url];
-  const child = spawn(command, args, { detached: true, stdio: "ignore", windowsHide: true });
-  child.on("error", () => {}); // the URL is also printed, so a missing opener degrades safely
+  if (!/^https?:\/\//i.test(url) || /[\u0000-\u0020\u007f]/.test(url)) return;
+  let target: URL;
+  try { target = new URL(url); } catch { return; }
+  if (!target.hostname || target.username || target.password) return;
+  const windows = process.platform === "win32";
+  const command = windows ? resolveWindowsSystemExecutable("rundll32.exe") : process.platform === "darwin" ? "open" : "xdg-open";
+  const library = windows ? resolveWindowsSystemExecutable("url.dll") : null;
+  if (!command || (windows && (!library || library.includes(",")))) return;
+  const env = windows ? minimalWindowsSystemEnv() : undefined;
+  if (env) for (const name of ["USERPROFILE", "APPDATA", "LOCALAPPDATA"] as const) if (process.env[name]) env[name] = process.env[name];
+  const args = windows ? [library + ",FileProtocolHandler", target.href] : [target.href];
+  const options: SpawnOptions = { detached: true, stdio: "ignore", windowsHide: true };
+  if (env) { options.cwd = dirname(command); options.env = env; }
+  const child = spawn(command, args, options);
+  child.on("error", () => {}); // Opening a link is best effort; the caller owns login recovery.
   child.unref();
 }
 

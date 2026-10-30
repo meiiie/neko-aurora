@@ -25,6 +25,7 @@ import {
   TERMINAL_BENCH_2_1_DATASET,
   type HarborBuildIdentity,
 } from "../scripts/harbor-eval.ts";
+import { trustedGitExecutable } from "../src/adapters/trusted-git.ts";
 import { isBool } from "../src/shared/wire.ts";
 
 const digest = (character: string) => character.repeat(64);
@@ -43,6 +44,21 @@ const kimiIdentity = { profile: "kimi", provider: "kimi", model: "kimi/kimi-for-
 
 function sha256(path: string): string {
   return createHash("sha256").update(readFileSync(path)).digest("hex");
+}
+
+function fixtureRepository(temporary:string):string {
+  const root=join(temporary,"repository");mkdirSync(root);
+  for(const name of ["evals/harbor/host_runner.ts","scripts/harbor-eval.ts","evals/harbor/neko_host_agent.py","evals/harbor/remote_tools.py"]){
+    const target=join(root,name);mkdirSync(dirname(target),{recursive:true});writeFileSync(target,"authored provenance fixture: "+name);
+  }
+  const git=trustedGitExecutable(root);if(!git)throw new Error("trusted Git unavailable for provenance fixture");
+  const hooks=join(temporary,"empty-git-template");mkdirSync(hooks);
+  const env=gitProvenanceEnv(process.env,dirname(git));env.GIT_CONFIG_GLOBAL=process.platform==="win32"?"NUL":"/dev/null";env.GIT_CONFIG_NOSYSTEM="1";
+  for(const args of [["init","-q",`--template=${hooks}`],["add","."],["-c","user.name=Fixture","-c","user.email=fixture@example.invalid","-c","commit.gpgsign=false","commit","-qm","authored fixture"]]){
+    const child=Bun.spawnSync([git,"-C",root,...args],{cwd:temporary,env,stdout:"ignore",stderr:"pipe"});
+    if(child.exitCode!==0)throw new Error("cannot prepare provenance fixture repository");
+  }
+  return realpathSync.native(root);
 }
 
 describe("Harbor evaluation launcher", () => {
@@ -227,9 +243,9 @@ describe("Harbor evaluation launcher", () => {
   });
 
   test("hashes the canonical runner, control bridges, and actually selected Codex executable", () => {
-    const root = realpathSync.native(resolve(import.meta.dir, ".."));
     const temporary = realpathSync.native(mkdtempSync(join(tmpdir(), "neko-harbor-identity-")));
     try {
+      const root=fixtureRepository(temporary);
       const runner = join(temporary, HARBOR_HOST_RUNNER_BASENAME);
       const codex = join(temporary, process.platform === "win32" ? "codex.exe" : "codex");
       writeFileSync(runner, "runner-bits");
@@ -590,9 +606,9 @@ describe("Harbor evaluation launcher", () => {
   });
 
   test("scrubs GIT_DIR provenance poison and rejects a non-root repository path", () => {
-    const root = realpathSync.native(resolve(import.meta.dir, ".."));
     const temporary = realpathSync.native(mkdtempSync(join(tmpdir(), "neko-harbor-git-")));
     try {
+      const root=fixtureRepository(temporary);
       const runner = join(temporary, HARBOR_HOST_RUNNER_BASENAME);
       writeFileSync(runner, "runner-bits");
       const poisoned = {

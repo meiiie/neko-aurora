@@ -15,38 +15,55 @@ import (
 var assets embed.FS
 
 var contentTypes = map[string]string{
-	"/":                          "text/html; charset=utf-8",
-	"/app.js":                    "text/javascript; charset=utf-8",
-	"/connections.js":            "text/javascript; charset=utf-8",
-	"/style.css":                 "text/css; charset=utf-8",
-	"/app/":                      "text/html; charset=utf-8",
-	"/app/theme.js":              "text/javascript; charset=utf-8",
-	"/app/app.js":                "text/javascript; charset=utf-8",
-	"/app/network.js":            "text/javascript; charset=utf-8",
-	"/app/network.css":           "text/css; charset=utf-8",
-	"/app/cloud.js":              "text/javascript; charset=utf-8",
-	"/app/cloud.css":             "text/css; charset=utf-8",
-	"/app/i18n.js":               "text/javascript; charset=utf-8",
-	"/app/md.js":                 "text/javascript; charset=utf-8",
-	"/app/ux.js":                 "text/javascript; charset=utf-8",
-	"/app/style.css":             "text/css; charset=utf-8",
-	"/app/sw.js":                 "text/javascript; charset=utf-8",
-	"/app/icon.svg":              "image/svg+xml",
-	"/app/icon-180.png":          "image/png",
-	"/app/icon-512.png":          "image/png",
-	"/app/icon-192.png":          "image/png",
-	"/app/icon-maskable-512.png": "image/png",
-	"/app/favicon.ico":           "image/x-icon",
-	"/app/manifest.webmanifest":  "application/manifest+json",
-	"/app/privacy.html":          "text/html; charset=utf-8",
-	"/app/terms.html":            "text/html; charset=utf-8",
-	"/app/legal.css":             "text/css; charset=utf-8",
-	"/app/signin.html":           "text/html; charset=utf-8",
-	"/app/welcome.html":          "text/html; charset=utf-8",
-	"/app/hosted.css":            "text/css; charset=utf-8",
-	"/app/hosted.js":             "text/javascript; charset=utf-8",
-	"/app/vault-demo.html":       "text/html; charset=utf-8",
-	"/app/vault-demo.js":         "text/javascript; charset=utf-8",
+	"/app/oauth/mcp/callback.html": "text/html; charset=utf-8",
+	"/app/oauth/mcp/callback.js":   "text/javascript; charset=utf-8",
+	"/":                            "text/html; charset=utf-8",
+	"/app.js":                      "text/javascript; charset=utf-8",
+	"/connections.js":              "text/javascript; charset=utf-8",
+	"/style.css":                   "text/css; charset=utf-8",
+	"/app/":                        "text/html; charset=utf-8",
+	"/app/theme.js":                "text/javascript; charset=utf-8",
+	"/app/pages.js":                "text/javascript; charset=utf-8",
+	"/app/pages.css":               "text/css; charset=utf-8",
+	"/app/app.js":                  "text/javascript; charset=utf-8",
+	"/app/memory-import.js":        "text/javascript; charset=utf-8",
+	"/app/outbox.js":               "text/javascript; charset=utf-8",
+	"/app/schedule-editor.js":      "text/javascript; charset=utf-8",
+	"/app/schedule-test.js":        "text/javascript; charset=utf-8",
+	"/app/selection-excerpt.js":    "text/javascript; charset=utf-8",
+	"/app/upload-queue.js":         "text/javascript; charset=utf-8",
+	"/app/composer-drafts.js":      "text/javascript; charset=utf-8",
+	"/app/question-card.js":        "text/javascript; charset=utf-8",
+	"/app/mcp-authorization.js":    "text/javascript; charset=utf-8",
+	"/app/vault-contacts.js":       "text/javascript; charset=utf-8",
+	"/app/downloads.js":            "text/javascript; charset=utf-8",
+	"/app/form-card.js":            "text/javascript; charset=utf-8",
+	"/app/network.js":              "text/javascript; charset=utf-8",
+	"/app/network.css":             "text/css; charset=utf-8",
+	"/app/cloud.js":                "text/javascript; charset=utf-8",
+	"/app/cloud.css":               "text/css; charset=utf-8",
+	"/app/i18n.js":                 "text/javascript; charset=utf-8",
+	"/app/startup.js":              "text/javascript; charset=utf-8",
+	"/app/md.js":                   "text/javascript; charset=utf-8",
+	"/app/ux.js":                   "text/javascript; charset=utf-8",
+	"/app/style.css":               "text/css; charset=utf-8",
+	"/app/sw.js":                   "text/javascript; charset=utf-8",
+	"/app/icon.svg":                "image/svg+xml",
+	"/app/icon-180.png":            "image/png",
+	"/app/icon-512.png":            "image/png",
+	"/app/icon-192.png":            "image/png",
+	"/app/icon-maskable-512.png":   "image/png",
+	"/app/favicon.ico":             "image/x-icon",
+	"/app/manifest.webmanifest":    "application/manifest+json",
+	"/app/privacy.html":            "text/html; charset=utf-8",
+	"/app/terms.html":              "text/html; charset=utf-8",
+	"/app/legal.css":               "text/css; charset=utf-8",
+	"/app/signin.html":             "text/html; charset=utf-8",
+	"/app/welcome.html":            "text/html; charset=utf-8",
+	"/app/hosted.css":              "text/css; charset=utf-8",
+	"/app/hosted.js":               "text/javascript; charset=utf-8",
+	"/app/vault-demo.html":         "text/html; charset=utf-8",
+	"/app/vault-demo.js":           "text/javascript; charset=utf-8",
 }
 
 // The Neko Aurora design system (tokens, fonts, icons) is shared by the
@@ -97,6 +114,15 @@ func Serve(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.Header().Set("Content-Type", contentType)
+	if strings.HasPrefix(name, "/app/oauth/mcp/callback.") {
+		w.Header().Set("Cache-Control", "no-store")
+		w.Header().Set("Referrer-Policy", "no-referrer")
+		w.Header().Set("X-Content-Type-Options", "nosniff")
+		w.Header().Set("Content-Security-Policy", "default-src 'none'; script-src 'self'; style-src 'self'; connect-src 'self'; base-uri 'none'; frame-ancestors 'none'; form-action 'none'")
+		w.Header().Del("ETag")
+		_, _ = w.Write(body)
+		return
+	}
 	if name == "/app/sw.js" {
 		w.Header().Set("Service-Worker-Allowed", "/app/")
 	}

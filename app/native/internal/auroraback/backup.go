@@ -25,6 +25,8 @@ import (
 	"sort"
 	"strings"
 	"time"
+
+	"nekoaurora.local/native/internal/privatefs"
 )
 
 const Dir = "backups"
@@ -58,7 +60,7 @@ func Create(state string, keep int, now time.Time) (string, error) {
 	}
 	name := filepath.Join(dir, "aurora-"+now.UTC().Format("20060102T150405Z")+".tar.gz")
 	tmp := name + ".tmp"
-	f, err := os.OpenFile(tmp, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o600)
+	f, err := privatefs.CreateNew(tmp)
 	if err != nil {
 		return "", err
 	}
@@ -195,7 +197,7 @@ func Restore(archive, dest string) error {
 		if err := os.MkdirAll(filepath.Dir(p), 0o700); err != nil {
 			return err
 		}
-		if err := os.WriteFile(p, x.data, 0o600); err != nil {
+		if err := privatefs.WriteFile(p, x.data); err != nil {
 			return err
 		}
 	}

@@ -52,6 +52,8 @@ type Service struct {
 	mux           *http.ServeMux
 	pcb           pcBook // bot computer build state (build.go)
 	mu            sync.Mutex
+	mcp           *mcpCache
+	oauth         *mcpOAuthManager
 	subs          map[chan Event]struct{}
 	ctx           context.Context
 	wake          chan struct{}
@@ -67,12 +69,17 @@ type Service struct {
 	networkRunTurns  bool
 	networkAdmission func(string) error
 	networkFailures  map[string]string
+	utilityAdmission func() bool
+	routineAdmission func(key, digest string) error
+	workspaceID      string
 	// OnDeleteAccount, when set, erases every bot, message, secret and backup
 	// on this server (the host wipes the state directory and restarts fresh).
 	OnDeleteAccount func() error
 }
 
 type Options struct {
+	WorkspaceID  string
+	OAuthOrigins []string
 	// RunTurns lets this service execute queued owner→bot work. Disable it
 	// when the attested host/executor runtime is configured instead.
 	RunTurns bool
@@ -85,12 +92,21 @@ type Options struct {
 	// NoBriefLoop skips the scheduled morning brief (hosted workspaces).
 	NoBriefLoop      bool
 	NetworkAdmission func(messageID string) error
+	// UtilityAdmission meters owner-requested inference outside chat turns.
+	// Automatic reviews within an admitted turn do not spend another request.
+	UtilityAdmission func() bool
+	// RoutineAdmission reserves quota once for a schedule occurrence or test.
+	RoutineAdmission func(key, digest string) error
 	// DisableCloud is a server-side hosted pilot admission decision.
 	DisableCloud bool
 }
 
 func New(ctx context.Context, store *ledger.Store, stateDir string, opt Options) (*Service, error) {
 	if err := os.MkdirAll(stateDir, 0o700); err != nil {
+		return nil, err
+	}
+	workspaceID, err := loadWorkspaceID(stateDir, opt.WorkspaceID)
+	if err != nil {
 		return nil, err
 	}
 	prefs := &Prefs{L: store}
@@ -125,6 +141,10 @@ func New(ctx context.Context, store *ledger.Store, stateDir string, opt Options)
 	log.SetOutput(vault.LogWriter(os.Stderr)) // redacts with every open vault (hosted: one per user)
 	s := &Service{L: store, AI: model, Push: p, V: v, Tools: toolsFromEnv(), Mem: openMemory(stateDir), steward: openSteward(stateDir), usage: openUsage(stateDir), sched: openSchedules(stateDir), ext: openExt(stateDir), PC: openComputers(stateDir), Prefs: prefs, subs: map[chan Event]struct{}{}, ctx: ctx, wake: make(chan struct{}, 1), running: map[string]bool{}, seen: map[string]string{}, Now: time.Now}
 	s.owner = opt.OwnerName
+	s.workspaceID = workspaceID
+	s.oauth = newMCPOAuthManager(v, opt.OAuthOrigins, func() time.Time { return s.Now() })
+	s.utilityAdmission = opt.UtilityAdmission
+	s.routineAdmission = opt.RoutineAdmission
 	s.cloudStateDir = stateDir
 	if !store.ReadOnly() && !opt.DisableCloud {
 		s.Cloud = openCloudBrowser(stateDir)
@@ -136,11 +156,13 @@ func New(ctx context.Context, store *ledger.Store, stateDir string, opt Options)
 	s.connectorRoutes()
 	s.vaultRoutes()
 	s.memoryRoutes()
+	s.memoryImportRoutes()
 	s.usageRoutes()
 	s.extRoutes()
 	s.uploadRoutes()
 	s.searchRoutes()
 	s.scheduleRoutes()
+	s.pageRoutes()
 	s.computerRoutes()
 	s.networkRoutes()
 	s.cloudRoutes()
@@ -221,7 +243,7 @@ func (s *Service) sync() {
 		if s.seen["a:"+b.ID] != string(j) && !first {
 			s.publish("agent", a)
 		}
-		for _, m := range s.networkDecorateMessages(v.messages(b.ID, 0)) {
+		for _, m := range s.ownerDecorateMessages(s.networkDecorateMessages(v.messages(b.ID, 0))) {
 			j, _ := json.Marshal(m)
 			next["m:"+m.ID] = string(j)
 			if s.seen["m:"+m.ID] != string(j) && !first {
@@ -236,7 +258,7 @@ func (s *Service) sync() {
 		if s.seen["a:"+c.ID] != string(j) && !first {
 			s.publish("agent", a)
 		}
-		for _, m := range s.networkDecorateMessages(v.groupMessages(c.ID, 0)) {
+		for _, m := range s.ownerDecorateMessages(s.networkDecorateMessages(v.groupMessages(c.ID, 0))) {
 			j, _ := json.Marshal(m)
 			next["m:"+m.ID] = string(j)
 			if s.seen["m:"+m.ID] != string(j) && !first {
@@ -438,6 +460,8 @@ func fail(w http.ResponseWriter, err error) {
 		code = 409
 	case errors.Is(err, ledger.ErrReadOnly):
 		code = 423
+	case errors.Is(err, errScheduleStorage):
+		code = 503
 	}
 	writeJSON(w, code, map[string]string{"error": err.Error()})
 }
@@ -536,7 +560,8 @@ func (s *Service) routes() {
 			agents = append(agents, v.group(c, s.Prefs.GroupPinned(c.ID)))
 		}
 		writeJSON(w, 200, map[string]any{
-			"agents": agents, "pending": v.pending(), "brief": v.brief(),
+			"workspaceId": s.workspaceID,
+			"agents":      agents, "pending": v.pending(), "brief": v.brief(),
 			"ai":             map[string]any{"configured": s.AI.Configured(), "model": s.AI.ModelName(), "provider": "z.ai", "runtime": s.AI.Runtime()},
 			"vapidPublicKey": s.Push.Pub, "pushSubscriptions": len(s.Prefs.PushSubs()),
 			"outbound": s.outboundInfo(), "secrets": s.secretNames(),
@@ -672,12 +697,23 @@ func (s *Service) routes() {
 	})
 	m.HandleFunc("POST /app/api/agents/{id}/messages", func(w http.ResponseWriter, r *http.Request) {
 		var in struct {
-			Text  string `json:"text"`
-			Nonce string `json:"clientNonce"`
-			Ref   string `json:"ref"` // another chat to add as context (DS Bot "Reference a chat")
+			Text              string           `json:"text"`
+			Nonce             string           `json:"clientNonce"`
+			Ref               string           `json:"ref"` // another chat to add as context (DS Bot "Reference a chat")
+			WorkspaceID       string           `json:"workspaceId"`
+			AnswerFor         string           `json:"answerFor"`
+			FormFor           string           `json:"formFor"`
+			FormAnswerVersion int              `json:"formAnswerVersion"`
+			FormValues        []string         `json:"formValues"`
+			QuestionAnswers   []questionAnswer `json:"questionAnswers"`
+			ReplyTo           string           `json:"replyTo"`
 		}
 		if err := decode(r, &in); err != nil {
 			fail(w, err)
+			return
+		}
+		if in.WorkspaceID != "" && in.WorkspaceID != s.workspaceID {
+			writeJSON(w, 409, map[string]string{"error": "workspace_changed"})
 			return
 		}
 		if !s.sendRate.allow(time.Now()) {
@@ -686,8 +722,73 @@ func (s *Service) routes() {
 			return
 		}
 		id := r.PathValue("id")
+		nonce := in.Nonce
+		if strings.HasPrefix(nonce, "routine-test-") || strings.HasPrefix(nonce, "sched-") {
+			fail(w, ErrInvalid)
+			return
+		}
+		if len(nonce) < 8 || len(nonce) > 100 {
+			nonce = newID("aurora-")
+		}
+		answerBot := ""
+		var formAnswer *ledger.OwnerFormAnswer
+		if in.FormFor != "" {
+			question, err := s.L.Get(in.FormFor)
+			form, _ := s.formForWork(question)
+			if err != nil || threadOf(question) != id || nonce != "form-"+in.FormFor || in.AnswerFor != "" || in.Ref != "" || in.ReplyTo != "" || form == nil && !s.hasFormReceipt(in.FormFor, id) {
+				fail(w, ErrInvalid)
+				return
+			}
+			answerBot = question.BotID
+			if form != nil && form.AnswerVersion == 1 {
+				if in.WorkspaceID != s.workspaceID {
+					writeJSON(w, 409, map[string]string{"error": "workspace_changed"})
+					return
+				}
+				if in.FormAnswerVersion != 1 {
+					fail(w, ErrInvalid)
+					return
+				}
+				in.Text, err = formAnswerText(form, in.FormValues)
+				if err != nil {
+					fail(w, err)
+					return
+				}
+				formAnswer = &ledger.OwnerFormAnswer{TaskID: in.FormFor, Values: in.FormValues}
+			} else if in.FormAnswerVersion != 0 || in.FormValues != nil {
+				fail(w, ErrInvalid)
+				return
+			}
+		} else if strings.HasPrefix(nonce, "form-") || in.FormAnswerVersion != 0 || in.FormValues != nil {
+			fail(w, ErrInvalid)
+			return
+		}
+		if in.AnswerFor != "" {
+			question, err := s.L.Get(in.AnswerFor)
+			if err != nil || threadOf(question) != id || question.Direct == nil || len(question.Direct.Choices) == 0 && len(question.Direct.Questions) == 0 || nonce != "choice-"+in.AnswerFor || in.Ref != "" || in.ReplyTo != "" {
+				fail(w, ErrInvalid)
+				return
+			}
+			answerBot = question.BotID
+			if len(question.Direct.Questions) > 0 {
+				if question.Status != "completed" {
+					fail(w, ErrInvalid)
+					return
+				}
+				in.Text, err = questionAnswerText(question.Direct.Questions, in.QuestionAnswers)
+				if err != nil {
+					fail(w, err)
+					return
+				}
+			} else if len(in.QuestionAnswers) > 0 {
+				fail(w, ErrInvalid)
+				return
+			}
+		} else if strings.HasPrefix(nonce, "choice-") || len(in.QuestionAnswers) > 0 {
+			fail(w, ErrInvalid)
+			return
+		}
 		if utf8.RuneCountInString(in.Text) > maxMsgRunes || len(in.Text) > 32000 {
-			// never silently cut what the owner wrote (dogfood 2026-10-23)
 			writeJSON(w, http.StatusRequestEntityTooLarge, map[string]any{"error": "too_long", "max": maxMsgRunes})
 			return
 		}
@@ -696,38 +797,29 @@ func (s *Service) routes() {
 			fail(w, ErrInvalid)
 			return
 		}
-		nonce := in.Nonce
-		if len(nonce) < 8 || len(nonce) > 100 {
-			nonce = newID("aurora-")
-		}
-		if in.Ref != "" && in.Ref != r.PathValue("id") {
-			text += s.view().refBlock(in.Ref)
-		}
-		if isGroupID(id) {
-			msg, err := s.sendGroup(id, text, nonce)
-			if err != nil {
-				fail(w, err)
-				return
-			}
-			s.sync()
-			s.poke()
-			writeJSON(w, 202, msg)
-			return
-		}
-		if _, ok := s.view().bot(id); !ok {
+		if _, ok := s.view().bot(id); !ok && !isGroupID(id) {
 			fail(w, ErrNotFound)
 			return
 		}
-		// steering: a new instruction supersedes any stale draft awaiting approval
-		s.supersede(id)
-		work, _, err := s.L.Accept(ledger.Input{BotID: id, ClientNonce: nonce, Text: text})
+		works, duplicate, err := s.acceptMessageWithForm(id, text, nonce, in.Ref, answerBot, in.ReplyTo, formAnswer)
 		if err != nil {
 			fail(w, err)
 			return
 		}
+		if !duplicate {
+			s.supersede(id)
+		}
 		s.sync()
 		s.poke()
-		for _, msg := range workMessages(work, false) {
+		work := works[0]
+		if isGroupID(id) {
+			at, _ := time.Parse(time.RFC3339Nano, work.CreatedAt)
+			message := &Message{ID: nonce + ":u", TaskID: work.RequestID, AgentID: id, Role: "user", Text: stripRef(work.Text), Ref: refName(work.Text), Created: at, AnswerFor: questionAnswered(nonce), FormFor: formAnswered(nonce)}
+			s.ownerDecorateMessages([]*Message{message})
+			writeJSON(w, 202, message)
+			return
+		}
+		for _, msg := range s.ownerDecorateMessages(workMessages(work, false)) {
 			if msg.Role == "user" {
 				msg.Queued = s.isRunning(id)
 				writeJSON(w, 202, msg)

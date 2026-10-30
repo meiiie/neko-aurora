@@ -14,6 +14,7 @@ func TestAuroraPublicHost(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	defer store.Close()
 	s, _ := New(store, "127.0.0.1:1")
 	s.EnableAurora(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { w.Write([]byte("aurora-ok")) }))
 	s.EnableAuroraPublic("x.trycloudflare.com", "owner-code-123456")

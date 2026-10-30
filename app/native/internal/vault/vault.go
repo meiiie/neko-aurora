@@ -19,6 +19,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"nekoaurora.local/native/internal/privatefs"
 )
 
 var (
@@ -35,11 +37,12 @@ func ValidName(n string) bool { return nameRe.MatchString(n) }
 // Meta is the public description of a secret. Hint is an optional
 // non-secret display string (e.g. the Gmail address) set by the caller.
 type Meta struct {
-	Name    string `json:"name"`
-	Label   string `json:"label,omitempty"`
-	Kind    string `json:"kind,omitempty"`
-	Hint    string `json:"hint,omitempty"`
-	Updated string `json:"updated"`
+	Name             string `json:"name"`
+	Label            string `json:"label,omitempty"`
+	Kind             string `json:"kind,omitempty"`
+	Hint             string `json:"hint,omitempty"`
+	Updated          string `json:"updated"`
+	PreferredPayment bool   `json:"preferredPayment,omitempty"`
 }
 
 type entry struct {
@@ -89,18 +92,23 @@ func open(dir string, fixed []byte) (*Vault, error) {
 	if fixed != nil {
 		key = fixed
 	} else {
-		key, err = os.ReadFile(kp)
+		if err = privatefs.Protect(kp); err == nil {
+			key, err = os.ReadFile(kp)
+		}
 	}
 	if fixed == nil && os.IsNotExist(err) {
 		key = make([]byte, 32)
 		if _, err = io.ReadFull(rand.Reader, key); err != nil {
 			return nil, err
 		}
-		f, err := os.OpenFile(kp, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
+		f, err := privatefs.CreateNew(kp)
 		if err != nil {
 			return nil, err
 		}
 		_, err = f.Write(key)
+		if err == nil {
+			err = f.Sync()
+		}
 		if cerr := f.Close(); err == nil {
 			err = cerr
 		}
@@ -113,13 +121,12 @@ func open(dir string, fixed []byte) (*Vault, error) {
 	if len(key) != 32 {
 		return nil, ErrCorrupt
 	}
-	if fixed == nil {
-		_ = os.Chmod(kp, 0o600)
-	}
 	blk, _ := aes.NewCipher(key)
 	aead, _ := cipher.NewGCM(blk)
 	v := &Vault{path: filepath.Join(dir, "vault.json"), aead: aead, items: map[string]entry{}, cache: map[string]string{}}
-	defer register(v)
+	if err = privatefs.Protect(v.path); err != nil && !os.IsNotExist(err) {
+		return nil, err
+	}
 	b, err := os.ReadFile(v.path)
 	if err == nil {
 		var list []entry
@@ -127,15 +134,33 @@ func open(dir string, fixed []byte) (*Vault, error) {
 			return nil, ErrCorrupt
 		}
 		for _, e := range list {
-			pt, err := aead.Open(nil, e.Nonce, e.CT, aad(e.V, e.Name))
-			if err != nil || !ValidName(e.Name) || (e.V != 0 && e.V != 1) || len(e.Nonce) != aead.NonceSize() {
+			if !ValidName(e.Name) && !isOAuthRecordName(e.Name) || (e.V != 0 && e.V != 1) || len(e.Nonce) != aead.NonceSize() {
 				return nil, ErrCorrupt
+			}
+			if _, exists := v.items[e.Name]; exists {
+				return nil, ErrCorrupt
+			}
+			if isOAuthRecordName(e.Name) && len(e.CT) > maxOAuthRecordBytes+aead.Overhead() {
+				return nil, ErrCorrupt
+			}
+			pt, err := aead.Open(nil, e.Nonce, e.CT, aad(e.V, e.Name))
+			if err != nil {
+				return nil, ErrCorrupt
+			}
+			if isOAuthRecordName(e.Name) {
+				if e.V != 1 || e.Kind != oauthRecordKind {
+					return nil, ErrCorrupt
+				}
+				if _, err := decodeOAuthRecord(string(pt)); err != nil {
+					return nil, ErrCorrupt
+				}
 			}
 			v.items[e.Name], v.cache[e.Name] = e, string(pt)
 		}
 	} else if !os.IsNotExist(err) {
 		return nil, err
 	}
+	register(v)
 	return v, nil
 }
 
@@ -146,11 +171,7 @@ func (v *Vault) save() error {
 	}
 	sort.Slice(list, func(i, j int) bool { return list[i].Name < list[j].Name })
 	b, _ := json.MarshalIndent(list, "", " ")
-	tmp := v.path + ".tmp"
-	if err := os.WriteFile(tmp, b, 0o600); err != nil {
-		return err
-	}
-	return os.Rename(tmp, v.path)
+	return privatefs.WriteFile(v.path, b)
 }
 
 func (v *Vault) Set(m Meta, value string) (Meta, error) {
@@ -163,13 +184,24 @@ func (v *Vault) Set(m Meta, value string) (Meta, error) {
 	if value == "" || len(value) > 8192 || strings.ContainsAny(value, "\x00") {
 		return Meta{}, ErrValue
 	}
+	return v.set(m, value)
+}
+
+func (v *Vault) set(m Meta, value string) (Meta, error) {
+	if v == nil {
+		return Meta{}, ErrMissing
+	}
+	v.mu.Lock()
+	defer v.mu.Unlock()
+	return v.setLocked(m, value)
+}
+
+func (v *Vault) setLocked(m Meta, value string) (Meta, error) {
 	nonce := make([]byte, v.aead.NonceSize())
 	if _, err := io.ReadFull(rand.Reader, nonce); err != nil {
 		return Meta{}, err
 	}
 	m.Updated = time.Now().UTC().Format(time.RFC3339)
-	v.mu.Lock()
-	defer v.mu.Unlock()
 	old, had := v.items[m.Name]
 	oldv := v.cache[m.Name]
 	v.items[m.Name] = entry{Meta: m, V: 1, Nonce: nonce, CT: v.aead.Seal(nil, nonce, []byte(value), aad(1, m.Name))}
@@ -187,21 +219,45 @@ func (v *Vault) Set(m Meta, value string) (Meta, error) {
 }
 
 func (v *Vault) Delete(name string) error {
+	if !ValidName(name) {
+		return ErrName
+	}
+	return v.delete(name)
+}
+
+func (v *Vault) delete(name string) error {
 	if v == nil {
 		return ErrMissing
 	}
 	v.mu.Lock()
 	defer v.mu.Unlock()
-	if _, ok := v.items[name]; !ok {
+	return v.deleteLocked(name)
+}
+
+func (v *Vault) deleteLocked(name string) error {
+	old, ok := v.items[name]
+	if !ok {
 		return ErrMissing
 	}
+	value := v.cache[name]
 	delete(v.items, name)
 	delete(v.cache, name)
-	return v.save()
+	if err := v.save(); err != nil {
+		v.items[name], v.cache[name] = old, value
+		return err
+	}
+	return nil
 }
 
 // Get returns a plaintext value for in-process use only.
 func (v *Vault) Get(name string) (string, bool) {
+	if !ValidName(name) {
+		return "", false
+	}
+	return v.get(name)
+}
+
+func (v *Vault) get(name string) (string, bool) {
 	if v == nil {
 		return "", false
 	}
@@ -214,7 +270,7 @@ func (v *Vault) Get(name string) (string, bool) {
 func (v *Vault) Has(name string) bool { _, ok := v.Get(name); return ok }
 
 func (v *Vault) Meta(name string) (Meta, bool) {
-	if v == nil {
+	if v == nil || !ValidName(name) {
 		return Meta{}, false
 	}
 	v.mu.RLock()
@@ -231,7 +287,7 @@ func (v *Vault) List() []Meta {
 	v.mu.RLock()
 	defer v.mu.RUnlock()
 	for _, e := range v.items {
-		if !isItemKind(e.Kind) {
+		if ValidName(e.Name) && !isItemKind(e.Kind) {
 			out = append(out, e.Meta)
 		}
 	}
@@ -247,6 +303,10 @@ func (v *Vault) Redact(s string) string {
 	v.mu.RLock()
 	defer v.mu.RUnlock()
 	for n, val := range v.cache {
+		if isOAuthRecordName(n) {
+			s = redactOAuthRecord(s, val)
+			continue
+		}
 		if isItemKind(v.items[n].Kind) {
 			s = redactItem(s, n, val)
 			continue
@@ -282,6 +342,16 @@ func redactItem(s, n, val string) string {
 	var f map[string]string
 	if json.Unmarshal([]byte(val), &f) != nil {
 		return s
+	}
+	if c, err := contactValues(f); err == nil {
+		for kind, list := range map[string][]ContactValue{"email": c.Emails, "phone": c.Phones} {
+			for _, entry := range list {
+				if entry.Value == f[kind] {
+					continue
+				}
+				f["contacts."+kind+"."+entry.ID] = entry.Value
+			}
+		}
 	}
 	keys := make([]string, 0, len(f))
 	for k := range f {

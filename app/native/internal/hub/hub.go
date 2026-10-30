@@ -223,7 +223,7 @@ func (h *Hub) openTenant(uid string) (*tenant, error) {
 	}
 	ctx, cancel := context.WithCancel(h.ctx)
 	u, known := h.users.get(uid)
-	svc, err := aurora.New(ctx, st, filepath.Join(dir, "aurora"), aurora.Options{RunTurns: true, VaultKey: h.vaultKey(uid), NoBriefLoop: true, DisableCloud: !known || !h.cfg.CloudBrowserEmails[strings.ToLower(strings.TrimSpace(u.Email))],
+	svc, err := aurora.New(ctx, st, filepath.Join(dir, "aurora"), aurora.Options{RunTurns: true, VaultKey: h.vaultKey(uid), NoBriefLoop: true, OAuthOrigins: []string{h.cfg.PublicURL}, DisableCloud: !known || !h.cfg.CloudBrowserEmails[strings.ToLower(strings.TrimSpace(u.Email))],
 		NetworkAdmission: func(messageID string) error {
 			u, ok := h.users.get(uid)
 			if !ok {
@@ -231,7 +231,19 @@ func (h *Hub) openTenant(uid string) (*tenant, error) {
 			}
 			return h.users.reserveNetwork(uid, messageID, h.cfg.Now(), h.cfg.Plans[u.Plan])
 		},
-		OwnerName: func() string { u, _ := h.users.get(uid); return u.Name }})
+		UtilityAdmission: func() bool {
+			u, ok := h.users.get(uid)
+			return ok && h.users.spend(uid, h.cfg.Now(), h.cfg.Plans[u.Plan])
+		},
+		RoutineAdmission: func(key, digest string) error {
+			u, ok := h.users.get(uid)
+			if !ok {
+				return errors.New("signin_required")
+			}
+			return h.users.reserveMessage(uid, "routine:"+key, digest, h.cfg.Now(), h.cfg.Plans[u.Plan])
+		},
+		WorkspaceID: "account-" + uid,
+		OwnerName:   func() string { u, _ := h.users.get(uid); return u.Name }})
 	if err != nil {
 		cancel()
 		st.Close()
@@ -416,7 +428,7 @@ func (h *Hub) me(u User) map[string]any {
 		"quota": map[string]int{"daily": h.cfg.Plans[u.Plan], "used": used}, "onboarded": u.Onboarded}
 }
 
-// metered is any request that spends model tokens.
+// metered covers chat admission; utility calls and network wakes have their own gates.
 func metered(r *http.Request) bool {
 	if r.Method != http.MethodPost {
 		return false
@@ -438,18 +450,14 @@ func (h *Hub) api(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, 200, h.me(u))
 		return
 	}
-	if metered(r) {
-		limit := h.cfg.Plans[u.Plan]
-		if !h.users.spend(u.ID, h.cfg.Now(), limit) {
-			writeJSON(w, 429, map[string]any{"error": "quota_exceeded", "plan": u.Plan, "daily": limit})
-			return
-		}
-	}
 	t, err := h.tenant(u.ID)
 	if err != nil {
 		log.Printf("hub: workspace unavailable: %v", err)
 		w.Header().Set("Retry-After", "2")
 		writeJSON(w, 503, map[string]string{"error": "workspace_unavailable"})
+		return
+	}
+	if metered(r) && !h.admitMessage(w, r, u) {
 		return
 	}
 	r = r.WithContext(identity.WithRequestIdentity(r.Context(), identity.RequestIdentity{ActorID: u.ID}))

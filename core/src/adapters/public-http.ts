@@ -122,8 +122,12 @@ async function resolvePublic(url: URL, lookup: PublicLookup, signal?: AbortSigna
 
 /** Validate a target without fetching it (used before handing a public URL to a hosted reader). */
 export async function assertPublicHttpUrl(input: string, options: PublicUrlValidationOptions = {}): Promise<void> {
-  const url = parseHttpUrl(input);
-  await resolvePublic(url, options.lookup ?? systemLookup, options.signal);
+  await resolvePublicHttpAddresses(input, options);
+}
+
+/** Return the checked addresses so a caller can pin its connection without another DNS lookup. */
+export async function resolvePublicHttpAddresses(input: string, options: PublicUrlValidationOptions = {}): Promise<PublicAddress[]> {
+  return resolvePublic(parseHttpUrl(input), options.lookup ?? systemLookup, options.signal);
 }
 
 /** Collect a response incrementally and refuse it before aggregate allocation can exceed the cap. */

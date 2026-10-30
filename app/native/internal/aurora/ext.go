@@ -50,27 +50,17 @@ type skill struct {
 }
 
 type botExt struct {
-	Model    string          `json:"model,omitempty"` // "<provider>:<model>", "" = server default
-	Thinking bool            `json:"thinking,omitempty"`
-	Folder   string          `json:"folder,omitempty"` // working folder inside /home/bot
-	Skills   []string        `json:"skills,omitempty"`
-	MCP      []mcpServer     `json:"mcp,omitempty"`
-	Off      map[string]bool `json:"off,omitempty"` // capabilities switched off: web, computer, mcp, browser, bots, skills
+	MCPRevision uint64          `json:"mcpRevision,omitempty"`
+	Model       string          `json:"model,omitempty"` // "<provider>:<model>", "" = server default
+	Thinking    bool            `json:"thinking,omitempty"`
+	Folder      string          `json:"folder,omitempty"` // working folder inside /home/bot
+	Skills      []string        `json:"skills,omitempty"`
+	MCP         []mcpServer     `json:"mcp,omitempty"`
+	Off         map[string]bool `json:"off,omitempty"` // capabilities switched off: web, computer, mcp, browser, bots, skills
 }
 
-type formField struct {
-	Name     string   `json:"name"`
-	Label    string   `json:"label"`
-	Type     string   `json:"type"` // text|number|date|select|textarea
-	Options  []string `json:"options,omitempty"`
-	Required bool     `json:"required,omitempty"`
-}
-
-type form struct {
-	Title  string      `json:"title"`
-	Fields []formField `json:"fields"`
-	Done   bool        `json:"done,omitempty"`
-}
+type formField = ledger.DirectFormField
+type form = ledger.DirectForm
 
 type extData struct {
 	Providers []provider         `json:"providers"`
@@ -108,12 +98,16 @@ func openExt(dir string) *extStore {
 	return e
 }
 
-func (e *extStore) saveLocked() {
-	b, _ := json.Marshal(e.d)
-	tmp := e.path + ".tmp"
-	if os.WriteFile(tmp, b, 0o600) == nil {
-		_ = os.Rename(tmp, e.path)
+func (e *extStore) saveLocked() error {
+	b, err := json.Marshal(e.d)
+	if err != nil {
+		return err
 	}
+	tmp := e.path + ".tmp"
+	if err := os.WriteFile(tmp, b, 0o600); err != nil {
+		return err
+	}
+	return os.Rename(tmp, e.path)
 }
 
 func (e *extStore) bot(id string) botExt {
@@ -123,19 +117,40 @@ func (e *extStore) bot(id string) botExt {
 	e.mu.Lock()
 	defer e.mu.Unlock()
 	if b := e.d.Bots[id]; b != nil {
-		x := *b
-		x.Skills = append([]string(nil), b.Skills...)
-		x.MCP = append([]mcpServer(nil), b.MCP...)
+		x := cloneBotExt(*b)
 		return x
 	}
 	return botExt{}
 }
 
-func (e *extStore) setBot(id string, b botExt) {
+func cloneBotExt(b botExt) botExt {
+	b.Skills = append([]string(nil), b.Skills...)
+	b.MCP = append([]mcpServer(nil), b.MCP...)
+	if b.Off != nil {
+		off := make(map[string]bool, len(b.Off))
+		for key, value := range b.Off {
+			off[key] = value
+		}
+		b.Off = off
+	}
+	return b
+}
+
+func (e *extStore) setBot(id string, b botExt) error {
 	e.mu.Lock()
 	defer e.mu.Unlock()
+	old, had := e.d.Bots[id]
+	b = cloneBotExt(b)
 	e.d.Bots[id] = &b
-	e.saveLocked()
+	if err := e.saveLocked(); err != nil {
+		if had {
+			e.d.Bots[id] = old
+		} else {
+			delete(e.d.Bots, id)
+		}
+		return err
+	}
+	return nil
 }
 
 func (e *extStore) on(bot, capName string) bool { return !e.bot(bot).Off[capName] }
@@ -173,7 +188,7 @@ func (e *extStore) addThought(task, t string) {
 func (e *extStore) setForm(task string, f *form) {
 	e.mu.Lock()
 	defer e.mu.Unlock()
-	e.d.Forms[task] = f
+	e.d.Forms[task] = ledger.CopyDirectForm(f)
 	e.touchLocked(task)
 	e.saveLocked()
 }
@@ -184,11 +199,7 @@ func (e *extStore) side(task string) (string, *form) {
 	}
 	e.mu.Lock()
 	defer e.mu.Unlock()
-	var f *form
-	if x := e.d.Forms[task]; x != nil {
-		c := *x
-		f = &c
-	}
+	f := ledger.CopyDirectForm(e.d.Forms[task])
 	return e.d.Thoughts[task], f
 }
 

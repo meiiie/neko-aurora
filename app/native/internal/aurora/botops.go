@@ -208,53 +208,99 @@ func parseForm(js string) *form {
 	}
 	f.Title = clean(f.Title, 80)
 	out := []formField{}
+	names := map[string]bool{}
 	for _, x := range f.Fields {
 		x.Name, x.Label = clean(x.Name, 40), clean(x.Label, 80)
 		if x.Label == "" {
 			x.Label = x.Name
+		}
+		if x.Name == "" {
+			for i := 1; ; i++ {
+				x.Name = "field-" + itoa(i)
+				if !names[x.Name] {
+					break
+				}
+			}
 		}
 		switch x.Type {
 		case "text", "number", "date", "select", "textarea":
 		default:
 			x.Type = "text"
 		}
-		if x.Type == "select" && len(x.Options) == 0 {
-			x.Type = "text"
+		options := []string{}
+		seen := map[string]bool{}
+		if x.Type == "select" {
+			for _, raw := range x.Options {
+				option := clean(raw, 60)
+				if option != "" && !seen[option] && len(options) < 8 {
+					options = append(options, option)
+					seen[option] = true
+				}
+			}
+			if len(options) == 0 {
+				x.Type = "text"
+			}
 		}
-		if len(x.Options) > 8 {
-			x.Options = x.Options[:8]
-		}
-		for i := range x.Options {
-			x.Options[i] = clean(x.Options[i], 60)
-		}
-		if x.Label != "" && len(out) < 10 {
+		x.Options = options
+		if x.Label != "" && !names[x.Name] && len(out) < 10 {
 			out = append(out, x)
+			names[x.Name] = true
 		}
 	}
 	if len(out) == 0 {
 		return nil
 	}
 	f.Fields, f.Done = out, false
+	f.AnswerVersion = 1
 	if f.Title == "" {
 		f.Title = "Thông tin cần điền"
 	}
+	if !ledger.ValidDirectForm(&f) {
+		return nil
+	}
 	return &f
+}
+
+func (s *Service) formForWork(w ledger.Work) (*form, bool) {
+	if w.Direct != nil && w.Direct.Form != nil {
+		if w.Status != "completed" {
+			return nil, true
+		}
+		return ledger.CopyDirectForm(w.Direct.Form), true
+	}
+	_, f := s.ext.side(w.RequestID)
+	return f, false
 }
 
 // decorate adds the side data (thinking, forms) to messages by task.
 func (s *Service) decorate(ms []*Message) []*Message {
 	s.networkDecorateMessages(ms)
-	if s.ext == nil {
-		return ms
-	}
+	s.ownerDecorateMessages(ms)
 	seen := map[string]bool{}
+	forms := map[string]bool{}
+	workByID := map[string]ledger.Work{}
+	receipts := map[string]string{}
+	for _, w := range s.L.Snapshot().Work {
+		workByID[w.RequestID] = w
+		if task := formAnswered(w.ClientNonce); task != "" {
+			forms[task] = true
+			if receipt, ok := s.L.OwnerMessageForWork(w.RequestID); ok && receipt.Input.ClientNonce == "form-"+task && receipt.Input.ReferenceID == "" && receipt.Input.ReplyTo == "" {
+				receipts[task] = receipt.Input.ThreadID
+			}
+		}
+	}
 	for i := len(ms) - 1; i >= 0; i-- {
 		m := ms[i]
 		if m.Role != "agent" || m.TaskID == "" || seen[m.TaskID] {
 			continue
 		}
 		seen[m.TaskID] = true
-		th, f := s.ext.side(m.TaskID)
+		th, _ := s.ext.side(m.TaskID)
+		w := workByID[m.TaskID]
+		f, durable := s.formForWork(w)
+		if f != nil && (durable && receipts[m.TaskID] == threadOf(w) || !durable && forms[m.TaskID]) {
+			f.Done = true
+		}
 		m.Thinking, m.Form = th, f
 	}
 	return ms
@@ -272,6 +318,15 @@ func (s *Service) applyBotChange(body string) (string, error) {
 	} else if err := s.editBot(id, name, desc); err != nil {
 		return "", err
 	}
+	ctx := s.ctx
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	unlock, err := s.mcpState().lock(ctx, "configuration\x00"+id)
+	if err != nil {
+		return "", err
+	}
+	defer unlock()
 	be := s.ext.bot(id)
 	ch := false
 	for _, l := range strings.Split(body, "\n") {
@@ -291,7 +346,9 @@ func (s *Service) applyBotChange(body string) (string, error) {
 		}
 	}
 	if ch {
-		s.ext.setBot(id, be)
+		if err := s.ext.setBot(id, be); err != nil {
+			return "", errors.New("không lưu được cấu hình bot")
+		}
 	}
 	if act == "tạo" {
 		return "Đã tạo bot " + name + ".", nil

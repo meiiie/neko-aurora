@@ -484,10 +484,18 @@ export function ChatApp({ contextMemory, profile, yolo, resume, resumedSession, 
   }, []);
   const [fps, setFps] = useState(() => resolveUiFps(cfg.uiFpsConfig).fps);
   const fpsRef = useRef(fps);
+  const displayProbeRef = useRef<AbortController | null>(null);
+  const detectDisplayRate = () => {
+    displayProbeRef.current?.abort();
+    const controller = new AbortController();
+    displayProbeRef.current = controller;
+    return detectRefreshRate(controller.signal);
+  };
+  useEffect(() => () => displayProbeRef.current?.abort(), []);
   useEffect(() => { fpsRef.current = fps; }, [fps]);
   useEffect(() => {
     if (resolveUiFps(cfg.uiFpsConfig).mode !== "auto") return;
-    void detectRefreshRate().then((hz) => {
+    void detectDisplayRate().then((hz) => {
       if (!hz) return;
       const next = clampFps(hz);
       if (next !== fpsRef.current) {
@@ -1468,6 +1476,7 @@ export function ChatApp({ contextMemory, profile, yolo, resume, resumedSession, 
   };
 
   const applyFps = (choice: number | "auto") => {
+    displayProbeRef.current?.abort();
     savePrefs({ uiFps: choice === "auto" ? "auto" : clampFps(choice) });
     const r = resolveUiFps(cfg.uiFpsConfig);
     setFps(r.fps);
@@ -1477,7 +1486,7 @@ export function ChatApp({ contextMemory, profile, yolo, resume, resumedSession, 
     addLine("info", choice === "auto"
       ? `fps: auto - ${r.detected ? `display ~${r.detected}Hz -> ${r.fps}fps` : `no display reading yet, using ${r.fps}fps (probing in background)`}`
       : `fps: ${r.fps} - scrolling adapts now; the typing-echo cap follows from the next launch`);
-    if (choice === "auto" && !r.detected) void detectRefreshRate().then((hz) => { if (hz) { setFps(clampFps(hz)); addLine("info", `display detected at ${hz}Hz - now ${clampFps(hz)}fps`); } }).catch(() => {});
+    if (choice === "auto" && !r.detected) void detectDisplayRate().then((hz) => { if (hz) { setFps(clampFps(hz)); addLine("info", `display detected at ${hz}Hz - now ${clampFps(hz)}fps`); } }).catch(() => {});
   };
 
   const resumeInto = (target: Session) => {

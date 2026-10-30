@@ -50,22 +50,24 @@ type DirectApproval struct {
 }
 
 type DirectRun struct {
-	Version    int             `json:"version"`
-	Runtime    string          `json:"runtime"` // neko-core-cli|direct-http|imported
-	Model      string          `json:"model,omitempty"`
-	Kind       string          `json:"kind,omitempty"` // ""|brief|note|computer
-	StartedAt  string          `json:"startedAt"`
-	FinishedAt string          `json:"finishedAt,omitempty"`
-	ImportedAt string          `json:"importedAt,omitempty"`
-	PlanIntro  string          `json:"planIntro,omitempty"`
-	Ack        string          `json:"ack,omitempty"` // short acknowledgement shown before the result
-	Plan       []DirectStep    `json:"plan,omitempty"`
-	Choices    []string        `json:"choices,omitempty"`
-	Items      []string        `json:"items,omitempty"`
-	Approval   *DirectApproval `json:"approval,omitempty"`
-	Secret     *DirectSecret   `json:"secret,omitempty"`
-	Tools      []DirectTool    `json:"tools,omitempty"`
-	Sources    []DirectSource  `json:"sources,omitempty"`
+	Version    int              `json:"version"`
+	Runtime    string           `json:"runtime"` // neko-core-cli|direct-http|imported
+	Model      string           `json:"model,omitempty"`
+	Kind       string           `json:"kind,omitempty"` // ""|brief|note|computer
+	StartedAt  string           `json:"startedAt"`
+	FinishedAt string           `json:"finishedAt,omitempty"`
+	ImportedAt string           `json:"importedAt,omitempty"`
+	PlanIntro  string           `json:"planIntro,omitempty"`
+	Ack        string           `json:"ack,omitempty"` // short acknowledgement shown before the result
+	Plan       []DirectStep     `json:"plan,omitempty"`
+	Choices    []string         `json:"choices,omitempty"`
+	Questions  []DirectQuestion `json:"questions,omitempty"`
+	Form       *DirectForm      `json:"form,omitempty"`
+	Items      []string         `json:"items,omitempty"`
+	Approval   *DirectApproval  `json:"approval,omitempty"`
+	Secret     *DirectSecret    `json:"secret,omitempty"`
+	Tools      []DirectTool     `json:"tools,omitempty"`
+	Sources    []DirectSource   `json:"sources,omitempty"`
 	// LeaseUntil is the heartbeat deadline of the process running this turn
 	// (lease pattern from CopilotKit/openmuse worker.ts, MIT).
 	LeaseUntil string `json:"leaseUntil,omitempty"`
@@ -91,8 +93,10 @@ type DirectSource struct {
 
 var directToolStatus = map[string]bool{"running": true, "done": true, "failed": true}
 
+const MaxDirectTools = 10
+
 func validDirectTools(d *DirectRun) bool {
-	if len(d.Tools) > 6 || len(d.Sources) > 16 {
+	if len(d.Tools) > MaxDirectTools || len(d.Sources) > 16 {
 		return false
 	}
 	for _, t := range d.Tools {
@@ -129,6 +133,8 @@ func validDirectSecret(x *DirectSecret) bool {
 func copyDirectRun(d DirectRun) DirectRun {
 	d.Plan = append([]DirectStep(nil), d.Plan...)
 	d.Choices = append([]string(nil), d.Choices...)
+	d.Questions = CopyDirectQuestions(d.Questions)
+	d.Form = CopyDirectForm(d.Form)
 	d.Items = append([]string(nil), d.Items...)
 	if d.Approval != nil {
 		a := *d.Approval
@@ -167,6 +173,12 @@ func validDirectApproval(a *DirectApproval) bool {
 }
 
 func validDirectRun(d *DirectRun) bool {
+	if d != nil && !ValidDirectForm(d.Form) {
+		return false
+	}
+	if d != nil && (!ValidDirectQuestions(d.Questions) || len(d.Questions) > 0 && len(d.Choices) > 0) {
+		return false
+	}
 	if d == nil || d.Version != 1 || (d.Runtime != "neko-core-cli" && d.Runtime != "direct-http" && d.Runtime != "imported") || (d.Kind != "" && d.Kind != "brief" && d.Kind != "note" && d.Kind != "computer" && d.Kind != "handoff") {
 		return false
 	}
@@ -207,6 +219,9 @@ func validDirectDecision(old, next *DirectApproval) bool {
 
 func validDirectReplay(old, w Work, typ string) bool {
 	if !validDirectRun(w.Direct) || w.Core != nil || old.Core != nil || w.Epoch != old.Epoch || w.DesiredState != old.DesiredState {
+		return false
+	}
+	if w.Direct.Form != nil && (typ == "work.direct_started" || typ == "work.direct_updated" || typ == "work.direct_finished" && w.Status != "completed") {
 		return false
 	}
 	switch typ {

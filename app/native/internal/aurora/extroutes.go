@@ -2,13 +2,17 @@ package aurora
 
 import (
 	"context"
+	"crypto/sha256"
 	"encoding/base64"
+	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"regexp"
 	"strings"
 	"time"
 
+	"nekoaurora.local/native/internal/computer"
 	"nekoaurora.local/native/internal/ledger"
 	"nekoaurora.local/native/internal/tools"
 	"nekoaurora.local/native/internal/vault"
@@ -62,6 +66,8 @@ func (s *Service) providersView() []map[string]any {
 }
 
 func (s *Service) extRoutes() {
+	s.mcpAuthorizationRoutes()
+	s.mcpOAuthRoutes()
 	m := s.mux
 	m.HandleFunc("GET /app/api/models", func(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, 200, map[string]any{"models": s.modelMenu(), "providers": s.providersView(), "vision": s.visionModel(), "browser": browserBin() != ""})
@@ -191,9 +197,61 @@ func (s *Service) extRoutes() {
 					e = clean(err.Error(), 120)
 				}
 			}
-			srv = append(srv, map[string]any{"name": x.Name, "url": x.URL, "header": x.Header, "secret": x.Secret, "tools": names, "error": e})
+			state, retryAt := "ready", ""
+			if err != nil {
+				state = "unavailable"
+				var failure *mcpFailure
+				if errors.As(err, &failure) {
+					state = failure.State
+					if !failure.RetryAt.IsZero() {
+						retryAt = failure.RetryAt.UTC().Format(time.RFC3339)
+					}
+				}
+			}
+			srv = append(srv, map[string]any{"name": x.Name, "url": x.URL, "header": x.Header, "secret": x.Secret, "tools": names, "error": s.redact(e), "state": state, "retryAt": retryAt})
 		}
-		writeJSON(w, 200, map[string]any{"model": be.Model, "thinking": be.Thinking, "folder": be.Folder, "skills": be.Skills, "mcp": srv, "off": be.Off, "menu": s.modelMenu(), "allSkills": s.ext.skills()})
+		writeJSON(w, 200, map[string]any{"workspaceId": s.workspaceID, "mcpRevision": be.MCPRevision, "model": be.Model, "thinking": be.Thinking, "folder": be.Folder, "skills": be.Skills, "mcp": srv, "off": be.Off, "menu": s.modelMenu(), "allSkills": s.ext.skills()})
+	})
+	m.HandleFunc("POST /app/api/agents/{id}/mcp/reconnect", func(w http.ResponseWriter, r *http.Request) {
+		var in struct {
+			Name        string `json:"name"`
+			WorkspaceID string `json:"workspaceId"`
+			MCPRevision uint64 `json:"mcpRevision"`
+		}
+		if decodeStrict(r, &in) != nil {
+			fail(w, ErrInvalid)
+			return
+		}
+		id := r.PathValue("id")
+		unlock, err := s.mcpState().lock(r.Context(), "configuration\x00"+id)
+		if err != nil {
+			fail(w, err)
+			return
+		}
+		defer unlock()
+		if in.WorkspaceID != s.workspaceID || in.MCPRevision != s.ext.bot(id).MCPRevision {
+			writeJSON(w, 409, map[string]string{"error": "mcp_configuration_changed"})
+			return
+		}
+		srv, ok := s.mcpServerOf(id, in.Name)
+		if !ok {
+			fail(w, ErrNotFound)
+			return
+		}
+		cache := s.mcpState()
+		cache.mu.Lock()
+		failure := cache.failures[mcpKey(id, srv)]
+		limited := failure != nil && failure.State == "rate_limited" && time.Now().Before(failure.RetryAt)
+		cache.mu.Unlock()
+		if limited {
+			writeJSON(w, 429, map[string]string{"error": "rate_limited", "retryAt": failure.RetryAt.UTC().Format(time.RFC3339)})
+			return
+		}
+		if err := s.mcpDrop(r.Context(), id, srv); err != nil {
+			fail(w, err)
+			return
+		}
+		writeJSON(w, 200, map[string]bool{"ok": true})
 	})
 	m.HandleFunc("POST /app/api/agents/{id}/ext", func(w http.ResponseWriter, r *http.Request) {
 		id := r.PathValue("id")
@@ -202,18 +260,30 @@ func (s *Service) extRoutes() {
 			return
 		}
 		var in struct {
-			Model    *string          `json:"model"`
-			Thinking *bool            `json:"thinking"`
-			Folder   *string          `json:"folder"`
-			Skills   *[]string        `json:"skills"`
-			MCP      *[]mcpServer     `json:"mcp"`
-			Off      *map[string]bool `json:"off"`
+			WorkspaceID string           `json:"workspaceId"`
+			MCPRevision uint64           `json:"mcpRevision"`
+			Model       *string          `json:"model"`
+			Thinking    *bool            `json:"thinking"`
+			Folder      *string          `json:"folder"`
+			Skills      *[]string        `json:"skills"`
+			MCP         *[]mcpServer     `json:"mcp"`
+			Off         *map[string]bool `json:"off"`
 		}
 		if decodeStrict(r, &in) != nil {
 			fail(w, ErrInvalid)
 			return
 		}
+		unlock, err := s.mcpState().lock(r.Context(), "configuration\x00"+id)
+		if err != nil {
+			fail(w, err)
+			return
+		}
+		defer unlock()
 		be := s.ext.bot(id)
+		if (in.WorkspaceID != "" && in.WorkspaceID != s.workspaceID) || (in.MCP != nil && (in.WorkspaceID != s.workspaceID || in.MCPRevision != be.MCPRevision || be.MCPRevision >= 9007199254740991)) {
+			writeJSON(w, 409, map[string]string{"error": "mcp_configuration_changed"})
+			return
+		}
 		if in.Model != nil {
 			if !validModel(s.modelMenu(), *in.Model) {
 				fail(w, ErrInvalid)
@@ -248,25 +318,58 @@ func (s *Service) extRoutes() {
 				}
 			}
 		}
+		var dropKeys []string
 		if in.MCP != nil {
 			if len(*in.MCP) > 6 {
 				fail(w, ErrInvalid)
 				return
 			}
-			for _, x := range be.MCP {
-				mcpDrop(id, x)
-			}
-			be.MCP = nil
+			next := []mcpServer{}
 			for _, x := range *in.MCP {
 				x.Name, x.URL, x.Header, x.Secret = clean(x.Name, 32), strings.TrimSpace(x.URL), clean(x.Header, 64), strings.ToUpper(strings.TrimSpace(x.Secret))
-				if x.Name == "" || strings.ContainsAny(x.Name, "/ ") || !ownerURL(x.URL) || (x.Secret != "" && !vault.ValidName(x.Secret)) {
+				duplicate := false
+				for _, existing := range next {
+					if strings.EqualFold(existing.Name, x.Name) {
+						duplicate = true
+						break
+					}
+				}
+				if x.Name == "" || duplicate || strings.ContainsAny(x.Name, "/ ") || !ownerURL(x.URL) || (x.Secret != "" && !vault.ValidName(x.Secret)) {
 					writeJSON(w, 400, map[string]string{"error": "mcp_server"})
 					return
 				}
-				be.MCP = append(be.MCP, x)
+				next = append(next, x)
 			}
+			locked := map[string]bool{}
+			for _, x := range be.MCP {
+				key := mcpKey(id, x)
+				if locked[key] {
+					continue
+				}
+				release, err := s.mcpState().lock(r.Context(), key)
+				if err != nil {
+					fail(w, err)
+					return
+				}
+				defer release()
+				locked[key] = true
+				dropKeys = append(dropKeys, key)
+			}
+			be.MCP = next
+			be.MCPRevision++
 		}
-		s.ext.setBot(id, be)
+		if err := s.ext.setBot(id, be); err != nil {
+			writeJSON(w, 500, map[string]string{"error": "settings_save_failed"})
+			return
+		}
+		if len(dropKeys) > 0 {
+			cache := s.mcpState()
+			cache.mu.Lock()
+			for _, key := range dropKeys {
+				cache.dropLocked(key)
+			}
+			cache.mu.Unlock()
+		}
 		writeJSON(w, 200, map[string]bool{"ok": true})
 	})
 	m.HandleFunc("GET /app/api/skills", func(w http.ResponseWriter, r *http.Request) {
@@ -327,16 +430,38 @@ func (s *Service) extRoutes() {
 		writeJSON(w, 200, map[string]any{"skills": s.ext.skills()})
 	})
 	m.HandleFunc("POST /app/api/forms/{task}/done", func(w http.ResponseWriter, r *http.Request) {
-		_, f := s.ext.side(r.PathValue("task"))
+		question, err := s.L.Get(r.PathValue("task"))
+		if err == nil && s.hasFormReceipt(question.RequestID, threadOf(question)) {
+			writeJSON(w, 200, map[string]bool{"ok": true})
+			return
+		}
+		f, durable := s.formForWork(question)
 		if f == nil {
 			fail(w, ErrNotFound)
 			return
 		}
-		f.Done = true
-		s.ext.setForm(r.PathValue("task"), f)
+		if durable {
+			fail(w, ErrConflict)
+			return
+		}
+		accepted := false
+		for _, work := range s.L.Snapshot().Work {
+			if formAnswered(work.ClientNonce) == r.PathValue("task") {
+				accepted = true
+				break
+			}
+		}
+		if !accepted {
+			fail(w, ErrConflict)
+			return
+		}
 		writeJSON(w, 200, map[string]bool{"ok": true})
 	})
 	m.HandleFunc("POST /app/api/agents/{id}/memory/ask", func(w http.ResponseWriter, r *http.Request) {
+		_, ok := s.memoryRequest(w, r)
+		if !ok {
+			return
+		}
 		var in struct {
 			Q     string `json:"q"`
 			Scope string `json:"scope"`
@@ -351,6 +476,9 @@ func (s *Service) extRoutes() {
 			writeJSON(w, 200, map[string]string{"answer": "Bot chưa nhớ điều gì."})
 			return
 		}
+		if !s.admitUtility(w) {
+			return
+		}
 		ctx, cancel := context.WithTimeout(r.Context(), 90*time.Second)
 		defer cancel()
 		out, err := s.stream(ctx, id, "memory", []ChatMsg{{"system", memAskPrompt}, {"user", "TRÍ NHỚ:\n" + memText(items) + "\nCÂU HỎI: " + clean(in.Q, 500)}}, func(string) {})
@@ -361,6 +489,10 @@ func (s *Service) extRoutes() {
 		writeJSON(w, 200, map[string]string{"answer": strings.TrimSpace(out)})
 	})
 	m.HandleFunc("POST /app/api/agents/{id}/memory/summarize", func(w http.ResponseWriter, r *http.Request) {
+		revision, ok := s.memoryRequest(w, r)
+		if !ok {
+			return
+		}
 		var in struct {
 			Scope string   `json:"scope"`
 			Apply []string `json:"apply"` // the reviewed list to save (owner confirmed)
@@ -375,18 +507,28 @@ func (s *Service) extRoutes() {
 			key = teamKey
 		}
 		if in.Apply != nil {
-			list := parseList(mustJSON(in.Apply))
+			if s.L.ReadOnly() {
+				fail(w, ledger.ErrConflict)
+				return
+			}
+			list := in.Apply
 			if len(list) == 0 {
 				fail(w, ErrInvalid)
 				return
 			}
-			s.Mem.Replace(key, list, "owner")
+			if err := s.Mem.Replace(key, list, "owner", revision...); err != nil {
+				failMemoryWrite(w, err)
+				return
+			}
 			writeJSON(w, 200, map[string]any{"items": s.Mem.List(key)})
 			return
 		}
-		items := s.Mem.List(key)
+		items, _, sourceRevision, _ := s.Mem.snapshot(key)
 		if len(items) < 2 {
-			writeJSON(w, 200, map[string]any{"proposal": []string{}})
+			writeJSON(w, 200, map[string]any{"proposal": []string{}, "revision": sourceRevision})
+			return
+		}
+		if !s.admitUtility(w) {
 			return
 		}
 		ctx, cancel := context.WithTimeout(r.Context(), 90*time.Second)
@@ -396,8 +538,16 @@ func (s *Service) extRoutes() {
 			writeJSON(w, 502, map[string]string{"error": "ai_failed"})
 			return
 		}
-		writeJSON(w, 200, map[string]any{"proposal": parseList(out), "before": len(items)})
+		writeJSON(w, 200, map[string]any{"proposal": parseList(out), "before": len(items), "revision": sourceRevision})
 	})
+}
+
+func (s *Service) admitUtility(w http.ResponseWriter) bool {
+	if s.utilityAdmission != nil && !s.utilityAdmission() {
+		writeJSON(w, http.StatusTooManyRequests, map[string]string{"error": "quota_exceeded"})
+		return false
+	}
+	return true
 }
 
 func (s *Service) modelProviderOK(p string) string {
@@ -420,18 +570,24 @@ var uploadName = regexp.MustCompile(`[^\p{L}\p{N}._-]+`)
 func (s *Service) uploadRoutes() {
 	s.mux.HandleFunc("POST /app/api/agents/{id}/computer/upload", func(w http.ResponseWriter, r *http.Request) {
 		id := r.PathValue("id")
-		if _, ok := s.view().bot(id); !ok || s.PC == nil {
-			fail(w, ErrNotFound)
-			return
-		}
 		// JSON body (the host's CSRF gate accepts only same-origin JSON):
 		// {"name":"…","data":"<base64>"}
 		var in struct {
-			Name string `json:"name"`
-			Data string `json:"data"`
+			Name        string `json:"name"`
+			Data        string `json:"data"`
+			WorkspaceID string `json:"workspaceId"`
+			Deduplicate bool   `json:"deduplicate"`
 		}
 		if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 1500<<10)).Decode(&in); err != nil {
 			writeJSON(w, 413, map[string]string{"error": "too_large"})
+			return
+		}
+		if (in.Deduplicate || in.WorkspaceID != "") && in.WorkspaceID != s.workspaceID {
+			writeJSON(w, 409, map[string]string{"error": "workspace_changed"})
+			return
+		}
+		if _, ok := s.view().bot(id); !ok || s.PC == nil {
+			fail(w, ErrNotFound)
 			return
 		}
 		b, err := base64.StdEncoding.DecodeString(in.Data)
@@ -440,10 +596,31 @@ func (s *Service) uploadRoutes() {
 			return
 		}
 		name := strings.Trim(uploadName.ReplaceAllString(in.Name, "-"), "-.")
-		if name == "" || len(name) > 80 {
+		if in.Deduplicate {
+			// Keep the full digest and a stable name within imageAuto's path bound.
+			if name == "" || len(name) > 12 {
+				name = "image.jpg"
+			}
+			hash := sha256.Sum256(b)
+			p := "uploads/i-" + hex.EncodeToString(hash[:]) + "-" + name
+			if err := s.PC.CreateFileOnce(id, p, b); err != nil {
+				status, code := 400, "write_failed"
+				if errors.Is(err, computer.ErrFileConflict) {
+					status, code = 409, "upload_conflict"
+				}
+				if errors.Is(err, computer.ErrQuota) {
+					status, code = 413, "home_quota_exceeded"
+				}
+				writeJSON(w, status, map[string]string{"error": code})
+				return
+			}
+			writeJSON(w, 200, map[string]string{"path": p})
+			return
+		}
+		if name == "" || len(name) > 60 {
 			name = "anh-" + time.Now().Format("150405") + ".jpg"
 		}
-		p := "uploads/" + name
+		p := "uploads/" + newID("img-") + "-" + name
 		if err := s.PC.WriteFile(id, p, string(b)); err != nil {
 			writeJSON(w, 400, map[string]string{"error": "write_failed"})
 			return

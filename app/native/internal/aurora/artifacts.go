@@ -9,7 +9,6 @@ package aurora
 // in verify.txt in the bot's home so the owner can see what was checked.
 
 import (
-	"archive/zip"
 	"bytes"
 	"encoding/binary"
 	"fmt"
@@ -110,64 +109,6 @@ func checkVideo(r io.ReaderAt, size int64, ext string) verdict {
 	return verdict{why: "không phải video hợp lệ"}
 }
 
-func checkSheet(r io.ReaderAt, size int64, ext string) verdict {
-	if ext == ".csv" {
-		b := make([]byte, min(size, 2<<20))
-		if _, err := r.ReadAt(b, 0); err != nil && err != io.EOF {
-			return verdict{why: "không đọc được"}
-		}
-		var rows []string
-		for _, l := range strings.Split(strings.ReplaceAll(string(b), "\r\n", "\n"), "\n") {
-			if strings.TrimSpace(l) != "" {
-				rows = append(rows, l)
-			}
-		}
-		if len(rows) < 2 {
-			return verdict{why: "CSV dưới 2 dòng"}
-		}
-		sep := ","
-		for _, c := range []string{";", "\t"} {
-			if strings.Count(rows[0], c) > strings.Count(rows[0], sep) {
-				sep = c
-			}
-		}
-		cols, same := strings.Count(rows[0], sep)+1, 0
-		for _, l := range rows {
-			if strings.Count(l, sep)+1 == cols {
-				same++
-			}
-		}
-		if cols < 2 || float64(same) < 0.8*float64(len(rows)) {
-			return verdict{why: "CSV cột không đều"}
-		}
-		return verdict{true, fmt.Sprintf("CSV %d dòng × %d cột", len(rows), cols)}
-	}
-	z, err := zip.NewReader(r, size)
-	if err != nil {
-		return verdict{why: "XLSX hỏng (không mở được)"}
-	}
-	wb := false
-	best := 0
-	for _, f := range z.File {
-		if f.Name == "xl/workbook.xml" {
-			wb = true
-		}
-		if strings.HasPrefix(f.Name, "xl/worksheets/") && strings.HasSuffix(f.Name, ".xml") {
-			rc, err := f.Open()
-			if err != nil {
-				continue
-			}
-			b, _ := io.ReadAll(io.LimitReader(rc, 8<<20))
-			rc.Close()
-			best = max(best, bytes.Count(b, []byte("<row")))
-		}
-	}
-	if !wb || best < 2 {
-		return verdict{why: "XLSX không có trang tính ≥ 2 dòng"}
-	}
-	return verdict{true, fmt.Sprintf("XLSX %d dòng", best)}
-}
-
 func kbSize(n int64) string {
 	if n < 1<<20 {
 		return fmt.Sprintf("%d KB", n>>10)
@@ -228,15 +169,11 @@ func (s *Service) verifyArtifacts(bot string, c pcState) map[string]verdict {
 	return out
 }
 
-// writeVerify keeps the latest check results in verify.txt (only on change,
-// and only once something has been proven).
+// writeVerify keeps the current checklist results in verify.txt, including
+// revoked proof after a restart has cleared the in-memory cache.
 func (s *Service) writeVerify(bot string) {
 	c := s.pcSnap(bot)
-	any := false
-	for _, it := range c.checklist {
-		any = any || it.Done
-	}
-	if !any { // nothing proven yet: no file to clutter the home
+	if len(c.checklist) == 0 {
 		return
 	}
 	var b strings.Builder

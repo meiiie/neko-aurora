@@ -6,11 +6,12 @@
 
 ## Build và chạy local trên Windows
 
-Hướng dẫn sau dùng PowerShell, từ root repository. Cần Git, Go **1.27+** theo `app/native/go.mod`, Rust/Cargo với toolchain MSVC và Windows SDK. Tauri cần Microsoft Edge WebView2 Runtime. Dependency Rust có thể cần tải ở lần build đầu; Go module hiện không có dependency bên thứ ba.
+Hướng dẫn sau dùng PowerShell 7, từ root repository. Cần Git, Go **1.27+** theo `app/native/go.mod`, Rustup và Microsoft C++ Build Tools x64 kèm Windows SDK. `rust-toolchain.toml` pin Rust **1.97.1**; helper `tools/cargo-windows.ps1` tìm MSVC/SDK đã cài và cấu hình môi trường riêng cho lệnh Cargo. Helper không cài compiler hay đổi PATH toàn máy. Tauri cần Microsoft Edge WebView2 Runtime. Dependency Rust có thể cần tải ở lần build đầu; Go module hiện không có dependency bên thứ ba.
 
 ```powershell
 git clone https://github.com/meiiie/neko-aurora.git
-Set-Location neko-bot
+Set-Location neko-aurora
+rustup toolchain install 1.97.1 --profile minimal --component rustfmt --component clippy
 New-Item -ItemType Directory -Force app/.build | Out-Null
 
 Push-Location app/native
@@ -19,7 +20,7 @@ try {
     if ($LASTEXITCODE -ne 0) { throw 'Go build failed' }
 } finally { Pop-Location }
 
-cargo build --locked --manifest-path app/host/Cargo.toml --target-dir app/.build/host-target
+pwsh -NoProfile -File tools/cargo-windows.ps1 build --locked --manifest-path app/host/Cargo.toml --target-dir app/.build/host-target
 if ($LASTEXITCODE -ne 0) { throw 'Host build failed' }
 Copy-Item app/.build/host-target/debug/neko-host.exe app/.build/neko-host.exe
 ```
@@ -37,7 +38,7 @@ Port phải còn trống; Ctrl+C dừng service. Dữ liệu được ghi dướ
 Build shell:
 
 ```powershell
-cargo build --locked --manifest-path app/desktop/Cargo.toml --target-dir app/.build/desktop-target
+pwsh -NoProfile -File tools/cargo-windows.ps1 build --locked --manifest-path app/desktop/Cargo.toml --target-dir app/.build/desktop-target
 if ($LASTEXITCODE -ne 0) { throw 'Desktop build failed' }
 Copy-Item app/.build/desktop-target/debug/neko-desktop.exe app/.build/neko-desktop.exe
 ```
@@ -73,10 +74,13 @@ try {
     go test -count=1 ./...
     go vet ./...
 } finally { Pop-Location }
-cargo test --locked --manifest-path app/host/Cargo.toml
+$env:FIXTURE_SAVED_CORE_MODULE = (Resolve-Path core/src/adapters/saved-account-bridge.ts).Path
+# Trỏ tới bun.exe thật, không dùng shim bun.ps1/bun.cmd cho child process Rust.
+$env:FIXTURE_BUN_EXE = (Resolve-Path "$env:APPDATA/npm/node_modules/bun/bin/bun.exe").Path
+pwsh -NoProfile -File tools/cargo-windows.ps1 test --locked --manifest-path app/host/Cargo.toml
 ```
 
-Các runner native/Core/browser cần thêm binary, fixture và pin đúng hợp đồng. Không chạy một runner có đường dẫn/pin lịch sử rồi coi đó là kiểm thử bản hiện tại. Chỉ dùng `--offline` cho Cargo khi dependency đã có trong cache.
+Ví dụ đường dẫn Bun trên áp dụng cho cài đặt npm; thay bằng `bun.exe` của bản cài đang dùng nếu khác. Test host tạo Vault và khóa giả lập trong thư mục tạm, không dùng tài khoản thật. Fixture Railway trên Windows cần Git for Windows (`bash.exe`, `tar`) và Python trên PATH; có thể chỉ định shell bằng `AURORA_TEST_SHELL`. Lệnh sandbox dài được chuyển qua stdin để tránh giới hạn command line Windows. Các runner native/Core/browser khác cần binary, fixture và pin đúng hợp đồng. Không chạy một runner có đường dẫn/pin lịch sử rồi coi đó là kiểm thử bản hiện tại. Chỉ dùng `--offline` cho Cargo khi dependency đã có trong cache.
 
 ### Phát triển Neko Core
 
@@ -99,6 +103,7 @@ try {
 
 - Không tìm thấy Go/Cargo: cài toolchain phù hợp và mở lại PowerShell có PATH đúng. Go tối thiểu theo `app/native/go.mod`; không hạ phiên bản module để né lỗi.
 - Cargo offline thiếu package: bỏ `--offline` ở lần chuẩn bị dependency đã được cho phép; giữ `--locked`. Không thay lockfile chỉ để chạy build.
+- Rust `stable` báo thiếu component hoặc `link.exe` không có trong PATH: chạy từ root để dùng bản pin, kiểm tra `rustc --version`, rồi dùng helper Cargo ở trên. Helper báo thiếu MSVC/SDK thì cần cài đúng C++ Build Tools; không đổi target sang GNU để che lỗi MSVC.
 - Port 8765 bận: dừng process do bạn sở hữu hoặc chọn port khác. Với launcher desktop dùng `-Port`; không tự kết nối tới một service không xác minh.
 - `waiting_host`: mặc định chưa có runtime được cấu hình, không phải bằng chứng provider đang chạy.
 - Desktop từ chối receipt/hash/state: tạo lại manifest từ đúng các binary vừa build, dùng startup receipt mới qua launcher; không bỏ bước xác minh.

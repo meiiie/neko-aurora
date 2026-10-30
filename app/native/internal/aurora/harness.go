@@ -10,10 +10,10 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"fmt"
 	"net/http"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -77,10 +77,11 @@ type memItem struct {
 }
 
 type memStore struct {
-	mu   sync.Mutex
-	path string
-	m    map[string][]memItem
-	mask func(string) string // vault redaction: a fact holding a stored secret is refused
+	mu      sync.Mutex
+	path    string
+	m       map[string][]memItem
+	mask    func(string) string // vault redaction: a fact holding a stored secret is refused
+	loadErr error
 }
 
 const maxMemPerBot = 30
@@ -88,12 +89,22 @@ const maxMemPerBot = 30
 func openMemory(dir string) *memStore {
 	ms := &memStore{path: filepath.Join(dir, "memory.json"), m: map[string][]memItem{}}
 	if b, err := os.ReadFile(ms.path); err == nil {
-		_ = json.Unmarshal(b, &ms.m)
+		var saved map[string][]memItem
+		if err := json.Unmarshal(b, &saved); err != nil || saved == nil {
+			ms.loadErr = errors.New("memory_store_unavailable")
+		} else {
+			ms.m = saved
+		}
+	} else if !os.IsNotExist(err) {
+		ms.loadErr = errors.New("memory_store_unavailable")
 	}
 	return ms
 }
 
 func (ms *memStore) save() error {
+	if ms.loadErr != nil {
+		return ms.loadErr
+	}
 	b, _ := json.Marshal(ms.m)
 	tmp := ms.path + ".tmp"
 	if err := os.WriteFile(tmp, b, 0o600); err != nil {
@@ -153,37 +164,68 @@ func (ms *memStore) Journal(bot string, n int) []memChange {
 func (ms *memStore) Remember(bot, text string) bool { return ms.RememberBy(bot, text, "bot") }
 
 func (ms *memStore) RememberBy(bot, text, by string) bool {
+	added, err := ms.rememberBy(bot, text, by)
+	return added && err == nil
+}
+
+func (ms *memStore) rememberBy(bot, text, by string, revision ...string) (bool, error) {
 	if ms == nil {
-		return false
+		return false, ErrNotFound
 	}
 	text = clean(text, 300)
 	if text == "" || looksSecret(text) || ms.mask != nil && ms.mask(text) != text {
-		return false
+		return false, ErrInvalid
 	}
 	ms.mu.Lock()
 	defer ms.mu.Unlock()
-	l := ms.m[bot]
-	for _, x := range l {
+	if err := ms.checkRevisionLocked(bot, revision); err != nil {
+		return false, err
+	}
+	old := ms.m[bot]
+	for _, x := range old {
 		if strings.EqualFold(x.Text, text) {
-			return false
+			return false, nil
 		}
 	}
-	l = append(l, memItem{Text: text, At: time.Now().UTC().Format(time.RFC3339)})
-	cap := maxMemPerBot
+	next := append(append([]memItem(nil), old...), memItem{Text: text, At: time.Now().UTC().Format(time.RFC3339)})
+	limit := maxMemPerBot
 	if bot == teamKey {
-		cap = maxTeamMem
+		limit = maxTeamMem
 	}
-	if len(l) > cap {
-		ms.journal(memChange{Bot: bot, Op: "delete", Before: l[0].Text, By: by})
-		l = l[len(l)-cap:]
+	var changes []memChange
+	if len(next) > limit {
+		for _, x := range next[:len(next)-limit] {
+			changes = append(changes, memChange{Bot: bot, Op: "delete", Before: x.Text, By: by})
+		}
+		next = next[len(next)-limit:]
 	}
-	ms.m[bot] = l
-	ms.journal(memChange{Bot: bot, Op: "add", After: text, By: by})
-	return ms.save() == nil
+	changes = append(changes, memChange{Bot: bot, Op: "add", After: text, By: by})
+	if err := ms.commitMemoryLocked(bot, next, changes); err != nil {
+		return false, err
+	}
+	return true, nil
+}
+
+// Caller holds ms.mu and provides a list independent of the old backing array.
+func (ms *memStore) commitMemoryLocked(bot string, next []memItem, changes []memChange) error {
+	old, existed := ms.m[bot]
+	ms.m[bot] = next
+	if err := ms.save(); err != nil {
+		if existed {
+			ms.m[bot] = old
+		} else {
+			delete(ms.m, bot)
+		}
+		return err
+	}
+	for _, change := range changes {
+		ms.journal(change)
+	}
+	return nil
 }
 
 // Edit replaces entry i (owner edits from the memory panel).
-func (ms *memStore) Edit(bot string, i int, text, by string) error {
+func (ms *memStore) Edit(bot string, i int, text, by string, revision ...string) error {
 	if ms == nil {
 		return ErrNotFound
 	}
@@ -193,13 +235,16 @@ func (ms *memStore) Edit(bot string, i int, text, by string) error {
 	}
 	ms.mu.Lock()
 	defer ms.mu.Unlock()
-	l := ms.m[bot]
-	if i < 0 || i >= len(l) {
+	if err := ms.checkRevisionLocked(bot, revision); err != nil {
+		return err
+	}
+	old := ms.m[bot]
+	if i < 0 || i >= len(old) {
 		return ErrNotFound
 	}
-	ms.journal(memChange{Bot: bot, Op: "edit", Before: l[i].Text, After: text, By: by})
-	l[i] = memItem{Text: text, At: time.Now().UTC().Format(time.RFC3339)}
-	return ms.save()
+	next := append([]memItem(nil), old...)
+	next[i] = memItem{Text: text, At: time.Now().UTC().Format(time.RFC3339)}
+	return ms.commitMemoryLocked(bot, next, []memChange{{Bot: bot, Op: "edit", Before: old[i].Text, After: text, By: by}})
 }
 
 func (ms *memStore) List(bot string) []memItem {
@@ -214,18 +259,33 @@ func (ms *memStore) List(bot string) []memItem {
 func (ms *memStore) Forget(bot string, i int) bool { return ms.ForgetBy(bot, i, "owner") }
 
 func (ms *memStore) ForgetBy(bot string, i int, by string) bool {
+	return ms.forgetBy(bot, i, by) == nil
+}
+
+func (ms *memStore) forgetBy(bot string, i int, by string, revision ...string) error {
 	if ms == nil {
-		return false
+		return ErrNotFound
 	}
 	ms.mu.Lock()
 	defer ms.mu.Unlock()
-	l := ms.m[bot]
-	if i < 0 || i >= len(l) {
-		return false
+	if err := ms.checkRevisionLocked(bot, revision); err != nil {
+		return err
 	}
-	ms.journal(memChange{Bot: bot, Op: "delete", Before: l[i].Text, By: by})
-	ms.m[bot] = append(l[:i:i], l[i+1:]...)
-	return ms.save() == nil
+	old := ms.m[bot]
+	if i < 0 || i >= len(old) {
+		return ErrNotFound
+	}
+	next := append([]memItem{}, old[:i]...)
+	next = append(next, old[i+1:]...)
+	return ms.commitMemoryLocked(bot, next, []memChange{{Bot: bot, Op: "delete", Before: old[i].Text, By: by}})
+}
+
+func failMemoryWrite(w http.ResponseWriter, err error) {
+	if errors.Is(err, ErrInvalid) || errors.Is(err, ErrNotFound) || errors.Is(err, ledger.ErrConflict) {
+		fail(w, err)
+		return
+	}
+	writeJSON(w, 500, map[string]string{"error": "memory_save_failed"})
 }
 
 // looksSecret refuses to memorise anything shaped like a credential; secrets
@@ -273,10 +333,23 @@ func (s *Service) memoryRoutes() {
 		return r.PathValue("id")
 	}
 	s.mux.HandleFunc("GET /app/api/agents/{id}/memory", func(w http.ResponseWriter, r *http.Request) {
+		_, ok := s.memoryRequest(w, r)
+		if !ok {
+			return
+		}
 		id := r.PathValue("id")
-		writeJSON(w, 200, map[string]any{"items": s.Mem.List(id), "team": s.Mem.List(teamKey), "journal": s.Mem.Journal(id, 30)})
+		items, team, revision, teamRevision := s.Mem.snapshot(id)
+		writeJSON(w, 200, map[string]any{"workspaceId": s.workspaceID, "items": items, "team": team, "revision": revision, "teamRevision": teamRevision, "journal": s.Mem.Journal(id, 30)})
 	})
 	s.mux.HandleFunc("POST /app/api/agents/{id}/memory", func(w http.ResponseWriter, r *http.Request) {
+		revision, ok := s.memoryRequest(w, r)
+		if !ok {
+			return
+		}
+		if s.L.ReadOnly() {
+			fail(w, ledger.ErrConflict)
+			return
+		}
 		var in struct {
 			Text string `json:"text"`
 			Team bool   `json:"team"`
@@ -285,33 +358,56 @@ func (s *Service) memoryRoutes() {
 			fail(w, ErrInvalid)
 			return
 		}
-		s.Mem.RememberBy(scope(r, in.Team), in.Text, "owner")
+		if _, err := s.Mem.rememberBy(scope(r, in.Team), in.Text, "owner", revision...); err != nil {
+			failMemoryWrite(w, err)
+			return
+		}
 		writeJSON(w, 200, map[string]bool{"ok": true})
 	})
 	s.mux.HandleFunc("POST /app/api/agents/{id}/memory/{i}", func(w http.ResponseWriter, r *http.Request) {
+		revision, ok := s.memoryRequest(w, r)
+		if !ok {
+			return
+		}
+		if s.L.ReadOnly() {
+			fail(w, ledger.ErrConflict)
+			return
+		}
 		var in struct {
 			Text string `json:"text"`
 			Team bool   `json:"team"`
 		}
-		var i int
 		if err := decode(r, &in); err != nil {
 			fail(w, ErrInvalid)
 			return
 		}
-		if _, err := fmt.Sscan(r.PathValue("i"), &i); err != nil {
+		i, err := strconv.Atoi(r.PathValue("i"))
+		if err != nil {
 			fail(w, ErrNotFound)
 			return
 		}
-		if err := s.Mem.Edit(scope(r, in.Team), i, in.Text, "owner"); err != nil {
-			fail(w, err)
+		if err := s.Mem.Edit(scope(r, in.Team), i, in.Text, "owner", revision...); err != nil {
+			failMemoryWrite(w, err)
 			return
 		}
 		writeJSON(w, 200, map[string]bool{"ok": true})
 	})
 	s.mux.HandleFunc("DELETE /app/api/agents/{id}/memory/{i}", func(w http.ResponseWriter, r *http.Request) {
-		var i int
-		if _, err := fmt.Sscan(r.PathValue("i"), &i); err != nil || !s.Mem.Forget(scope(r, false), i) {
+		revision, ok := s.memoryRequest(w, r)
+		if !ok {
+			return
+		}
+		if s.L.ReadOnly() {
+			fail(w, ledger.ErrConflict)
+			return
+		}
+		i, err := strconv.Atoi(r.PathValue("i"))
+		if err != nil {
 			fail(w, ErrNotFound)
+			return
+		}
+		if err := s.Mem.forgetBy(scope(r, false), i, "owner", revision...); err != nil {
+			failMemoryWrite(w, err)
 			return
 		}
 		writeJSON(w, 200, map[string]bool{"ok": true})
@@ -443,24 +539,39 @@ func (s *Service) absorbed(id string) bool { return newView(s.L.Snapshot()).stee
 
 // Replace swaps the whole list for a reviewed summary (memory panel "Gộp"):
 // journaled as one "summarize" change so the log shows before and after.
-func (ms *memStore) Replace(bot string, texts []string, by string) {
+func (ms *memStore) Replace(bot string, texts []string, by string, revision ...string) error {
 	if ms == nil {
-		return
+		return ErrNotFound
 	}
 	ms.mu.Lock()
 	defer ms.mu.Unlock()
+	if err := ms.checkRevisionLocked(bot, revision); err != nil {
+		return err
+	}
+	limit := maxMemPerBot
+	if bot == teamKey {
+		limit = maxTeamMem
+	}
+	if len(texts) > limit {
+		return ErrInvalid
+	}
 	before := []string{}
 	for _, x := range ms.m[bot] {
 		before = append(before, x.Text)
 	}
-	l := []memItem{}
+	next := []memItem{}
+	after := []string{}
+	seen := map[string]bool{}
 	now := time.Now().UTC().Format(time.RFC3339)
-	for _, t := range texts {
-		if t = clean(t, 300); t != "" && !looksSecret(t) {
-			l = append(l, memItem{Text: t, At: now})
+	for _, raw := range texts {
+		text := strings.TrimSpace(raw)
+		key := strings.ToLower(text)
+		if !ms.safeImportFact(text) || seen[key] {
+			return ErrInvalid
 		}
+		seen[key] = true
+		next = append(next, memItem{Text: text, At: now})
+		after = append(after, text)
 	}
-	ms.m[bot] = l
-	ms.journal(memChange{Bot: bot, Op: "summarize", Before: strings.Join(before, " | "), After: strings.Join(texts, " | "), By: by})
-	_ = ms.save()
+	return ms.commitMemoryLocked(bot, next, []memChange{{Bot: bot, Op: "summarize", Before: strings.Join(before, " | "), After: strings.Join(after, " | "), By: by}})
 }

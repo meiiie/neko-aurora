@@ -38,15 +38,19 @@ var ItemFields = map[string][]string{
 var plainField = map[string]bool{"site": true}
 
 const itemPrefix = "VI_"
+const itemUseHint = "__use_hint"
 
 // Item is the public description of a Vault item: no secret values.
 type Item struct {
-	ID      string            `json:"id"`
-	Type    string            `json:"type"`
-	Label   string            `json:"label"`
-	Hint    map[string]string `json:"hint"`
-	Filled  []string          `json:"filled"`
-	Updated string            `json:"updated"`
+	ID               string            `json:"id"`
+	Type             string            `json:"type"`
+	Label            string            `json:"label"`
+	Hint             map[string]string `json:"hint"`
+	Filled           []string          `json:"filled"`
+	Updated          string            `json:"updated"`
+	UseHint          string            `json:"useHint,omitempty"`
+	PreferredPayment bool              `json:"preferredPayment,omitempty"`
+	Contacts         *ContactMetadata  `json:"contacts,omitempty"`
 }
 
 var idRe = regexp.MustCompile(`^[a-f0-9]{8,32}$`)
@@ -59,7 +63,7 @@ func isItemKind(k string) bool { return strings.HasPrefix(k, "vault:") }
 
 // SaveItem creates (id == "") or updates an item. On update an empty field
 // keeps its stored value, so the owner never retypes a secret to edit a label.
-func (v *Vault) SaveItem(id, typ, label string, fields map[string]string) (Item, error) {
+func (v *Vault) SaveItem(id, typ, label string, fields map[string]string, useHint ...string) (Item, error) {
 	allowed, ok := ItemFields[typ]
 	if v == nil || !ok {
 		return Item{}, ErrType
@@ -68,7 +72,13 @@ func (v *Vault) SaveItem(id, typ, label string, fields map[string]string) (Item,
 	if utf8.RuneCountInString(label) > 80 {
 		return Item{}, ErrType
 	}
+	if len(useHint) > 1 || len(useHint) == 1 && (!utf8.ValidString(useHint[0]) || utf8.RuneCountInString(useHint[0]) > 500 || strings.ContainsRune(useHint[0], 0)) {
+		return Item{}, ErrValue
+	}
+	v.mu.Lock()
+	defer v.mu.Unlock()
 	old := map[string]string{}
+	preferred := false
 	if id == "" {
 		b := make([]byte, 8)
 		_, _ = rand.Read(b)
@@ -77,11 +87,16 @@ func (v *Vault) SaveItem(id, typ, label string, fields map[string]string) (Item,
 		if !ValidItemID(id) {
 			return Item{}, ErrMissing
 		}
-		m, ok := v.Meta(itemName(id))
+		m, ok := v.items[itemName(id)]
 		if !ok || m.Kind != "vault:"+typ {
 			return Item{}, ErrMissing
 		}
-		old, _ = v.Fields(id)
+		preferred = typ == "card" && m.PreferredPayment
+		var err error
+		old, err = v.fieldsLocked(id)
+		if err != nil {
+			return Item{}, err
+		}
 	}
 	out := map[string]string{}
 	for _, k := range allowed {
@@ -107,6 +122,11 @@ func (v *Vault) SaveItem(id, typ, label string, fields map[string]string) (Item,
 			return Item{}, ErrType
 		}
 	}
+	if typ == "identity" {
+		if err := mergeContacts(old, out); err != nil {
+			return Item{}, err
+		}
+	}
 	switch {
 	case len(out) == 0:
 		return Item{}, ErrValue
@@ -122,13 +142,23 @@ func (v *Vault) SaveItem(id, typ, label string, fields map[string]string) (Item,
 	if label == "" {
 		label = defaultLabel(typ, out)
 	}
+	hintText := old[itemUseHint]
+	if len(useHint) == 1 {
+		hintText = strings.TrimSpace(useHint[0])
+	}
+	if hintText != "" {
+		out[itemUseHint] = hintText
+	}
 	hint, _ := json.Marshal(hintOf(typ, out))
 	b, _ := json.Marshal(out)
-	m, err := v.Set(Meta{Name: itemName(id), Label: label, Kind: "vault:" + typ, Hint: string(hint)}, string(b))
+	if len(b) > 8192 {
+		return Item{}, ErrValue
+	}
+	m, err := v.setLocked(Meta{Name: itemName(id), Label: label, Kind: "vault:" + typ, Hint: string(hint), PreferredPayment: preferred}, string(b))
 	if err != nil {
 		return Item{}, err
 	}
-	return itemOf(m), nil
+	return itemWithFields(m, out), nil
 }
 
 func contains(l []string, s string) bool {
@@ -230,9 +260,24 @@ func hintOf(typ string, f map[string]string) map[string]string {
 
 func itemOf(m Meta) Item {
 	it := Item{ID: strings.ToLower(strings.TrimPrefix(m.Name, itemPrefix)), Type: strings.TrimPrefix(m.Kind, "vault:"), Label: m.Label, Hint: map[string]string{}, Updated: m.Updated}
+	it.PreferredPayment = it.Type == "card" && m.PreferredPayment
 	var h map[string]string
 	if json.Unmarshal([]byte(m.Hint), &h) == nil && h != nil {
 		it.Hint = h
+	}
+	return it
+}
+
+func itemWithFields(m Meta, fields map[string]string) Item {
+	it := itemOf(m)
+	if it.Type == "identity" {
+		it.Contacts = contactMetadata(fields)
+	}
+	it.UseHint = fields[itemUseHint]
+	for _, k := range ItemFields[it.Type] {
+		if fields[k] != "" {
+			it.Filled = append(it.Filled, k)
+		}
 	}
 	return it
 }
@@ -246,20 +291,67 @@ func (v *Vault) Items() []Item {
 	v.mu.RLock()
 	for _, e := range v.items {
 		if isItemKind(e.Kind) {
-			it := itemOf(e.Meta)
 			var f map[string]string
 			_ = json.Unmarshal([]byte(v.cache[e.Name]), &f)
-			for _, k := range ItemFields[it.Type] {
-				if f[k] != "" {
-					it.Filled = append(it.Filled, k)
-				}
-			}
-			out = append(out, it)
+			out = append(out, itemWithFields(e.Meta, f))
 		}
 	}
 	v.mu.RUnlock()
-	sort.Slice(out, func(i, j int) bool { return out[i].Updated > out[j].Updated })
+	sort.Slice(out, func(i, j int) bool {
+		if out[i].PreferredPayment != out[j].PreferredPayment {
+			return out[i].PreferredPayment
+		}
+		if out[i].Updated != out[j].Updated {
+			return out[i].Updated > out[j].Updated
+		}
+		return out[i].ID < out[j].ID
+	})
 	return out
+}
+
+// PreferPayment persists one owner-selected card (empty id clears the choice).
+// It changes only public metadata and never authorizes use of the credential.
+func (v *Vault) PreferPayment(id string) error {
+	if v == nil {
+		return ErrMissing
+	}
+	v.mu.Lock()
+	defer v.mu.Unlock()
+	if id != "" {
+		if !ValidItemID(id) {
+			return ErrMissing
+		}
+		e, ok := v.items[itemName(id)]
+		if !ok {
+			return ErrMissing
+		}
+		if e.Kind != "vault:card" {
+			return ErrType
+		}
+	}
+	changed := map[string]entry{}
+	for name, e := range v.items {
+		if e.Kind != "vault:card" {
+			continue
+		}
+		preferred := id != "" && name == itemName(id)
+		if e.PreferredPayment == preferred {
+			continue
+		}
+		changed[name] = e
+		e.PreferredPayment = preferred
+		v.items[name] = e
+	}
+	if len(changed) == 0 {
+		return nil
+	}
+	if err := v.save(); err != nil {
+		for name, e := range changed {
+			v.items[name] = e
+		}
+		return err
+	}
+	return nil
 }
 
 func (v *Vault) Item(id string) (Item, bool) {
@@ -273,26 +365,40 @@ func (v *Vault) Item(id string) (Item, bool) {
 
 // Fields returns an item's plaintext values for in-process use only.
 func (v *Vault) Fields(id string) (map[string]string, bool) {
-	if !ValidItemID(id) {
+	if v == nil || !ValidItemID(id) {
 		return nil, false
 	}
-	m, ok := v.Meta(itemName(id))
+	v.mu.RLock()
+	defer v.mu.RUnlock()
+	f, err := v.fieldsLocked(id)
+	delete(f, itemUseHint)
+	delete(f, itemContacts)
+	return f, err == nil
+}
+
+func (v *Vault) fieldsLocked(id string) (map[string]string, error) {
+	name := itemName(id)
+	m, ok := v.items[name]
 	if !ok || !isItemKind(m.Kind) {
-		return nil, false
+		return nil, ErrMissing
 	}
-	s, _ := v.Get(itemName(id))
 	var f map[string]string
-	if json.Unmarshal([]byte(s), &f) != nil {
-		return nil, false
+	if json.Unmarshal([]byte(v.cache[name]), &f) != nil || f == nil {
+		return nil, ErrCorrupt
 	}
-	return f, true
+	return f, nil
 }
 
 func (v *Vault) DeleteItem(id string) error {
-	if _, ok := v.Fields(id); !ok {
+	if v == nil || !ValidItemID(id) {
 		return ErrMissing
 	}
-	return v.Delete(itemName(id))
+	v.mu.Lock()
+	defer v.mu.Unlock()
+	if _, err := v.fieldsLocked(id); err != nil {
+		return err
+	}
+	return v.deleteLocked(itemName(id))
 }
 
 // TOTP is RFC 6238 (SHA-1, 30 s, 6 digits) from a base32 secret.

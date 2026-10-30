@@ -5,11 +5,12 @@ package computer
 // created with the sandboxCreate GraphQL mutation and driven with
 // sandboxExec (the SDK's execHttp: one HTTPS request, 16 000 bytes per
 // stream, timeoutSec ≤ 600). Sandboxes are destroyed after the plan's idle
-// timeout (Free: 5 min), so the bot's home stays authoritative on our
-// state volume: before a command the home is pushed into the VM as a
+// timeout, so the bot's home is stored on our state volume: before a
+// command the home is pushed into the VM as a
 // base64 tarball, after it the home is pulled back in chunks. That keeps
 // the Manager contract (os.Root file access, quota, reset) identical to the
-// bwrap backend. The SDK's files WebSocket API is the faster upgrade path.
+// bwrap backend. Unconfirmed dispatch or transfer fences further commands
+// until recovery or an explicitly confirmed reset.
 //
 // Config: RAILWAY_TOKEN (or RAILWAY_API_TOKEN) and RAILWAY_ENVIRONMENT_ID.
 // The token is only sent to backboard as a Bearer header; it is never put
@@ -35,6 +36,7 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -57,13 +59,27 @@ type Railway struct {
 // One registry for the whole process (every tenant's Railway value shares
 // it) so the total number of live VMs is capped: cost control approved by
 // Darren 2026-10-23. At the cap the least recently used VM is destroyed;
-// its home is safe on our volume, so the bot just boots a fresh one later.
+// only idle VMs without pending recovery can be evicted.
 var reg = struct {
 	sync.Mutex
 	ids    map[string]string    // home path → sandbox id
 	used   map[string]time.Time // home path → last exec
 	synced map[string]string    // home path → "<sandbox id>:<sha of home>" after the last pull
-}{ids: map[string]string{}, used: map[string]time.Time{}, synced: map[string]string{}}
+	gates  map[string]*sync.Mutex
+}{ids: map[string]string{}, used: map[string]time.Time{}, synced: map[string]string{}, gates: map[string]*sync.Mutex{}}
+
+var railwayProvision sync.Mutex
+
+func railwayHomeGate(home string) *sync.Mutex {
+	reg.Lock()
+	defer reg.Unlock()
+	gate := reg.gates[home]
+	if gate == nil {
+		gate = &sync.Mutex{}
+		reg.gates[home] = gate
+	}
+	return gate
+}
 
 func NewRailwayFromEnv() *Railway {
 	tok := os.Getenv("RAILWAY_TOKEN")
@@ -145,6 +161,9 @@ func (r *Railway) gql(ctx context.Context, query string, vars map[string]any, ou
 		}
 	}
 	defer res.Body.Close()
+	if res.StatusCode < 200 || res.StatusCode >= 300 {
+		return fmt.Errorf("railway: http %d", res.StatusCode)
+	}
 	var env struct {
 		Data   json.RawMessage `json:"data"`
 		Errors []struct {
@@ -156,7 +175,7 @@ func (r *Railway) gql(ctx context.Context, query string, vars map[string]any, ou
 	}
 	if len(env.Errors) > 0 {
 		m := env.Errors[0].Message
-		if l := strings.ToLower(m); strings.Contains(l, "not found") || strings.Contains(l, "destroyed") || strings.Contains(l, "not running") {
+		if l := strings.ToLower(m); strings.Contains(l, "sandbox") && (strings.Contains(l, "not found") || strings.Contains(l, "destroyed")) {
 			// idle timeout already took the VM ("Sandbox is destroyed, cannot exec")
 			return errSandboxGone
 		}
@@ -214,6 +233,8 @@ func (r *Railway) create(ctx context.Context) (string, error) {
 }
 
 func (r *Railway) sandbox(ctx context.Context, home string, fresh bool) (string, error) {
+	railwayProvision.Lock()
+	defer railwayProvision.Unlock()
 	reg.Lock()
 	id := reg.ids[home]
 	if id == "" && !fresh { // after a restart: reattach to the VM we recorded
@@ -225,7 +246,11 @@ func (r *Railway) sandbox(ctx context.Context, home string, fresh bool) (string,
 		}
 	}
 	reg.used[home] = time.Now()
-	var evict []string
+	type eviction struct {
+		home, id string
+		gate     *sync.Mutex
+	}
+	var evict []eviction
 	if id == "" || fresh {
 		delete(reg.ids, home)
 		max := r.Max
@@ -234,19 +259,52 @@ func (r *Railway) sandbox(ctx context.Context, home string, fresh bool) (string,
 		}
 		for len(reg.ids) >= max { // make room: drop the least recently used VM
 			var lru string
+			var held *sync.Mutex
 			for h := range reg.ids {
+				if pendingExists(h) {
+					continue
+				}
 				if lru == "" || reg.used[h].Before(reg.used[lru]) {
+					gate := reg.gates[h]
+					if gate == nil {
+						gate = &sync.Mutex{}
+						reg.gates[h] = gate
+					}
+					if !gate.TryLock() {
+						continue
+					}
+					if held != nil {
+						held.Unlock()
+					}
+					held = gate
 					lru = h
 				}
 			}
-			evict = append(evict, reg.ids[lru])
+			if lru == "" {
+				for _, e := range evict {
+					reg.ids[e.home] = e.id
+					e.gate.Unlock()
+				}
+				reg.Unlock()
+				return "", fmt.Errorf("%w: machines awaiting recovery occupy capacity", ErrUnavailable)
+			}
+			evict = append(evict, eviction{lru, reg.ids[lru], held})
 			delete(reg.ids, lru)
-			_ = os.Remove(idFile(lru))
 		}
 	}
 	reg.Unlock()
-	for _, e := range evict {
-		r.destroyID(ctx, e)
+	for i, e := range evict {
+		if err := r.destroyID(ctx, e.id); err != nil {
+			reg.Lock()
+			for _, pending := range evict[i:] {
+				reg.ids[pending.home] = pending.id
+				pending.gate.Unlock()
+			}
+			reg.Unlock()
+			return "", fmt.Errorf("%w: capacity cleanup unconfirmed", ErrUnavailable)
+		}
+		_ = os.Remove(idFile(e.home))
+		e.gate.Unlock()
 	}
 	if id != "" && !fresh {
 		return id, nil
@@ -265,11 +323,18 @@ func (r *Railway) sandbox(ctx context.Context, home string, fresh bool) (string,
 // restarted server reattaches instead of leaking the VM.
 func idFile(home string) string { return filepath.Clean(home) + ".sandbox-id" }
 
-func (r *Railway) destroyID(ctx context.Context, id string) {
-	var out map[string]any
-	if err := r.gql(ctx, qDestroy, map[string]any{"id": id, "environmentId": r.EnvironmentID}, &out); err != nil && !errors.Is(err, errSandboxGone) {
-		log.Printf("railway: destroy sandbox failed: %v", err)
+func (r *Railway) destroyID(ctx context.Context, id string) error {
+	var out struct {
+		SandboxDestroy struct{ ID, Status string } `json:"sandboxDestroy"`
 	}
+	err := r.gql(ctx, qDestroy, map[string]any{"id": id, "environmentId": r.EnvironmentID}, &out)
+	if errors.Is(err, errSandboxGone) {
+		return nil
+	}
+	if err != nil || out.SandboxDestroy.ID != id || out.SandboxDestroy.Status != "DESTROYED" {
+		return errors.New("railway: sandbox destruction unconfirmed")
+	}
+	return nil
 }
 
 // DestroyUnder tears down every VM whose home lies under dir (account
@@ -296,7 +361,9 @@ func (r *Railway) DestroyUnder(ctx context.Context, dir string) {
 		return nil
 	})
 	for _, id := range ids {
-		r.destroyID(ctx, id)
+		if err := r.destroyID(ctx, id); err != nil {
+			log.Print("railway: account sandbox cleanup unconfirmed")
+		}
 	}
 }
 
@@ -308,20 +375,58 @@ func (r *Railway) exec(ctx context.Context, id, cmd string, timeout int) (execOu
 	return out.SandboxExec, err
 }
 
+// HTTP success alone does not confirm a file-transfer command completed.
+func (r *Railway) syncExec(ctx context.Context, id, cmd string, timeout int, phase string) (execOut, error) {
+	o, err := r.exec(ctx, id, cmd, timeout)
+	if err != nil {
+		return o, err
+	}
+	if o.ExitCode == nil || *o.ExitCode != 0 || o.TimedOut || o.Truncated {
+		return o, fmt.Errorf("railway file sync %s: command result unconfirmed", phase)
+	}
+	return o, nil
+}
+
 // Destroy tears down a bot's VM (Reset / account deletion).
 func (r *Railway) Destroy(ctx context.Context, home string) error {
+	gate := railwayHomeGate(home)
+	gate.Lock()
+	defer gate.Unlock()
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	reg.Lock()
 	id := reg.ids[home]
-	delete(reg.ids, home)
-	delete(reg.used, home)
 	reg.Unlock()
 	if b, err := os.ReadFile(idFile(home)); err == nil && id == "" {
 		id = strings.TrimSpace(string(b))
 	}
-	_ = os.Remove(idFile(home))
-	if id != "" {
-		r.destroyID(ctx, id)
+	pending, pendingErr := readPending(home)
+	if pendingErr != nil && id == "" {
+		return ErrRecoveryPending
 	}
+	if pending != nil {
+		if id != "" && id != pending.SandboxID {
+			return ErrRecoveryPending
+		}
+		id = pending.SandboxID
+	}
+	if id != "" {
+		if err := r.destroyID(ctx, id); err != nil {
+			return err
+		}
+	}
+	if err := clearPending(home); err != nil {
+		return err
+	}
+	if err := os.Remove(idFile(home)); err != nil && !errors.Is(err, os.ErrNotExist) {
+		return err
+	}
+	reg.Lock()
+	delete(reg.ids, home)
+	delete(reg.used, home)
+	delete(reg.synced, home)
+	reg.Unlock()
 	return nil
 }
 
@@ -332,6 +437,15 @@ const chunk = 12000 // base64 bytes per exec (stdout limit is 16 000)
 func shq(s string) string { return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'" }
 
 func (r *Railway) Exec(ctx context.Context, s Spec) (Result, error) {
+	gate := railwayHomeGate(s.Home)
+	gate.Lock()
+	defer gate.Unlock()
+	if err := ctx.Err(); err != nil {
+		return Result{}, err
+	}
+	if pendingExists(s.Home) {
+		return Result{}, ErrRecoveryPending
+	}
 	if err := r.Available(); err != nil {
 		return Result{}, err
 	}
@@ -346,7 +460,12 @@ func (r *Railway) Exec(ctx context.Context, s Spec) (Result, error) {
 		return Result{}, err
 	}
 	tBoot := time.Since(t1)
+	pending := railwayPending{Version: 1, SandboxID: id, Phase: "preparing", HomeSHA256: homeSum(tgz), CommandHash: homeSum([]byte(s.Cmd)), Started: time.Now().UTC().Format(time.RFC3339Nano)}
+	if err := writePending(s.Home, pending, true); err != nil {
+		return Result{}, fmt.Errorf("%w: cannot persist dispatch state", ErrRecoveryPending)
+	}
 	var tp time.Time
+	started := false
 	run := func(id string) (execOut, error) {
 		if err := r.push(ctx, id, s.Home, tgz); err != nil {
 			return execOut{}, err
@@ -355,59 +474,67 @@ func (r *Railway) Exec(ctx context.Context, s Spec) (Result, error) {
 		envs := strings.Join(sandboxEnv, " ")
 		secs := max(1, min(600, int(s.Limits.Timeout/time.Second)))
 		tp = time.Now()
-		// one round trip: run, then report whether /home/bot changed (a
-		// listing of every path with size and mtime, hashed before and
-		// after), so an unchanged home skips the pull
-		const snap = "find /home/bot -printf '%P %s %T@ %i\\n' 2>/dev/null | sort | cksum"
-		return r.exec(ctx, id, "cd /home/bot && b=$("+snap+") && env -i "+envs+" timeout -k 5 "+fmt.Sprint(secs)+" /bin/sh -c "+shq(strictShell+s.Cmd)+" 2>&1; rc=$?; [ \"$("+snap+")\" != \"$b\" ] && printf '\\n"+changedMark+"'; exit $rc", secs+15)
+		pending.Phase = "command"
+		if err := writePending(s.Home, pending, false); err != nil {
+			return execOut{}, err
+		}
+		started = true
+		return r.exec(ctx, id, "cd /home/bot && env -i "+envs+" timeout -k 5 "+fmt.Sprint(secs)+" /bin/sh -c "+shq(strictShell+s.Cmd)+" 2>&1", secs+15)
 	}
 	tsb := time.Now()
 	o, err := run(id)
-	if errors.Is(err, errSandboxGone) { // idle-destroyed: boot a fresh VM, home comes from our copy
+	if errors.Is(err, errSandboxGone) && !started { // Only preparation can be replayed.
 		if id, err = r.sandbox(ctx, s.Home, true); err == nil {
-			o, err = run(id)
+			pending.SandboxID = id
+			if err = writePending(s.Home, pending, false); err == nil {
+				o, err = run(id)
+			}
 		}
 	}
 	if err != nil {
-		return Result{}, err
+		return Result{}, fmt.Errorf("%w: remote operation unconfirmed", ErrRecoveryPending)
 	}
-	changed := strings.HasSuffix(o.Stdout, changedMark)
+	if o.ExitCode == nil || o.TimedOut || *o.ExitCode < 0 || *o.ExitCode == 124 {
+		return Result{}, fmt.Errorf("%w: command exit unconfirmed", ErrRecoveryPending)
+	}
 	o.Stdout = strings.TrimSuffix(strings.TrimSuffix(o.Stdout, changedMark), "\n")
 	res := Result{Cmd: s.Cmd, Output: o.Stdout + o.Stderr, Truncated: o.Truncated, TimedOut: o.TimedOut, Ms: int(time.Since(t0) / time.Millisecond), At: time.Now().UTC().Format(time.RFC3339)}
 	if len(res.Output) > s.Limits.OutputBytes {
 		res.Output, res.Truncated = res.Output[:s.Limits.OutputBytes], true
 	}
-	if o.ExitCode != nil {
-		res.ExitCode = *o.ExitCode
-	} else {
-		res.ExitCode = 137
-	}
-	if res.ExitCode == 124 {
-		res.TimedOut = true
-	}
+	res.ExitCode = *o.ExitCode
 	tr := time.Now()
-	if !changed { // the VM still holds exactly the home we pushed or pulled last
-		reg.Lock()
-		reg.synced[s.Home] = id + ":" + homeSum(tgz)
-		reg.Unlock()
+	pending.Phase = "pull"
+	if err := writePending(s.Home, pending, false); err != nil {
+		return res, ErrRecoveryPending
 	}
-	if changed {
-		if err := r.pull(ctx, id, s); err != nil {
-			res.Output += "\n[không đồng bộ được file về: " + err.Error() + "]"
-		}
+	if err := r.pull(ctx, id, s); err != nil {
+		return res, fmt.Errorf("%w: file transfer unconfirmed", ErrRecoveryPending)
+	}
+	if err := clearPending(s.Home); err != nil {
+		return res, ErrRecoveryPending
 	}
 	if !tp.IsZero() {
-		log.Printf("railway exec boot_ms=%d push_ms=%d run_ms=%d pull_ms=%d changed=%v total_ms=%d", tBoot.Milliseconds(), tp.Sub(tsb).Milliseconds(), tr.Sub(tp).Milliseconds(), time.Since(tr).Milliseconds(), changed, time.Since(t0).Milliseconds())
+		log.Printf("railway exec boot_ms=%d push_ms=%d run_ms=%d pull_ms=%d total_ms=%d", tBoot.Milliseconds(), tp.Sub(tsb).Milliseconds(), tr.Sub(tp).Milliseconds(), time.Since(tr).Milliseconds(), time.Since(t0).Milliseconds())
 	}
 	return res, nil
 }
 
-// changedMark ends the command output when /home/bot changed during it.
+// changedMark is stripped for legacy responses; it never controls file sync.
 const changedMark = "__NEKO_HOME_CHANGED__"
 
 // Warm boots (or reattaches to) the home's VM and pushes the home, so the
 // first command of a turn starts on a ready, synced machine.
 func (r *Railway) Warm(ctx context.Context, home string) error {
+	gate := railwayHomeGate(home)
+	gate.Lock()
+	defer gate.Unlock()
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	if pendingExists(home) {
+		return ErrRecoveryPending
+	}
 	tgz, err := packHome(home)
 	if err != nil {
 		return err
@@ -442,30 +569,31 @@ func (r *Railway) push(ctx context.Context, id, home string, tgz []byte) error {
 	same := reg.synced[home] == id+":"+homeSum(tgz)
 	reg.Unlock()
 	if same {
-		return nil
+		_, err := r.syncExec(ctx, id, "true", 10, "verify existing VM")
+		return err
 	}
 	if r.Relay != nil && len(tgz) > 0 {
 		u := r.Relay.Offer(tgz)
-		o, err := r.exec(ctx, id, "rm -rf /home/bot /tmp/h.tgz && mkdir -p /home/bot && python3 -c "+shq(pyGet)+" "+shq(u)+" && tar xzf /tmp/h.tgz -C /home/bot && rm -f /tmp/h.tgz", 120)
-		if err == nil && o.ExitCode != nil && *o.ExitCode == 0 {
+		_, err := r.syncExec(ctx, id, "rm -rf /home/bot /tmp/h.tgz && mkdir -p /home/bot && python3 -c "+shq(pyGet)+" "+shq(u)+" && tar xzf /tmp/h.tgz -C /home/bot && rm -f /tmp/h.tgz", 120, "relay push")
+		if err == nil {
 			return nil
 		}
 		if errors.Is(err, errSandboxGone) {
 			return err
 		}
-		log.Printf("railway relay push failed, using chunks: %v %s", err, strings.TrimSpace(o.Stderr))
+		log.Print("railway relay push unconfirmed, using chunks")
 	}
 	b64 := base64.StdEncoding.EncodeToString(tgz)
-	if _, err := r.exec(ctx, id, "rm -rf /home/bot /tmp/h.b64 && mkdir -p /home/bot", 30); err != nil {
+	if _, err := r.syncExec(ctx, id, "rm -rf /home/bot /tmp/h.b64 && mkdir -p /home/bot", 30, "prepare push"); err != nil {
 		return err
 	}
 	for i := 0; i < len(b64); i += 48000 {
-		if _, err := r.exec(ctx, id, "printf %s "+shq(b64[i:min(i+48000, len(b64))])+" >> /tmp/h.b64", 30); err != nil {
+		if _, err := r.syncExec(ctx, id, "printf %s "+shq(b64[i:min(i+48000, len(b64))])+" >> /tmp/h.b64", 30, "push chunk"); err != nil {
 			return err
 		}
 	}
 	if len(b64) > 0 {
-		if _, err := r.exec(ctx, id, "base64 -d /tmp/h.b64 | tar xzf - -C /home/bot", 60); err != nil {
+		if _, err := r.syncExec(ctx, id, "base64 -d /tmp/h.b64 > /tmp/h.tgz && tar xzf /tmp/h.tgz -C /home/bot && rm -f /tmp/h.b64 /tmp/h.tgz", 60, "extract push"); err != nil {
 			return err
 		}
 	}
@@ -513,8 +641,8 @@ func (r *Railway) pull(ctx context.Context, id string, s Spec) error {
 func (r *Railway) fetchHome(ctx context.Context, id string, s Spec) ([]byte, error) {
 	if r.Relay != nil {
 		u, wait := r.Relay.Expect(s.Limits.HomeBytes * 2)
-		o, err := r.exec(ctx, id, "cd /home/bot && tar czf /tmp/o.tgz . && python3 -c "+shq(pyPut)+" "+shq(u)+" && rm -f /tmp/o.tgz", 180)
-		if err == nil && o.ExitCode != nil && *o.ExitCode == 0 {
+		_, err := r.syncExec(ctx, id, "cd /home/bot && tar czf /tmp/o.tgz . && python3 -c "+shq(pyPut)+" "+shq(u)+" && rm -f /tmp/o.tgz", 180, "relay pull")
+		if err == nil {
 			if b, werr := wait(ctx); werr == nil && b != nil {
 				return b, nil
 			} else {
@@ -524,25 +652,28 @@ func (r *Railway) fetchHome(ctx context.Context, id string, s Spec) ([]byte, err
 		if errors.Is(err, errSandboxGone) {
 			return nil, err
 		}
-		log.Printf("railway relay pull failed, using chunks: %v %s", err, strings.TrimSpace(o.Stderr))
+		log.Print("railway relay pull unconfirmed, using chunks")
 	}
 	return r.fetchChunks(ctx, id, s)
 }
 
 func (r *Railway) fetchChunks(ctx context.Context, id string, s Spec) ([]byte, error) {
-	sz, err := r.exec(ctx, id, "cd /home/bot && tar czf /tmp/o.tgz . && base64 -w0 /tmp/o.tgz > /tmp/o.b64 && wc -c < /tmp/o.b64", 60)
+	sz, err := r.syncExec(ctx, id, "cd /home/bot && tar czf /tmp/o.tgz . && base64 -w0 /tmp/o.tgz > /tmp/o.b64 && wc -c < /tmp/o.b64", 60, "prepare pull")
 	if err != nil {
 		return nil, err
 	}
-	var n int
-	if _, err := fmt.Sscan(strings.TrimSpace(sz.Stdout), &n); err != nil || int64(n) > s.Limits.HomeBytes*2 {
-		return nil, errors.New("home too large")
+	n, err := strconv.ParseInt(strings.TrimSpace(sz.Stdout), 10, 64)
+	if err != nil || n <= 0 || n%4 != 0 || n > s.Limits.HomeBytes*2 {
+		return nil, errors.New("railway file sync: invalid archive size")
 	}
 	var b strings.Builder
-	for off := 0; off < n; off += chunk {
-		o, err := r.exec(ctx, id, fmt.Sprintf("tail -c +%d /tmp/o.b64 | head -c %d", off+1, chunk), 30)
+	for off := int64(0); off < n; off += chunk {
+		o, err := r.syncExec(ctx, id, fmt.Sprintf("tail -c +%d /tmp/o.b64 | head -c %d", off+1, chunk), 30, "pull chunk")
 		if err != nil {
 			return nil, err
+		}
+		if int64(len(o.Stdout)) != min(int64(chunk), n-off) {
+			return nil, errors.New("railway file sync: incomplete archive chunk")
 		}
 		b.WriteString(o.Stdout)
 	}

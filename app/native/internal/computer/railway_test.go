@@ -1,6 +1,7 @@
 package computer
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"net/http"
@@ -8,6 +9,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"sync"
 	"testing"
@@ -60,13 +62,36 @@ func (f *fakeRailway) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 		c := in.Variables["command"].(string)
 		f.cmds = append(f.cmds, c)
-		c = strings.ReplaceAll(strings.ReplaceAll(c, "/home/bot", dir+"/home"), "/tmp/", dir+"/tmp/")
-		out, err := exec.Command("/bin/sh", "-c", c).Output()
+		c = strings.NewReplacer("/home/bot", filepath.ToSlash(dir)+"/home", "/tmp/", filepath.ToSlash(dir)+"/tmp/").Replace(c)
+		shell := "/bin/sh"
+		if runtime.GOOS == "windows" {
+			shell = filepath.Join(os.Getenv("ProgramFiles"), "Git", "bin", "bash.exe")
+			if configured := os.Getenv("AURORA_TEST_SHELL"); configured != "" {
+				shell = configured
+			}
+			python, err := exec.LookPath("python")
+			if err != nil {
+				f.t.Error("Railway fixture needs Python")
+				http.Error(w, "fixture unavailable", 500)
+				return
+			}
+			c = strings.ReplaceAll(c, "python3 -c ", shq(filepath.ToSlash(python))+" -c ")
+			c = strings.ReplaceAll(strings.ReplaceAll(c, "tar xzf ", "tar --force-local -xzf "), "tar czf ", "tar --force-local -czf ")
+		}
+		command := exec.CommandContext(r.Context(), shell, "-s")
+		command.Stdin = strings.NewReader(c)
+		var stderr bytes.Buffer
+		command.Stderr = &stderr
+		out, err := command.Output()
 		code := 0
 		if ee, ok := err.(*exec.ExitError); ok {
 			code = ee.ExitCode()
+		} else if err != nil {
+			f.t.Error("Railway fixture shell could not start", err)
+			http.Error(w, "fixture unavailable", 500)
+			return
 		}
-		reply(map[string]any{"sandboxExec": map[string]any{"exitCode": code, "stdout": string(out), "stderr": "", "truncated": false, "timedOut": false}})
+		reply(map[string]any{"sandboxExec": map[string]any{"exitCode": code, "stdout": string(out), "stderr": stderr.String(), "truncated": false, "timedOut": false}})
 	case strings.Contains(in.Query, "sandboxDestroy("):
 		delete(f.vms, in.Variables["id"].(string))
 		reply(map[string]any{"sandboxDestroy": map[string]any{"id": in.Variables["id"], "status": "DESTROYED"}})
@@ -121,16 +146,14 @@ func TestRailwayBackend(t *testing.T) {
 	if r, err := m.Run(context.Background(), "b", "cat sum.txt"); err != nil || strings.TrimSpace(r.Output) != "6" || f.creates != 2 {
 		t.Fatalf("restart: %+v %v creates=%d", r, err, f.creates)
 	}
-	// a read-only command on a synced VM is one round trip: no push, no pull
+	// Cached homes skip upload, but every completed command still pulls files.
 	f.mu.Lock()
 	f.cmds = nil
 	f.mu.Unlock()
 	if r, err := m.Run(context.Background(), "b", "cat sum.txt"); err != nil || strings.TrimSpace(r.Output) != "6" || strings.Contains(r.Output, changedMark) {
 		t.Fatalf("ro: %+v %v", r, err)
 	}
-	if len(f.cmds) != 1 {
-		t.Fatalf("read-only run took %d execs: %q", len(f.cmds), f.cmds)
-	}
+	assertOneOwnerAndPull(t, f.cmds)
 	// warm boots a fresh VM ahead of the command and pushes the home once
 	f.mu.Lock()
 	f.vms = map[string]string{}
@@ -143,14 +166,34 @@ func TestRailwayBackend(t *testing.T) {
 	f.mu.Lock()
 	f.cmds = nil
 	f.mu.Unlock()
-	if r, err := m.Run(context.Background(), "b", "cat sum.txt"); err != nil || strings.TrimSpace(r.Output) != "6" || len(f.cmds) != 1 {
+	if r, err := m.Run(context.Background(), "b", "cat sum.txt"); err != nil || strings.TrimSpace(r.Output) != "6" {
 		t.Fatalf("after warm: %+v %v execs=%d %.300q", r, err, len(f.cmds), f.cmds)
 	}
+	assertOneOwnerAndPull(t, f.cmds)
 	if err := m.Reset("b"); err != nil || len(f.vms) != 0 {
 		t.Fatal("reset did not destroy VM", err)
 	}
 	if (&Railway{}).Available() == nil {
 		t.Fatal("no token must be unavailable")
+	}
+}
+
+func assertOneOwnerAndPull(t *testing.T, commands []string) {
+	t.Helper()
+	runs, pulls := 0, 0
+	for _, cmd := range commands {
+		if strings.Contains(cmd, "env -i") {
+			runs++
+		}
+		if strings.Contains(cmd, "wc -c") {
+			pulls++
+		}
+		if strings.Contains(cmd, "rm -rf /home/bot") {
+			t.Fatal("cached home was pushed again")
+		}
+	}
+	if runs != 1 || pulls != 1 {
+		t.Fatal("owner command or confirmed pull missing", runs, pulls)
 	}
 }
 

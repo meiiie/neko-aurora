@@ -1,0 +1,876 @@
+{
+  "url": "https://x.ai/changelog/bot#v0.78.1",
+  "retrievedUTC": "2026-10-29T05:11:27.126556+00:00",
+  "releaseDate": "2026-10-27",
+  "includes": [
+    "0.78.0"
+  ],
+  "sourceFormat": "web.run numbered text, source lines 27–136, retained locally in .audit/2026-10-29-composer-reload/upstream-0781.txt",
+  "sourceSHA256": "7b60735f389ddb638ab1e9ccc7a3aba33d938adff62929207905af41aa90c802",
+  "entries": [
+    {
+      "id": "0.78.1-New-1",
+      "version": "0.78.1",
+      "section": "New",
+      "sourceLine": 35,
+      "sourceSHA256": "6358ce16b17f3a9703efad95aefbdfad716ba990aaf9a3713c0a78de5b744137",
+      "coverage": "not-validated"
+    },
+    {
+      "id": "0.78.1-New-2",
+      "version": "0.78.1",
+      "section": "New",
+      "sourceLine": 36,
+      "sourceSHA256": "0b30d9d5748f8ab7f7f3240de4ccd6cd5a50c9f83a1f5cdb11a63594dbb10b59",
+      "coverage": "not-validated"
+    },
+    {
+      "id": "0.78.1-New-3",
+      "version": "0.78.1",
+      "section": "New",
+      "sourceLine": 37,
+      "sourceSHA256": "dc465a5ed89e4f52c4bd6061d3b2d7a9826e60bd0505c4b7d042578269759b68",
+      "coverage": "not-validated"
+    },
+    {
+      "id": "0.78.1-New-4",
+      "version": "0.78.1",
+      "section": "New",
+      "sourceLine": 38,
+      "sourceSHA256": "8b93d1301bdc697ea052ab32f753a8911302e33bd00177f2e75a8ddb636b3ce7",
+      "coverage": "not-validated"
+    },
+    {
+      "id": "0.78.1-New-5",
+      "version": "0.78.1",
+      "section": "New",
+      "sourceLine": 39,
+      "sourceSHA256": "17d33bc9f16bda713bb3a587a4dbea69a68fc3752207d93a97507eb76e9c4bd7",
+      "coverage": "not-validated"
+    },
+    {
+      "id": "0.78.1-New-6",
+      "version": "0.78.1",
+      "section": "New",
+      "sourceLine": 40,
+      "sourceSHA256": "f237ae7bce69a60078f409e8cac0bdb1bc04d83582496535c711959017845453",
+      "coverage": "not-validated"
+    },
+    {
+      "id": "0.78.1-New-7",
+      "version": "0.78.1",
+      "section": "New",
+      "sourceLine": 41,
+      "sourceSHA256": "c41070aa621f5a9dcae89a6f37f168887e5ef92f42c5a5794b0f455621ee9dd0",
+      "coverage": "not-validated"
+    },
+    {
+      "id": "0.78.1-New-8",
+      "version": "0.78.1",
+      "section": "New",
+      "sourceLine": 42,
+      "sourceSHA256": "7f377899ecb82f8c5d8c5a5b96043d77dcbea3fdc2c2653adaa56476aa85845b",
+      "coverage": "not-validated"
+    },
+    {
+      "id": "0.78.1-New-9",
+      "version": "0.78.1",
+      "section": "New",
+      "sourceLine": 43,
+      "sourceSHA256": "29cc8137fd96b2e4ec32ecff8f038ba50bff4aa3da6635513b2d49c40f3a57b8",
+      "coverage": "not-validated"
+    },
+    {
+      "id": "0.78.1-New-10",
+      "version": "0.78.1",
+      "section": "New",
+      "sourceLine": 44,
+      "sourceSHA256": "f1c9e441862d5a6c8c3c2f4f0f8e28478ad8376e3bb5892f44a3115737470440",
+      "coverage": "partial-local-validation",
+      "implementation": "encrypted-contact-channels-and-primary-selection",
+      "codeCommit": "a01e3c8db8e6fdb81d45717b95576d40347119cc",
+      "evidence": [
+        "docs/research/grokbot-vault-contacts-2026-10-29.md",
+        "app/native/internal/vault/item_contacts_test.go",
+        "app/native/internal/aurora/vault_contacts_test.go",
+        "app/tests/aurora/vault-contacts-browser.py"
+      ],
+      "limits": "Local encrypted identity items and owner editor only; max ten emails and ten phones; primary fields feed existing fill consumers. No remote contacts import/sync, provider, native WebView or physical-device acceptance. Creation retains one initial email/phone; edit adds more."
+    },
+    {
+      "id": "0.78.1-New-11",
+      "version": "0.78.1",
+      "section": "New",
+      "sourceLine": 45,
+      "sourceSHA256": "66ca65f3a49a8ef467c69f26df5b5e70fdbd89a4e2ed7cc44da23b97a3049f3b",
+      "coverage": "not-validated"
+    },
+    {
+      "id": "0.78.1-New-12",
+      "version": "0.78.1",
+      "section": "New",
+      "sourceLine": 46,
+      "sourceSHA256": "29b798186d265b3506f244345910c9a480fbb1900b6dc923423339c15ed97ff5",
+      "coverage": "not-validated"
+    },
+    {
+      "id": "0.78.1-New-13",
+      "version": "0.78.1",
+      "section": "New",
+      "sourceLine": 47,
+      "sourceSHA256": "57d418e1c94c5ed1963b4d753c4f87a2e9668bdbfa627360c1ec4829fedd7a52",
+      "coverage": "not-validated"
+    },
+    {
+      "id": "0.78.1-Improved-1",
+      "version": "0.78.1",
+      "section": "Improved",
+      "sourceLine": 49,
+      "sourceSHA256": "0999446a0ceb78e74fe7ecf44b4a9812459f174156d9e7bfec572d20ee30bcdd",
+      "coverage": "not-validated"
+    },
+    {
+      "id": "0.78.1-Improved-2",
+      "version": "0.78.1",
+      "section": "Improved",
+      "sourceLine": 50,
+      "sourceSHA256": "a4c552740683a184bfc3ab60644340ace2e3dedf00cfc0d9362968a129324e78",
+      "coverage": "not-validated"
+    },
+    {
+      "id": "0.78.1-Improved-3",
+      "version": "0.78.1",
+      "section": "Improved",
+      "sourceLine": 51,
+      "sourceSHA256": "3a34cd8361f79b11e57604692bab756e78c34ca6ac642c8316ce4e4c5ecd8202",
+      "coverage": "not-validated"
+    },
+    {
+      "id": "0.78.1-Improved-4",
+      "version": "0.78.1",
+      "section": "Improved",
+      "sourceLine": 52,
+      "sourceSHA256": "13bb0df0b3daccc9e2ebe64731b3a66e245ae81edf93138cb35636b82b58b6c3",
+      "coverage": "not-validated"
+    },
+    {
+      "id": "0.78.1-Improved-5",
+      "version": "0.78.1",
+      "section": "Improved",
+      "sourceLine": 53,
+      "sourceSHA256": "2b874ba4ee06d163772e7c82e36ae8d48c5b014bee28d901038af0c3d7e5602f",
+      "coverage": "not-validated"
+    },
+    {
+      "id": "0.78.1-Improved-6",
+      "version": "0.78.1",
+      "section": "Improved",
+      "sourceLine": 54,
+      "sourceSHA256": "f42a8441cd65bfe28cc9c07f0c359b507cf776eb6af20f84e5672fd6cdb9399b",
+      "coverage": "not-validated"
+    },
+    {
+      "id": "0.78.1-Improved-7",
+      "version": "0.78.1",
+      "section": "Improved",
+      "sourceLine": 55,
+      "sourceSHA256": "bf8257ad95676c67a49f08d952473950582c027155f92b73bcec5ecec845da46",
+      "coverage": "not-validated"
+    },
+    {
+      "id": "0.78.1-Improved-8",
+      "version": "0.78.1",
+      "section": "Improved",
+      "sourceLine": 56,
+      "sourceSHA256": "e5f9813f64dc97ba5349569b2adfa6d9cd2516a81e8f3cd99138d9406e82ca21",
+      "coverage": "not-validated"
+    },
+    {
+      "id": "0.78.1-Improved-9",
+      "version": "0.78.1",
+      "section": "Improved",
+      "sourceLine": 57,
+      "sourceSHA256": "14acef11103cd9f1ff49e712ed1eacb827fff1da99f820869bc23d6be879adf5",
+      "coverage": "not-validated"
+    },
+    {
+      "id": "0.78.1-Improved-10",
+      "version": "0.78.1",
+      "section": "Improved",
+      "sourceLine": 58,
+      "sourceSHA256": "b4249077f0e2b805cd7ae459c4c635986908c4ad88ec1fb0f2ac43d78d7a07cf",
+      "coverage": "not-validated"
+    },
+    {
+      "id": "0.78.1-Improved-11",
+      "version": "0.78.1",
+      "section": "Improved",
+      "sourceLine": 59,
+      "sourceSHA256": "9847a03d698f628c8d30e922faecbdb9683d54d4f5303317b97df308786d4a2d",
+      "coverage": "not-validated"
+    },
+    {
+      "id": "0.78.1-Improved-12",
+      "version": "0.78.1",
+      "section": "Improved",
+      "sourceLine": 60,
+      "sourceSHA256": "55ecedda1d3b7974cd6d3842681c6afc69953323acf613231af06e1a593f8724",
+      "coverage": "not-validated"
+    },
+    {
+      "id": "0.78.1-Improved-13",
+      "version": "0.78.1",
+      "section": "Improved",
+      "sourceLine": 61,
+      "sourceSHA256": "03be1c665067bc3221a3abe58e088b9c568cfc3c16b7c63db460a4014dfe595b",
+      "coverage": "not-validated"
+    },
+    {
+      "id": "0.78.1-Improved-14",
+      "version": "0.78.1",
+      "section": "Improved",
+      "sourceLine": 62,
+      "sourceSHA256": "e6c5ac3473672679eb5a1f583cd7d638d39e4ffd26558a83f42cdcf014317eb5",
+      "coverage": "not-validated"
+    },
+    {
+      "id": "0.78.1-Improved-15",
+      "version": "0.78.1",
+      "section": "Improved",
+      "sourceLine": 63,
+      "sourceSHA256": "6a28bf989245d507001baf971ec833aa942f5aa59f43bafc3886ca176ce0509c",
+      "coverage": "not-validated"
+    },
+    {
+      "id": "0.78.1-Improved-16",
+      "version": "0.78.1",
+      "section": "Improved",
+      "sourceLine": 64,
+      "sourceSHA256": "eb7917b556a1cfb53f72441b51b486419195343d83e4e4261e16444d7af91f46",
+      "coverage": "not-validated"
+    },
+    {
+      "id": "0.78.1-Improved-17",
+      "version": "0.78.1",
+      "section": "Improved",
+      "sourceLine": 65,
+      "sourceSHA256": "f1d9b66021d67b70d9a74870da830d6c6096000bb9dec48eb43913d7f81ed320",
+      "coverage": "not-validated"
+    },
+    {
+      "id": "0.78.1-Improved-18",
+      "version": "0.78.1",
+      "section": "Improved",
+      "sourceLine": 66,
+      "sourceSHA256": "a26294a0f26860fbc6a34fde61e89781e248d5c6ff860af30404cad00496b4e2",
+      "coverage": "not-validated"
+    },
+    {
+      "id": "0.78.1-Improved-19",
+      "version": "0.78.1",
+      "section": "Improved",
+      "sourceLine": 67,
+      "sourceSHA256": "1cc43568224a50dfa29fd31c0245be90c0cda2133ab7772501771d1910d3ccd1",
+      "coverage": "not-validated"
+    },
+    {
+      "id": "0.78.1-Improved-20",
+      "version": "0.78.1",
+      "section": "Improved",
+      "sourceLine": 68,
+      "sourceSHA256": "ec5ca56b280aa6409a19bfc7ab6485d2e2413a317bf111e325e5703c535da842",
+      "coverage": "not-validated"
+    },
+    {
+      "id": "0.78.1-Improved-21",
+      "version": "0.78.1",
+      "section": "Improved",
+      "sourceLine": 69,
+      "sourceSHA256": "3b2577552bc23a7439673d760de6617dd10d6fe3cb57851d8a23c6b7680f7650",
+      "coverage": "not-validated"
+    },
+    {
+      "id": "0.78.1-Improved-22",
+      "version": "0.78.1",
+      "section": "Improved",
+      "sourceLine": 70,
+      "sourceSHA256": "65b63215144405784a569d1ffc5ad8810b10b412949b9cc22371b61030f7e068",
+      "coverage": "not-validated"
+    },
+    {
+      "id": "0.78.1-Improved-23",
+      "version": "0.78.1",
+      "section": "Improved",
+      "sourceLine": 71,
+      "sourceSHA256": "35d599cd2ac4fd45935b6f0702d737fd28cd147da9376dd851e51b88ca8c36b0",
+      "coverage": "not-validated"
+    },
+    {
+      "id": "0.78.1-Improved-24",
+      "version": "0.78.1",
+      "section": "Improved",
+      "sourceLine": 72,
+      "sourceSHA256": "f2306f74c049a2ebdcfcc6d5d16433f5e2b36ce39159c3d4054eb768f2df3beb",
+      "coverage": "not-validated"
+    },
+    {
+      "id": "0.78.1-Improved-25",
+      "version": "0.78.1",
+      "section": "Improved",
+      "sourceLine": 73,
+      "sourceSHA256": "b86c9d43fd67b68e0dbc94fa24220e240070e3d6d965ce299a896c9be2d98c06",
+      "coverage": "not-validated"
+    },
+    {
+      "id": "0.78.1-Improved-26",
+      "version": "0.78.1",
+      "section": "Improved",
+      "sourceLine": 74,
+      "sourceSHA256": "b289b67f0b64925ef923b63d09b0153b5a62c2f9dd9005fca5fc4539ef0cf93e",
+      "coverage": "not-validated"
+    },
+    {
+      "id": "0.78.1-Improved-27",
+      "version": "0.78.1",
+      "section": "Improved",
+      "sourceLine": 75,
+      "sourceSHA256": "1d723435048c325f02d697089e497c208097e7ad2e2dda15acb7377bf2b301da",
+      "coverage": "not-validated"
+    },
+    {
+      "id": "0.78.1-Fixed-1",
+      "version": "0.78.1",
+      "section": "Fixed",
+      "sourceLine": 77,
+      "sourceSHA256": "c65f66f5f10a495954bc162472ae5bb42b5384720c30c03ca44b63830ff6c8d8",
+      "coverage": "partial-local-validation",
+      "implementation": "formatted-reply-and-selection-copy",
+      "evidence": {
+        "codeCommit": "e3dfacde724fab906b1866340b154eb23f94d506",
+        "report": "grokbot-reply-copy-2026-10-29.md",
+        "scope": "Whole-reply rich/plain clipboard payloads are locally validated. Additional selected-Markdown evidence is recorded below; real Slack/Gmail/Docs/Notion paste and native WebView acceptance remain unvalidated.",
+        "selection": {
+          "codeCommit": "b2868e5b4d9bab2c21a6844a2f3b92ee66aa895e",
+          "report": "grokbot-selection-copy-2026-10-29.md",
+          "scope": "Selected rendered reply content supplies Markdown through native Copy. Real target-app paste and native WebView acceptance remain unvalidated."
+        }
+      }
+    },
+    {
+      "id": "0.78.1-Fixed-2",
+      "version": "0.78.1",
+      "section": "Fixed",
+      "sourceLine": 78,
+      "sourceSHA256": "f386b76d211c1fa495e4aee6d7df62ed4dac7387346f5dcb09b44dda17eaf1fa",
+      "coverage": "partial-local-validation",
+      "implementation": "existing-long-chat-anchoring-validation",
+      "evidence": {
+        "codeCommit": "9c9c36dc0f1b335f5a7569b8c026e34ecb076778",
+        "report": "grokbot-chat-resize-2026-10-29.md",
+        "scope": "Seven Chrome fixture scenarios preserve reading location through width/height changes, later wheel input, older-message expansion, DOM selection, bottom follow and chat switching. Existing runtime passes; no scroll fix was necessary for these cases. Native WebViews, other browsers, physical devices and live streaming remain unvalidated."
+      }
+    },
+    {
+      "id": "0.78.1-Fixed-3",
+      "version": "0.78.1",
+      "section": "Fixed",
+      "sourceLine": 79,
+      "sourceSHA256": "83637ecfeb453441f546b5f833b28fb2d8491f57ab11a33988b29b453fd475f8",
+      "coverage": "partial-local-validation",
+      "implementation": "honest-working-status-feedback",
+      "evidence": {
+        "codeCommit": "a29ef574b04489bf6fb197940aebdd2725350555",
+        "report": "grokbot-working-status-2026-10-29.md",
+        "scope": "Specific actions are immediate; generic text waits while Stop remains available. Neutral fallback avoids elapsed-time progress claims, including greetings/thanks. Ten Chrome fixture groups and eight dedicated Node tests pass; live providers, native WebViews, physical devices and screen readers remain unvalidated."
+      }
+    },
+    {
+      "id": "0.78.1-Fixed-4",
+      "version": "0.78.1",
+      "section": "Fixed",
+      "sourceLine": 80,
+      "sourceSHA256": "cdc32dcfe51214584e5f6731b31b760c390cad28aec3ad7619770279d69920b0",
+      "coverage": "partial-local-validation",
+      "implementation": "honest-working-status-feedback",
+      "evidence": {
+        "codeCommit": "a29ef574b04489bf6fb197940aebdd2725350555",
+        "report": "grokbot-working-status-2026-10-29.md",
+        "scope": "Specific actions are immediate; generic text waits while Stop remains available. Neutral fallback avoids elapsed-time progress claims, including greetings/thanks. Ten Chrome fixture groups and eight dedicated Node tests pass; live providers, native WebViews, physical devices and screen readers remain unvalidated."
+      }
+    },
+    {
+      "id": "0.78.1-Fixed-5",
+      "version": "0.78.1",
+      "section": "Fixed",
+      "sourceLine": 81,
+      "sourceSHA256": "15d8c61c6b6991d3d52d19adef18e619387231d74d6e45d03e1f573d7e014d9a",
+      "coverage": "not-validated"
+    },
+    {
+      "id": "0.78.1-Fixed-6",
+      "version": "0.78.1",
+      "section": "Fixed",
+      "sourceLine": 82,
+      "sourceSHA256": "aec388623d89fe56c0baa5caef4444fa032c03519f17492b7c3d1fdc7f33a2bf",
+      "coverage": "not-validated"
+    },
+    {
+      "id": "0.78.1-Fixed-7",
+      "version": "0.78.1",
+      "section": "Fixed",
+      "sourceLine": 83,
+      "sourceSHA256": "e54fe894f19cb632ce8aa425608e3071c7130022dfb83753369a5b0fe7c4c920",
+      "coverage": "partial-local-validation",
+      "implementation": "own-answer-validation-and-ime-submission-guards",
+      "evidence": {
+        "codeCommit": "2107c7e513a71cc4e7a14fcb8d45f7baea672d1e",
+        "report": "grokbot-ime-input-2026-10-29.md",
+        "scope": "Real Chrome with synthetic composition lifecycles, isComposing/keyCode229 flags and trusted keyboard actions. Existing single-choice own-answer review/reload is validated. OS IMEs, native WebView, other browsers and physical devices remain unvalidated."
+      }
+    },
+    {
+      "id": "0.78.1-Fixed-8",
+      "version": "0.78.1",
+      "section": "Fixed",
+      "sourceLine": 84,
+      "sourceSHA256": "f7f8d2bbd04104cea1415ca8e71e598b2d0410101c65cea94f2921dd0c0dcd41",
+      "coverage": "partial-local-validation",
+      "implementation": "own-answer-validation-and-ime-submission-guards",
+      "evidence": {
+        "codeCommit": "2107c7e513a71cc4e7a14fcb8d45f7baea672d1e",
+        "report": "grokbot-ime-input-2026-10-29.md",
+        "scope": "Real Chrome with synthetic composition lifecycles, isComposing/keyCode229 flags and trusted keyboard actions. Existing single-choice own-answer review/reload is validated. OS IMEs, native WebView, other browsers and physical devices remain unvalidated."
+      }
+    },
+    {
+      "id": "0.78.1-Fixed-9",
+      "version": "0.78.1",
+      "section": "Fixed",
+      "sourceLine": 85,
+      "sourceSHA256": "bb5ea8ff052494479018c6eb1faaef223a9420a0ac6ef8c4c901ad07a8af8a9e",
+      "coverage": "not-validated"
+    },
+    {
+      "id": "0.78.1-Fixed-10",
+      "version": "0.78.1",
+      "section": "Fixed",
+      "sourceLine": 86,
+      "sourceSHA256": "c67f774465b659adb2673ff596794097fb72b776b72d0a3269efef28c4f17197",
+      "coverage": "not-validated"
+    },
+    {
+      "id": "0.78.1-Fixed-11",
+      "version": "0.78.1",
+      "section": "Fixed",
+      "sourceLine": 87,
+      "sourceSHA256": "082449a737943d7eba92a11534b29d7c237005b9624b1971557d32cc85a76396",
+      "coverage": "partial-local-validation",
+      "implementation": "chat-identity-refresh",
+      "evidence": {
+        "codeCommit": "b9a800d4398a13734e9a7fe211ae997c99dba0b1",
+        "report": "grokbot-chat-identity-reload-2026-10-29.md",
+        "scope": "Bot/group header names and composer prompts refresh after real browser EventSource reconnects with synthetic state. Task lists and real remote acceptance remain unvalidated."
+      }
+    },
+    {
+      "id": "0.78.1-Fixed-12",
+      "version": "0.78.1",
+      "section": "Fixed",
+      "sourceLine": 88,
+      "sourceSHA256": "00dd9a859bb0ced078265a2b3349794e51b8e7bb8d87c2568290dbba4129c543",
+      "coverage": "not-validated"
+    },
+    {
+      "id": "0.78.1-Fixed-13",
+      "version": "0.78.1",
+      "section": "Fixed",
+      "sourceLine": 89,
+      "sourceSHA256": "950d81be589d64dbdba20173cf9f959c6de047b9fe723e9c2e9cc049f586a49d",
+      "coverage": "not-validated"
+    },
+    {
+      "id": "0.78.1-Fixed-14",
+      "version": "0.78.1",
+      "section": "Fixed",
+      "sourceLine": 90,
+      "sourceSHA256": "2ffefc8372ab131e66cd790d78afaceb73e34d8c52e28fa8689dc317d5db76cd",
+      "coverage": "not-validated"
+    },
+    {
+      "id": "0.78.1-Fixed-15",
+      "version": "0.78.1",
+      "section": "Fixed",
+      "sourceLine": 91,
+      "sourceSHA256": "d454bf7aaa43a84d58f1adc3f3875673cfb6be02566eb6a6c098052244e377ac",
+      "coverage": "not-validated"
+    },
+    {
+      "id": "0.78.1-Fixed-16",
+      "version": "0.78.1",
+      "section": "Fixed",
+      "sourceLine": 92,
+      "sourceSHA256": "d12dcc1faa8f50a199cb67d5d9f7351e972813ee80d97d7af41746383f391e09",
+      "coverage": "not-validated"
+    },
+    {
+      "id": "0.78.1-Fixed-17",
+      "version": "0.78.1",
+      "section": "Fixed",
+      "sourceLine": 93,
+      "sourceSHA256": "0df32a96d4b6018288e637543757cfec40fb25ff22860381b089f530a2af017f",
+      "coverage": "not-validated"
+    },
+    {
+      "id": "0.78.1-Fixed-18",
+      "version": "0.78.1",
+      "section": "Fixed",
+      "sourceLine": 94,
+      "sourceSHA256": "146859eee75007b4af9a95cf3bfb5e40c802b1c6958d08fab3ea3471abbcef42",
+      "coverage": "not-validated"
+    },
+    {
+      "id": "0.78.1-Fixed-19",
+      "version": "0.78.1",
+      "section": "Fixed",
+      "sourceLine": 95,
+      "sourceSHA256": "024af6347b710d720d5988467c34d0a93145b715fefe7af80c56a4fc625a637e",
+      "coverage": "not-validated"
+    },
+    {
+      "id": "0.78.1-Fixed-20",
+      "version": "0.78.1",
+      "section": "Fixed",
+      "sourceLine": 96,
+      "sourceSHA256": "e709a0dae8003833708898c6ee69db1508398eb4e1b9c6cc2116b22f1f9202d9",
+      "coverage": "not-validated"
+    },
+    {
+      "id": "0.78.1-Fixed-21",
+      "version": "0.78.1",
+      "section": "Fixed",
+      "sourceLine": 97,
+      "sourceSHA256": "af94efbad56d757033fe8130d4c099bb942fcc70a03c21c39342753fb648a5cd",
+      "coverage": "not-validated"
+    },
+    {
+      "id": "0.78.1-Fixed-22",
+      "version": "0.78.1",
+      "section": "Fixed",
+      "sourceLine": 98,
+      "sourceSHA256": "3f84c8b3e62fa0cf7d16495efba404ca113a017094df2523ec8f35f21b0da8b8",
+      "coverage": "not-validated"
+    },
+    {
+      "id": "0.78.1-Fixed-23",
+      "version": "0.78.1",
+      "section": "Fixed",
+      "sourceLine": 99,
+      "sourceSHA256": "9437a9f0087298f541496a066f7071b2cc2a7a63cf9e0da2d0e2994d40170897",
+      "coverage": "not-validated"
+    },
+    {
+      "id": "0.78.1-Fixed-24",
+      "version": "0.78.1",
+      "section": "Fixed",
+      "sourceLine": 100,
+      "sourceSHA256": "32d1b3f48dd8149512259f642d3b5c9f9024ca9cc522f30418e1647d06484aa9",
+      "coverage": "not-validated"
+    },
+    {
+      "id": "0.78.1-Fixed-25",
+      "version": "0.78.1",
+      "section": "Fixed",
+      "sourceLine": 101,
+      "sourceSHA256": "2b85c357844a028c964b9a41877425a800691e25ada819306113b3a750cffd08",
+      "coverage": "not-validated"
+    },
+    {
+      "id": "0.78.1-Fixed-26",
+      "version": "0.78.1",
+      "section": "Fixed",
+      "sourceLine": 102,
+      "sourceSHA256": "4feb1236d6afafb615ddfc4d4bc185f9d8680fcbbc31d4d9e32b9d980b8252f0",
+      "coverage": "not-validated"
+    },
+    {
+      "id": "0.78.1-Fixed-27",
+      "version": "0.78.1",
+      "section": "Fixed",
+      "sourceLine": 103,
+      "sourceSHA256": "3ecfc31c3630da3ae5897091bad8d58d0b82bfaa842b845db50e957bb8b38517",
+      "coverage": "not-validated"
+    },
+    {
+      "id": "0.78.1-Fixed-28",
+      "version": "0.78.1",
+      "section": "Fixed",
+      "sourceLine": 104,
+      "sourceSHA256": "8c891dfe69a2625a9fe0d2d8c662deed08458fffddcd1588fa8c446cde97dd4d",
+      "coverage": "not-validated"
+    },
+    {
+      "id": "0.78.1-Fixed-29",
+      "version": "0.78.1",
+      "section": "Fixed",
+      "sourceLine": 105,
+      "sourceSHA256": "3b27bcaeacde17237ccebac3dd6e868dd897e9c0bfd84f9272f5fed65c60c160",
+      "coverage": "not-validated"
+    },
+    {
+      "id": "0.78.1-Fixed-30",
+      "version": "0.78.1",
+      "section": "Fixed",
+      "sourceLine": 106,
+      "sourceSHA256": "0ff84639919d348961d75318a8a9be94d7973307f1925a9924e3e8ed595263b5",
+      "coverage": "not-validated"
+    },
+    {
+      "id": "0.78.1-Fixed-31",
+      "version": "0.78.1",
+      "section": "Fixed",
+      "sourceLine": 107,
+      "sourceSHA256": "0237bfb8842ce44ed88c1715fdfbc0d79c394a23843c32411cda0a0b1dfb1a66",
+      "coverage": "not-validated"
+    },
+    {
+      "id": "0.78.1-Fixed-32",
+      "version": "0.78.1",
+      "section": "Fixed",
+      "sourceLine": 108,
+      "sourceSHA256": "aaeeb1d8449cdc1c127f30db5e496e20f9fecd99eb4ef2ba2feb49f17e6203cb",
+      "coverage": "not-validated"
+    },
+    {
+      "id": "0.78.1-Fixed-33",
+      "version": "0.78.1",
+      "section": "Fixed",
+      "sourceLine": 109,
+      "sourceSHA256": "88390885701a8619056cbdaf2038f49950297b53d9cd29f1b274bd91439c4c5c",
+      "coverage": "not-validated"
+    },
+    {
+      "id": "0.78.1-Fixed-34",
+      "version": "0.78.1",
+      "section": "Fixed",
+      "sourceLine": 110,
+      "sourceSHA256": "cceffe068afd7c6a1112c5106301bc83c9eb20a7c081667f8254c9156d63a997",
+      "coverage": "not-validated"
+    },
+    {
+      "id": "0.78.1-Fixed-35",
+      "version": "0.78.1",
+      "section": "Fixed",
+      "sourceLine": 111,
+      "sourceSHA256": "85a25208cc7f568d7be04bceb168399eba0c16b5178a4ea58e8a77652e6f9884",
+      "coverage": "not-validated"
+    },
+    {
+      "id": "0.78.1-Fixed-36",
+      "version": "0.78.1",
+      "section": "Fixed",
+      "sourceLine": 112,
+      "sourceSHA256": "f5f9c314265a881f6608fb5983ac17c54eb1a539db69f423ee2c6d9bd8258042",
+      "coverage": "partial-local-validation",
+      "implementation": "verified-private-computer-downloads",
+      "evidence": {
+        "backendCommit": "a11d211c01f94f7b9c65744ff69032f4ddae8af3",
+        "codeCommit": "38a1dda6ee94a350c44622d14bdaf245447fb45a",
+        "report": "grokbot-file-downloads-2026-10-29.md",
+        "scope": "Private two-pass checked snapshots prevent mixed ordinary file versions; checked browser saves reject errors and stale responses. Windows filesystem/HTTP tests and 10 actual Chrome fixture groups pass. Adversarial atomic snapshots, crash cleanup, live cloud, native WebView and physical-device acceptance remain unvalidated."
+      }
+    },
+    {
+      "id": "0.78.1-Fixed-37",
+      "version": "0.78.1",
+      "section": "Fixed",
+      "sourceLine": 113,
+      "sourceSHA256": "149a18a5e6b14464818b0dd75ad062ab659b58ce4ff1640339dd61548612d5c4",
+      "coverage": "not-validated"
+    },
+    {
+      "id": "0.78.1-Fixed-38",
+      "version": "0.78.1",
+      "section": "Fixed",
+      "sourceLine": 114,
+      "sourceSHA256": "88453fa58db04f8da4344b91596fc2cdcae196a27b9465d292b9d38c70c116e7",
+      "coverage": "not-validated"
+    },
+    {
+      "id": "0.78.1-Fixed-39",
+      "version": "0.78.1",
+      "section": "Fixed",
+      "sourceLine": 115,
+      "sourceSHA256": "947746e55781b1878be829abe0961b483368dd95728b7ec8a67d77891088bb98",
+      "coverage": "not-validated"
+    },
+    {
+      "id": "0.78.1-Fixed-40",
+      "version": "0.78.1",
+      "section": "Fixed",
+      "sourceLine": 116,
+      "sourceSHA256": "24f469d28b3e09b4c9696e3be8c6fe4d4a55ab4a2437e72cd4dcbf497e24508a",
+      "coverage": "not-validated"
+    },
+    {
+      "id": "0.78.1-Fixed-41",
+      "version": "0.78.1",
+      "section": "Fixed",
+      "sourceLine": 117,
+      "sourceSHA256": "b911d49979edb8b6b1d3f9945deec8ab02e53e347c944d6be4c2508297d5d2ef",
+      "coverage": "not-validated"
+    },
+    {
+      "id": "0.78.1-Fixed-42",
+      "version": "0.78.1",
+      "section": "Fixed",
+      "sourceLine": 118,
+      "sourceSHA256": "86a83247d7a09b0c40af2f4f1fc3b7352ca33997d97da22d44a6559da59a65fe",
+      "coverage": "not-validated"
+    },
+    {
+      "id": "0.78.1-Fixed-43",
+      "version": "0.78.1",
+      "section": "Fixed",
+      "sourceLine": 119,
+      "sourceSHA256": "229bee6469de59c9ac769e012fa8ec44bec9976004170b683bf631983850d2a9",
+      "coverage": "not-validated"
+    },
+    {
+      "id": "0.78.1-Fixed-44",
+      "version": "0.78.1",
+      "section": "Fixed",
+      "sourceLine": 120,
+      "sourceSHA256": "1970c51053abda0ea8c0f6bdfbd6376de79379fe44fc6d05cb4fc4f007c36d55",
+      "coverage": "not-validated"
+    },
+    {
+      "id": "0.78.1-Fixed-45",
+      "version": "0.78.1",
+      "section": "Fixed",
+      "sourceLine": 121,
+      "sourceSHA256": "80791ddbec865c544ded30b9818ef24663c44db3e2654286fc3e21bb74a9ba23",
+      "coverage": "not-validated"
+    },
+    {
+      "id": "0.78.1-Fixed-46",
+      "version": "0.78.1",
+      "section": "Fixed",
+      "sourceLine": 122,
+      "sourceSHA256": "2933c645ae7d953a2ca24678669b6efb11b1932f445265274fa202014b78ff0b",
+      "coverage": "not-validated"
+    },
+    {
+      "id": "0.78.1-Fixed-47",
+      "version": "0.78.1",
+      "section": "Fixed",
+      "sourceLine": 123,
+      "sourceSHA256": "8f1eefa8159cfde6bf2767996acfedfb2d39ae341293e7c7b77c428a4a909bb0",
+      "coverage": "not-validated"
+    },
+    {
+      "id": "0.78.1-Fixed-48",
+      "version": "0.78.1",
+      "section": "Fixed",
+      "sourceLine": 124,
+      "sourceSHA256": "50d6caf1b4be4481220a5b7a7ec1610c6859c62bcfe8afbecf8a84c548cd15ce",
+      "coverage": "not-validated"
+    },
+    {
+      "id": "0.78.1-Fixed-49",
+      "version": "0.78.1",
+      "section": "Fixed",
+      "sourceLine": 125,
+      "sourceSHA256": "87f95b00cc25d5a1641951e9c8caf3d1acaf9ef76ba2bfba2a91abb9a317494e",
+      "coverage": "not-validated"
+    },
+    {
+      "id": "0.78.1-Fixed-50",
+      "version": "0.78.1",
+      "section": "Fixed",
+      "sourceLine": 126,
+      "sourceSHA256": "e2b1179466a348a2bc48ca56730a759dff3f8f839bb61f07d7759e60e02438aa",
+      "coverage": "not-validated"
+    },
+    {
+      "id": "0.78.1-Fixed-51",
+      "version": "0.78.1",
+      "section": "Fixed",
+      "sourceLine": 127,
+      "sourceSHA256": "5b49704cfd798df981e42eb8613d08dce85885faa012f0265796306ddef28deb",
+      "coverage": "not-validated"
+    },
+    {
+      "id": "0.78.1-Fixed-52",
+      "version": "0.78.1",
+      "section": "Fixed",
+      "sourceLine": 128,
+      "sourceSHA256": "c5bb562f030cad63af17eebbe946f446dd6fd6f8067051b1726663569cdefbb7",
+      "coverage": "not-validated"
+    },
+    {
+      "id": "0.78.1-Fixed-53",
+      "version": "0.78.1",
+      "section": "Fixed",
+      "sourceLine": 129,
+      "sourceSHA256": "9750d309514682dc0910e81f7d97c9d0fca4ff0117bac48fc4e04b003882c93b",
+      "coverage": "not-validated"
+    },
+    {
+      "id": "0.78.1-Fixed-54",
+      "version": "0.78.1",
+      "section": "Fixed",
+      "sourceLine": 130,
+      "sourceSHA256": "be0cd397c791a8f4c5a2b016a065e25a4d9e1843336ed86c2f7e3cddae1b4c71",
+      "coverage": "not-validated"
+    },
+    {
+      "id": "0.78.1-Fixed-55",
+      "version": "0.78.1",
+      "section": "Fixed",
+      "sourceLine": 131,
+      "sourceSHA256": "f0cc08c4c40463e97a4e8604050ddfb24d67295d197236458f5062ad4c3ad0c0",
+      "coverage": "not-validated"
+    },
+    {
+      "id": "0.78.1-Fixed-56",
+      "version": "0.78.1",
+      "section": "Fixed",
+      "sourceLine": 132,
+      "sourceSHA256": "f1b63973b139c622a4a66590db85cdb48d2ebb4218b529089d04b4a112aac978",
+      "coverage": "not-validated"
+    },
+    {
+      "id": "0.78.1-Fixed-57",
+      "version": "0.78.1",
+      "section": "Fixed",
+      "sourceLine": 133,
+      "sourceSHA256": "33da25942fd9acb35b847bbab953e29d6eadd1cfd3dec0a61dd39c0a6e502c5e",
+      "coverage": "not-validated"
+    },
+    {
+      "id": "0.78.1-Fixed-58",
+      "version": "0.78.1",
+      "section": "Fixed",
+      "sourceLine": 134,
+      "sourceSHA256": "616affc127e71848f8b64f2fb1807335a749a3ef6ecfb97bb827e793ea9e9b38",
+      "coverage": "not-validated"
+    },
+    {
+      "id": "0.78.1-Fixed-59",
+      "version": "0.78.1",
+      "section": "Fixed",
+      "sourceLine": 135,
+      "sourceSHA256": "3feef08ec49e916ace770df2c890edb322ed630c170c128caea8b799e2eca19a",
+      "coverage": "not-validated"
+    },
+    {
+      "id": "0.78.1-Fixed-60",
+      "version": "0.78.1",
+      "section": "Fixed",
+      "sourceLine": 136,
+      "sourceSHA256": "16a303cd07da13f703d8b5ff89f4ce1944edab678ea0d82e0b44814595f0e975",
+      "coverage": "not-validated"
+    }
+  ],
+  "note": "Incremental index of 100 new release bullets. The 820 entries in the 2026-10-28 index remain a separate historical snapshot. No upstream prose is redistributed; entries can bundle multiple behaviors."
+}

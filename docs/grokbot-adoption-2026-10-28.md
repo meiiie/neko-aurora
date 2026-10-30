@@ -1,0 +1,158 @@
+# Neko Aurora: tiếp nhận nghiên cứu Grok Bot — 28/10/2026
+
+Đã đối chiếu `origin/main` của `meiiie/neko-aurora` sau fetch ngày 28/10/2026: `66376d68691d8bce16b6565c6268c4331802ef57`. Nhánh làm việc: `codex/grokbot-adoption`. Gói thay đổi dưới đây phát triển từ commit này, chưa phải release đã triển khai.
+
+Nguồn tham khảo là [changelog chính thức của Grok Bot](https://x.ai/changelog/bot), đến 0.77.0 ngày 26/10/2026. [Danh mục 55 mục phát hành](research/grokbot-release-inventory-2026-10-28.md) và [index 820 dòng thay đổi](research/grokbot-adoption-index-2026-10-28.json) giữ dấu vết nguồn. Đây không phải 820 tính năng đã hoàn thành. Không đưa mã, tài sản hay toàn văn changelog của Grok vào repository.
+
+Quy trình dùng pstack [Feature](https://github.com/cursor/plugins/blob/main/pstack/skills/poteto-mode/playbooks/feature.md), [Prove It Works](https://github.com/cursor/plugins/blob/main/pstack/skills/principle-prove-it-works/SKILL.md) và Show Me Your Work; tự thực hiện và tự review theo yêu cầu không dùng subagent. [Webapp-testing](https://github.com/anthropics/skills/tree/main/skills/webapp-testing) hướng dẫn kiểm tra tương tác bằng trình duyệt headless. Không gọi dịch vụ AI thật, cấp grant hay triển khai trong các kiểm thử này.
+
+## Phần đã triển khai
+
+| Hành vi | Thay đổi trong Aurora | Bằng chứng |
+|---|---|---|
+| Nhập bộ nhớ có duyệt | Mỗi dòng một điều, xem trước, chọn từng mục; lọc trùng và mẫu bí mật/Vault; kiểm tra revision trước khi lưu. Giới hạn 100 dòng, 300 ký tự/mục, 30 mục/bot; không đẩy mục cũ ra để lấy chỗ. | `memory_import_test.go`, kiểm tra HTTP và trình duyệt |
+| Tạm dừng lịch | Nút tạm dừng/tiếp tục/xóa với revision. Thay đổi cũ bị từ chối; hủy occurrence còn chờ, không tự dừng lượt đã chạy. Admission thất bại không làm mất lịch một lần. | `schedule_control_test.go`, kiểm tra HTTP và trình duyệt |
+| Khôi phục tin chưa gửi | Lưu riêng từng tin trên thiết bị theo workspace; giữ nonce khi tải lại, timeout POST 30 giây, tối đa 128 tin. Hết 7 ngày ngừng tự gửi nhưng vẫn giữ nội dung. Tin bị từ chối giữ lại để xem/copy/xóa. | `outbox-test.mjs`, trình duyệt offline/reload/lost receipt/account switch/storage failure |
+| Hạn mức khi retry | Hosted lưu reservation cho nonce và payload, chống tính lượt lặp lại; payload đổi nhận 409. Bộ nhớ hỏi/tóm tắt đi qua quota; áp dụng chỉnh sửa đã duyệt không gọi model. | `message_quota_test.go`, `utility_quota_test.go` |
+| Câu hỏi không bị trả lời nhầm | Tin nhắn tiếp nối thường không đóng lựa chọn. Có câu trả lời tự nhập; `answerFor` và nonce cố định gắn với đúng câu hỏi, giữ qua lần tải lịch sử. | `adoption_api_test.go`, trình duyệt |
+| Biểu mẫu theo biên nhận | `formFor` và nonce cố định gắn câu trả lời với đúng form/chat. Giữ giá trị offline qua tải lại; chỉ hiện đã gửi sau biên nhận ledger. Không có receipt thì endpoint hoàn tất trả 409; đổi nội dung sau khi nhận bị từ chối. | `form_receipt_test.go`, HTTP và trình duyệt mất mạng/mất phản hồi |
+| Vòng đời MCP | Cache riêng từng service/workspace, đổi khóa làm mới phiên; một handshake khi truy cập đồng thời. 401/403 ngừng tự thử, 429 chờ `Retry-After`; chủ động kết nối lại, không tự phát lại tool có tác động. Chặn chuyển credential qua redirect/cross-origin SSE. | `mcp_lifecycle_test.go`, trình duyệt reconnect/cooldown; server giả lập cục bộ |
+| Bảng trong chat | Sao chép TSV/Markdown, hộp xem lớn, zoom 100–200%, Escape và trả focus. Nội dung HTML vẫn là văn bản. | Trình duyệt 1280×900 và 390×844 |
+| Độ tin cậy công cụ | Ledger và harness thống nhất tối đa 10 công cụ. Không chạy công cụ khi chưa ghi được trạng thái bắt đầu. Gửi lại tin không supersede bản duyệt hiện có. | Regression đỏ trên base, xanh sau sửa; replay/overflow và kiểm tra HTTP |
+| Giao diện và đóng gói | Giữ bot đích khi ảnh đang tải; đăng ký hai script mới trong Go asset registry và cache PWA v48. | JS syntax, test từng script qua Go asset server |
+| Lỗi nền và tài liệu | Đóng ledger trong test public-host; tách deadline lỗi giả lập với deadline production khi kiểm tra worker tái sử dụng; giữ ngữ cảnh file khi computer không chạy được; sửa hai link tài sản lịch sử, phục hồi nguyên bản notice Geist cho banner. | Kiểm tra đích và docs checker |
+| Sáu lỗi Windows và Rust | Fixture Core chạy child process native; Railway dùng Git Bash/Python, stdin cho lệnh dài và tar local. Vault/backup tạo file với DACL chỉ SID hiện tại trước khi ghi, kiểm tra và sửa ACL file cũ. Pin Rust 1.97.1 và helper chọn MSVC/SDK đã cài. | Sáu test đều PASS; toàn bộ Go 25 package PASS; 43 test Rust host PASS; Tauri check PASS |
+
+  Các implementation chính nằm trong [Aurora service](../app/native/internal/aurora/service.go), [memory import](../app/native/internal/aurora/memory_import.go), [schedules](../app/native/internal/aurora/schedule.go), [hosted admission](../app/native/internal/hub/message_quota.go) và [PWA](../app/native/internal/web/assets/app/app.js).
+
+## Giới hạn của phần mới
+
+- Nhập bộ nhớ là thao tác của owner trên một bot, chưa có đọc/export trực tiếp từ tài khoản trợ lý khác. Bộ lọc bí mật dựa trên mẫu và các giá trị Vault đã biết, không phải bảo đảm phát hiện mọi bí mật.
+- Câu hỏi hỗ trợ tối đa bốn bước, chọn một/nhiều phương án, câu trả lời riêng, bản nháp theo workspace và xem lại. Câu trả lời đi qua biên nhận journal; mới kiểm chứng bằng model/API fixture và trình duyệt, chưa đánh giá chất lượng model hay thiết bị thật. Form mới hoàn tất theo receipt; cờ hoàn tất đã lưu bằng phiên bản cũ được giữ để tương thích, không tự suy đoán lại nội dung lịch sử.
+- MCP đã có discovery, cấp/refresh token có PKCE, bản ghi mã hóa và phục hồi trạng thái chưa biết qua mở lại Vault trong fixture; Core chặn refresh hoặc phát lại tool ngầm. Chưa có acceptance Gmail/Outlook/GitHub thật, hosted đa thiết bị hay phone; Core đã giới hạn body OAuth; vẫn cần mã hóa credential Windows và ghim DNS/kết nối OAuth.
+- Bảng sao chép TSV và Markdown; chưa xuất định dạng Slack rich text, căn dấu thập phân, footnote hay mọi chế độ bảng của nguồn tham khảo.
+- Outbox là dữ liệu trong trình duyệt của thiết bị, không phải cloud sync. Tin đã bị từ chối không tự gửi lại khi đăng nhập hoặc hết quota; người dùng xem lịch sử rồi quyết định. Lượt gửi mới lưu toàn bộ nhóm và biên nhận trong một khung journal; retry giữ người nhận và tham chiếu đã pin kể cả sau restart. Lượt nhóm cũ không có biên nhận batch vẫn trả conflict, kể cả khi các lượt thành phần đã được ghi. Chi tiết định dạng và giới hạn trong [message admission](research/grokbot-message-admission-2026-10-28.md).
+- Quota reservation giữ tối thiểu đến lần dọn sau 8 ngày và giới hạn 16.384 mục/workspace; lỗi admission sau reservation giữ lượt đã dành. Không tuyên bố exactly-once cho email, thanh toán hay công cụ bên ngoài.
+- Lịch có múi giờ IANA riêng; lịch cũ mặc định giờ Việt Nam và giữ các kiểu lặp sẵn có. Kiểm tra revision là trên cùng server; chưa kiểm chứng bằng hai điện thoại thật. Occurrence đã chạy cần dừng bằng thao tác trong chat. Dữ liệu lịch vẫn dùng file hiện hữu, không phải bộ điều phối phân tán.
+- PWA là bề mặt đã kiểm tra. Chưa có acceptance Tauri, iOS/Android vật lý, APNs production hay đánh giá chất lượng model.
+
+## Công việc còn lại từ toàn bộ nguồn
+
+| Nhóm | Điểm tích hợp hiện có | Điều kiện để được ghi nhận hoàn thành |
+|---|---|---|
+| Connector, email và reconnect | `aurora/mcp.go`, `connectors.go`, `outbound/`, `connections/` | Đã có foundation MCP cục bộ; đã thêm phân trang catalog, refresh theo notification và hủy chờ kết nối; đã có lifecycle OAuth bằng fixture; còn contract riêng từng provider và acceptance tài khoản được cấp phép. |
+| Chat, nhiều câu hỏi và form | `aurora/view.go`, `groups.go`, PWA | Đã có form theo receipt, fan-out nguyên tử, retry tham chiếu đã pin và nháp/tham chiếu/đường dẫn ảnh theo chat; đã bổ sung nhiều câu hỏi có danh tính riêng và biên nhận; đã có trích dẫn tin theo biên nhận; đã có hàng đợi ảnh chờ qua đóng/mở trang và retry theo nội dung; đã có chọn đoạn văn bản vào nháp; còn kiểm chứng crash hệ điều hành, touch/thiết bị thật và đồng bộ nhiều thiết bị. |
+| Routine, webhook và handoff | `schedule.go`, `network.go`, ledger | Lịch phong phú, webhook có identity, reconnect refresh, nguồn/đích kết quả, hạn mức trigger và restart admission. |
+| Pages, Library và tài liệu | `documents/`, `documentworker/`, `artifacts.go`, UI file | Biên tập/lưu/xuất có version; phục hồi crash; kiểm tra cấu trúc và render nội dung thật, accessibility. |
+| Computer và browser | Rust host, Go computer, cloud-browser | Quyền theo hành động, cancellation, reconnect đúng thiết bị, artifact outcome; kiểm thử crash/unknown outcome và host thật. |
+| Voice và thông báo | PWA voice, `push.go`, native shell | Cuộc gọi realtime, reconnect microphone, tuyến desktop/phone, APNs sender và kiểm thử thiết bị thật. |
+| Team/Enterprise | Hosted identity, ledger requester/publication | Role, tenant, connector riêng, memory scope, audit/revoke; không dựng giao diện quyền nếu backend chưa cưỡng chế. |
+| Billing và payment | Hosted plan/quota, Vault/outbound | Adapter theo nhà cung cấp được chọn, giao dịch có biên nhận, sandbox, phê duyệt owner; thương hiệu/quyền lợi/X Money của Grok không thể chép thành dịch vụ Aurora. |
+| Desktop và nền tảng | `app/host`, `app/desktop`, `core` | Đã sửa fixture Windows/toolchain cho checkout; còn installer/update, offline và acceptance từng nền tảng. |
+
+Mục đổi model để vượt một lần dừng của bộ lọc an toàn không được tiếp nhận. Fallback vì lỗi vận hành không phải cơ chế bỏ qua quyết định an toàn.
+
+Ưu tiên tiếp: contract/acceptance provider và hoàn thiện lưu trữ/transport OAuth Core; lịch/webhook, tài liệu, voice và quyền nhóm. Mỗi mục cần bằng chứng riêng trong index; không tự chuyển trạng thái theo keyword hay theo việc có file tương tự. Hai mươi bốn dòng nguồn hiện có bằng chứng cục bộ một phần; 795 dòng vẫn chưa được ghi nhận có kiểm chứng tương ứng. Thay đổi admission là cải thiện độ bền của Aurora, không tự được tính thành hoàn tất thêm dòng changelog. Chi tiết: [giữ nháp và ảnh theo chat](research/grokbot-composer-drafts-2026-10-28.md), [câu hỏi nhiều bước](research/grokbot-structured-questions-2026-10-28.md), [catalog và hủy chờ MCP](research/grokbot-mcp-refresh-2026-10-28.md), [trích dẫn tin nhắn](research/grokbot-quoted-replies-2026-10-28.md).
+
+## Bằng chứng kiểm tra
+
+Log cục bộ ban đầu tại `.audit/2026-10-28-grok/validation.jsonl`; lượt tiếp tục tại `.audit/2026-10-28-windows-backlog/validation.jsonl`. Mỗi dòng ghi base SHA, hash diff, manifest SHA256 của tracked/untracked source, lệnh, thư mục, môi trường, exit code và PASS/FAIL. Runner cuối chụp source trước lệnh và so lại sau lệnh, đánh dấu STALE nếu source đổi trong lúc kiểm tra. Log, state và executable kiểm thử không được đưa vào commit. [Test API](../app/native/internal/aurora/adoption_api_test.go), [test browser](../app/tests/aurora/adoption-browser.py), [test outbox](../app/tests/aurora/outbox-test.mjs) được giữ trong source để chạy lại.
+
+Môi trường: Windows amd64, Go 1.27.1, Node 25.9.0, Python 3.13.7, Chrome headless. Runner loại bỏ biến môi trường provider/account, chỉ dùng fixture và loopback. Kết quả cuối cùng được ghi trong [validation report](research/grokbot-validation-2026-10-28.md).
+
+
+Gate Core bổ sung đã hoàn tất tại `bef6a7c508168a6335fe5ecdc0760c281f370b46`: 2.173 test pass, 42 skip, 0 fail; typecheck/lint, build với ConPTY/ACP/startup và 6 test Rust–Core đều qua. Đã sửa vòng đời probe màn hình, teardown UIA, hợp đồng kiểu saved-account và fixture monorepo. Doctor/policy trả exit 0 với cảnh báo của profile thử nghiệm; không coi đó là sandbox khỏe. Xem [báo cáo Core](research/grokbot-core-gate-2026-10-28.md) để biết exact command, manifest, lỗi ban đầu và giới hạn.
+
+Upload ảnh bổ sung tại `868bff92fb327dfbb7d7d59e4d2287a1557031e3`: lưu ảnh chờ trước khi gửi, giữ biên nhận trước khi chèn nháp, retry cùng đường dẫn và từ chối file đã đổi. Go 1.571 pass/37 skip/0 fail, 55 kịch bản trình duyệt, vet/build và 8 test draft/outbox đều pass. Xem [báo cáo upload](research/grokbot-image-uploads-2026-10-28.md) cho phạm vi và giới hạn.
+
+Computer sync bổ sung tại `f48c78f625739af3544e224de95099d6acda8857`: kiểm tra kết quả từng lệnh transfer, dừng trước lệnh owner nếu push lỗi, giữ nguyên file local nếu pull thiếu xác nhận; bỏ stderr riêng tư khỏi log relay. Toàn bộ package Computer 45 pass/9 skip/0 fail, native vet/build pass. [Báo cáo Computer sync](research/grokbot-computer-sync-2026-10-28.md) ghi rõ phần phục hồi remote outcome còn lại.
+
+Chọn đoạn văn bản bổ sung tại `1c8f558324c83dad9982249ce7c9816d54a23428`: thêm đoạn chọn vào nháp, giữ vùng chọn qua render hợp lệ, hủy capture khi đổi phạm vi và kiểm tra giới hạn. Tổng 65 kịch bản trình duyệt, 8 test draft/outbox, web asset package và build pass. Xem [báo cáo đoạn chọn](research/grokbot-selected-excerpts-2026-10-28.md).
+
+Biên nhận form sau eviction bổ sung tại `9c49a07883773ff26fe212822e82ba82b6052ad5`: retry câu trả lời đã nhận vẫn trả đúng biên nhận sau khi cache bị dọn và ledger được mở lại; không tạo thêm work. Package Aurora 186 pass/24 skip/0 fail; vet/build và test cuối đều pass. [Báo cáo form replay](research/grokbot-form-replay-2026-10-28.md) phân biệt receipt thật với nonce tương tự và nêu giới hạn lịch sử form.
+
+Chỉnh sửa lịch bổ sung tại `b80ecfa2dc99259f1fc9e74374ceee4da609e6a3`: sửa nội dung/giờ/kiểu lặp với workspace và revision; giữ pause, không chạy lại occurrence đã nhận, rollback khi lưu lỗi. Package Aurora 190 pass/24 skip/0 fail, 74 kịch bản trình duyệt, 8 test draft/outbox, vet/build và asset đều pass. [Báo cáo lịch hẹn](research/grokbot-schedule-edit-2026-10-28.md) ghi rõ lỗi đã bắt và phạm vi chưa làm.
+
+Kiểm chứng bảng tính bổ sung tại `bf07fbd0c24388a2e092b92dfae6cdbbf9b51f87`: đọc đầy đủ CSV và dùng chung bộ xác thực XLSX của documents; thu hồi dấu đạt trong verify.txt khi file đổi, kể cả mất cache. Toàn bộ Go 1.635 pass/37 skip/0 fail; sau sửa cuối, Aurora 213 pass/24 skip/0 fail, vet/build pass. [Báo cáo bảng tính](research/grokbot-spreadsheet-validation-2026-10-28.md) ghi giới hạn cấu trúc và dung lượng; không đồng nghĩa đã hoàn thành Pages/Library.
+
+Computer recovery bổ sung tại `9db4ee4f997c26b0b94ddf0ea8d51a094768468f`: lưu trạng thái chưa xác nhận trước dispatch, chặn lệnh/warm/eviction, tải lại file riêng khi local còn nguyên và chỉ reset sau xác nhận remote. Toàn bộ Go 1.650 pass/37 skip/0 fail; sau guard mã thoát âm, focused/vet/build/asset pass. Tổng 81 kịch bản browser và 8 test draft/outbox pass. [Báo cáo phục hồi Computer](research/grokbot-computer-recovery-2026-10-28.md) ghi cả lỗi giữa chừng, manifest từng bước và giới hạn HTTP/crash/host thật.
+
+Chạy thử lịch bổ sung tại `af6234ca08d91e3158faf0cf07a3c6f35041fcf6`: biên nhận bền qua sửa/xóa/restart, retry cùng nonce, tra cứu riêng và mở đúng tin đã nhận; lịch tự động và lượt thử dùng quota hosted. Toàn bộ Go 1.657 pass/37 skip/0 fail; guard cuối được kiểm tra riêng, vet/build/asset pass; tổng 90 kịch bản browser và 8 test draft/outbox pass qua các manifest ghi rõ trong [báo cáo chạy thử lịch](research/grokbot-schedule-test-2026-10-28.md). Mục 0.68.0 Improved 3 vẫn chỉ được xác nhận một phần.
+
+Lịch sử form bổ sung tại `d77718fc559f5f782a4e5cc8689355db815ead1b`: lưu cấu trúc form cùng lượt hoàn tất, giữ qua eviction/restart; dừng kế hoạch để chờ dữ liệu, không báo thành công khi ghi journal lỗi và gửi câu trả lời nhóm đến đúng bot tạo form. Go 1.680 pass/37 skip/0 fail, vet/build và 21 kịch bản browser pass trên cùng manifest. [Báo cáo lịch sử form](research/grokbot-form-history-2026-10-28.md) phân biệt dữ liệu mới với cache cũ và các phần còn lại.
+
+Nháp và câu trả lời form bổ sung tại `b08cee56b3c1a52650037fbcc81366323c85df8a`: lưu nháp theo workspace/chat/schema, kiểm tra trường dữ liệu trên server và giữ giá trị gốc trong biên nhận để phát hiện retry khác nội dung. Go 1.710 pass/37 skip/0 fail; 37 kịch bản trình duyệt, asset và build đạt trên source cuối; 69 kịch bản browser và 8 test Node bổ sung đạt trên source trước đó. [Báo cáo form](research/grokbot-form-drafts-2026-10-28.md) ghi manifest riêng, lỗi đã sửa và giới hạn lưu trữ cục bộ.
+
+Discovery cấp quyền MCP bổ sung tại `383d94b0b00826395e6321154a4215a79462a1eb`: đọc metadata công khai với ràng buộc resource/issuer, giữ scope trong challenge, chọn issuer rõ ràng và bỏ phản hồi trễ khi đổi workspace. Go 1.743 pass/37 skip/0 fail, 28 kịch bản browser; sửa parser cuối được kiểm tra bằng toàn bộ 60 test/subtest MCP và vet/build. [Báo cáo MCP discovery](research/grokbot-mcp-discovery-2026-10-28.md) ghi rõ đây là xem trước thông tin, chưa cấp hay làm mới token.
+
+Tính nhất quán khi xóa Vault bổ sung tại `c9e9b078ab45dcaa9735f1870f097fc552411513`: rollback bộ nhớ khi ghi đĩa thất bại, giữ metadata và redaction đồng nhất với credential còn trên đĩa. 11 test/subtest Vault, 282 Aurora pass/24 skip, vet/build đạt. [Báo cáo Vault](research/grokbot-vault-delete-2026-10-28.md) ghi lỗi tái hiện và giới hạn; đây là bước chuẩn bị lifecycle OAuth, chưa phải remote revoke.
+
+Callback OAuth của Core bổ sung tại `ec5ee166e052a2e2f3191e2cb02295cf09adfc8a`: ràng buộc state/resource/issuer, PKCE theo từng lần kết nối, tách credential theo dịch vụ và hủy listener khi đóng hub. Gate Core 2.183 pass/42 skip/0 fail; typecheck/lint và build ConPTY/ACP/startup đạt trên cùng manifest. [Báo cáo OAuth Core](research/grokbot-core-mcp-oauth-2026-10-28.md) ghi rõ giới hạn lưu trữ, tương thích và SDK refresh/replay còn lại; chưa phải hoàn tất OAuth của Aurora.
+
+Chặn phát lại tool do OAuth bổ sung tại `dbda8cf18bed46a739d7ace20de398911ae27c34`: SDK thật tái hiện hai lần chạy từ một lời gọi sau 401/403; transport nay yêu cầu reconnect và không tự refresh/phát lại sau kết nối. Gate Core 2.186 pass/42 skip/0 fail; 38 test MCP, typecheck/lint và build Windows đạt. [Báo cáo MCP replay](research/grokbot-core-mcp-replay-2026-10-28.md) ghi rõ thao tác đầu vẫn có thể đã thành công và cần đối chiếu kết quả.
+
+Lưu trữ OAuth riêng bổ sung tại `f6939bcd9bd789cc8974db02d5caecd3b5a278c9`: bản ghi mã hóa trong Vault, tách khỏi API secret/item và che từng credential; mở Vault lỗi giữ redaction đang chạy, nonce hỏng trả lỗi thay vì panic. Go 1.779 pass/37 skip/0 fail, 37 test/subtest Vault, vet/build đạt. [Báo cáo bản ghi OAuth](research/grokbot-oauth-records-2026-10-28.md) ghi giới hạn định dạng và rollback; chưa nối luồng cấp/refresh token.
+
+Cấu hình MCP bổ sung tại `a105fb8560467226f94ae2fb9d5032657b839c2c`: lưu thành công trước khi thay phiên, rollback bộ nhớ khi lỗi, kiểm tra workspace/revision và chặn phản hồi giao diện trễ. Go 1.789 pass/37 skip/0 fail; 70 test MCP và các bộ browser đạt; sửa focus/hiển thị lỗi cuối được kiểm tra riêng. [Báo cáo cấu hình MCP](research/grokbot-mcp-config-2026-10-28.md) ghi rõ manifest, tương thích API và giới hạn hủy HTTP còn lại.
+
+Vòng đời HTTP MCP bổ sung tại `b8975cc255e8530e51bb648b1c66671f6f0d342e`: đóng phiên hủy yêu cầu và đọc phản hồi, chặn handle/cấu hình cũ gửi tiếp, không báo thành công cho notification bị ngắt. 80 test MCP đạt; Go tuần tự 1.799 pass/37 skip/0 fail, vet/build đạt sau một lượt song song chạm timeout. [Báo cáo vòng đời MCP](research/grokbot-mcp-lifetime-2026-10-28.md) ghi đầy đủ lỗi tái hiện, timeout và giới hạn kết quả remote chưa xác nhận.
+
+Luồng OAuth MCP của Aurora bổ sung tại `339d1b7fdde8f18d02176a5c3398c255cf4445ab`: đăng nhập có PKCE, callback ràng buộc workspace/cấu hình/issuer, token mã hóa, refresh có biên nhận và ngắt kết nối cục bộ. Go 1.847 pass/38 skip/0 fail; 123 test MCP, callback qua API Go và Chrome thật, các bộ browser hồi quy, vet/build đạt. [Báo cáo OAuth Aurora](research/grokbot-mcp-oauth-flow-2026-10-28.md) ghi rõ các lần kiểm tra thất bại, manifest, trạng thái chưa biết sau mất phản hồi và giới hạn provider/hosted còn lại.
+
+Phục hồi token MCP của Core bổ sung tại `da2c00ca3cb8786e5133ad9a61d53b052d64abb3`: ghi dấu đã bắt đầu trước token POST, ngăn SDK tự đăng nhập lại hoặc tái sử dụng code/refresh token khi kết quả chưa biết; hỗ trợ đọc cache cũ. Gate Core 2200 pass/42 skip/0 fail, 52 test MCP, typecheck/lint và build Windows đạt. [Báo cáo phục hồi token Core](research/grokbot-core-mcp-refresh-recovery-2026-10-28.md) ghi cả lỗi URL chuẩn hóa, lượt dừng, cache PowerShell phát sinh và giới hạn mã hóa/đa tiến trình còn lại.
+
+Trạng thái đã đọc bổ sung tại `c684bb995de97b59c4ce26c4ab27bbd0f8a0f26d`: dữ liệu browser hỏng không chặn mở chat, dấu đọc tách theo workspace và giữ trong cửa sổ khi storage lỗi. 9 nhóm ca mới, 21 hồi quy chung, 23 composer và 8 unit test đạt; asset/syntax/build đạt. [Báo cáo trạng thái đọc](research/grokbot-read-state-2026-10-28.md) ghi việc bắt đầu khóa mới, các lỗi harness và giới hạn đồng bộ.
+
+Tải hội thoại bổ sung tại `dc61d4b8f054a15892009b5891c7af76130fe78a`: phản hồi cũ không ghi đè lần tải mới; đổi workspace thay luồng sự kiện và bỏ callback/thông báo trễ của luồng cũ. 12 nhóm ca mới và các bộ trạng thái đọc/composer/MCP/OAuth, asset/syntax/build đạt. [Báo cáo tải hội thoại](research/grokbot-chat-loading-2026-10-28.md) phân biệt lỗi đã tái hiện với ca hồi quy vốn đã đúng và giới hạn HTTP/SSE còn lại.
+
+Mở liên kết Windows bổ sung tại `fd822355b0fe60fa4363d695b9b7b43955942079`: phân giải executable và DLL trong System32, chỉ nhận URL web và loại biến môi trường chứa khóa nhà cung cấp khỏi tiến trình con. Gate Core 2.206 pass/42 skip/0 fail, 76 test auth, typecheck/lint và build ConPTY/ACP/startup đạt. [Báo cáo mở trình duyệt](research/grokbot-browser-opener-2026-10-28.md) ghi rõ kiểm thử chặn spawn, giới hạn liên kết/default browser và các mục OAuth còn lại.
+
+Cửa sổ bảng bổ sung tại `68942674b99ded286b65f045d13664a2c3ea0a05`: đóng khi đổi chat/workspace hoặc thay tin nguồn, không đóng nhầm khi kéo chọn vượt mép bảng, trả focus mà không kéo chat lên. 86 nhóm ca browser, syntax/asset/build đạt. [Báo cáo cửa sổ bảng](research/grokbot-table-viewer-2026-10-28.md) ghi lỗi tái hiện, lần read-state thất bại và vấn đề focus danh sách cần xử lý tiếp.
+
+Focus danh sách bổ sung tại `8a0c5fd2edcbddc8266d675d3ab075249ab87e35`: giữ đúng bot/nút khi cập nhật cùng workspace, chuyển focus vào ô soạn tin khi mở bằng bàn phím, dùng nút chuẩn và chặn khung ngoài lệch ngang. 98 nhóm ca browser, read-state chạy hai lượt, syntax/asset/build đạt. [Báo cáo focus và viewport](research/grokbot-list-focus-2026-10-28.md) ghi lỗi tái hiện, lỗi bố cục giữa chừng và giới hạn trình duyệt/khả năng tiếp cận.
+
+Cuộn bảng rộng bổ sung tại `24059a1ca8a7b2e92c62f58a2dc3bd3f29eeabf6`: nút trái/phải theo overflow, hover/focus và cảm ứng; nhãn Việt/Anh riêng, giữ nguyên dữ liệu và clipboard. 106 nhóm ca browser, syntax/asset/build đạt. [Báo cáo cuộn bảng](research/grokbot-table-scroll-2026-10-28.md) ghi các lần thất bại, kiểm tra cảm ứng giả lập và giới hạn nền tảng.
+
+Giới hạn phản hồi OAuth Core bổ sung tại `bbc1a4553c593556be7a672773157effff6d4580`: tối đa 1 MiB metadata, 64 KiB token/đăng ký/lỗi HTTP; hủy đọc khi hết hạn và giữ dấu token đã tiêu thụ khi kết quả chưa biết. MCP JSON/SSE thành công giữ hành vi hiện hữu, kể cả khi endpoint trùng URL. Gate Core 2.228 pass/42 skip/0 fail, 50 ca OAuth, 63 ca MCP, typecheck/lint và build ConPTY/ACP/startup đạt. [Báo cáo giới hạn OAuth](research/grokbot-core-oauth-body-2026-10-28.md) ghi các ca đỏ, lần dừng kiểm thử, manifest và giới hạn mạng/lưu trữ còn lại.
+
+Nhập giọng nói bổ sung tại `bf165921460f9a044363b0c6866998dfad71971d`: kết quả tạm thời không ghi đè phần sửa tay, ảnh tải lên hay bản nháp của chat/workspace khác; dừng micro thu hồi callback trước khi gửi, hỗ trợ nhãn và ngôn ngữ Việt/Anh. 117 nhóm ca trình duyệt, 8 test Node, asset/syntax/build đạt. [Báo cáo nhập giọng nói](research/grokbot-dictation-2026-10-28.md) phân biệt kiểm thử sự kiện nhận dạng với microphone và chất lượng nhận dạng thật.
+
+Vòng đời Vault bổ sung tại `da64ddfa3e676335b915b982cb14caef895378d6`: đóng cửa sổ xóa giá trị đang hiện và ô bí mật; phản hồi cũ không thay thế giao diện mới; request mới ràng buộc workspace; xóa tôn trọng ledger chỉ đọc. Go 1.868 pass/38 skip/0 fail trên 25 package, 129 nhóm ca trình duyệt, 8 test Node, vet/build đạt. [Báo cáo vòng đời Vault](research/grokbot-vault-lifecycle-2026-10-28.md) ghi tương thích caller cũ, giới hạn thao tác đã gửi, các lỗi fixture và phần biên nhận còn thiếu; không tăng số dòng changelog được ghi nhận.
+
+Thẻ Vault bổ sung tại `d527f566b914e93adea11eb710a46e43dab737ec`: lỗi lưu dấu trên thiết bị không biến kết quả máy chủ đã nhận thành lỗi; dấu lưu tách theo workspace và không chứa nhãn/bí mật; hết phiên xóa ô bí mật, phản hồi cũ không đè phiên mới. 139 nhóm ca trình duyệt, 8 test Node, syntax/asset/build đạt. [Báo cáo thẻ Vault](research/grokbot-vault-cards-2026-10-29.md) ghi giới hạn dấu cục bộ, lỗi fixture và bằng chứng checkpoint.
+
+Phục hồi danh sách lịch bổ sung tại `b8d62a5bb9b03bb1fa2f3da633b7155c17078d44`: lỗi hiện ngay trong mục lịch với thử lại, giữ dữ liệu đã tải, cập nhật sau reconnect và giữ form đang chỉnh sửa; phản hồi cũ không thay thế hồ sơ mới. 171 nhóm ca trình duyệt, 8 test Node, syntax/asset/build đạt. [Báo cáo tải lịch hẹn](research/grokbot-schedule-loading-2026-10-29.md) ghi 14 ca mới, các lỗi tái hiện, giới hạn fixture và ba mục changelog chỉ được xác nhận một phần.
+
+Múi giờ lịch bổ sung tại `31e6040dd1fdcd62ebeab4dea8a6c8211f613332`: lưu múi giờ riêng, có Europe/Kyiv, giữ lịch cũ/biên nhận, kiểm tra đổi ngày và DST; đóng gói tzdata cho Windows. Go 1.889 pass/38 skip/0 fail, vet và 177 nhóm browser/8 test Node đạt; sửa dịch nội dung cuối được kiểm tra lại bằng 38 nhóm lịch, syntax/asset/build. [Báo cáo múi giờ](research/grokbot-schedule-timezones-2026-10-29.md) ghi hai manifest, lỗi tái hiện và giới hạn múi giờ toàn tài khoản/VM còn lại.
+
+Vòng đời bảng Bộ nhớ bổ sung tại `d9f2d8b31a0554d1edb916427140a11216e7d7b7`: chặn phản hồi cũ theo lần mở/bot/workspace, giữ nháp trước phản hồi trễ, tải lại GET riêng sau lưu và bảo vệ nội dung khỏi bộ dịch UI. 191 nhóm browser, 8 test Node, syntax/asset/build đạt trên cùng manifest. [Báo cáo Bộ nhớ](research/grokbot-memory-lifecycle-2026-10-29.md) phân biệt ràng buộc UI với hợp đồng lưu trữ/revision trên server còn cần xử lý.
+
+
+Bộ nhớ: checkpoint `7cd0cfe417336fb13c42ef37c736d987d248b83a` chỉ xác nhận thao tác sau khi lưu thành công, khôi phục RAM khi ghi lỗi và không ghi đè kho bị hỏng. Full Go đạt 1.922 PASS / 38 SKIP; 35 nhóm trình duyệt, vet và build PASS. Xem [bằng chứng lưu bộ nhớ](research/grokbot-memory-persistence-2026-10-29.md). Kiểm tra revision/workspace trên server vẫn là phần tiếp theo; không tăng số mục changelog đã xác minh.
+
+
+Bộ nhớ: checkpoint `a07a27955b65114c8c82c956b5debad580211b11` bổ sung workspace và revision cho giao diện, chặn sửa/xóa theo vị trí cũ, gắn đề xuất gộp với dữ liệu nguồn và giữ nháp khi tải lại sau xung đột. Full Go 1.949 PASS / 38 SKIP; 198 nhóm trình duyệt và 8 test Node PASS. [Báo cáo hợp đồng bộ nhớ](research/grokbot-memory-revisions-2026-10-29.md) ghi rõ tương thích client cũ và các phần chưa kiểm chứng; index hiện có 20 mục được kiểm chứng cục bộ một phần.
+
+
+Bộ nhớ: checkpoint `c29b364e443de370691c6f08909533d9c0c4a31c` thống nhất trạng thái đang chờ cho nhập/hỏi/gộp và CRUD trong từng bảng, thêm deadline POST 30/95 giây và giữ nội dung khi mất xác nhận. 204 nhóm trình duyệt, 8 test Node, syntax/assets/build PASS; Go/Core/Rust không đổi. [Bằng chứng thao tác bộ nhớ](research/grokbot-memory-operations-2026-10-29.md) ghi rõ giới hạn timeout và lỗi khởi động fixture chưa tái hiện.
+
+
+Mức dùng AI: checkpoint `9fe8014718e5bb06704ccb2b8a70fd87849ad5e3` giữ lần đọc gần nhất theo workspace/khoảng thời gian, có timestamp và thử lại khi lỗi, phục hồi số liệu qua tải lại trang và chặn phản hồi cũ. Full Go 1,961 PASS / 38 SKIP; 81 nhóm trình duyệt liên quan, vet, syntax/assets/build PASS. [Báo cáo khôi phục mức dùng](research/grokbot-usage-recovery-2026-10-29.md) ghi rõ cache trên thiết bị và phạm vi ước tính, không phải hệ thống billing. Index hiện có 21 mục được kiểm chứng cục bộ một phần.
+
+
+Nội dung người dùng khi đổi ngôn ngữ: checkpoint `b0f8acc90ab38e7f7c7705bf061956eb0bacfd5c` giữ nguyên tên bot/nhóm, mô tả, đoạn xem trước và tên mục tùy chỉnh trên các bề mặt chat được kiểm tra. 157 nhóm trình duyệt, 8 kiểm thử Node, syntax/assets/build PASS. [Báo cáo ranh giới nội dung và bản dịch](research/grokbot-content-i18n-2026-10-29.md) ghi rõ phạm vi, lỗi tái hiện và giới hạn; không tăng số mục changelog được kiểm chứng.
+
+
+Vault: checkpoint `13e09e265e2ae36ed973c083ca8f19a30f9adb86` sửa việc cập nhật đồng thời làm mất trường và cập nhật cũ khôi phục mục vừa xóa; từ chối ghi đè mục có dữ liệu hỏng, giữ rollback khi lưu lỗi. Full Go 1,972 PASS / 38 SKIP, 44 nhóm trình duyệt, vet/build PASS. [Báo cáo tính nhất quán khi sửa Vault](research/grokbot-vault-merge-2026-10-29.md) giới hạn rõ bảo vệ trong một tiến trình và phần kiểm chứng còn thiếu.
+
+
+Gợi ý sử dụng Vault (0.77.0): checkpoint `f6ebaed0d7ba316d40e804021db3b6b413d484a8` bổ sung nội dung do chủ sở hữu nhập để bot chọn mục, lưu trong payload mã hóa, có sửa/xóa và giữ nháp khi thẻ chat cập nhật. Gợi ý không trở thành trường điền form và mỗi lần dùng vẫn tạo yêu cầu duyệt. Full Go 1,980 PASS / 38 SKIP; 134 nhóm trình duyệt, 8 kiểm thử Node, vet/syntax/assets/build PASS. [Báo cáo gợi ý sử dụng Vault](research/grokbot-vault-hints-2026-10-29.md) ghi rõ contract, phạm vi mô phỏng và kiểm chứng model/provider còn thiếu. Index hiện có 22 mục được kiểm chứng cục bộ một phần.
+
+
+Vòng đời thẻ nhập bí mật: checkpoint `73e92ebd948e717f112dcd984435550ce60089d5` gắn thao tác lưu với workspace/chat gốc, xóa nội dung khi rời màn hình, chặn phản hồi cũ và chỉ khôi phục nháp cho đúng mục. API bí mật áp dụng kiểm tra workspace/body, no-store và chặn xóa ở chế độ chỉ đọc. Full Go 2,005 PASS / 38 SKIP; 121 nhóm trình duyệt và 8 kiểm thử Node PASS. [Báo cáo vòng đời thẻ bí mật](research/grokbot-secret-lifecycle-2026-10-29.md) ghi rõ tương thích caller cũ và giới hạn request đã gửi. Đây là sửa độ tin cậy của Aurora; số mục nguồn được kiểm chứng không tăng.
+
+
+Thanh toán ưu tiên trong Vault (0.77.0): checkpoint `92d9658a9acd2c5c4ff9765bcb08d23fa8b61cde` thêm tab Thanh toán, chọn/đổi/bỏ thẻ ưu tiên, lưu bền lựa chọn và đưa dấu ưu tiên vào metadata bot đọc. Mỗi lần dùng vẫn tạo yêu cầu duyệt; đổi ưu tiên không đổi đích của yêu cầu đã chờ. Full Go 2,022 PASS / 38 SKIP; 131 nhóm trình duyệt và 8 kiểm thử Node, vet/syntax/assets/build PASS. [Báo cáo thanh toán ưu tiên](research/grokbot-vault-payments-2026-10-29.md) phân biệt lựa chọn metadata với giao dịch thật và ghi rõ kiểm chứng còn thiếu. Index có 23 dòng nguồn được kiểm chứng cục bộ một phần.
+
+
+Form sửa Vault (0.77.0): checkpoint `43aed1963cae8b7978becd5db1520222217d22b3` hiển thị mật khẩu đã lưu bằng gợi ý che giá trị, thêm Xóa ngay trên form và dùng chung hành vi xóa với màn hình chi tiết. Lưu/xóa loại trừ nhau trong một form; lỗi/hủy giữ nháp, phản hồi cũ không thay đổi màn hình mới. 170 nhóm trình duyệt, 8 kiểm thử Node, syntax/assets/build PASS. Go/Core/Rust không đổi; bằng chứng full Go 2.022 PASS / 38 SKIP kế thừa từ checkpoint thanh toán đã đối chiếu hash. [Báo cáo form sửa Vault](research/grokbot-vault-editor-2026-10-29.md) ghi rõ phạm vi UI; thứ tự email riêng của bot trong cùng dòng changelog chưa được áp dụng. Index có 24 dòng được kiểm chứng cục bộ một phần.
