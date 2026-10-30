@@ -32,12 +32,13 @@ func TestCoreActualCLIChatGPTWithoutProfileBridge(t *testing.T) {
 		t.Fatal(err)
 	}
 	entryJSON, _ := json.Marshal(entry)
+	setupJSON, _ := json.Marshal(filepath.Join(filepath.Dir(entry), "aurora-setup.ts"))
 	bootstrap := `import { pathToFileURL } from "node:url";
 import { writeFileSync } from "node:fs";
 import { join } from "node:path";
 globalThis.fetch = async (input, init) => {
   const url = String(input);
-  if (url.startsWith("https://chatgpt.com/backend-api/codex/models")) return Response.json({models: []});
+  if (url.startsWith("https://chatgpt.com/backend-api/codex/models")) return Response.json({models: [{slug:"gpt-5.5",display_name:"Fixture direct model",visibility:"list"}]});
   if (url !== "https://chatgpt.com/backend-api/codex/responses") throw new Error("Unexpected fixture network destination");
   const body = JSON.parse(String(init?.body));
   if (body.model !== "gpt-5.5" || (body.tools?.length ?? 0) !== 0 || new Headers(init?.headers).get("authorization") !== "Bearer fixture-chatgpt-access") throw new Error("Wrong fixture route or credentials");
@@ -50,6 +51,7 @@ await import(pathToFileURL(` + string(entryJSON) + `).href);
 	fixtureEntry := filepath.Join(bin, "neko-fixture.ts")
 	for name, data := range map[string][]byte{
 		fixtureEntry: []byte(bootstrap), filepath.Join(root, "bunfig.neko.toml"): {},
+		filepath.Join(bin, "aurora-setup.ts"): []byte(strings.Replace(bootstrap, string(entryJSON), string(setupJSON), 1)),
 	} {
 		if err := os.WriteFile(name, data, 0600); err != nil {
 			t.Fatal(err)
@@ -73,6 +75,11 @@ await import(pathToFileURL(` + string(entryJSON) + `).href);
 	if _, err := os.Stat(filepath.Join(home, "request-reached.json")); err != nil {
 		t.Fatal("real Core provider was not reached", err)
 	}
+	c.Model = "retired-fixture"
+	_, err = c.Stream(ctx, []ChatMsg{{Role: "user", Content: "Must not reach completion."}}, func(string) { t.Fatal("unavailable model emitted output") })
+	if err == nil || err.Error() != "core_model_unavailable" {
+		t.Fatalf("retired model was not blocked: %v", err)
+	}
 }
 
 func TestCoreExitErrorsAreBoundedAndReadable(t *testing.T) {
@@ -81,6 +88,9 @@ func TestCoreExitErrorsAreBoundedAndReadable(t *testing.T) {
 		{"ChatGPT is not signed in. Run neko login chatgpt.", "core_auth_required"},
 		{"ChatGPT token refresh failed (HTTP 401). fixture-private-response", "core_auth_required"},
 		{"HTTP 500 fixture-private-token-and-response", "core_failed"},
+		{"ChatGPT Codex HTTP 404: fixture-private", "core_model_unavailable"},
+		{"ChatGPT Codex HTTP 429: fixture-private", "core_rate_limited"},
+		{"ChatGPT completion failed: fixture-private", "core_connection_failed"},
 	} {
 		if got := coreExitError(tc.stderr).Error(); got != tc.code {
 			t.Fatalf("unexpected public code %q", got)

@@ -31,9 +31,15 @@ func (s *Service) modelMenu() []modelOpt {
 	}
 	out := []modelOpt{}
 	if s.quick != nil {
-		for _, p := range s.quick.Providers {
+		for _, p := range s.quick.providers() {
 			for _, m := range p.Models {
-				out = append(out, modelOpt{"core-" + p.ID + ":" + m, m, p.Label})
+				label := m
+				for _, opt := range p.ModelOptions {
+					if opt.ID == m {
+						label = opt.Label
+					}
+				}
+				out = append(out, modelOpt{"core-" + p.ID + ":" + m, label, p.Label})
 			}
 		}
 	}

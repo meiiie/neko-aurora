@@ -168,6 +168,15 @@ func (c *Core) Stream(ctx context.Context, msgs []ChatMsg, onDelta func(string))
 	if c.Quick && privatefs.CheckDirectory(c.Home) != nil {
 		return "", errors.New("core_home_unavailable")
 	}
+	if c.Quick && c.Profile == "chatgpt" {
+		catalog, err := c.chatGPTModels(ctx)
+		if err != nil {
+			return "", err
+		}
+		if issue := chatGPTSelectionIssue(catalog, c.Model); issue != "" {
+			return "", errors.New(issue)
+		}
+	}
 	args := []string{c.Entry, "--profile", c.Profile, "--no-tools", "run", corePrompt(msgs)}
 	if c.Quick {
 		args = append(c.bunFlags(), args...)
@@ -254,6 +263,17 @@ func (c *Core) environment() []string {
 }
 
 func coreExitError(stderr string) error {
+	for _, rule := range []struct{ marker, code string }{
+		{"model_not_found", "core_model_unavailable"}, {"ChatGPT Codex HTTP 404:", "core_model_unavailable"},
+		{"ChatGPT Codex HTTP 401:", "core_auth_required"}, {"ChatGPT Codex HTTP 403:", "core_access_denied"},
+		{"ChatGPT Codex HTTP 429:", "core_rate_limited"}, {"usage_limit_reached", "core_rate_limited"},
+		{"ChatGPT needs a one-time setup", "core_support_required"}, {"optional Codex support component", "core_support_required"},
+		{"Could not prepare ChatGPT yet", "core_support_required"}, {"ChatGPT completion failed:", "core_connection_failed"},
+	} {
+		if strings.Contains(stderr, rule.marker) {
+			return errors.New(rule.code)
+		}
+	}
 	for _, marker := range []string{"Credential home requires the trusted profile bridge entrypoint", "Profile auth requires a trusted entrypoint"} {
 		if strings.Contains(stderr, marker) {
 			return errors.New("core_configuration_invalid")

@@ -24,6 +24,10 @@ import (
 )
 
 func TestMain(m *testing.M) {
+	if len(os.Args) == 6 && os.Args[1] == "--no-env-file" && filepath.Base(os.Args[4]) == "aurora-setup.ts" && os.Args[5] == "models" {
+		fmt.Print(`{"models":[{"id":"gpt-fixture","label":"Fixture","available":true,"transport":"responses"}],"checkedAt":"2026-10-31T00:00:00Z"}`)
+		os.Exit(0)
+	}
 	if len(os.Args) > 4 && os.Args[1] == "--no-env-file" && os.Args[4] == "aurora-quick-fixture" {
 		if len(os.Args) != 10 || os.Args[2] != "--no-install" || !strings.HasPrefix(os.Args[3], "--config=") || os.Args[5] != "--profile" || os.Args[7] != "--no-tools" || os.Args[8] != "run" || os.Getenv("HOME") != os.Getenv("USERPROFILE") || os.Getenv("NEKO_CREDENTIAL_HOME") != "" {
 			os.Exit(2)

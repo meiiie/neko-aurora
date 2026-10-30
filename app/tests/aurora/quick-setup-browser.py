@@ -26,6 +26,8 @@ class Fixture:
         self.failure = 0
         self.login = 'waiting'
         self.available = True
+        self.catalog = False
+        self.catalog_failure = False
     def effective(self):
         if not self.selection: return {'configured':False,'inherited':True}
         provider,model=self.selection.removeprefix('core-').split(':',1)
@@ -40,11 +42,14 @@ class Fixture:
         elif path == '/events':
             route.fulfill(content_type='text/event-stream',body='');return
         elif path.endswith('/messages'):
-            data = [{'id':'failure','agentId':'bot-a','role':'system','text':'Tin nhắn chưa được xử lý.','recovery':'configure_ai','t':'2026-10-30T15:00:00Z'}]
+            data = [{'id':'failure','agentId':'bot-a','role':'system','text':'Tin nhắn chưa được xử lý.','recovery':'check_ai','t':'2026-10-30T15:00:00Z'}]
         elif path == '/models':
             data = {'models':[],'providers':[],'vision':'glm:fixture','browser':False,'defaultConfigured':False}
-        elif path == '/quick-setup':
-            if req.method == 'POST':
+        elif path == '/agents/bot-a/ext':
+            data = {'workspaceId':self.scope,'model':self.selection,'menu':[]}
+        elif path in ('/quick-setup','/quick-setup/models'):
+            if path.endswith('/models') and not self.catalog_failure: self.catalog=True
+            if req.method == 'POST' and path == '/quick-setup':
                 if self.failure: status = self.failure
                 else:
                     body = req.post_data_json
@@ -53,7 +58,7 @@ class Fixture:
                     self.selection = 'core-'+body['provider']+':'+body['model']
                     self.configured.add(body['provider'])
             data = {'workspaceId':self.scope,'available':self.available,'selection':self.selection,'effective':self.effective(),'providers':[
-                {'id':pid,'label':pid,'auth':'chatgpt_oauth' if pid=='chatgpt' else 'api_key','model':model,'models':[model], 'configured':pid in self.configured}
+                {'id':pid,'label':pid,'auth':'chatgpt_oauth' if pid=='chatgpt' else 'api_key','model':model,'models':(['gpt-fixture','gpt-next'] if self.catalog else []) if pid=='chatgpt' else [model], 'configured':pid in self.configured, 'modelSource':('account' if self.catalog else 'account_required') if pid=='chatgpt' else 'preset','modelOptions':[{'id':'gpt-fixture','label':'gpt-fixture','available':True},{'id':'gpt-next','label':'Next account model','available':True},{'id':'gpt-needs-update','label':'Needs update','available':False}] if pid=='chatgpt' and self.catalog else [],'catalogError':'core_catalog_unavailable' if pid=='chatgpt' and self.catalog_failure else ''}
                 for pid,model in [('zai','glm-fixture'),('zai-openai','glm-api-fixture'),('chatgpt','gpt-fixture')]
             ]}
         elif path == '/quick-setup/login': data = {'id':'fixture-attempt','state':'starting'}
@@ -73,7 +78,7 @@ with sync_playwright() as p:
     context.add_init_script("if(!localStorage.getItem('neko-aurora-lang'))localStorage.setItem('neko-aurora-lang','vi');window.EventSource=class extends EventTarget{close(){}};")
     page=context.new_page();errors=[];page.on('pageerror',lambda e:errors.append(str(e)));page.route('**/app/api/**',fixture.route)
     page.route('https://**/*',lambda r:r.abort())
-    def setup(): page.locator('.ai-setup-card').get_by_role('button',name='Thiết lập AI',exact=True).click()
+    def setup(): page.locator('.ai-setup-card').get_by_role('button',name='AI của bot',exact=True).click()
     def close(): page.locator('#closeExt').click();page.wait_for_timeout(450)
     try:
         page.goto(f'http://127.0.0.1:{server.server_port}/app/#bot-a')
@@ -120,6 +125,9 @@ with sync_playwright() as p:
         fixture.login='connected';page.get_by_role('button',name='Đăng nhập ChatGPT',exact=True).click()
         expect(page.locator('#quickSetup')).to_contain_text('Chọn dùng kết nối để hoàn tất.')
         assert fixture.selection=='core-zai:glm-fixture'
+        expect(page.locator('#quickModel option[value="gpt-fixture"]')).to_have_count(1)
+        expect(page.get_by_role('button',name='Dùng kết nối này',exact=True)).to_be_disabled()
+        page.locator('#quickModel').select_option('gpt-fixture')
         page.get_by_role('button',name='Dùng kết nối này',exact=True).click()
         expect(page.locator('#quickSetup')).to_contain_text('Đã chọn AI.')
         assert fixture.selection=='core-chatgpt:gpt-fixture'
@@ -135,6 +143,30 @@ with sync_playwright() as p:
         page.locator('#prAI').click();expect(page.locator('.quick-current')).to_contain_text('gpt-fixture')
         print('PASS selected bot model visible in header, profile and setup after save/reload')
         close();page.locator('#profBack').click();setup()
+        close();fixture.selection='core-chatgpt:retired-fixture';setup()
+        expect(page.locator('#quickModel')).to_have_value('retired-fixture')
+        expect(page.locator('#quickCatalogNote')).to_contain_text('không khả dụng')
+        expect(page.get_by_role('button',name='Dùng kết nối này',exact=True)).to_be_disabled()
+        expect(page.locator('#quickModel option[value="gpt-needs-update"]')).to_have_attribute('disabled','')
+        page.get_by_text('Cấu hình nâng cao',exact=True).click()
+        page.get_by_role('button',name='Chọn mô hình cho bot này',exact=True).click()
+        expect(page.locator('#extModel')).to_have_value('core-chatgpt:retired-fixture')
+        expect(page.locator('#extModel option:checked')).to_contain_text('Không có trong danh sách')
+        page.get_by_role('button',name='Thiết lập nhanh',exact=True).click()
+        expect(page.locator('#quickModel')).to_have_value('retired-fixture')
+        fixture.catalog_failure=True;page.locator('#quickRefreshModels').click()
+        expect(page.locator('#quickCatalogNote')).to_contain_text('Chưa tải được danh sách mới')
+        assert fixture.selection=='core-chatgpt:retired-fixture'
+        fixture.catalog_failure=False;page.locator('#quickRefreshModels').click()
+        expect(page.locator('#quickCatalogNote')).to_contain_text('không khả dụng')
+        page.locator('#quickModel').select_option('gpt-next')
+        assert fixture.selection=='core-chatgpt:retired-fixture'
+        page.get_by_role('button',name='Dùng kết nối này',exact=True).click()
+        expect(page.locator('#quickSetup')).to_contain_text('Đã chọn AI.')
+        assert fixture.selection=='core-chatgpt:gpt-next'
+        assert not any(path.endswith('/messages') for path,_ in fixture.posts)
+        print('PASS live catalog refresh/retry, unavailable selection retained, disabled support and explicit model change')
+
 
         close();fixture.scope='another-workspace';setup()
         expect(page.locator('#quickSetup')).to_contain_text('Tài khoản đã thay đổi.')
@@ -151,7 +183,7 @@ with sync_playwright() as p:
         page.locator('#quickProvider').select_option('chatgpt')
         page.screenshot(path=str(OUT/'quick-chatgpt-mobile.png'),full_page=True)
         close();page.evaluate("localStorage.setItem('neko-aurora-lang','en')");page.reload()
-        page.locator('.ai-setup-card').get_by_role('button',name='Set up AI',exact=True).click()
+        page.locator('.ai-setup-card').get_by_role('button',name='Bot AI',exact=True).click()
         expect(page.get_by_role('heading',name='Choose your AI')).to_be_visible()
         page.locator('#quickProvider').select_option('chatgpt')
         expect(page.get_by_role('button',name='Sign in to ChatGPT',exact=True)).to_be_visible()

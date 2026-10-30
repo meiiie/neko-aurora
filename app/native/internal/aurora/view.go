@@ -306,6 +306,18 @@ func failureText(code string) string {
 		return "Aurora chưa mở được bộ chạy AI trên máy này. Hãy kiểm tra cài đặt Neko Core rồi thử lại."
 	case code == "core_failed":
 		return "AI chưa trả lời được. Bạn có thể thử lại hoặc kiểm tra kết nối trong thiết lập AI."
+	case code == "core_model_unavailable":
+		return "Model đang chọn không có trong danh sách ChatGPT của tài khoản này. Mở AI của bot, tải lại danh sách và chọn model khác. Tin nhắn này chưa được xử lý."
+	case code == "core_support_required":
+		return "Model này cần cập nhật thành phần ChatGPT trên máy chạy Aurora. Đăng nhập của bạn vẫn được giữ."
+	case code == "core_catalog_unavailable":
+		return "Chưa tải được danh sách model từ ChatGPT. Kiểm tra kết nối mạng rồi tải lại danh sách trong AI của bot."
+	case code == "core_rate_limited":
+		return "ChatGPT đang giới hạn lượt dùng của tài khoản này. Bạn có thể thử lại sau hoặc chọn kết nối AI khác."
+	case code == "core_access_denied":
+		return "ChatGPT chưa cho phép tài khoản này dùng model đã chọn. Hãy kiểm tra gói tài khoản hoặc chọn model khác."
+	case code == "core_connection_failed":
+		return "Aurora chưa kết nối được với ChatGPT. Kiểm tra mạng rồi thử lại; đăng nhập của bạn vẫn được giữ."
 	case code == "interrupted_by_restart":
 		return "Tác vụ bị gián đoạn khi máy chủ khởi động lại. Nhắn lại để tiếp tục."
 	case code == "stopped_by_owner":
@@ -429,6 +441,8 @@ func workMessages(w ledger.Work, botRunning bool) []*Message {
 		m := &Message{ID: w.RequestID + ":end", TaskID: w.RequestID, AgentID: w.BotID, Role: "system", Text: failureText(w.Failure), Created: at}
 		if w.Failure == "ai_not_configured" {
 			m.Recovery = "configure_ai"
+		} else if strings.HasPrefix(w.Failure, "core_") {
+			m.Recovery = "check_ai"
 		}
 		out = append(out, m)
 	}

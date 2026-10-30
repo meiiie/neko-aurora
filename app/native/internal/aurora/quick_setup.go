@@ -22,12 +22,16 @@ import (
 )
 
 type quickProvider struct {
-	ID     string   `json:"id"`
-	Label  string   `json:"label"`
-	Auth   string   `json:"auth"`
-	Model  string   `json:"model"`
-	Models []string `json:"models"`
-	KeyEnv string   `json:"keyEnv,omitempty"`
+	ID           string             `json:"id"`
+	Label        string             `json:"label"`
+	Auth         string             `json:"auth"`
+	Model        string             `json:"model"`
+	Models       []string           `json:"models"`
+	KeyEnv       string             `json:"keyEnv,omitempty"`
+	ModelSource  string             `json:"modelSource,omitempty"`
+	ModelOptions []quickModelOption `json:"modelOptions,omitempty"`
+	CatalogError string             `json:"catalogError,omitempty"`
+	CheckedAt    string             `json:"checkedAt,omitempty"`
 }
 type quickLogin struct {
 	ID    string `json:"id"`
@@ -35,13 +39,17 @@ type quickLogin struct {
 	URL   string `json:"url,omitempty"`
 }
 type quickSetup struct {
-	mu        sync.Mutex
-	Core      *Core
-	Providers []quickProvider
-	ChatGPT   bool
-	login     quickLogin
-	cancel    context.CancelFunc
-	runLogin  func(context.Context, func(quickLogin)) error
+	mu          sync.Mutex
+	Core        *Core
+	Providers   []quickProvider
+	ChatGPT     bool
+	login       quickLogin
+	cancel      context.CancelFunc
+	runLogin    func(context.Context, func(quickLogin)) error
+	runModels   func(context.Context) (quickModelCatalog, error)
+	modelsMu    sync.Mutex
+	models      *quickModelCatalog
+	modelsError string
 }
 
 func openQuickSetup(parent context.Context, dir string) *quickSetup {
@@ -71,6 +79,7 @@ func openQuickSetup(parent context.Context, dir string) *quickSetup {
 		return nil
 	}
 	q := &quickSetup{Core: c, Providers: data.Providers, ChatGPT: data.ChatGPT}
+	q.runModels = c.chatGPTModels
 	q.runLogin = func(ctx context.Context, emit func(quickLogin)) error {
 		if err := privatefs.CheckDirectory(c.Home); err != nil {
 			return err
@@ -109,7 +118,7 @@ func (c *Core) setupCommand(ctx context.Context, action string) *exec.Cmd {
 
 func (q *quickSetup) provider(id string) (quickProvider, bool) {
 	if q != nil {
-		for _, p := range q.Providers {
+		for _, p := range q.providers() {
 			if p.ID == id {
 				return p, true
 			}
@@ -135,7 +144,7 @@ func (s *Service) quickModel(selection string) *Core {
 	for _, m := range p.Models {
 		valid = valid || m == model
 	}
-	if !valid {
+	if !valid && !(p.Auth == "chatgpt_oauth" && coreModelID.MatchString(model)) {
 		return nil
 	}
 	c := *s.quick.Core
@@ -194,6 +203,15 @@ func (s *Service) aiViewFor(bot string) map[string]any {
 			view["runtime"] = "neko-core-cli"
 			if p, ok := s.quick.provider(strings.TrimPrefix(id, "core-")); ok {
 				view["provider"], view["configured"] = p.Label, s.quickReady(p)
+				view["modelSource"] = p.ModelSource
+				if p.ID == "chatgpt" && p.ModelSource == "account" {
+					view["issue"] = chatGPTSelectionIssue(quickModelCatalog{Models: p.ModelOptions}, model)
+					for _, m := range p.ModelOptions {
+						if m.ID == model {
+							view["modelLabel"], view["transport"] = m.Label, m.Transport
+						}
+					}
+				}
 			}
 		} else {
 			view["runtime"] = "direct-http"
@@ -224,14 +242,40 @@ func (s *Service) quickScope(bot string) bool {
 func (s *Service) quickView(bot string) map[string]any {
 	rows := []map[string]any{}
 	if s.quick != nil {
-		for _, p := range s.quick.Providers {
-			rows = append(rows, map[string]any{"id": p.ID, "label": p.Label, "auth": p.Auth, "model": p.Model, "models": p.Models, "configured": s.quickReady(p)})
+		for _, p := range s.quick.providers() {
+			rows = append(rows, map[string]any{"id": p.ID, "label": p.Label, "auth": p.Auth, "model": p.Model, "models": p.Models, "configured": s.quickReady(p), "modelSource": p.ModelSource, "modelOptions": p.ModelOptions, "catalogError": p.CatalogError, "checkedAt": p.CheckedAt})
 		}
 	}
 	return map[string]any{"workspaceId": s.workspaceID, "available": s.quick != nil, "providers": rows, "selection": s.quickSelection(bot), "effective": s.aiViewFor(bot)}
 }
 
 func (s *Service) quickSetupRoutes() {
+	s.mux.HandleFunc("POST /app/api/quick-setup/models", func(w http.ResponseWriter, r *http.Request) {
+		var in struct {
+			WorkspaceID string `json:"workspaceId"`
+			BotID       string `json:"botId"`
+		}
+		if decodeStrict(r, &in) != nil {
+			fail(w, ErrInvalid)
+			return
+		}
+		if in.WorkspaceID != s.workspaceID || s.L.ReadOnly() {
+			fail(w, ledger.ErrConflict)
+			return
+		}
+		if !s.quickScope(in.BotID) {
+			fail(w, ErrNotFound)
+			return
+		}
+		if s.quick == nil || s.quick.runModels == nil {
+			writeJSON(w, 503, map[string]string{"error": "core_setup_unavailable"})
+			return
+		}
+		_ = s.quick.refreshModels(r.Context())
+		s.resync()
+		w.Header().Set("Cache-Control", "no-store")
+		writeJSON(w, 200, s.quickView(in.BotID))
+	})
 	s.mux.HandleFunc("GET /app/api/quick-setup", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Cache-Control", "no-store")
 		bot := r.URL.Query().Get("botId")
@@ -376,6 +420,7 @@ func (s *Service) quickSetupRoutes() {
 			q.login.URL = ""
 			if err == nil && connected && ctx.Err() == nil {
 				q.ChatGPT = true
+				q.models, q.modelsError = nil, ""
 				q.login.State = "connected"
 			} else {
 				q.login.State = "failed"
