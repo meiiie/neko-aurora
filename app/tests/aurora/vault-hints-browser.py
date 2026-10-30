@@ -3,7 +3,7 @@ import functools,http.server,json,os,threading,time
 from pathlib import Path
 from urllib.parse import urlsplit
 from playwright.sync_api import expect,sync_playwright
-ROOT=Path(__file__).resolve().parents[3];OUT=ROOT/'.audit/2026-10-29-vault-hints';OUT.mkdir(exist_ok=True)
+ROOT=Path(__file__).resolve().parents[3];OUT=Path(os.environ.get('AURORA_BROWSER_AUDIT_DIR', ROOT/'.audit/2026-10-29-vault-hints'));OUT.mkdir(exist_ok=True)
 class Server(http.server.ThreadingHTTPServer):request_queue_size=64
 class Handler(http.server.SimpleHTTPRequestHandler):
     def log_message(self,*_):pass
@@ -33,7 +33,7 @@ try:
         context=browser.new_context(viewport={'width':390,'height':844},locale='vi-VN',service_workers='block',reduced_motion='reduce');context.add_init_script('window.fixtureStreams=[];window.EventSource=class{constructor(){this.listeners={};fixtureStreams.push(this)}addEventListener(t,f){(this.listeners[t]??=[]).push(f)}close(){}emit(t,d){for(const f of this.listeners[t]||[])f({data:JSON.stringify(d)})}}')
         page=context.new_page();fx=Fixture();errors=[];page.on('pageerror',lambda e:errors.append(str(e)));page.route('**/app/api/**',fx.route);page.goto(f'http://127.0.0.1:{server.server_port}/app/',wait_until='networkidle')
         body=page.locator('#vaultBody');hint=body.locator('textarea[name="useHint"]')
-        def open_vault():page.locator('#meBtn').click();page.locator('#openVault').click();expect(body.locator('.vault-row')).to_be_visible()
+        def open_vault():page.locator('#meBtn:visible, [data-workspace-action="settings"]:visible').click();page.locator('#openVault').click();expect(body.locator('.vault-row')).to_be_visible()
         def edit():body.locator('.vault-row').click();body.get_by_role('button',name='Sửa',exact=True).click();expect(hint).to_be_visible()
         def close():page.keyboard.press('Escape');page.wait_for_timeout(450)
         open_vault();edit();expect(hint).to_have_value(fx.hint);expect(hint).to_have_attribute('maxlength','500');expect(body).to_contain_text('Bot đọc gợi ý này')

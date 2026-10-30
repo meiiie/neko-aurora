@@ -111,10 +111,11 @@ function badge(a){const k=a.status==="working"?"work":waiting(a)?"wait":a.status
 let filter="",listScope;
 const statusLine=a=>a.status==="working"?"Đang làm việc…":waiting(a)?"Chờ bạn duyệt":a.snip||a.desc||"";
 function renderList(){
+ window.AURORA_WORKSPACE?.notify();
  const focused=document.activeElement,focusControl=listScope===S.workspaceId&&focused.matches("#rows .rowin,#rows .pin,#rows .arch,#featured .feat");
  const focusId=focusControl?focused.closest("[data-id]").dataset.id:null,focusKind=focusControl?["rowin","pin","arch","feat"].find(c=>focused.classList.contains(c)):null;listScope=S.workspaceId;
  const all=[...S.agents].sort((a,b)=>(waiting(b)-waiting(a))||T(b.t)-T(a.t));
- const q=filter.trim().toLowerCase(),match=a=>!q||a.name.toLowerCase().includes(q)||(a.snip||"").toLowerCase().includes(q);
+ const q=filter.trim().toLowerCase(),match=a=>(!q||a.name.toLowerCase().includes(q)||(a.snip||"").toLowerCase().includes(q))&&(!window.AURORA_WORKSPACE||AURORA_WORKSPACE.matches(a,{waiting:waiting(a),unread:unread(a)}));
  const pinned=all.filter(a=>a.pin&&match(a)),rest=all.filter(a=>!a.pin&&match(a));
  const fe=$("#featured");fe.innerHTML="";fe.classList.toggle("hidden",!pinned.length);
  pinned.forEach(a=>{const b=el("button","feat");b.dataset.id=a.id;b.dataset.noi18n="";b.setAttribute("aria-label",a.name);const av=el("span","feat-av");av.append(avatarOf(a,92));const bd=badge(a);if(bd)av.append(bd);const nm=el("span","feat-name");nm.append(el("span",0,a.name));if(unread(a)){nm.append(el("i","dot"));b.setAttribute("aria-label",a.name+", "+(window.__I18N?.t("chưa đọc")||"chưa đọc"))}b.append(av,nm);b.onclick=e=>{if(e.detail&&performance.now()<suppress)return;openThread(a.id);if(e.detail===0)inp.focus({preventScroll:true})};longPress(b,a);fe.append(b)});
@@ -140,7 +141,7 @@ function renderList(){
   if(hid.has(a.id))li.classList.add("is-hidden");
   if(!isGroup(a))swipeRow(li,inn);longPress(inn,a)});
  if(hiddenN&&!q){const li=el("li","hid-toggle"),b=el("button","text-btn",showHidden?"Ẩn lại "+hiddenN+" bot":"Đã ẩn · "+hiddenN);b.onclick=()=>{showHidden=!showHidden;buzz("tap");renderList()};li.append(b);ul.append(li)}
- const em=$("#empty");em.classList.toggle("hidden",!!(pinned.length||rest.length));em.textContent=q?"Không tìm thấy “"+filter.trim()+"”.":"Chưa có bot nào. Bấm + để tạo.";
+ const em=$("#empty");em.classList.toggle("hidden",!!(pinned.length||rest.length));em.textContent=q?"Không tìm thấy “"+filter.trim()+"”.":window.AURORA_WORKSPACE?.filtered()?"Không có hội thoại trong bộ lọc này.":"Chưa có bot nào. Bấm + để tạo.";
  updatePill();
  if(focusId&&(document.activeElement===focused||document.activeElement===document.body)){
   const row=[...ul.children].find(n=>n.dataset.id===focusId),featured=[...fe.children].find(n=>n.dataset.id===focusId),target=row?.querySelector("."+focusKind);
@@ -1089,4 +1090,26 @@ function vaultCard(m){const x=m.secret,t=x.vault,scope=S.workspaceId,key="aurora
  c.append(vaultForm(t,null,it=>{const persisted=rememberVaultCard(key,it);nodeCache.delete(m.id);renderThread();if(!persisted)toast("Đã lưu vào Vault. Thiết bị chưa nhớ được trạng thái thẻ.")},{task:m.taskId,label:x.label,site:x.site}));return c}
 {const _rs3=renderSettings;renderSettings=function(){_rs3();const B=$("#settingsBody");const c=card("Bảo mật",cell("shield-check","Vault",{id:"openVault",sub:"Thẻ, đăng nhập, thông tin cá nhân · mã hoá",onClick:()=>openVault()}));const u=$("#openUsage");const g=u&&u.closest(".card-group");g?g.after(c):B.append(c)}}
 window.__AURORA=Object.assign(window.__AURORA||{},{openVault});
+const workspaceRenderThread=renderThread;
+renderThread=function(){workspaceRenderThread();window.AURORA_WORKSPACE?.notify()};
+const workspaceOpenThread=openThread;
+openThread=function(id){if(profId&&profId!==id)closeProfile(true);return workspaceOpenThread(id)};
+window.AURORA_WORKSPACE?.mount({
+ workspaceId:()=>S.workspaceId,
+ view:()=>{const hidden=store.get("neko-aurora-hidden",[]);return{workspaceId:S.workspaceId,ready:!!S.workspaceId&&$("#login").classList.contains("hidden"),current:cur?.id,agents:S.agents.map(a=>({...a,waiting:waiting(a),unread:unread(a),hidden:Array.isArray(hidden)&&hidden.includes(a.id)}))}},
+ avatar:avatarOf,renderList,open:id=>{openThread(id);AURORA_WORKSPACE.notify()},
+ home:()=>{if(profId)closeProfile(true);closeThread();AURORA_WORKSPACE.notify()},
+ busy:()=>!!sheetOpen||!!ctxOpen,
+ profile:(id,section)=>{openProfile(id);if(section==="schedule")requestAnimationFrame(()=>{const node=$("#schedBox");if(profId===id&&node){node.scrollIntoView({block:"start"});node.focus({preventScroll:true})}})},
+ botAction:(kind,id)=>{if(kind==="tools")openExt(id);else if(kind==="memory")openMemory(id);else if(kind==="computer")openProfile(id)},
+ action:kind=>{
+  if(sheetOpen||ctxOpen)return;
+  if(kind==="create")openCreator();
+  else if(kind==="pages")openPages(false);
+  else if(kind==="apps")$("#appsBtn").click();
+  else if(kind==="vault")openVault();
+  else if(kind==="network")$("#networkBtn").click();
+  else if(kind==="settings")$("#meBtn").click();
+ }
+});
 })();

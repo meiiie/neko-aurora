@@ -20,6 +20,7 @@
 <link rel="stylesheet" href="/app/network.css">
 <link rel="stylesheet" href="/app/cloud.css">
 <link rel="stylesheet" href="/app/pages.css">
+<link rel="stylesheet" href="/app/workspace.css">
 <script src="/app/theme.js"></script>
 <script src="/app/i18n.js"></script>
 <script src="/app/startup.js"></script>
@@ -41,18 +42,29 @@
 <script src="/app/downloads.js" defer></script>
 <script src="/app/mcp-authorization.js" defer></script>
 <script src="/app/pages.js" defer></script>
+<script src="/app/workspace.js" defer></script>
 <script src="/app/app.js" defer></script>
 </head>
 <body>
+<button type="button" class="workspace-skip" id="workspaceSkip">Đi đến nội dung</button>
 <div id="app">
+  <aside class="workspace-rail" id="workspaceRail" aria-label="Không gian làm việc">
+    <button type="button" class="workspace-home-button" id="workspaceHomeButton" aria-label="Tổng quan"><img src="/app/icon.svg" alt="" width="34" height="34"></button>
+    <nav id="workspaceNav" aria-label="Điều hướng chính"></nav>
+    <button type="button" class="workspace-nav-button" id="workspacePaletteButton" aria-label="Tìm nhanh" title="Tìm nhanh · Ctrl/Cmd+K"></button>
+    <button type="button" class="workspace-nav-button" id="workspaceSidebarToggle" aria-label="Thu gọn danh sách bot" aria-controls="list" aria-expanded="true"></button>
+  </aside>
   <section class="screen" id="list" aria-label="Bot">
     <header class="top">
       <button class="me" id="meBtn" aria-label="Cài đặt"><img src="/app/icon.svg" alt="" width="36" height="36"></button>
+      <div class="workspace-brand" data-noi18n>Aurora <small>WORKSPACE</small></div>
       <div class="spacer"></div>
       <button class="network-entry" id="networkBtn" type="button" aria-haspopup="dialog" aria-expanded="false" aria-controls="networkDialog"><span id="networkIcon" aria-hidden="true"></span><span>Giao tiếp agent</span><span class="network-count hidden" id="networkUnread"></span></button>
       <button class="icon-btn cloud-entry" id="cloudBtn" type="button" aria-label="Máy tính cloud của bot" title="Máy tính cloud" aria-haspopup="dialog" aria-expanded="false" aria-controls="cloudDialog"><span id="cloudIcon" aria-hidden="true">☁</span></button>
       <button class="round" id="newBtn" aria-label="Tạo mới" aria-haspopup="menu"></button>
     </header>
+    <div class="workspace-list-heading"><h1>Bot &amp; nhóm</h1><output id="workspaceCount">0</output><button type="button" data-workspace-go="routines">Lịch chạy</button><button type="button" id="workspaceNewBot" aria-label="Tạo bot mới">+</button></div>
+    <div class="workspace-filters" id="workspaceFilters" role="group" aria-label="Lọc hội thoại"></div>
     <div class="scroll" id="listScroll">
       <section class="startup" id="startup" aria-label="Neko Aurora">
         <p id="startupStatus" role="status">Đang mở Neko Aurora…</p>
@@ -69,11 +81,29 @@
       <label class="searchbar glass"><span id="searchIc"></span><input id="search" type="search" placeholder="Tìm bot, nhóm…" autocomplete="off" aria-label="Tìm"></label>
     </div>
   </section>
+  <section class="workspace-home" id="workspaceHome" aria-labelledby="workspaceHomeTitle" hidden>
+    <div class="workspace-home-top"><span class="workspace-eyebrow">KHÔNG GIAN CỦA BẠN</span><button type="button" id="workspaceQuickSearch">Tìm nhanh <kbd>Ctrl / ⌘ K</kbd></button></div>
+    <div class="workspace-welcome">
+      <h2 id="workspaceHomeTitle" tabindex="-1">Cùng làm việc, từ đây.</h2>
+      <p>Một đội ngũ bot, những cuộc trò chuyện và công việc đang tiếp diễn. Chọn nơi bạn muốn bắt đầu.</p>
+      <div class="workspace-cta"><button type="button" class="workspace-primary" id="workspaceCreateBot">Tạo bot mới <span aria-hidden="true">↗</span></button><button type="button" class="workspace-secondary" data-workspace-go="pages">Mở thư viện trang</button></div>
+      <div class="workspace-stats" aria-label="Tình trạng workspace"><div><b id="workspaceBotCount">0</b><span>Bot &amp; nhóm</span></div><div><b id="workspaceWorkingCount">0</b><span>Đang làm việc</span></div><div><b id="workspaceWaitingCount">0</b><span>Cần bạn phản hồi</span></div></div>
+      <div class="workspace-recent-head"><h3>Tiếp tục công việc</h3><span>Gần đây</span></div>
+      <div id="workspaceRecent"></div>
+      <p class="caption" id="workspaceRecentEmpty">Tạo bot đầu tiên và giao cho bot một việc cụ thể.</p>
+    </div>
+    <p class="workspace-home-footer">Có chỗ cho mọi ý tưởng. Bạn luôn quyết định những việc cần duyệt.</p>
+  </section>
+  <section class="workspace-routines" id="workspaceRoutines" aria-labelledby="workspaceRoutinesTitle" hidden>
+    <header class="workspace-page-header"><button type="button" class="workspace-button" id="workspaceRoutinesBack" aria-label="Về danh sách bot">‹</button><div><h2 id="workspaceRoutinesTitle">Lịch chạy</h2><p>Công việc lặp lại của các bot, trong cùng một nơi.</p></div><button type="button" class="workspace-button" id="workspaceRoutineReload">Tải lại</button></header>
+    <div class="workspace-routine-scroll"><div class="workspace-routine-toolbar"><label for="workspaceRoutineFilter">Hiển thị</label><select id="workspaceRoutineFilter"><option value="">Tất cả bot</option></select></div><p id="workspaceRoutineStatus" role="status"></p><div id="workspaceRoutineRows"></div><div class="workspace-empty-state" id="workspaceRoutineEmpty" hidden><h3>Để bot nhớ việc giúp bạn.</h3><p>Chưa có lịch trong danh sách này. Mở hội thoại với một bot và mô tả công việc cùng thời điểm bạn muốn thực hiện.</p><button type="button" class="workspace-secondary" data-workspace-go="home">Chọn bot để bắt đầu</button></div></div>
+  </section>
   <div class="net hidden" id="netBanner" role="status" aria-live="polite"></div>
   <section class="screen thread off" id="thread" aria-label="Hội thoại">
     <header class="float-top">
       <button class="fab" id="backBtn" aria-label="Quay lại"></button>
       <button class="who" id="whoBtn" aria-label="Xem hồ sơ"><span class="face-slot" id="threadAvatar" aria-hidden="true"></span><span class="title"><b id="threadName" data-noi18n></b><small id="threadState"></small></span></button>
+      <div class="workspace-thread-tools" id="workspaceThreadTools" aria-label="Công cụ của bot" hidden></div>
       <button class="fab" id="threadMore" aria-label="Thêm" aria-haspopup="menu"></button>
     </header>
     <div class="scroll" id="messages"></div>
@@ -231,5 +261,12 @@
     </dialog>
   </dialog>
 </div>
+<dialog class="workspace-palette" id="workspacePalette" aria-labelledby="workspacePaletteTitle">
+  <header><h2 id="workspacePaletteTitle">Đi đâu tiếp theo?</h2><button type="button" id="workspacePaletteClose" aria-label="Đóng tìm nhanh">Esc</button></header>
+  <input id="workspaceQuery" type="text" role="combobox" aria-expanded="true" aria-controls="workspaceResults" aria-autocomplete="list" aria-label="Tìm bot hoặc chức năng" placeholder="Tìm bot hoặc chức năng…" autocomplete="off">
+  <div class="workspace-results" id="workspaceResults" role="listbox" aria-label="Kết quả tìm nhanh"></div>
+  <p id="workspacePaletteEmpty" hidden>Không tìm thấy kết quả phù hợp.</p>
+  <footer>↑ ↓ để chọn · Enter để mở · Esc để đóng</footer>
+</dialog>
 </body>
 </html>

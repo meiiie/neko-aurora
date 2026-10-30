@@ -11,7 +11,7 @@ from urllib.parse import urlsplit
 from playwright.sync_api import expect, sync_playwright
 
 ROOT = Path(__file__).resolve().parents[3]
-OUT = ROOT / '.audit/2026-10-28-mcp-config'
+OUT = Path(os.environ.get('AURORA_BROWSER_AUDIT_DIR', ROOT / '.audit/2026-10-28-mcp-config'))
 OUT.mkdir(parents=True, exist_ok=True)
 
 class Handler(http.server.SimpleHTTPRequestHandler):
@@ -97,7 +97,7 @@ try:
             page.wait_for_timeout(450)  # Existing sheet gesture guard ignores input for 400 ms.
         def open_models():
             close_ext()
-            page.locator('#profBack').click();page.locator('#backBtn').click();page.locator('#meBtn').click()
+            page.locator('#profBack').click();page.locator('#backBtn').click();page.locator('#meBtn:visible, [data-workspace-action="settings"]:visible').click()
             page.locator('#openModels').click();expect(page.locator('#provForm')).to_be_visible()
 
         load();add('first');expect(page.locator('#mcpName')).to_have_value('')

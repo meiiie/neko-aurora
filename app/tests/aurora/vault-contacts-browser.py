@@ -12,7 +12,7 @@ from playwright.sync_api import expect, sync_playwright
 from fixture_http import FixtureHTTPServer
 
 ROOT=Path(__file__).resolve().parents[3]
-OUT=ROOT/'.audit/2026-10-29-vault-contacts'
+OUT=Path(os.environ.get('AURORA_BROWSER_AUDIT_DIR', ROOT/'.audit/2026-10-29-vault-contacts'))
 OUT.mkdir(exist_ok=True)
 
 

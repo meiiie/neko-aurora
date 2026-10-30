@@ -7,7 +7,8 @@ from urllib.parse import parse_qs, urlencode, urlsplit
 from playwright.sync_api import expect, sync_playwright
 
 ROOT=Path(__file__).resolve().parents[3]
-OUT=ROOT/'.audit/2026-10-28-mcp-oauth-flow'
+OUT=Path(os.environ.get('AURORA_BROWSER_AUDIT_DIR', ROOT/'.audit/2026-10-28-mcp-oauth-flow'))
+OUT.mkdir(parents=True,exist_ok=True)
 BASE,BOT=sys.argv[1:3]
 CALLBACK='/app/oauth/mcp/callback.html'
 

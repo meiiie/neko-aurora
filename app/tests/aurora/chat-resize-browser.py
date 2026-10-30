@@ -5,7 +5,7 @@ from urllib.parse import urlsplit
 from playwright.sync_api import expect,sync_playwright
 from fixture_http import FixtureHTTPServer
 ROOT=Path(__file__).resolve().parents[3]
-OUT=ROOT/'.audit/2026-10-29-chat-resize';OUT.mkdir(exist_ok=True)
+OUT=Path(os.environ.get('AURORA_BROWSER_AUDIT_DIR', ROOT/'.audit/2026-10-29-chat-resize'));OUT.mkdir(exist_ok=True)
 class Handler(http.server.SimpleHTTPRequestHandler):
     def log_message(self,*_):pass
 class Fixture:
@@ -36,6 +36,11 @@ try:
             for width,height in [(390,844),(900,650),(460,900),(1280,900),(390,620),(1280,700)]:
                 resize(width,height);after=position();evidence.append(dict(before=before,after=after,viewport=[width,height]));assert after['id']==before['id'] and abs(after['offset']-before['offset'])<2,(before,after)
             print('PASS repeated width and height changes retain the same message within two pixels')
+            before=target()
+            for _ in range(2):
+                page.locator('#workspaceSidebarToggle').click();settle();after=position()
+                assert after['id']==before['id'] and abs(after['offset']-before['offset'])<2,(before,after)
+            print('PASS sidebar collapse and expansion retain the same reading position')
             before=target(85)
             for width,height in [(390,844),(1280,900),(390,650)]:
                 resize(width,height);after=position();assert after['id']==before['id'] and abs(after['offset']-before['offset'])<2,(before,after)
