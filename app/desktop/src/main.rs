@@ -37,7 +37,9 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
             let window = tauri::WebviewWindowBuilder::new(
                 app,
                 "main",
-                tauri::WebviewUrl::External(setup_instance.binding.endpoint.parse()?),
+                tauri::WebviewUrl::External(
+                    format!("{}/app/", setup_instance.binding.endpoint).parse()?,
+                ),
             )
             .title("Neko Aurora")
             .inner_size(1220.0, 820.0)
