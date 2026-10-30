@@ -96,10 +96,10 @@ func Protect(path string) error {
 		return err
 	}
 	defer syscall.CloseHandle(h)
-	return protectHandle(h, "", 0)
+	return protectHandle(h, "", 0, true)
 }
 
-func protectHandle(h syscall.Handle, flags string, aceFlags byte) error {
+func protectHandle(h syscall.Handle, flags string, aceFlags byte, setOwner bool) error {
 	sd, err := descriptorForFlags(flags)
 	if err != nil {
 		return err
@@ -113,7 +113,27 @@ func protectHandle(h syscall.Handle, flags string, aceFlags byte) error {
 	if ok, _, _ := advapi.NewProc("GetSecurityDescriptorOwner").Call(uintptr(unsafe.Pointer(sd)), uintptr(unsafe.Pointer(&owner)), uintptr(unsafe.Pointer(&defaulted))); ok == 0 || owner == nil {
 		return ErrPrivate
 	}
-	code, _, _ := advapi.NewProc("SetSecurityInfo").Call(uintptr(h), 1, 0x80000005, uintptr(unsafe.Pointer(owner)), 0, uintptr(unsafe.Pointer(acl)), 0)
+	securityInfo := uintptr(0x80000004)
+	ownerPointer := uintptr(0)
+	if setOwner {
+		securityInfo |= 1
+		ownerPointer = uintptr(unsafe.Pointer(owner))
+	} else {
+		var existingOwner, existingSD *byte
+		code, _, _ := advapi.NewProc("GetSecurityInfo").Call(uintptr(h), 1, 1, uintptr(unsafe.Pointer(&existingOwner)), 0, 0, 0, uintptr(unsafe.Pointer(&existingSD)))
+		if code != 0 {
+			return syscall.Errno(code)
+		}
+		defer syscall.LocalFree(syscall.Handle(uintptr(unsafe.Pointer(existingSD))))
+		if existingOwner == nil {
+			return ErrPrivate
+		}
+		equal, _, _ := advapi.NewProc("EqualSid").Call(uintptr(unsafe.Pointer(existingOwner)), uintptr(unsafe.Pointer(owner)))
+		if equal == 0 {
+			return ErrPrivate
+		}
+	}
+	code, _, _ := advapi.NewProc("SetSecurityInfo").Call(uintptr(h), 1, securityInfo, ownerPointer, 0, uintptr(unsafe.Pointer(acl)), 0)
 	runtime.KeepAlive(sd)
 	if code != 0 {
 		return syscall.Errno(code)

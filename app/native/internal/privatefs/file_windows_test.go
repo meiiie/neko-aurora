@@ -45,6 +45,35 @@ func TestWindowsPrivateDirectoryChildrenInheritOwnerOnlyACL(t *testing.T) {
 	}
 }
 
+func TestWindowsPrivateDirectoryOwnedWithModifyOnlyAccess(t *testing.T) {
+	dir := t.TempDir()
+	if err := ProtectDirectory(dir); err != nil {
+		t.Fatal(err)
+	}
+	user, err := currentSID()
+	if err != nil {
+		t.Fatal(err)
+	}
+	sid, err := user.User.Sid.String()
+	if err != nil {
+		t.Fatal(err)
+	}
+	// A newly created directory on a shared drive may grant its owner Modify,
+	// while ownership itself supplies WRITE_DAC but not WRITE_OWNER.
+	if err := exec.Command("icacls.exe", dir, "/grant:r", "*"+sid+":(OI)(CI)M").Run(); err != nil {
+		t.Fatal("could not construct modify-only owner fixture", err)
+	}
+	if CheckDirectory(dir) == nil {
+		t.Fatal("modify-only ACL incorrectly accepted as protected")
+	}
+	if err := ProtectDirectory(dir); err != nil {
+		t.Fatal("owner could not protect its directory without WRITE_OWNER", err)
+	}
+	if err := CheckDirectory(dir); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func TestWindowsRejectsSharedACLAndHardlinks(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "synthetic.bin")
 	if err := WriteFile(path, []byte("public test fixture")); err != nil {

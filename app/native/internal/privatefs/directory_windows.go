@@ -23,12 +23,12 @@ func openDirectory(path string, access uint32) (syscall.Handle, error) {
 
 // ProtectDirectory restricts an existing directory and inherited child ACLs to its owner.
 func ProtectDirectory(path string) error {
-	h, err := openDirectory(path, syscall.GENERIC_READ|0x00040000|0x00080000)
+	h, err := openDirectory(path, syscall.GENERIC_READ|0x00040000)
 	if err != nil {
 		return err
 	}
 	defer syscall.CloseHandle(h)
-	return protectHandle(h, "OICI", 3)
+	return protectHandle(h, "OICI", 3, false)
 }
 
 func CheckDirectory(path string) error {
