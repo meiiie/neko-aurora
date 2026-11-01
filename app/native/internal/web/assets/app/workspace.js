@@ -105,7 +105,7 @@
     node.dataset.agent = agent.id;
     node.append(bridge.avatar(agent, 40));
     const copy = make("span", "workspace-agent-copy");
-    copy.append(literal("b", "", agent.name), literal("small", "", agent.desc || agent.snip || ""));
+    copy.append(literal("b", "", agent.name), literal("small", "", agent.desc || (agent.snipKey ? window.__I18N.message(agent.snipKey, agent.snipArgs) : agent.snip) || ""));
     node.append(copy);
     const state = agent.waiting ? "Cần bạn" : agent.status === "working" ? "Đang làm" : "Mở hội thoại";
     node.append(make("span", "workspace-agent-status", state));

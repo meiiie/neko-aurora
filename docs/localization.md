@@ -46,7 +46,11 @@ i18n.bindAttribute(reply, "aria-label", "chat.quote", () => ({ name: author }));
 time.textContent = i18n.date(timestamp, { dateStyle: "medium", timeStyle: "short" });
 ```
 
-`bind` updates a text-only UI element in place. `bindAttribute` owns a translated
+`bind(node, key, optionsOrCallback)` updates a text-only UI element in place, including
+interpolated values and date/number formatting. `literal(node, value)` releases any
+previous binding before displaying user content. A view that writes a new state
+also releases the old text binding, so switching languages cannot restore stale
+success/error messages. `bindAttribute` owns a translated
 text attribute and can resolve current interpolation values on each change.
 Dynamic views can listen to `aurora:localechange`; update labels and formatting
 without replacing draft fields, pending forms or streaming message bodies.
@@ -57,6 +61,10 @@ Existing views still use a **transitional `legacy` namespace**, indexed by their
 original Vietnamese phrases. The DOM adapter remembers original values in weak
 maps so switching is reversible, including when a view updates a label later.
 New features must use semantic keys rather than expanding this migration bridge.
+`app/locales/source-keys.json` maps reviewed, static phrases in existing modules
+to semantic keys. It is not a translation catalogue. The build rejects mappings
+to missing or interpolated messages. Dynamic sentences require explicit bindings
+or a reviewed compatibility pattern; they must never translate arbitrary user data.
 Do not rename legacy keys merely to improve Vietnamese wording: change their
 Vietnamese values instead, so existing call sites continue to match.
 
@@ -85,27 +93,31 @@ external native-speaker certification. Future editorial reviews should review
 each Chinese catalogue independently, including error recovery and accessibility
 labels, rather than assuming script conversion alone is sufficient.
 
-## Scope of the first migration
+## Current coverage
 
-This pass covers Settings, navigation, the main conversation controls, core AI
-setup and the existing translation catalogue, with added vocabulary for bot
-profiles, memory, schedules, pages and the vault. The catalogue parity check
-means every **catalogued** message has four versions; it does not prove every
-literal in the repository has been migrated.
+The Aurora `/app/` interface covers Settings, navigation, conversations, AI setup,
+bot profiles, memory, schedules, pages, the vault, cloud-computer controls and
+recovery notices, assistant communication, structured forms/questions, MCP
+authorization, sign-in/onboarding, the OAuth callback and the local vault demo.
+Privacy and terms now present the same sections in the selected language, with a
+language selector and localized date. This is a translation of the existing policy,
+not a new legal assessment, new consent flow or legal certification.
 
-Remaining migration work includes the long-form legal/onboarding copy, parts of
-the cloud-computer and agent-network panels, and some generated operational
-messages or compound labels in older views. These remain visible in their
-original language if not in the catalogue. Provider/tool output and existing
-conversation text intentionally keep their original language. Migrate these
-surfaces with explicit keys as they are reviewed, rather than applying machine
-translation to arbitrary DOM text or model responses.
+Agent list snippets use `snipKey` and `snipArgs` only for system-generated states.
+Model-authored snippets keep a literal `snip`, even when their text happens to
+equal a UI phrase. API field names, model IDs, keyboard key names, command output,
+external page observations and user/model content stay unchanged.
+
+The catalogue parity check proves that every **catalogued** message has four
+versions. It does not translate external provider responses or certify every
+possible runtime state. See `docs/research/localization-complete-2026-11-01.md`
+for the reviewed surfaces and actual validation scope.
 
 Validation must include desktop and narrow browser layouts, live changes in all
 four languages, reload persistence, literal content that looks like a UI label,
 draft preservation, accessible labels and format-region overrides. Browser
 fixtures test UI behavior; they are not live model tests or physical-phone
-acceptance. See `docs/research/localization-2026-11-01.md` for this pass's evidence.
+acceptance. See `docs/research/localization-complete-2026-11-01.md` for this pass's evidence.
 
 ## Primary references
 

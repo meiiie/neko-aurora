@@ -62,6 +62,8 @@ type Agent struct {
 	Status      string         `json:"status"` // idle|working|waiting|done|error
 	Task        string         `json:"task"`   // OpenMuse-style TaskStatus of the latest task
 	Snip        string         `json:"snip"`
+	SnipKey     string         `json:"snipKey,omitempty"`
+	SnipArgs    map[string]any `json:"snipArgs,omitempty"`
 	Doing       string         `json:"doing,omitempty"` // live activity while working ("Đang tìm nguồn…")
 	Pinned      bool           `json:"pin"`
 	Kind        string         `json:"kind,omitempty"` // ""|group
@@ -212,7 +214,7 @@ func taskStatus(w ledger.Work) TaskStatus {
 }
 
 func (v *view) agent(b ledger.Bot, prefs botPrefs) *Agent {
-	a := &Agent{ID: b.ID, Name: displayName(b), Desc: v.desc(b), Tag: prefs.Tag, Pinned: prefs.Pinned, Status: "idle", Snip: "Sẵn sàng nhận việc.", Task: ""}
+	a := &Agent{ID: b.ID, Name: displayName(b), Desc: v.desc(b), Tag: prefs.Tag, Pinned: prefs.Pinned, Status: "idle", Snip: "Sẵn sàng nhận việc.", SnipKey: "agent.ready", Task: ""}
 	av := defaultAvatar(b.ID)
 	if prefs.Avatar != nil {
 		av = *prefs.Avatar
@@ -232,22 +234,27 @@ func (v *view) agent(b ledger.Bot, prefs botPrefs) *Agent {
 	for _, w := range l {
 		if w.Direct != nil && w.Direct.Approval != nil && w.Direct.Approval.State == "pending" {
 			a.Status, a.Snip = "waiting", "Cần bạn duyệt: "+w.Direct.Approval.Title
+			a.SnipKey, a.SnipArgs = "agent.approval", map[string]any{"title": w.Direct.Approval.Title}
 		}
 	}
 	for _, w := range l {
 		if w.Direct != nil && w.Direct.Approval != nil && w.Direct.Approval.Kind == "computer" && w.Direct.Approval.Delivery != nil && w.Direct.Approval.Delivery.Status == "sending" {
 			// an approved command is still running: the bot is busy, not done
 			a.Status, a.Snip = "working", "Đang chạy lệnh trên máy tính…"
+			a.SnipKey, a.SnipArgs = "agent.command", nil
 		}
 		if active(w) {
 			a.Status, a.Snip = "working", "Đang làm việc"
+			a.SnipKey, a.SnipArgs = "agent.working", nil
 			if w.Status == "waiting_host" {
 				a.Snip = "Đang chờ lượt"
+				a.SnipKey = "agent.queued"
 			}
 			if w.Direct != nil {
 				for i, st := range w.Direct.Plan {
 					if st.Status == "running" {
 						a.Snip = "Bước " + itoa(i+1) + "/" + itoa(len(w.Direct.Plan)) + ": " + st.Title
+						a.SnipKey, a.SnipArgs = "agent.step", map[string]any{"current": i + 1, "total": len(w.Direct.Plan), "title": st.Title}
 					}
 				}
 				a.Doing = doingOf(w.Direct)
@@ -262,17 +269,23 @@ func (v *view) agent(b ledger.Bot, prefs botPrefs) *Agent {
 	switch taskStatus(last) {
 	case TaskWaitingInput:
 		a.Status, a.Snip = "waiting", "Cần bạn chọn để tiếp tục"
+		a.SnipKey, a.SnipArgs = "agent.choice", nil
 	case TaskSucceeded:
 		a.Status, a.Snip = "done", clean(plainMD(firstLine(visibleText(last.Reply))), 140)
+		a.SnipKey, a.SnipArgs = "", nil
 		if a.Snip == "" {
 			a.Snip = "Đã xong"
+			a.SnipKey = "agent.done"
 		}
 	case TaskCancelled:
 		a.Status, a.Snip = "idle", "Đã dừng theo yêu cầu của bạn."
+		a.SnipKey, a.SnipArgs = "agent.stopped", nil
 	case TaskFailed:
 		a.Status, a.Snip = "error", failureText(last.Failure)
+		a.SnipKey, a.SnipArgs = "agent.failed", nil
 		if last.Failure == "ai_not_configured" {
 			a.Snip = "Cần thiết lập AI để trả lời."
+			a.SnipKey = "agent.setup"
 		}
 	}
 	return a

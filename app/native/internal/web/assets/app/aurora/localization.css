@@ -18,3 +18,7 @@ html:lang(zh) .workspace-welcome h2 { font-family: var(--font-ui); line-height: 
   .locale-field { grid-template-columns: 1fr; gap: 8px; }
   .locale-field select { max-width: 100%; }
 }
+ .page-language{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin:0 0 24px;font-size:14px}
+ .page-language select{font:inherit;max-width:100%;padding:8px 10px;border:1px solid #8886;border-radius:8px;background:Canvas;color:CanvasText}
+ .page-language [role=status]{flex-basis:100%;font-size:12px}
+ html[lang^=zh] main{overflow-wrap:anywhere}

@@ -4,15 +4,17 @@ const $=s=>document.querySelector(s),dialog=$("#networkDialog"),entry=$("#networ
 if(!dialog||!entry)return;
 const node=(tag,cls,value)=>{const n=document.createElement(tag);if(cls)n.className=cls;if(value!=null)n.textContent=value;return n};
 const raw=(tag,cls,value)=>{const n=node(tag,cls,value);n.dataset.noi18n="";return n};
+const I=window.__I18N,t=s=>I.t(s),m=(key,options)=>I.message(key,options);
+const bound=(tag,cls,key,options)=>I.bind(node(tag,cls),key,options);
 const bytes=s=>new TextEncoder().encode(s).length;
-const size=n=>n<1024?`${n} B`:`${Number((n/1024).toFixed(1))} KiB`;
+const size=n=>n<1024?`${I.number(n)} B`:`${I.number(n/1024,{maximumFractionDigits:1})} KiB`;
 const nonce=()=>"network-"+(crypto.randomUUID?crypto.randomUUID():Array.from(crypto.getRandomValues(new Uint8Array(16)),n=>n.toString(16).padStart(2,"0")).join(""));
 const state={sessions:[],messages:[],limits:null};
 const directoryNodes=new Map(),messageNodes=new Map(),busy=new Set(),actionNonces=new Map();
 let selected="",files=[],lastFocus=null,refreshing=false,sending=false,readingFiles=false,pendingSend=null,selectSignature="",timer=null;
 const byId=id=>state.sessions.find(s=>s.id===id);
-const sessionName=id=>{const s=byId(id);return s?s.name||s.alias||s.id:id||"Chủ sở hữu"};
-const sessionScope=s=>s.conversationId==="conversation-"+s.botId?"Riêng":"Nhóm · "+String(s.conversationId||"").slice(-8);
+const sessionName=id=>{const s=byId(id);return s?s.name||s.alias||s.id:id||t("Chủ sở hữu")};
+const sessionScope=s=>s.conversationId==="conversation-"+s.botId?t("Riêng"):m("network.group",{id:String(s.conversationId||"").slice(-8)});
 const selectedSession=()=>byId(selected);
 const selectedMessages=()=>state.messages.filter(m=>m.toSessionId===selected||m.fromSessionId===selected);
 const wakeMode=()=>$("input[name='networkMode']:checked").value==="wake";
@@ -24,8 +26,9 @@ const taskNames={none:"Chưa có tác vụ",queued:"Đang chờ chạy",accepted
 const sessionStates={idle:"Sẵn sàng",busy:"Đang làm việc",working:"Đang làm việc",running:"Đang chạy",waiting:"Chờ duyệt",error:"Có lỗi",offline:"Ngoại tuyến",active:"Đang hoạt động",closed:"Đã đóng"};
 const tierNames={pull:"Nhận ở lượt sau",turn:"Có thể yêu cầu đánh thức"};
 const failureNames={network_quota_exceeded:"Đã đạt hạn mức mô hình. Yêu cầu đang chờ, chưa bắt đầu lượt mô hình.",network_forbidden:"Quyền hiện tại chưa cho phép bắt đầu lượt agent.",network_identity_required:"Cần phiên chủ sở hữu hợp lệ để bắt đầu lượt agent."};
-const notice=(text,bad=false)=>{const n=$("#networkNotice");n.textContent=text;n.classList.toggle("bad",bad)};
-const formError=text=>{const n=$("#networkFormError");n.textContent=text;n.classList.toggle("hidden",!text)};
+let noticeSource="",noticeBad=false,errorSource="";
+const notice=(text,bad=false)=>{noticeSource=text;noticeBad=bad;text=typeof text==="function"?text():text;const n=$("#networkNotice");I.uiText(n,text);n.classList.toggle("bad",bad)};
+const formError=text=>{errorSource=text;text=typeof text==="function"?text():text;const n=$("#networkFormError");I.uiText(n,text);n.classList.toggle("hidden",!text)};
 async function request(path,body){
  const get=body===undefined,options={method:get?"GET":"POST",credentials:"same-origin",cache:"no-store"};
  if(!get){options.headers={"Content-Type":"application/json"};options.body=JSON.stringify(body)}
@@ -42,7 +45,7 @@ function errorText(e,action){
  if(e.status===413)return"Nội dung hoặc file vượt giới hạn máy chủ. Giảm dung lượng rồi gửi lại.";
  if(e.status===429)return"Đã đạt giới hạn gửi. Đợi một chút rồi thử lại.";
  if(e.status===400)return"Máy chủ từ chối nội dung. Kiểm tra tên file, dung lượng và phiên nhận.";
- return action+" Kiểm tra kết nối rồi thử lại.";
+ return m("network.retry",{action:t(action)});
 }
 function readLimits(value){
  const limits={};
@@ -62,7 +65,7 @@ async function refresh(manual=false){
   if(!selectedSession())selected=firstLoad?state.sessions[0]?.id||"":"";
   renderDirectory();renderMailbox();syncComposer();
   if(manual||$("#networkNotice").classList.contains("bad"))notice("Đã cập nhật · hộp thư tự làm mới khi đang mở.");
- }catch(e){notice(errorText(e,"Không tải được giao tiếp agent."),true)}
+ }catch(e){notice(()=>errorText(e,"Không tải được giao tiếp agent."),true)}
  finally{refreshing=false;$("#networkRefresh").disabled=false}
 }
 function putInOrder(parent,children){
@@ -75,7 +78,7 @@ function renderDirectory(){
  for(const s of matches){
   let li=directoryNodes.get(s.id);
   if(!li){
-   li=node("li");const b=raw("button","network-session");b.type="button";b.dataset.session=s.id;
+   li=node("li");const b=node("button","network-session");b.type="button";b.dataset.session=s.id;
    const copy=node("span","network-session-copy");copy.append(raw("span","network-session-name"),raw("span","network-session-meta"));
    b.append(raw("span","network-session-face"),copy,node("span","network-session-unread"));
    b.onclick=()=>chooseSession(s.id);li.append(b);directoryNodes.set(s.id,li);
@@ -84,16 +87,16 @@ function renderDirectory(){
   b.classList.toggle("selected",s.id===selected);b.setAttribute("aria-pressed",String(s.id===selected));
   b.querySelector(".network-session-name").textContent=name;
   b.querySelector(".network-session-face").textContent=Array.from(name).slice(0,2).join("").toLocaleUpperCase();
-  b.querySelector(".network-session-meta").textContent=[s.alias?"@"+s.alias:"",sessionScope(s),sessionStates[s.status]||s.status,tierNames[s.tier]||s.tier].filter(Boolean).join(" · ");
-  const badge=b.querySelector(".network-session-unread");badge.textContent=unread>99?"99+":String(unread);badge.hidden=!unread;
-  b.setAttribute("aria-label",name+(unread?`, ${unread} tin chưa xem`:""));children.push(li);
+  b.querySelector(".network-session-meta").textContent=[s.alias?"@"+s.alias:"",sessionScope(s),t(sessionStates[s.status]||s.status),t(tierNames[s.tier]||s.tier)].filter(Boolean).join(" · ");
+  const badge=b.querySelector(".network-session-unread");badge.textContent=unread>99?"99+":I.number(unread);badge.hidden=!unread;
+  I.bindAttribute(b,"aria-label","network.unread",{name,count:unread});children.push(li);
  }
  putInOrder(list,children);
  for(const [id] of directoryNodes)if(!state.sessions.some(s=>s.id===id))directoryNodes.delete(id);
- $("#networkDirectoryCount").textContent=q?`${matches.length} / ${state.sessions.length} phiên`:`${state.sessions.length} phiên agent`;
+ $("#networkDirectoryCount").textContent=q?m("network.matches",{matches:matches.length,total:state.sessions.length}):m("network.directory",{count:state.sessions.length});
  $("#networkNoSessions").classList.toggle("hidden",matches.length>0);
  $("#networkNoSessions").textContent=q?"Không có phiên phù hợp.":"Chưa có phiên agent trong phạm vi hiện tại.";
- const signature=JSON.stringify(state.sessions.map(s=>[s.id,s.name,s.alias,s.conversationId]));
+ const signature=JSON.stringify(state.sessions.map(s=>[s.id,s.name,s.alias,s.conversationId]))+I.lang;
  if(signature!==selectSignature){
   const select=$("#networkTarget"),options=[node("option",null,"Chọn phiên agent")];options[0].value="";
   state.sessions.forEach(s=>{const o=raw("option",null,(s.name||s.id)+(s.alias?" · @"+s.alias:"")+" · "+sessionScope(s));o.value=s.id;options.push(o)});
@@ -101,8 +104,8 @@ function renderDirectory(){
  }
  $("#networkTarget").value=selected;
  const unread=state.sessions.reduce((sum,s)=>sum+Math.max(0,Number(s.unread)||0),0),badge=$("#networkUnread");
- badge.textContent=unread>99?"99+":String(unread);badge.classList.toggle("hidden",!unread);
- entry.setAttribute("aria-label","Giao tiếp agent"+(unread?`, ${unread} tin chưa xem`:""));
+ badge.textContent=unread>99?"99+":I.number(unread);badge.classList.toggle("hidden",!unread);
+ I.bindAttribute(entry,"aria-label","network.unread",()=>({name:t("Giao tiếp agent"),count:unread}));
 }
 function chooseSession(id){
  if(sending)return;
@@ -111,26 +114,26 @@ function chooseSession(id){
 function statusTag(label,kind){return node("span","network-status"+(kind?" "+kind:""),label)}
 function messageCard(m){
  const li=node("li","network-message"+(m.origin!=="human"?" peer":""));li.dataset.message=m.id;
- const top=node("div","network-message-top"),human=m.origin==="human",sender=human?"Bạn · chủ sở hữu":(m.fromName||sessionName(m.fromSessionId))+" · agent";
- const time=node("time",null,stamp(m.createdAt));if(m.createdAt)time.dateTime=m.createdAt;time.title=fullStamp(m.createdAt);top.append(raw("b",null,sender),time);
- li.append(top,raw("p","network-message-route","Tới "+sessionName(m.toSessionId)),raw("p","network-message-body",m.text||""));
+ const top=node("div","network-message-top"),human=m.origin==="human",sender=human?I.uiText(node("b"),"Bạn · chủ sở hữu"):bound("b",null,"network.sender",()=>({name:m.fromName||sessionName(m.fromSessionId)}));
+ const time=bound("time",null,"format.value",()=>({value:stamp(m.createdAt)}));if(m.createdAt)time.dateTime=m.createdAt;I.bindAttribute(time,"title","format.value",()=>({value:fullStamp(m.createdAt)}));top.append(sender,time);
+ li.append(top,bound("p","network-message-route","network.to",()=>({name:sessionName(m.toSessionId)})),raw("p","network-message-body",m.text||""));
  if(m.attachments?.length){
   const attachments=node("ul","network-message-files");
-  m.attachments.forEach(f=>{const item=node("li"),a=raw("a",null,`${f.name} · ${size(f.bytes||0)} ↓`);a.href="/app/api/network/messages/"+encodeURIComponent(m.id)+"/files/"+encodeURIComponent(f.id);a.download=f.name;a.setAttribute("aria-label","Tải file "+f.name);item.append(a);attachments.append(item)});li.append(attachments);
+  m.attachments.forEach(f=>{const item=node("li"),a=bound("a",null,"format.value",()=>({value:`${f.name} · ${size(f.bytes||0)} ↓`}));a.href="/app/api/network/messages/"+encodeURIComponent(m.id)+"/files/"+encodeURIComponent(f.id);a.download=f.name;I.bindAttribute(a,"aria-label","network.download",{name:f.name});item.append(a);attachments.append(item)});li.append(attachments);
  }
  const statuses=node("div","network-statuses");
  statuses.append(statusTag(m.wake?"Yêu cầu đánh thức":"FYI · không đánh thức"));
  const delivery=expired(m)&&m.deliveryState==="queued"?"expired":m.deliveryState;
- statuses.append(statusTag("Giao tin: "+(deliveryNames[delivery]||delivery||"Chưa rõ"),delivery==="failed"||delivery==="expired"||delivery==="blocked"?"bad":delivery==="held"?"warn":""));
- statuses.append(statusTag("Tác vụ: "+(taskNames[m.taskState]||m.taskState||"Chưa có tác vụ"),m.taskState==="failed"?"bad":m.taskState==="waiting"||m.taskState==="waiting_host"||m.taskState==="admission_blocked"?"warn":""));
- if(m.readAt){const tag=statusTag("Đã xem · "+stamp(m.readAt));tag.title="Chủ sở hữu đã xem · "+fullStamp(m.readAt);statuses.append(tag)}
- if(m.expiresAt){const tag=statusTag("Hết hạn · "+stamp(m.expiresAt));tag.title=fullStamp(m.expiresAt);statuses.append(tag)}
+ statuses.append(I.bind(statusTag("",delivery==="failed"||delivery==="expired"||delivery==="blocked"?"bad":delivery==="held"?"warn":""),"network.delivery",()=>({status:t(deliveryNames[delivery]||delivery||"Chưa rõ")})));
+ statuses.append(I.bind(statusTag("",m.taskState==="failed"?"bad":m.taskState==="waiting"||m.taskState==="waiting_host"||m.taskState==="admission_blocked"?"warn":""),"network.taskStatus",()=>({status:t(taskNames[m.taskState]||m.taskState||"Chưa có tác vụ")})));
+ if(m.readAt){const tag=I.bind(statusTag(""),"network.seen",()=>({time:stamp(m.readAt)}));I.bindAttribute(tag,"title","network.ownerSeen",()=>({time:fullStamp(m.readAt)}));statuses.append(tag)}
+ if(m.expiresAt){const tag=I.bind(statusTag(""),"network.expiry",()=>({time:stamp(m.expiresAt)}));I.bindAttribute(tag,"title","format.value",()=>({value:fullStamp(m.expiresAt)}));statuses.append(tag)}
  li.append(statuses);
- if(m.failure)li.append(raw("p","network-form-error",failureNames[m.failure]||"Máy chủ đang giữ yêu cầu: "+m.failure));
+ if(m.failure)li.append(failureNames[m.failure]?I.uiText(node("p","network-form-error"),failureNames[m.failure]):bound("p","network-form-error","network.held",{code:m.failure}));
  if(m.approval){
-  const ap=m.approval,details=node("details","network-approval"),summary=raw("summary",null,(ap.state==="pending"?"Chờ chủ sở hữu duyệt: ":ap.state==="approved"?"Đã duyệt: ":ap.state==="declined"?"Đã hoãn: ":"Yêu cầu duyệt: ")+(ap.title||"Tác vụ"));
+  const ap=m.approval,details=node("details","network-approval"),summary=bound("summary",null,"network.approval."+(["pending","approved","declined"].includes(ap.state)?ap.state:"other"),()=>({title:ap.title||t("Tác vụ")}));
   details.append(summary,raw("pre",null,ap.body||""));
-  if(ap.decidedAt)details.append(node("p","network-inline-hint","Quyết định · "+stamp(ap.decidedAt)));
+  if(ap.decidedAt)details.append(bound("p","network-inline-hint","network.decision",()=>({time:stamp(ap.decidedAt)})));
   li.append(details);
  }
  const actions=node("div","network-message-actions");
@@ -150,10 +153,10 @@ function messageCard(m){
 function renderMailbox(){
  const s=selectedSession(),list=$("#networkMessages"),messages=s?selectedMessages():[],nearBottom=list.scrollHeight-list.scrollTop-list.clientHeight<80,oldTop=list.scrollTop;
  $("#networkMailboxTitle").textContent=s?s.name||s.alias||s.id:"Hộp thư";
- $("#networkSessionMeta").textContent=s?[s.alias?"@"+s.alias:"",s.conversationId,s.deviceId?"Thiết bị: "+s.deviceId:"",tierNames[s.tier]||s.tier].filter(Boolean).join(" · "):"";
- $("#networkMailCount").textContent=s?`${messages.length} tin`:"";
+ $("#networkSessionMeta").textContent=s?[s.alias?"@"+s.alias:"",s.conversationId,s.deviceId?m("network.device",{id:s.deviceId}):"",t(tierNames[s.tier]||s.tier)].filter(Boolean).join(" · "):"";
+ $("#networkMailCount").textContent=s?m("network.mailCount",{count:messages.length}):"";
  const children=messages.map(m=>{
-  const sig=JSON.stringify(m)+"|"+busy.has(m.id)+"|"+expired(m)+"|"+sessionName(m.toSessionId)+"|"+sessionName(m.fromSessionId),old=messageNodes.get(m.id);
+  const sig=I.lang+"|"+I.locale+"|"+JSON.stringify(m)+"|"+busy.has(m.id)+"|"+expired(m)+"|"+sessionName(m.toSessionId)+"|"+sessionName(m.fromSessionId),old=messageNodes.get(m.id);
   // A status refresh leaves a focused action and an expanded approval intact.
   if(old&&(old.sig===sig||old.node.contains(document.activeElement)))return old.node;
   const card=messageCard(m);if(old?.node.querySelector("details[open]"))card.querySelector("details")?.setAttribute("open","");
@@ -174,7 +177,7 @@ async function messageAction(m,action){
   if(result.message){const i=state.messages.findIndex(x=>x.id===result.message.id);if(i<0)state.messages.push(result.message);else state.messages[i]=result.message}
   notice(action==="wake"?"Đã ghi nhận yêu cầu đánh thức. Trạng thái tác vụ hiển thị theo máy chủ.":"Đã đánh dấu chủ sở hữu đã xem. Trạng thái giao tin và tác vụ được giữ riêng.");
   await refresh();
- }catch(e){notice(errorText(e,action==="wake"?"Chưa xác nhận được yêu cầu đánh thức.":"Chưa ghi nhận được đã xem."),true)}
+ }catch(e){notice(()=>errorText(e,action==="wake"?"Chưa xác nhận được yêu cầu đánh thức.":"Chưa ghi nhận được đã xem."),true)}
  finally{busy.delete(m.id);renderMailbox()}
 }
 function openTask(session,workId){
@@ -186,18 +189,18 @@ function validationError(){
  if(!selectedSession())return"Chọn một phiên nhận trong danh bạ.";
  if(!text.trim())return"Nhập nội dung để agent hiểu thông tin hoặc yêu cầu của bạn.";
  if(/[\x00-\x08\x0b\x0c\x0e-\x1f\x7f-\x9f]/.test(text))return"Nội dung chứa ký tự điều khiển không được hỗ trợ.";
- if(bytes(text)>l.maxTextBytes)return"Nội dung vượt "+size(l.maxTextBytes)+". Hãy chia nhỏ tin nhắn.";
- if(files.length>l.maxFiles)return"Chỉ gửi tối đa "+l.maxFiles+" file mỗi tin.";
- if(files.some(f=>bytes(f.content)>l.maxFileBytes))return"Một file vượt giới hạn "+size(l.maxFileBytes)+".";
- if(files.reduce((sum,f)=>sum+bytes(f.content),0)>l.maxTotalBytes)return"Tổng file vượt "+size(l.maxTotalBytes)+".";
+ if(bytes(text)>l.maxTextBytes)return m("network.textLimit",{size:size(l.maxTextBytes)});
+ if(files.length>l.maxFiles)return m("network.fileCountLimit",{count:l.maxFiles});
+ if(files.some(f=>bytes(f.content)>l.maxFileBytes))return m("network.fileLimit",{size:size(l.maxFileBytes)});
+ if(files.reduce((sum,f)=>sum+bytes(f.content),0)>l.maxTotalBytes)return m("network.totalLimit",{size:size(l.maxTotalBytes)});
  return"";
 }
 function syncComposer(){
  const l=state.limits,count=bytes($("#networkText").value),wake=wakeMode(),used=files.reduce((sum,f)=>sum+bytes(f.content),0);
- $("#networkTextCount").textContent=l?`${size(count)} / ${size(l.maxTextBytes)}`:`${size(count)} · chờ giới hạn`;
+ $("#networkTextCount").textContent=l?`${size(count)} / ${size(l.maxTextBytes)}`:m("network.waitLimits",{size:size(count)});
  $("#networkTextCount").classList.toggle("over",!!l&&count>l.maxTextBytes);
- $("#networkFileLimits").textContent=l?`${files.length}/${l.maxFiles} file · ${size(used)}/${size(l.maxTotalBytes)} · ${size(l.maxFileBytes)}/file`:"";
- $("#networkWakeHint").textContent=wake?"Đánh thức có thể bắt đầu một lượt mô hình và phát sinh chi phí. "+(selectedSession()?.tier==="pull"?"Phiên chưa có runtime đánh thức; yêu cầu sẽ chờ máy chủ.":"Hãy nêu rõ việc cần làm."):"FYI lưu vào hộp thư, không bắt đầu lượt mô hình. Agent có thể nhận thông tin ở lượt sau.";
+ $("#networkFileLimits").textContent=l?m("network.fileLimits",{count:files.length,max:l.maxFiles,used:size(used),total:size(l.maxTotalBytes),each:size(l.maxFileBytes)}):"";
+ $("#networkWakeHint").textContent=wake?m("network.wakeHint",{detail:t(selectedSession()?.tier==="pull"?"Phiên chưa có runtime đánh thức; yêu cầu sẽ chờ máy chủ.":"Hãy nêu rõ việc cần làm.")}):"FYI lưu vào hộp thư, không bắt đầu lượt mô hình. Agent có thể nhận thông tin ở lượt sau.";
  $("#networkWakeHint").classList.toggle("waking",wake);
  $("#networkSend").textContent=sending?"Đang gửi…":wake?"Gửi & đánh thức":"Gửi FYI";
  $("#networkSend").disabled=sending||readingFiles||!!validationError();
@@ -208,8 +211,8 @@ function syncComposer(){
 }
 function renderFiles(){
  $("#networkDraftFiles").replaceChildren(...files.map((f,index)=>{
-  const item=node("li"),remove=node("button",null,"×");remove.type="button";remove.setAttribute("aria-label","Bỏ file "+f.name);remove.onclick=()=>{files.splice(index,1);pendingSend=null;formError("");renderFiles();syncComposer();$("#networkPickFiles").focus()};
-  item.append(raw("span",null,f.name+" · "+size(bytes(f.content))),remove);return item;
+  const item=node("li"),remove=node("button",null,"×");remove.type="button";I.bindAttribute(remove,"aria-label","network.remove",{name:f.name});remove.onclick=()=>{files.splice(index,1);pendingSend=null;formError("");renderFiles();syncComposer();$("#networkPickFiles").focus()};
+  item.append(bound("span",null,"format.value",()=>({value:f.name+" · "+size(bytes(f.content))})),remove);return item;
  }));
 }
 async function pickFiles(){
@@ -218,25 +221,25 @@ async function pickFiles(){
  readingFiles=true;syncComposer();formError("");
  try{
   const l=state.limits;
-  if(files.length+picked.length>l.maxFiles)throw new Error("Chỉ gửi tối đa "+l.maxFiles+" file mỗi tin.");
+  if(files.length+picked.length>l.maxFiles)throw Object.assign(new Error("file_validation"),{localize:()=>m("network.fileCountLimit",{count:l.maxFiles})});
   let total=files.reduce((sum,f)=>sum+bytes(f.content),0);const additions=[];
   for(const file of picked){
-   if(!file.name||file.name!==file.name.trim()||file.name.startsWith(".")||bytes(file.name)>120||/[\x00-\x1f\x7f-\x9f/\\:]/.test(file.name))throw new Error("Tên file phải ngắn, không ẩn và không chứa đường dẫn: "+file.name);
-   if(files.concat(additions).some(f=>f.name.toLowerCase()===file.name.toLowerCase()))throw new Error("Tên file bị trùng: "+file.name);
-   if(file.size>l.maxFileBytes)throw new Error(file.name+" vượt "+size(l.maxFileBytes)+".");
-   total+=file.size;if(total>l.maxTotalBytes)throw new Error("Tổng file vượt "+size(l.maxTotalBytes)+".");
-   let content;try{content=new TextDecoder("utf-8",{fatal:true}).decode(await file.arrayBuffer())}catch{throw new Error(file.name+" không phải văn bản UTF-8.")}
-   if(/[\x00-\x08\x0b\x0c\x0e-\x1f\x7f-\x9f]/.test(content))throw new Error(file.name+" chứa dữ liệu nhị phân hoặc ký tự điều khiển.");
-   if(bytes(content)>l.maxFileBytes)throw new Error(file.name+" vượt giới hạn sau khi đọc.");
+   if(!file.name||file.name!==file.name.trim()||file.name.startsWith(".")||bytes(file.name)>120||/[\x00-\x1f\x7f-\x9f/\\:]/.test(file.name))throw Object.assign(new Error("file_validation"),{localize:()=>m("network.invalidName",{name:file.name})});
+   if(files.concat(additions).some(f=>f.name.toLowerCase()===file.name.toLowerCase()))throw Object.assign(new Error("file_validation"),{localize:()=>m("network.duplicateName",{name:file.name})});
+   if(file.size>l.maxFileBytes)throw Object.assign(new Error("file_validation"),{localize:()=>m("network.fileTooLarge",{name:file.name,size:size(l.maxFileBytes)})});
+   total+=file.size;if(total>l.maxTotalBytes)throw Object.assign(new Error("file_validation"),{localize:()=>m("network.totalLimit",{size:size(l.maxTotalBytes)})});
+   let content;try{content=new TextDecoder("utf-8",{fatal:true}).decode(await file.arrayBuffer())}catch{throw Object.assign(new Error("file_validation"),{localize:()=>m("network.notUtf8",{name:file.name})})}
+   if(/[\x00-\x08\x0b\x0c\x0e-\x1f\x7f-\x9f]/.test(content))throw Object.assign(new Error("file_validation"),{localize:()=>m("network.binary",{name:file.name})});
+   if(bytes(content)>l.maxFileBytes)throw Object.assign(new Error("file_validation"),{localize:()=>m("network.decodedLimit",{name:file.name})});
    additions.push({name:file.name,content});
   }
   files.push(...additions);pendingSend=null;renderFiles();
- }catch(e){formError(e.message)}
+ }catch(e){formError(e.localize||e.message)}
  finally{readingFiles=false;syncComposer()}
 }
 $("#networkComposer").addEventListener("submit",async e=>{
  e.preventDefault();if(sending||readingFiles)return;
- const error=validationError();if(error){formError(error);return}
+ const error=validationError();if(error){formError(()=>validationError());return}
  const payload={toSessionId:selected,text:$("#networkText").value,wake:wakeMode(),attachments:files.map(f=>({name:f.name,content:f.content}))};
  const fingerprint=JSON.stringify(payload);
  if(!pendingSend||pendingSend.fingerprint!==fingerprint)pendingSend={fingerprint,payload:{...payload,clientNonce:nonce()}};
@@ -248,7 +251,7 @@ $("#networkComposer").addEventListener("submit",async e=>{
   $("#networkText").value="";files=[];pendingSend=null;renderFiles();renderMailbox();
   notice(result.duplicate?"Lần gửi trước đã được ghi nhận; không tạo tin trùng.":payload.wake?"Đã ghi nhận yêu cầu đánh thức. Xem trạng thái giao tin và tác vụ bên trên.":"Đã gửi FYI. Agent chưa được đánh thức.");
   await refresh();
- }catch(e){formError(errorText(e,"Chưa xác nhận được lần gửi. Bấm gửi lại với cùng nội dung để kiểm tra an toàn."))}
+ }catch(e){formError(()=>errorText(e,"Chưa xác nhận được lần gửi. Bấm gửi lại với cùng nội dung để kiểm tra an toàn."))}
  finally{sending=false;syncComposer()}
 });
 function open(){
@@ -257,6 +260,7 @@ function open(){
  timer=setInterval(()=>{if(dialog.open&&!document.hidden)refresh()},5000);
 }
 function close(){if(dialog.open)dialog.close()}
+window.addEventListener("aurora:localechange",()=>{if(dialog.open){renderDirectory();renderMailbox();syncComposer();notice(noticeSource,noticeBad);formError(errorSource)}});
 entry.addEventListener("click",open);$("#networkClose").onclick=close;
 dialog.addEventListener("close",()=>{clearInterval(timer);timer=null;entry.setAttribute("aria-expanded","false");if(lastFocus?.isConnected)lastFocus.focus()});
 dialog.addEventListener("cancel",e=>{e.preventDefault();close()});
@@ -277,8 +281,8 @@ $("#networkPickFiles").onclick=()=>$("#networkFiles").click();$("#networkFiles")
 document.addEventListener("visibilitychange",()=>{if(!document.hidden&&dialog.open)refresh()});
 for(const [id,name] of [["networkIcon","message-square-dot"],["networkSearchIcon","search"],["networkFileIcon","folder"]])if(window.AURORA_ICONS)$("#"+id).replaceChildren(AURORA_ICONS.icon(name,18));
 window.AURORA_NETWORK={peerMessage(m){
- const card=node("div","network-peer-message"),source=m.origin==="human"?"Giao tiếp · chủ sở hữu":(m.fromName||"Agent")+" · tin từ agent";
- card.append(raw("div","network-peer-source",source),raw("div","network-peer-body",m.text||""));return card;
+ const card=node("div","network-peer-message"),source=m.origin==="human"?I.uiText(node("div","network-peer-source"),"Giao tiếp · chủ sở hữu"):bound("div","network-peer-source","network.peer",()=>({name:m.fromName||t("Trợ lý")}));
+ card.append(source,raw("div","network-peer-body",m.text||""));return card;
 }};
 syncComposer();
 })();

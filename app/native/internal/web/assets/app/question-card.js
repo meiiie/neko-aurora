@@ -13,14 +13,14 @@
     const root=el("section",null,"card question-card");root.dataset.id=m.taskId;root.setAttribute("aria-label","Câu hỏi cần bạn trả lời");
     const valid=a=>a.own?!!a.text.trim():a.selected.length>0;
     const answers=()=>state.answers.map(a=>({id:a.id,selected:a.own?[]:a.selected,text:a.own?a.text:""}));
-    const text=as=>"Trả lời câu hỏi:\n\n"+questions.map((q,i)=>q.prompt+"\n"+(as[i].text.trim()||q.options.filter((_,n)=>as[i].selected.includes(n)).join("; "))).join("\n\n");
+    const text=as=>window.__I18N.message("question.answerPrefix")+questions.map((q,i)=>q.prompt+"\n"+(as[i].text.trim()||q.options.filter((_,n)=>as[i].selected.includes(n)).join("; "))).join("\n\n");
     function save(){drafts.set(key,state);try{const raw=JSON.stringify(state);storage.setItem(key,raw);if(storage.getItem(key)!==raw)throw Error("not_saved")}catch{notice("Câu trả lời mới chỉ được giữ trong cửa sổ này. Chưa lưu được trên thiết bị.")}}
     function summary(as){const dl=el("dl");questions.forEach((q,i)=>{dl.append(data("dt",q.prompt),data("dd",as[i]?.text?.trim()||q.options.filter((_,n)=>as[i]?.selected?.includes(n)).join("; ")))});root.append(dl)}
     function render(){
       root.replaceChildren();
       if(answered){root.append(el("p","Đã trả lời","question-status"));drafts.delete(key);try{storage.removeItem(key)}catch{};return}
       if(pending){root.append(el("p",pending.error?"Chưa được nhận":"Đang chờ xác nhận…","question-status"));summary(pending.questionAnswers||answers());return}
-      const progress=el("p",state.step===questions.length?"Xem lại câu trả lời":`Câu ${state.step+1}/${questions.length}`,"caption");progress.setAttribute("aria-live","polite");progress.tabIndex=-1;root.append(progress);
+      const progress=el("p",state.step===questions.length?"Xem lại câu trả lời":window.__I18N.message("question.progress",{current:state.step+1,total:questions.length}),"caption");if(state.step!==questions.length)window.__I18N.bind(progress,"question.progress",{current:state.step+1,total:questions.length});progress.setAttribute("aria-live","polite");progress.tabIndex=-1;root.append(progress);
       const controls=el("div",null,"question-controls"),back=el("button","Quay lại","pill soft"),next=el("button",state.step===questions.length?"Gửi câu trả lời":state.step===questions.length-1?"Xem lại":"Tiếp","pill");
       back.type=next.type="button";back.disabled=state.step===0;back.onclick=()=>{state.step--;save();render();root.querySelector(".caption")?.focus()};
       if(state.step===questions.length){summary(answers());next.disabled=!state.answers.every(valid);next.onclick=()=>{if(state.answers.every(valid))send(text(answers()),{answerFor:m.taskId,questionAnswers:answers()})}}

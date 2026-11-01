@@ -98,3 +98,113 @@ test('cross-tab storage and device changes update only valid preferences', () =>
   events.get('languagechange')();
   assert.equal(api.lang, 'zh-Hant');
 });
+
+test('remaining surfaces use complete messages in all four languages', () => {
+  const { api, context } = boot();
+  for (const lang of ['vi', 'en', 'zh-Hans', 'zh-Hant']) {
+    api.set(lang);
+    for (const key of ['cloud.point', 'network.fileLimits', 'network.approval.pending', 'legal.storage', 'legal.warranty', 'agent.step', 'schedule.receivedUnsaved']) {
+      const translated = api.message(key, { x:1,y:2,count:2,max:3,used:'2 KiB',total:'8 KiB',each:'4 KiB',title:'Cài đặt',current:1 });
+      assert.notEqual(translated, key);
+      assert.ok(!translated.includes('{{'), key);
+    }
+    assert.equal(api.t('Trình duyệt sẵn sàng'), context.AURORA_LOCALES[lang].ui['cloud.browser_ready']);
+    assert.equal(api.t('Đã lưu phiên bản 3.'), api.message('page.saved', { version:'3' }));
+    assert.equal(api.t('Đã ẩn · 2'), api.message('misc.hiddenCount', { count:2 }));
+  }
+  api.set('en');
+  assert.equal(api.message('network.directory', {count:1}), '1 assistant session');
+  assert.equal(api.message('network.directory', {count:2}), '2 assistant sessions');
+});
+
+test('bound dynamic text changes language and releases ownership when the view writes a new state', () => {
+  const { api, context } = boot();
+  const node = { dataset:{},textContent:'' };
+  context.document.querySelectorAll = () => node.dataset.i18n ? [node] : [];
+  api.bind(node, 'network.approval.pending', () => ({ title:'Cài đặt / 設定 <script>' }));
+  for (const lang of ['en', 'zh-Hans', 'zh-Hant', 'vi']) {
+    api.set(lang);
+    assert.equal(node.textContent, api.message('network.approval.pending', {title:'Cài đặt / 設定 <script>'}));
+  }
+  node.textContent = 'new state written by the view';
+  api.set('en');
+  assert.equal(node.textContent, 'new state written by the view');
+  assert.equal(node.dataset.i18n, undefined);
+  api.bind(node, 'network.approval.pending', {title:'old'});
+  api.literal(node, 'Cài đặt');
+  api.set('zh-Hant');
+  assert.equal(node.textContent, 'Cài đặt');
+  assert.equal(node.dataset.i18n, undefined);
+});
+
+test('source phrase mappings resolve only static semantic messages', () => {
+  const { context } = boot();
+  for (const [source, key] of Object.entries(context.AURORA_LOCALE_SOURCE_KEYS)) {
+    assert.ok(source.trim());
+    for (const catalog of Object.values(context.AURORA_LOCALES)) {
+      assert.ok(catalog.ui[key], key);
+      assert.ok(!catalog.ui[key].includes('{{'), key);
+    }
+  }
+});
+
+test('mailbox limit validation returns localized errors after server limits change', () => {
+  const { api } = boot();
+  const source = fs.readFileSync(path.join(assets, 'network.js'), 'utf8');
+  const start = source.indexOf('function validationError(){');
+  const end = source.indexOf('\nfunction syncComposer()', start);
+  assert.ok(start >= 0 && end > start);
+  const context = {
+    state: { limits: { maxFiles: 2, maxFileBytes: 8, maxTotalBytes: 10, maxTextBytes: 20 } },
+    files: [], selectedSession: () => ({ id: 'fixture' }),
+    $: () => ({ value: 'Local test' }),
+    bytes: value => Buffer.byteLength(value), size: value => `${value} B`,
+    m: (key, values) => api.message(key, values),
+  };
+  vm.createContext(context);
+  vm.runInContext(source.slice(start, end), context);
+  for (const lang of ['vi', 'en', 'zh-Hans', 'zh-Hant']) {
+    api.set(lang);
+    for (const [files, key, options] of [
+      [[{ content: '1' }, { content: '2' }, { content: '3' }], 'network.fileCountLimit', { count: 2 }],
+      [[{ content: '123456789' }], 'network.fileLimit', { size: '8 B' }],
+      [[{ content: '123456' }, { content: '123456' }], 'network.totalLimit', { size: '10 B' }],
+    ]) {
+      context.files = files;
+      assert.equal(context.validationError(), api.message(key, options));
+    }
+    context.files = [{ content: '123' }];
+    assert.equal(context.validationError(), '');
+  }
+});
+
+test('retrying an image upload after a language change preserves the original draft', async () => {
+  const { api } = boot();
+  const source = fs.readFileSync(path.join(assets, 'app.js'), 'utf8');
+  const start = source.indexOf('async function insertUpload(item){');
+  const end = source.indexOf('\nasync function transferUpload(', start);
+  assert.ok(start >= 0 && end > start);
+  let draft = { text: '' }, removed = 0;
+  const context = {
+    cur: null, S: { workspaceId: 'fixture' }, l10n: api,
+    composerDrafts: { get: () => ({ ...draft }) },
+    storeComposerDraft: (_scope, _agent, value) => { draft = value; return true; },
+    uploadQueue: { remove: async () => { removed++; } }, toast() {},
+  };
+  vm.createContext(context);
+  vm.runInContext(source.slice(start, end), context);
+  const item = { scope: 'fixture', agent: 'test', path: 'uploads/Dự-án.jpg' };
+  for (const original of ['vi', 'en', 'zh-Hans', 'zh-Hant']) {
+    api.set(original);
+    draft = { text: '' };
+    await context.insertUpload(item);
+    const originalText = draft.text;
+    assert.ok(originalText.includes(api.message('chat.imageAttachment', { name: item.path })));
+    for (const next of ['vi', 'en', 'zh-Hans', 'zh-Hant']) {
+      api.set(next);
+      await context.insertUpload(item);
+      assert.equal(draft.text, originalText);
+    }
+  }
+  assert.equal(removed, 20);
+});

@@ -643,7 +643,7 @@ func (s *Service) uploadRoutes() {
 	})
 }
 
-var imgRef = regexp.MustCompile(`\[Ảnh: (uploads/[^\]\s]{1,90})\]`)
+var imgRef = regexp.MustCompile(`\[(?:Ảnh: |Image: |图片：|圖片：)(uploads/[^\]\s]{1,90})\]`)
 
 // imageAuto describes images the owner attached to this message.
 func imageAuto(text string) []toolCall {
