@@ -4,6 +4,12 @@
 /docs/reviews/acceptance-independent-round2-20261011.md -text
 /docs/reviews/core-writer-v2-blocked-20261011.md -text
 /native/internal/web/assets/fonts/* -text
+/native/internal/web/assets/app/aurora/fonts/*.woff2 -text
+/native/internal/web/assets/app/aurora/fonts/source-sans-3-OFL.txt -text whitespace=-blank-at-eol
+/native/internal/web/assets/app/aurora/fonts/noto-sans-*/*.woff2 -text
+/native/internal/web/assets/app/aurora/fonts/noto-sans-*/LICENSE.txt -text
+/native/internal/web/assets/app/aurora/fonts/noto-sans-*/metadata.json -text
+.gitattributes text eol=lf
 *.rs text eol=lf
 *.go text eol=lf
 *.py text eol=lf
