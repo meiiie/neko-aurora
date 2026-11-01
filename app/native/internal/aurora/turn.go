@@ -26,6 +26,7 @@ const systemPrompt = `Bạn là "%s", một agent trong Neko Aurora làm việc 
 Quy tắc:
 - Xưng "mình", gọi Darren là "bạn" (không bao giờ "tôi", không gọi tên Darren hay kể về Darren ở ngôi thứ ba).
 - Trả lời bằng ngôn ngữ của tin nhắn mới nhất (mặc định tiếng Việt; người dùng viết tiếng Anh thì trả lời hoàn toàn bằng tiếng Anh), ngắn gọn, cụ thể, như một đồng nghiệp đáng tin. Chỉ dùng chữ Latin tiếng Việt: tuyệt đối không chèn chữ Hán/Nhật/Hàn. Markdown gọn (tiêu đề ngắn, gạch đầu dòng, bảng) chỉ khi giúp dễ đọc.
+- Với lời chào hoặc câu hỏi ngắn, đáp tự nhiên và vừa đủ, không tự tạo kế hoạch hay bảng biểu. Với yêu cầu dài, đưa kết quả chính trước rồi giải thích phần cần thiết. Mỗi đoạn nói một ý; giữ nguyên khối code và bảng khi chúng hữu ích. Chỉ hỏi khi thiếu thông tin quyết định cách làm, tận dụng điều người dùng đã nói và các mặc định hợp lý.
 - Bạn KHÔNG tự gửi, đăng, thanh toán hay liên hệ ai bên ngoài. Không bao giờ nói là đã gửi.
 - Cuối câu trả lời, bạn có thể thêm các dòng chỉ thị (mỗi loại tối đa một dòng, đúng JSON):
 PLAN: ["bước 1","bước 2"]   ← khi việc gồm nhiều phần (tra nhiều thứ, so sánh rồi viết báo cáo, lên lịch nhiều hạng mục): 3-6 bước ngắn, bước cuối là tổng hợp kết quả; khi đó phần trả lời chỉ cần 1 câu nêu cách làm, chưa tra cứu.
@@ -536,17 +537,14 @@ func (s *Service) runWork(w ledger.Work) {
 	if s.PC != nil && !s.networkPeerWork(w) && wantsComputer.MatchString(stripRef(w.Text)) {
 		s.PC.Warm(w.BotID) // boot the bot's VM while the model plans (cold start ~10-30 s on Railway)
 	}
-	run := ledger.DirectRun{Runtime: s.AI.Runtime(), Model: s.AI.ModelName(), LeaseUntil: s.leaseUntil()}
+	choice := s.selectTurnAI(w.BotID)
+	runtime, model := choice.identity(s.AI)
+	run := ledger.DirectRun{Runtime: runtime, Model: model, LeaseUntil: s.leaseUntil()}
 	if strings.HasPrefix(w.ClientNonce, "computer-") {
 		run.Kind = "computer" // hidden follow-up after an approved command
 	}
 	if strings.HasPrefix(w.ClientNonce, handoffPrefix) {
 		run.Kind = "handoff" // a member's message to another: no owner bubble
-	}
-	if model := s.configuredModel(w.BotID); model != nil && model.Configured() {
-		run.Runtime, run.Model = model.Runtime(), model.ModelName()
-	} else {
-		run.Model = ""
 	}
 	w, err := s.L.DirectStart(w.RequestID, w.Epoch, run)
 	if err != nil {
@@ -566,6 +564,7 @@ func (s *Service) runWork(w ledger.Work) {
 	s.agui(AGUIEvent{Type: RUN_STARTED, ThreadID: w.BotID, RunID: w.RequestID})
 	ctx, cancel := context.WithTimeout(s.ctx, turnBudget+turnSlack)
 	defer cancel()
+	ctx = context.WithValue(ctx, turnAIKey{}, choice)
 	go s.watchCancel(ctx, cancel, w.RequestID)
 	go s.holdLease(ctx, w.RequestID)
 	appr, questions, err := s.runTurn(ctx, w)

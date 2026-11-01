@@ -31,7 +31,7 @@ func (s *Service) modelMenu() []modelOpt {
 	}
 	out := []modelOpt{}
 	if s.quick != nil {
-		for _, p := range s.quick.providers() {
+		for _, p := range s.quickProviders() {
 			for _, m := range p.Models {
 				label := m
 				for _, opt := range p.ModelOptions {

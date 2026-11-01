@@ -28,17 +28,27 @@ class Fixture:
         self.available = True
         self.catalog = False
         self.catalog_failure = False
+        self.api_catalogs = {}
+        self.catalog_error = ''
+        self.active_model = ''
     def effective(self):
         if not self.selection: return {'configured':False,'inherited':True}
         provider,model=self.selection.removeprefix('core-').split(':',1)
-        return {'configured':provider in self.configured,'inherited':False,'selection':self.selection,'model':model,'provider':{'zai':'GLM Coding Plan','zai-openai':'GLM API','chatgpt':'ChatGPT Plus/Pro'}[provider],'runtime':'neko-core-cli'}
+        return {'configured':provider in self.configured,'inherited':False,'selection':self.selection,'model':model,'provider':{'zai':'GLM Coding Plan','zai-openai':'GLM API','chatgpt':'ChatGPT Plus/Pro'}.get(provider,provider),'runtime':'neko-core-cli'}
+    def providers(self):
+        rows=[]
+        for pid,model in [('zai','glm-fixture'),('zai-openai','glm-api-fixture'),('chatgpt','gpt-fixture'),('openai','gpt-api-fixture'),('claude','claude-fixture'),('gemini-api','gemini-fixture'),('deepseek','deepseek-fixture')]:
+            loaded=self.catalog if pid=='chatgpt' else pid in self.api_catalogs
+            options=([{'id':'gpt-fixture','label':'gpt-fixture','available':True},{'id':'gpt-next','label':'Next account model','available':True},{'id':'gpt-needs-update','label':'Needs update','available':False}] if pid=='chatgpt' else [{'id':model,'label':model,'available':True}]) if loaded else []
+            rows.append({'id':pid,'label':pid,'auth':'chatgpt_oauth' if pid=='chatgpt' else 'api_key','model':model,'models':[m['id'] for m in options if m['available']],'configured':pid in self.configured,'modelSource':'account' if loaded else 'account_required','modelOptions':options,'catalogError':('core_catalog_unavailable' if pid=='chatgpt' and self.catalog_failure else self.catalog_error if pid!='chatgpt' else '')})
+        return rows
     def route(self, route):
         req = route.request
         path = urlsplit(req.url).path.removeprefix('/app/api')
         status, data = 200, {}
         if req.method != 'GET': self.posts.append((path, req.post_data_json))
         if path == '/state':
-            data = {'workspaceId':'quick-fixture','agents':[{'id':'bot-a','name':'An','status':'idle','snip':'Sẵn sàng nhận việc.','ai':self.effective()}], 'pending':[], 'ai':{'configured':False}, 'secrets':[], 'outbound':{}}
+            data = {'workspaceId':'quick-fixture','agents':[{'id':'bot-a','name':'An','status':'idle','snip':'Sẵn sàng nhận việc.','ai':self.effective(),'activeModel':self.active_model}], 'pending':[], 'ai':{'configured':False}, 'secrets':[], 'outbound':{}}
         elif path == '/events':
             route.fulfill(content_type='text/event-stream',body='');return
         elif path.endswith('/messages'):
@@ -48,7 +58,10 @@ class Fixture:
         elif path == '/agents/bot-a/ext':
             data = {'workspaceId':self.scope,'model':self.selection,'menu':[]}
         elif path in ('/quick-setup','/quick-setup/models'):
-            if path.endswith('/models') and not self.catalog_failure: self.catalog=True
+            if path.endswith('/models'):
+                body=req.post_data_json
+                if body['provider']=='chatgpt' and not self.catalog_failure: self.catalog=True
+                elif body['provider']!='chatgpt' and not self.catalog_error: self.api_catalogs[body['provider']]=body.get('key','')
             if req.method == 'POST' and path == '/quick-setup':
                 if self.failure: status = self.failure
                 else:
@@ -57,10 +70,7 @@ class Fixture:
                     assert body['expectedSelection'] == self.selection
                     self.selection = 'core-'+body['provider']+':'+body['model']
                     self.configured.add(body['provider'])
-            data = {'workspaceId':self.scope,'available':self.available,'selection':self.selection,'effective':self.effective(),'providers':[
-                {'id':pid,'label':pid,'auth':'chatgpt_oauth' if pid=='chatgpt' else 'api_key','model':model,'models':(['gpt-fixture','gpt-next'] if self.catalog else []) if pid=='chatgpt' else [model], 'configured':pid in self.configured, 'modelSource':('account' if self.catalog else 'account_required') if pid=='chatgpt' else 'preset','modelOptions':[{'id':'gpt-fixture','label':'gpt-fixture','available':True},{'id':'gpt-next','label':'Next account model','available':True},{'id':'gpt-needs-update','label':'Needs update','available':False}] if pid=='chatgpt' and self.catalog else [],'catalogError':'core_catalog_unavailable' if pid=='chatgpt' and self.catalog_failure else ''}
-                for pid,model in [('zai','glm-fixture'),('zai-openai','glm-api-fixture'),('chatgpt','gpt-fixture')]
-            ]}
+            data = {'workspaceId':self.scope,'available':self.available,'selection':self.selection,'effective':self.effective(),'providers':self.providers()}
         elif path == '/quick-setup/login': data = {'id':'fixture-attempt','state':'starting'}
         elif path == '/quick-setup/login/fixture-attempt/cancel': self.login='cancelled';data={'state':self.login}
         elif path == '/quick-setup/login/fixture-attempt':
@@ -88,9 +98,15 @@ with sync_playwright() as p:
         expect(page.locator('#provForm')).not_to_be_visible();expect(page.locator('#quickKey')).to_have_attribute('type','password')
         page.screenshot(path=str(OUT/'quick-desktop.png'),full_page=True)
         page.locator('#quickKey').fill('fixture-ui-private')
+        expect(page.get_by_role('button',name='Lưu và dùng',exact=True)).to_be_disabled()
+        page.locator('#quickRefreshModels').click()
+        expect(page.locator('#quickModel option[value="glm-fixture"]')).to_have_count(1)
+        expect(page.locator('#quickModel')).to_have_value('')
+        assert fixture.selection=='' and not fixture.configured
+        page.locator('#quickModel').select_option('glm-fixture')
         fixture.failure=503
         page.get_by_role('button',name='Lưu và dùng',exact=True).click()
-        expect(page.locator('#quickSetup')).to_contain_text('Chưa lưu được')
+        expect(page.locator('#quickSetup')).to_contain_text('Chưa xác nhận được kết nối')
         expect(page.locator('#quickKey')).to_have_value('fixture-ui-private')
         fixture.failure=0
         page.get_by_role('button',name='Lưu và dùng',exact=True).click()
@@ -107,10 +123,28 @@ with sync_playwright() as p:
         page.locator('#quickProvider').select_option('zai-openai')
         expect(page.locator('#quickSetup')).to_contain_text('trả phí theo mức sử dụng')
         page.locator('#quickKey').fill('fixture-api-private');fixture.failure=409
+        page.locator('#quickRefreshModels').click();page.locator('#quickModel').select_option('glm-api-fixture')
         page.get_by_role('button',name='Lưu và dùng',exact=True).click()
         expect(page.locator('#quickSetup')).to_contain_text('Cấu hình đã thay đổi')
         assert fixture.selection=='core-zai:glm-fixture';fixture.failure=0
         print('PASS GLM plan/API distinction and stale selection refusal')
+
+        for provider,model in [('openai','gpt-api-fixture'),('claude','claude-fixture'),('gemini-api','gemini-fixture'),('deepseek','deepseek-fixture')]:
+            page.locator('#quickProvider').select_option(provider)
+            page.locator('#quickKey').fill('fixture-'+provider)
+            fixture.catalog_error='core_auth_required';page.locator('#quickRefreshModels').click()
+            expect(page.locator('#quickCatalogNote')).to_contain_text('API key chưa được chấp nhận')
+            expect(page.get_by_role('button',name='Lưu và dùng',exact=True)).to_be_disabled()
+            fixture.catalog_error='';page.locator('#quickRefreshModels').click()
+            page.locator('#quickModel').select_option(model)
+            page.locator('#quickKey').fill('fixture-'+provider+'-changed')
+            expect(page.get_by_role('button',name='Lưu và dùng',exact=True)).to_be_disabled()
+            expect(page.locator('#quickModel')).to_be_disabled()
+            page.locator('#quickRefreshModels').click()
+            expect(page.get_by_role('button',name='Lưu và dùng',exact=True)).to_be_enabled()
+            assert fixture.posts[-1][1]['key']=='fixture-'+provider+'-changed'
+        page.locator('#quickProvider').select_option('zai')
+        print('PASS all API routes load by candidate key, reject invalid keys, invalidate edited keys without changing the bot')
 
         page.locator('#quickProvider').select_option('chatgpt')
         expect(page.locator('#quickKey')).to_have_count(0)
@@ -132,16 +166,26 @@ with sync_playwright() as p:
         expect(page.locator('#quickSetup')).to_contain_text('Đã chọn AI.')
         assert fixture.selection=='core-chatgpt:gpt-fixture'
         expect(page.locator('#threadModel')).to_contain_text('ChatGPT Plus/Pro · gpt-fixture')
+        expect(page.locator('#composerAI')).to_contain_text('ChatGPT Plus/Pro · gpt-fixture')
         expect(page.locator('.quick-current')).to_contain_text('ChatGPT Plus/Pro · gpt-fixture')
         assert fixture.posts[-1][1]['key']==''
         assert not any(path.endswith('/messages') for path,_ in fixture.posts)
         print('PASS OAuth link, cancel, failed retry, explicit activation and no API fallback/no auto-send')
 
         close();page.reload();expect(page.locator('#threadModel')).to_contain_text('gpt-fixture')
+        page.locator('#composerAI').focus();page.keyboard.press('Enter')
+        expect(page.locator('.quick-current')).to_contain_text('gpt-fixture')
+        expect(page.locator('#quickSetup')).to_contain_text('Lượt đang chạy giữ nguyên AI')
+        close();expect(page.locator('#input')).to_have_value('Bản nháp cần giữ.')
         page.locator('#whoBtn').click()
         expect(page.locator('#prAI')).to_contain_text('gpt-fixture')
         page.locator('#prAI').click();expect(page.locator('.quick-current')).to_contain_text('gpt-fixture')
         print('PASS selected bot model visible in header, profile and setup after save/reload')
+        close();page.locator('#profBack').click();fixture.active_model='glm-running-fixture';page.reload()
+        expect(page.locator('#threadModel')).to_have_text('Đang dùng: glm-running-fixture')
+        expect(page.locator('#composerAI')).to_contain_text('gpt-fixture')
+        fixture.active_model='';page.reload();page.locator('#whoBtn').click();page.locator('#prAI').click()
+        print('PASS running-turn model distinguished from next-turn selection')
         close();page.locator('#profBack').click();setup()
         close();fixture.selection='core-chatgpt:retired-fixture';setup()
         expect(page.locator('#quickModel')).to_have_value('retired-fixture')
@@ -179,7 +223,10 @@ with sync_playwright() as p:
         page.get_by_text('Cấu hình nâng cao',exact=True).click();expect(page.locator('#provForm')).to_be_visible()
         print('PASS workspace mismatch and unavailable Core with advanced fallback')
 
-        close();fixture.available=True;fixture.selection='';fixture.configured.clear();page.set_viewport_size({'width':390,'height':844});setup()
+        close();fixture.available=True;fixture.selection='';fixture.configured.clear();page.set_viewport_size({'width':390,'height':844})
+        expect(page.locator('#composerAI')).to_be_in_viewport()
+        assert page.evaluate('document.documentElement.scrollWidth<=innerWidth')
+        page.locator('#composerAI').click()
         expect(page.locator('#quickKey')).to_be_in_viewport()
         assert page.evaluate('document.documentElement.scrollWidth<=innerWidth')
         page.screenshot(path=str(OUT/'quick-mobile.png'),full_page=True)

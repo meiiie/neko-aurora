@@ -6,6 +6,7 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"io"
 	"net/http"
 	"net/url"
@@ -39,17 +40,19 @@ type quickLogin struct {
 	URL   string `json:"url,omitempty"`
 }
 type quickSetup struct {
-	mu          sync.Mutex
-	Core        *Core
-	Providers   []quickProvider
-	ChatGPT     bool
-	login       quickLogin
-	cancel      context.CancelFunc
-	runLogin    func(context.Context, func(quickLogin)) error
-	runModels   func(context.Context) (quickModelCatalog, error)
-	modelsMu    sync.Mutex
-	models      *quickModelCatalog
-	modelsError string
+	mu           sync.Mutex
+	Core         *Core
+	Providers    []quickProvider
+	ChatGPT      bool
+	login        quickLogin
+	cancel       context.CancelFunc
+	runLogin     func(context.Context, func(quickLogin)) error
+	runModels    func(context.Context) (quickModelCatalog, error)
+	modelsMu     sync.Mutex
+	models       *quickModelCatalog
+	modelsError  string
+	runAPIModels func(context.Context, quickProvider, string) (quickModelCatalog, error)
+	apiModels    map[string]quickAPICatalog
 }
 
 func openQuickSetup(parent context.Context, dir string) *quickSetup {
@@ -136,7 +139,7 @@ func (s *Service) quickReady(p quickProvider) bool {
 }
 func (s *Service) quickModel(selection string) *Core {
 	id, model, ok := strings.Cut(strings.TrimPrefix(selection, "core-"), ":")
-	p, found := s.quick.provider(id)
+	p, found := s.quickProvider(id)
 	if !ok || !found || !s.quickReady(p) {
 		return nil
 	}
@@ -144,7 +147,7 @@ func (s *Service) quickModel(selection string) *Core {
 	for _, m := range p.Models {
 		valid = valid || m == model
 	}
-	if !valid && !(p.Auth == "chatgpt_oauth" && coreModelID.MatchString(model)) {
+	if !valid && !coreModelID.MatchString(model) {
 		return nil
 	}
 	c := *s.quick.Core
@@ -201,10 +204,10 @@ func (s *Service) aiViewFor(bot string) map[string]any {
 		view["model"], view["provider"] = model, strings.TrimPrefix(id, "core-")
 		if strings.HasPrefix(id, "core-") {
 			view["runtime"] = "neko-core-cli"
-			if p, ok := s.quick.provider(strings.TrimPrefix(id, "core-")); ok {
+			if p, ok := s.quickProvider(strings.TrimPrefix(id, "core-")); ok {
 				view["provider"], view["configured"] = p.Label, s.quickReady(p)
 				view["modelSource"] = p.ModelSource
-				if p.ID == "chatgpt" && p.ModelSource == "account" {
+				if p.ModelSource == "account" {
 					view["issue"] = chatGPTSelectionIssue(quickModelCatalog{Models: p.ModelOptions}, model)
 					for _, m := range p.ModelOptions {
 						if m.ID == model {
@@ -242,7 +245,7 @@ func (s *Service) quickScope(bot string) bool {
 func (s *Service) quickView(bot string) map[string]any {
 	rows := []map[string]any{}
 	if s.quick != nil {
-		for _, p := range s.quick.providers() {
+		for _, p := range s.quickProviders() {
 			rows = append(rows, map[string]any{"id": p.ID, "label": p.Label, "auth": p.Auth, "model": p.Model, "models": p.Models, "configured": s.quickReady(p), "modelSource": p.ModelSource, "modelOptions": p.ModelOptions, "catalogError": p.CatalogError, "checkedAt": p.CheckedAt})
 		}
 	}
@@ -254,6 +257,8 @@ func (s *Service) quickSetupRoutes() {
 		var in struct {
 			WorkspaceID string `json:"workspaceId"`
 			BotID       string `json:"botId"`
+			Provider    string `json:"provider"`
+			Key         string `json:"key"`
 		}
 		if decodeStrict(r, &in) != nil {
 			fail(w, ErrInvalid)
@@ -267,11 +272,43 @@ func (s *Service) quickSetupRoutes() {
 			fail(w, ErrNotFound)
 			return
 		}
-		if s.quick == nil || s.quick.runModels == nil {
+		if s.quick == nil {
 			writeJSON(w, 503, map[string]string{"error": "core_setup_unavailable"})
 			return
 		}
-		_ = s.quick.refreshModels(r.Context())
+		p, ok := s.quickProvider(first(in.Provider, "chatgpt"))
+		in.Key = strings.TrimSpace(in.Key)
+		if !ok || !validQuickKey(in.Key) || p.Auth == "chatgpt_oauth" && in.Key != "" {
+			fail(w, ErrInvalid)
+			return
+		}
+		if p.Auth == "chatgpt_oauth" {
+			if s.quick.runModels == nil {
+				fail(w, ErrInvalid)
+				return
+			}
+			_ = s.quick.refreshModels(r.Context())
+		} else {
+			key := first(in.Key, s.quickKey(p.ID))
+			catalog, err := s.loadAPIModels(r.Context(), p, key)
+			if err != nil {
+				catalog = quickModelCatalog{Error: catalogErrorCode(err)}
+			}
+			if key != "" && key == s.quickKey(p.ID) {
+				s.rememberAPIModels(p, key, catalog)
+			}
+			view := s.quickView(in.BotID)
+			// A candidate key's catalog is for this form only; it must not change another bot's connection.
+			for _, row := range view["providers"].([]map[string]any) {
+				if row["id"] == p.ID {
+					candidate := catalogProvider(quickProvider{ID: p.ID, ModelSource: "account_required", Models: []string{}}, catalog)
+					row["models"], row["modelOptions"], row["modelSource"], row["catalogError"], row["checkedAt"] = candidate.Models, candidate.ModelOptions, candidate.ModelSource, candidate.CatalogError, candidate.CheckedAt
+				}
+			}
+			w.Header().Set("Cache-Control", "no-store")
+			writeJSON(w, 200, view)
+			return
+		}
 		s.resync()
 		w.Header().Set("Cache-Control", "no-store")
 		writeJSON(w, 200, s.quickView(in.BotID))
@@ -306,9 +343,9 @@ func (s *Service) quickSetupRoutes() {
 			writeJSON(w, 503, map[string]string{"error": "core_setup_unavailable"})
 			return
 		}
-		p, ok := s.quick.provider(in.Provider)
+		p, ok := s.quickProvider(in.Provider)
 		selection := "core-" + p.ID + ":" + in.Model
-		if !ok || !validModel(s.modelMenu(), selection) || !s.quickScope(in.BotID) {
+		if !ok || !coreModelID.MatchString(in.Model) || !s.quickScope(in.BotID) {
 			fail(w, ErrInvalid)
 			return
 		}
@@ -318,14 +355,39 @@ func (s *Service) quickSetupRoutes() {
 			return
 		}
 		defer unlock()
+		providerUnlock, err := s.mcpState().lock(r.Context(), "quick-provider\x00"+p.ID)
+		if err != nil {
+			fail(w, err)
+			return
+		}
+		defer providerUnlock()
 		if in.ExpectedSelection != s.quickSelection(in.BotID) {
 			fail(w, ledger.ErrConflict)
 			return
 		}
 		in.Key = strings.TrimSpace(in.Key)
-		if p.Auth == "chatgpt_oauth" && in.Key != "" || len(in.Key) > 8192 || strings.ContainsAny(in.Key, "\r\n\x00") {
+		if p.Auth == "chatgpt_oauth" && in.Key != "" || !validQuickKey(in.Key) {
 			fail(w, ErrInvalid)
 			return
+		}
+		var catalog quickModelCatalog
+		key := first(in.Key, s.quickKey(p.ID))
+		if p.Auth == "chatgpt_oauth" {
+			if !validModel(s.modelMenu(), selection) {
+				fail(w, ErrInvalid)
+				return
+			}
+		} else {
+			catalog, err = s.loadAPIModels(r.Context(), p, key)
+			if err == nil {
+				if issue := chatGPTSelectionIssue(catalog, in.Model); issue != "" {
+					err = errors.New(issue)
+				}
+			}
+			if err != nil {
+				writeJSON(w, 400, map[string]string{"error": catalogErrorCode(err)})
+				return
+			}
 		}
 		if in.Key != "" {
 			if s.V == nil {
@@ -358,6 +420,9 @@ func (s *Service) quickSetupRoutes() {
 		if err != nil {
 			fail(w, err)
 			return
+		}
+		if p.Auth != "chatgpt_oauth" {
+			s.rememberAPIModels(p, key, catalog)
 		}
 		s.resync()
 		writeJSON(w, 200, s.quickView(in.BotID))

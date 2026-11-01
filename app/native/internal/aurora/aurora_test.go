@@ -24,8 +24,9 @@ import (
 )
 
 func TestMain(m *testing.M) {
-	if len(os.Args) == 6 && os.Args[1] == "--no-env-file" && filepath.Base(os.Args[4]) == "aurora-setup.ts" && os.Args[5] == "models" {
-		fmt.Print(`{"models":[{"id":"gpt-fixture","label":"Fixture","available":true,"transport":"responses"}],"checkedAt":"2026-10-31T00:00:00Z"}`)
+	if len(os.Args) == 7 && os.Args[1] == "--no-env-file" && filepath.Base(os.Args[4]) == "aurora-setup.ts" && os.Args[5] == "models" {
+		model := map[string]string{"chatgpt": "gpt-fixture", "zai": "glm-fixture", "zai-openai": "glm-api-fixture"}[os.Args[6]]
+		fmt.Printf(`{"models":[{"id":%q,"label":"Fixture","available":true,"transport":"responses"}],"checkedAt":"2026-11-01T00:00:00Z"}`, model)
 		os.Exit(0)
 	}
 	if len(os.Args) > 4 && os.Args[1] == "--no-env-file" && os.Args[4] == "aurora-quick-fixture" {

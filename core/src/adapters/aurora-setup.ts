@@ -2,14 +2,14 @@ import { DEFAULTS } from "./config.ts";
 import { loginChatGpt } from "./chatgpt-auth.ts";
 import { chatGptCatalogClientVersion, chatGptMinimumCodexVersion, listChatGptModelCatalog, needsCodexTransport } from "./chatgpt-provider.ts";
 import { compareCodexVersions, discoverCodexSupport } from "./codex-app-server.ts";
+import { AURORA_ROUTES } from "./aurora-models.ts";
 
 // Curated routes; endpoint, protocol and model defaults remain owned by Core.
-const routes = ["zai", "zai-openai", "chatgpt", "openai", "claude", "gemini-api", "deepseek"] as const;
 export function auroraProviderCatalog() {
-  return routes.map(id => {
+  return AURORA_ROUTES.map(id => {
     const p = DEFAULTS.profiles[id];
     return { id, label: p.label || id, auth: p.auth, model: p.model,
-      models: id === "chatgpt" ? [] : p.models || [p.model], modelSource: id === "chatgpt" ? "account_required" : "preset", keyEnv: p.key_env || "" };
+      models: [], modelSource: "account_required", keyEnv: p.key_env || "" };
   });
 }
 

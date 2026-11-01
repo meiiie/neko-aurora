@@ -168,8 +168,8 @@ func (c *Core) Stream(ctx context.Context, msgs []ChatMsg, onDelta func(string))
 	if c.Quick && privatefs.CheckDirectory(c.Home) != nil {
 		return "", errors.New("core_home_unavailable")
 	}
-	if c.Quick && c.Profile == "chatgpt" {
-		catalog, err := c.chatGPTModels(ctx)
+	if c.Quick {
+		catalog, err := c.providerModels(ctx, c.Profile, c.KeyEnv, c.key)
 		if err != nil {
 			return "", err
 		}
@@ -263,6 +263,15 @@ func (c *Core) environment() []string {
 }
 
 func coreExitError(stderr string) error {
+	for _, rule := range []struct{ marker, code string }{
+		{"HTTP 401", "core_auth_required"}, {"HTTP 403", "core_access_denied"},
+		{"HTTP 429", "core_rate_limited"}, {"rate limited", "core_rate_limited"},
+		{"insufficient_quota", "core_rate_limited"},
+	} {
+		if strings.Contains(stderr, rule.marker) {
+			return errors.New(rule.code)
+		}
+	}
 	for _, rule := range []struct{ marker, code string }{
 		{"model_not_found", "core_model_unavailable"}, {"ChatGPT Codex HTTP 404:", "core_model_unavailable"},
 		{"ChatGPT Codex HTTP 401:", "core_auth_required"}, {"ChatGPT Codex HTTP 403:", "core_access_denied"},

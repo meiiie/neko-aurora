@@ -32,8 +32,8 @@ func TestQuickSetupReadsActualCoreCatalog(t *testing.T) {
 		t.Fatal("actual Core catalog unavailable")
 	}
 	p, ok := q.provider("zai")
-	if !ok || p.Auth != "api_key" || len(p.Models) == 0 || p.KeyEnv != "ZAI_API_KEY" {
-		t.Fatal("Core GLM preset missing")
+	if !ok || p.Auth != "api_key" || len(p.Models) != 0 || p.ModelSource != "account_required" || p.KeyEnv != "ZAI_API_KEY" {
+		t.Fatal("Core GLM route must require its connected catalog")
 	}
 	p, ok = q.provider("chatgpt")
 	if !ok || p.Auth != "chatgpt_oauth" || q.ChatGPT {
@@ -152,6 +152,12 @@ func quickFixture(t *testing.T) (*Service, *httptest.Server) {
 		{ID: "zai-openai", Label: "GLM API", Auth: "api_key", Model: "glm-api-fixture", Models: []string{"glm-api-fixture"}, KeyEnv: "ZAI_API_KEY"},
 		{ID: "chatgpt", Label: "ChatGPT", Auth: "chatgpt_oauth", Model: "gpt-fixture", Models: []string{"gpt-fixture"}},
 	}}
+	s.quick.runAPIModels = func(_ context.Context, p quickProvider, key string) (quickModelCatalog, error) {
+		if key == "" {
+			return quickModelCatalog{}, errors.New("core_auth_required")
+		}
+		return quickModelCatalog{Models: []quickModelOption{{ID: p.Model, Label: p.Model, Available: true, Transport: "anthropic"}}, CheckedAt: "2026-11-01T00:00:00Z"}, nil
+	}
 	if err := privatefs.ProtectDirectory(s.quick.Core.Home); err != nil {
 		t.Fatal(err)
 	}

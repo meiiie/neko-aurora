@@ -27,12 +27,20 @@ type quickModelCatalog struct {
 var coreModelID = regexp.MustCompile(`^[a-zA-Z0-9][a-zA-Z0-9._:/-]{0,119}$`)
 
 func (c *Core) chatGPTModels(ctx context.Context) (quickModelCatalog, error) {
+	return c.providerModels(ctx, "chatgpt", "", "")
+}
+
+func (c *Core) providerModels(ctx context.Context, provider, keyEnv, key string) (quickModelCatalog, error) {
 	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
 	if privatefs.CheckDirectory(c.Home) != nil {
 		return quickModelCatalog{}, errors.New("core_home_unavailable")
 	}
 	cmd := c.setupCommand(ctx, "models")
+	cmd.Args = append(cmd.Args, provider)
+	if key != "" && keyEnv != "" {
+		cmd.Env = append(cmd.Env, keyEnv+"="+key)
+	}
 	out, err := cmd.StdoutPipe()
 	if err != nil {
 		return quickModelCatalog{}, errors.New("core_catalog_unavailable")
@@ -63,7 +71,7 @@ func (c *Core) chatGPTModels(ctx context.Context) (quickModelCatalog, error) {
 		return quickModelCatalog{}, errors.New("core_catalog_unavailable")
 	}
 	for _, m := range result.Models {
-		if !coreModelID.MatchString(m.ID) || len(m.Label) > 640 || (m.Transport != "codex" && m.Transport != "responses") {
+		if !coreModelID.MatchString(m.ID) || len(m.Label) > 640 || (m.Transport != "codex" && m.Transport != "responses" && m.Transport != "anthropic" && m.Transport != "openai_compat") {
 			return quickModelCatalog{}, errors.New("core_catalog_unavailable")
 		}
 	}

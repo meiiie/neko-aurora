@@ -584,3 +584,10 @@ details.sources[open]>:not(summary),details.think[open]>:not(summary),details.pl
 #thread .who #threadModel[hidden]{display:none}
 .quick-current{display:grid;gap:4px;padding:12px 0;border-bottom:1px solid var(--line)}
 .quick-current strong{font-size:14px;overflow-wrap:anywhere}
+.composer-model{flex:none;width:min(100%,960px);margin:0 auto;padding:4px 24px 0;min-width:0}
+.composer-model button{max-width:100%;border:0;background:transparent;color:var(--mute);font:inherit;font-size:12px;line-height:1.5;padding:6px 10px;border-radius:8px;text-overflow:ellipsis;white-space:nowrap;overflow:hidden;cursor:pointer;text-align:left}
+.composer-model button:hover{background:var(--sunk);color:var(--ink)}
+.composer-model button:focus-visible{outline:2px solid var(--na-focus);outline-offset:2px}
+.composer-model button[hidden]{display:none}
+.quick-form select{min-height:44px}
+.quick-form[aria-busy=true] #quickCatalogNote{opacity:.7}

@@ -52,20 +52,21 @@ func plainMD(v string) string {
 // ---- views: the mobile JSON shapes, projected from ledger bots and work ----
 
 type Agent struct {
-	AI      map[string]any `json:"ai,omitempty"`
-	ID      string         `json:"id"`
-	Name    string         `json:"name"`
-	Desc    string         `json:"desc"`
-	Tag     string         `json:"tag,omitempty"`
-	Face    *Face          `json:"av,omitempty"`
-	Status  string         `json:"status"` // idle|working|waiting|done|error
-	Task    string         `json:"task"`   // OpenMuse-style TaskStatus of the latest task
-	Snip    string         `json:"snip"`
-	Doing   string         `json:"doing,omitempty"` // live activity while working ("Đang tìm nguồn…")
-	Pinned  bool           `json:"pin"`
-	Kind    string         `json:"kind,omitempty"` // ""|group
-	Members []string       `json:"members,omitempty"`
-	Updated time.Time      `json:"t"`
+	ActiveModel string         `json:"activeModel,omitempty"`
+	AI          map[string]any `json:"ai,omitempty"`
+	ID          string         `json:"id"`
+	Name        string         `json:"name"`
+	Desc        string         `json:"desc"`
+	Tag         string         `json:"tag,omitempty"`
+	Face        *Face          `json:"av,omitempty"`
+	Status      string         `json:"status"` // idle|working|waiting|done|error
+	Task        string         `json:"task"`   // OpenMuse-style TaskStatus of the latest task
+	Snip        string         `json:"snip"`
+	Doing       string         `json:"doing,omitempty"` // live activity while working ("Đang tìm nguồn…")
+	Pinned      bool           `json:"pin"`
+	Kind        string         `json:"kind,omitempty"` // ""|group
+	Members     []string       `json:"members,omitempty"`
+	Updated     time.Time      `json:"t"`
 }
 
 type Step = ledger.DirectStep
@@ -248,6 +249,7 @@ func (v *view) agent(b ledger.Bot, prefs botPrefs) *Agent {
 					}
 				}
 				a.Doing = doingOf(w.Direct)
+				a.ActiveModel = w.Direct.Model
 			}
 			return a
 		}
@@ -301,23 +303,23 @@ func failureText(code string) string {
 	case code == "core_configuration_invalid":
 		return "Aurora chưa khởi động được AI do cấu hình ứng dụng. Hãy cập nhật hoặc khởi động lại Aurora rồi thử lại."
 	case code == "core_auth_required":
-		return "Kết nối ChatGPT cần đăng nhập lại. Mở thiết lập AI để kết nối, rồi gửi lại tin nhắn khi bạn sẵn sàng."
+		return "Kết nối AI chưa được xác thực. Mở AI của bot để kiểm tra API key hoặc đăng nhập lại. Tin nhắn đã được giữ."
 	case code == "core_home_unavailable" || code == "core_runtime_unavailable":
 		return "Aurora chưa mở được bộ chạy AI trên máy này. Hãy kiểm tra cài đặt Neko Core rồi thử lại."
 	case code == "core_failed":
 		return "AI chưa trả lời được. Bạn có thể thử lại hoặc kiểm tra kết nối trong thiết lập AI."
 	case code == "core_model_unavailable":
-		return "Model đang chọn không có trong danh sách ChatGPT của tài khoản này. Mở AI của bot, tải lại danh sách và chọn model khác. Tin nhắn này chưa được xử lý."
+		return "Model đang chọn không khả dụng với kết nối này. Mở AI của bot, tải lại danh sách và chọn model khác. Tin nhắn đã được giữ."
 	case code == "core_support_required":
 		return "Model này cần cập nhật thành phần ChatGPT trên máy chạy Aurora. Đăng nhập của bạn vẫn được giữ."
 	case code == "core_catalog_unavailable":
-		return "Chưa tải được danh sách model từ ChatGPT. Kiểm tra kết nối mạng rồi tải lại danh sách trong AI của bot."
+		return "Chưa tải được danh sách model từ nhà cung cấp. Kiểm tra mạng rồi tải lại danh sách trong AI của bot."
 	case code == "core_rate_limited":
-		return "ChatGPT đang giới hạn lượt dùng của tài khoản này. Bạn có thể thử lại sau hoặc chọn kết nối AI khác."
+		return "Nhà cung cấp đang giới hạn lượt dùng hoặc tài khoản đã hết hạn mức. Bạn có thể thử lại sau hoặc kiểm tra gói đang dùng."
 	case code == "core_access_denied":
-		return "ChatGPT chưa cho phép tài khoản này dùng model đã chọn. Hãy kiểm tra gói tài khoản hoặc chọn model khác."
+		return "Kết nối này chưa được phép dùng model đã chọn. Hãy kiểm tra quyền của API key hoặc gói tài khoản."
 	case code == "core_connection_failed":
-		return "Aurora chưa kết nối được với ChatGPT. Kiểm tra mạng rồi thử lại; đăng nhập của bạn vẫn được giữ."
+		return "Aurora chưa kết nối được với nhà cung cấp AI. Kiểm tra mạng rồi thử lại; thiết lập của bạn vẫn được giữ."
 	case code == "interrupted_by_restart":
 		return "Tác vụ bị gián đoạn khi máy chủ khởi động lại. Nhắn lại để tiếp tục."
 	case code == "stopped_by_owner":

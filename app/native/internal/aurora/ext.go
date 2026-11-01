@@ -307,14 +307,13 @@ func (s *Service) streamExt(ctx context.Context, bot, kind string, msgs []ChatMs
 	if s.ext == nil {
 		return "", false, nil
 	}
-	be := s.ext.bot(bot)
-	if be.Model == "" {
-		s.ext.mu.Lock()
-		be.Model = s.ext.d.DefaultModel
-		s.ext.mu.Unlock()
+	choice, _ := ctx.Value(turnAIKey{}).(*turnAI)
+	if choice == nil || choice.bot != bot || kind != "chat" {
+		choice = s.selectTurnAI(bot)
 	}
+	be := choice.config
 	if strings.HasPrefix(be.Model, "core-") {
-		c := s.quickModel(be.Model)
+		c := choice.core
 		if c == nil {
 			return "", true, ErrNoAI
 		}
@@ -325,9 +324,9 @@ func (s *Service) streamExt(ctx context.Context, bot, kind string, msgs []ChatMs
 	if be.Model == "" && !think {
 		return "", false, nil
 	}
-	cc, a, ok := s.callFor(be.Model)
+	cc, a, ok := choice.cfg, choice.ai, choice.ok
 	if !ok || a == nil {
-		return "", false, nil
+		return "", be.Model != "", ErrNoAI
 	}
 	if think {
 		cc.Thinking = true
