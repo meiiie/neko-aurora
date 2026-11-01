@@ -162,3 +162,25 @@ was verified before extraction. Its complete license and provenance are retained
 in `app/native/internal/web/assets/app/aurora/vendor/i18next-LICENSE.txt` and
 `i18next-PROVENANCE.md`. Translation catalogues are Aurora-authored. No remote
 translation service, analytics or CDN is used.
+
+## Source Sans 3 — SIL Open Font License 1.1
+
+Source: https://github.com/adobe-fonts/source-sans at
+`87b37a2daaed80fcb8e8ccb0085c4d72ddade12e`. Copyright 2010–2024 Adobe,
+with Reserved Font Name “Source”. The variable upright and italic WOFF2 files
+are distributed unmodified. The full license and file hashes are in
+`app/native/internal/web/assets/app/aurora/fonts/source-sans-3-OFL.txt` and
+`source-sans-3-provenance.json`. These fonts are served locally; no font CDN
+is contacted. Existing Be Vietnam Pro, Inter, Noto Serif Display and JetBrains
+Mono files and their licenses remain intact.
+
+## Noto Sans SC / TC — SIL Open Font License 1.1
+
+Google Inc. Fonts from https://github.com/notofonts/noto-cjk, distributed through
+`@fontsource-variable/noto-sans-sc` and `@fontsource-variable/noto-sans-tc` 5.3.1.
+Package tarballs were checked against their npm SHA-512 integrity values. All
+209 WOFF2 files are unmodified; the provided Unicode-range CSS only has its font
+URLs rewritten to local application paths. Complete licenses, metadata, package
+integrity and individual font SHA-256 hashes are retained under
+`app/native/internal/web/assets/app/aurora/fonts/noto-sans-sc/` and `noto-sans-tc/`.
+Font files load on demand by character range, with no remote font requests.

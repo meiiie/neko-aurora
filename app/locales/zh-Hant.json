@@ -641,7 +641,12 @@
     "misc.accountFrom_one": "{{count, number}} 個帳戶 · {{email}}",
     "misc.accountFrom_other": "{{count, number}} 個帳戶 · {{email}}",
     "vault.cardExpiry": "有效期限",
-    "common.emailAddress": "電子郵件地址"
+    "common.emailAddress": "電子郵件地址",
+    "motion.title": "動態效果",
+    "motion.label": "頭像動態",
+    "motion.auto": "依照裝置",
+    "motion.off": "關閉",
+    "motion.note": "輕微動態效果隨助理狀態變化。裝置要求減少動態效果或頭像不可見時，動畫會自動停止。"
   },
   "legacy": {
     "Đang dùng": "正在使用",

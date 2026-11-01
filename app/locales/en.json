@@ -641,7 +641,12 @@
     "misc.accountFrom_one": "{{count, number}} account · {{email}}",
     "misc.accountFrom_other": "{{count, number}} accounts · {{email}}",
     "vault.cardExpiry": "Expiry date",
-    "common.emailAddress": "Email address"
+    "common.emailAddress": "Email address",
+    "motion.title": "Motion",
+    "motion.label": "Avatar motion",
+    "motion.auto": "Match device",
+    "motion.off": "Off",
+    "motion.note": "Subtle motion follows the assistant’s state. Automatically stops when your device requests reduced motion or the avatar is out of view."
   },
   "legacy": {
     "Đang dùng": "Using",

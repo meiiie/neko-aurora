@@ -1,0 +1,21 @@
+@import url("/app/aurora/fonts.css");
+@import url("/app/aurora/fonts/noto-sans-sc/index.css");
+@import url("/app/aurora/fonts/noto-sans-tc/index.css");
+
+/* Source Sans 3: unmodified Adobe release; source-sans-3-OFL.txt and provenance.json. */
+@font-face{font-family:"Source Sans 3";font-style:normal;font-weight:200 900;font-display:swap;src:url(/app/aurora/fonts/source-sans-3-upright.woff2) format("woff2")}
+@font-face{font-family:"Source Sans 3";font-style:italic;font-weight:200 900;font-display:swap;src:url(/app/aurora/fonts/source-sans-3-italic.woff2) format("woff2")}
+
+:root {
+  --aurora-cjk: "Noto Sans SC Variable", "Noto Sans CJK SC", "Microsoft YaHei", "PingFang SC";
+  --na-font-family-sans: "Source Sans 3", "Segoe UI Emoji", "Apple Color Emoji", "Noto Color Emoji", var(--aurora-cjk), system-ui, sans-serif;
+  --na-font-family-display: var(--na-font-family-sans);
+  --font-ui: var(--na-font-family-sans);
+}
+html:lang(zh-Hant) { --aurora-cjk: "Noto Sans TC Variable", "Noto Sans CJK TC", "Microsoft JhengHei", "PingFang TC"; }
+html:lang(zh-Hans) { --aurora-cjk: "Noto Sans SC Variable", "Noto Sans CJK SC", "Microsoft YaHei", "PingFang SC"; }
+html, body, button, input, select, textarea { font-family: var(--na-font-family-sans); }
+body { letter-spacing: 0; }
+code, pre, kbd, .md code, .md pre { font-family: var(--na-font-family-mono, "JetBrains Mono", ui-monospace, monospace); }
+html:lang(zh) .msg { line-height: 1.75; letter-spacing: .01em; }
+.workspace-welcome h2 { font-family: var(--na-font-family-sans); letter-spacing: -.025em; line-height: 1.2; }

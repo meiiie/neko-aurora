@@ -270,10 +270,14 @@
   function renderPalette() {
     const view = current(), q = normalize($("#workspaceQuery").value.trim());
     paletteEntries = [
-      ...view.agents.filter(agent => !agent.hidden).map(agent => ({ label: agent.name, description: agent.kind === "group" ? "Nhóm" : "Bot", agent, run: () => openBot(agent.id) })),
+      ...view.agents.filter(agent => !agent.hidden).map(agent => {
+        const members = (agent.members || []).map(id => view.agents.find(item => item.id === id)?.name).filter(Boolean).join(" · ");
+        const description = agent.status === "working" ? text("Đang làm việc…") : agent.waiting ? text("Chờ bạn duyệt") : agent.snipKey ? window.__I18N.message(agent.snipKey, agent.snipArgs) : agent.snip || members || agent.desc || text(agent.kind === "group" ? "Nhóm" : "Bot");
+        return { label: agent.name, description, members, agent, run: () => openBot(agent.id) };
+      }),
       ...actions.map(([id, label, name]) => ({ label: text(label), description: "Đi đến", icon: name, run: () => activate(id) })),
       { label: text("Tạo bot mới"), description: "Thao tác", icon: "plus", run: () => bridge.action("create") },
-    ].filter(entry => !q || normalize(entry.label).includes(q));
+    ].filter(entry => !q || normalize([entry.label, entry.description, entry.members].filter(Boolean).join(" ")).includes(q));
     paletteIndex = Math.min(paletteIndex, Math.max(0, paletteEntries.length - 1));
     const results = $("#workspaceResults");
     results.replaceChildren();
@@ -284,8 +288,16 @@
       node.tabIndex = -1;
       node.setAttribute("role", "option");
       node.setAttribute("aria-selected", String(index === paletteIndex));
-      node.append(entry.agent ? bridge.avatar(entry.agent, 28) : icon(entry.icon));
-      node.append(literal("span", "", entry.label), make("small", "", entry.description));
+      const avatar = entry.agent ? bridge.avatar(entry.agent, 36) : icon(entry.icon);
+      avatar.classList.add("workspace-result-avatar");
+      const copy = make("span", "workspace-result-copy");
+      copy.append(literal("b", "", entry.label), literal("small", "", entry.agent ? entry.description : text(entry.description)));
+      node.append(avatar, copy);
+      if (entry.members) node.title = entry.members;
+      if (entry.agent?.unread) {
+        const dot = make("i", "palette-unread"); dot.setAttribute("aria-hidden", "true"); node.append(dot);
+        node.setAttribute("aria-label", [entry.label, text("chưa đọc"), entry.description].join(", "));
+      }
       node.onclick = () => { closePalette(false); entry.run(); };
       results.append(node);
     });

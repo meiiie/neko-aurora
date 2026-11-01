@@ -1,11 +1,37 @@
 package web
 
 import (
+	"bytes"
 	"net/http/httptest"
 	"regexp"
 	"strings"
 	"testing"
 )
+
+func TestFontStylesheetsUseServedWOFF2Assets(t *testing.T) {
+	for _, sheet := range []string{"fonts.css", "typography.css", "fonts/noto-sans-sc/index.css", "fonts/noto-sans-tc/index.css"} {
+		w := httptest.NewRecorder()
+		Serve(w, httptest.NewRequest("GET", "/app/aurora/"+sheet, nil))
+		if w.Code != 200 {
+			t.Fatalf("stylesheet %s unavailable", sheet)
+		}
+		urls := regexp.MustCompile(`url\(["']?([^\s)"']+\.woff2)["']?\)`).FindAllStringSubmatch(w.Body.String(), -1)
+		if len(urls) == 0 {
+			t.Fatalf("stylesheet %s has no fonts", sheet)
+		}
+		for _, match := range urls {
+			path := match[1]
+			if !strings.HasPrefix(path, "/app/aurora/fonts/") || !IsPublicAsset(path) {
+				t.Fatalf("font is not a public local asset: %s", path)
+			}
+			font := httptest.NewRecorder()
+			Serve(font, httptest.NewRequest("GET", path, nil))
+			if font.Code != 200 || !strings.HasPrefix(font.Header().Get("Content-Type"), "font/woff2") || !bytes.HasPrefix(font.Body.Bytes(), []byte("wOF2")) {
+				t.Fatalf("font %s is not served as WOFF2", path)
+			}
+		}
+	}
+}
 
 func TestEveryAppScriptIsServedWithJavaScriptContentType(t *testing.T) {
 	page := httptest.NewRecorder()

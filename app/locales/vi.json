@@ -641,7 +641,12 @@
     "misc.accountFrom_one": "{{count, number}} tài khoản · {{email}}",
     "misc.accountFrom_other": "{{count, number}} tài khoản · {{email}}",
     "vault.cardExpiry": "Ngày hết hạn",
-    "common.emailAddress": "Địa chỉ email"
+    "common.emailAddress": "Địa chỉ email",
+    "motion.title": "Chuyển động",
+    "motion.label": "Chuyển động avatar",
+    "motion.auto": "Theo thiết bị",
+    "motion.off": "Tắt",
+    "motion.note": "Hiệu ứng nhẹ theo trạng thái của trợ lý. Tự tắt khi thiết bị yêu cầu giảm chuyển động và khi avatar không hiển thị."
   },
   "legacy": {
     "Đang dùng": "Đang dùng",

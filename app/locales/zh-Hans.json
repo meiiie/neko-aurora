@@ -641,7 +641,12 @@
     "misc.accountFrom_one": "{{count, number}} 个账户 · {{email}}",
     "misc.accountFrom_other": "{{count, number}} 个账户 · {{email}}",
     "vault.cardExpiry": "有效期",
-    "common.emailAddress": "电子邮箱地址"
+    "common.emailAddress": "电子邮箱地址",
+    "motion.title": "动态效果",
+    "motion.label": "头像动态",
+    "motion.auto": "跟随设备",
+    "motion.off": "关闭",
+    "motion.note": "轻微动态效果随助手状态变化。设备要求减少动态效果或头像不可见时，动画会自动停止。"
   },
   "legacy": {
     "Đang dùng": "正在使用",

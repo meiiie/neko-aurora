@@ -1,3 +1,4 @@
+@import url("/app/aurora/typography.css");
 .locale-settings .card { padding: 4px 16px 16px; }
 .locale-field { display: grid; grid-template-columns: minmax(0, 1fr) minmax(140px, 46%); align-items: center; gap: 16px; padding: 16px 0 4px; }
 .locale-field label { font-weight: 550; overflow-wrap: anywhere; }
@@ -10,10 +11,6 @@
 .locale-preview { display: flex; flex-direction: column; gap: 6px; margin-top: 16px; padding: 12px; background: var(--bg); border-radius: 10px; }
 .locale-preview span { color: var(--mute); font-size: 12px; }
 .locale-preview output { font-size: 14px; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
-html:lang(zh-Hans) { --font-ui: "Inter", "PingFang SC", "Microsoft YaHei", "Noto Sans CJK SC", system-ui, sans-serif; }
-html:lang(zh-Hant) { --font-ui: "Inter", "PingFang TC", "Microsoft JhengHei", "Noto Sans CJK TC", system-ui, sans-serif; }
-html:lang(zh) body, html:lang(zh) button, html:lang(zh) input, html:lang(zh) select, html:lang(zh) textarea { font-family: var(--font-ui); }
-html:lang(zh) .workspace-welcome h2 { font-family: var(--font-ui); line-height: 1.4; }
 @media (max-width: 480px) {
   .locale-field { grid-template-columns: 1fr; gap: 8px; }
   .locale-field select { max-width: 100%; }
