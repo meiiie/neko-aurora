@@ -4,7 +4,7 @@
     "settings.locale.language": "Ngôn ngữ giao diện",
     "settings.locale.auto": "Theo thiết bị",
     "settings.locale.region": "Định dạng ngày giờ và số",
-    "settings.locale.follow": "Theo ngôn ngữ giao diện",
+    "settings.locale.follow": "Theo ngôn ngữ",
     "settings.locale.note": "Áp dụng ngay trên thiết bị này. Giữ nguyên nội dung hội thoại, bản nháp và múi giờ của các lịch chạy.",
     "settings.locale.preview": "Ví dụ định dạng",
     "settings.locale.saved": "Đã lưu lựa chọn trên thiết bị này.",

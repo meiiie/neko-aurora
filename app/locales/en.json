@@ -4,7 +4,7 @@
     "settings.locale.language": "Interface language",
     "settings.locale.auto": "Match device",
     "settings.locale.region": "Date, time and number formats",
-    "settings.locale.follow": "Match interface language",
+    "settings.locale.follow": "Match language",
     "settings.locale.note": "Applies immediately on this device. Conversation text, drafts and schedule time zones stay unchanged.",
     "settings.locale.preview": "Format preview",
     "settings.locale.saved": "Preferences saved on this device.",
