@@ -358,6 +358,8 @@
       tabs.append(node);
     }
     $("#workspacePaletteButton").append(icon("search"));
+    $("#workspaceSearchButton").append(icon("search"));
+    $("#workspaceSearchButton").onclick = openPalette;
     $("#workspaceMenuButton").append(icon("layout-grid"));
     for (const [trigger, target, above] of [["workspaceMenuButton", "workspaceNav", true], ["workspaceFilterToggle", "workspaceFilters", false]]) {
       const popover = $("#" + target);
@@ -380,7 +382,7 @@
     document.querySelectorAll("[data-workspace-go]").forEach(node => { node.onclick = () => activate(node.dataset.workspaceGo); });
     $("#workspaceCreateBot").onclick = () => bridge.action("create");
     $("#workspaceNewBot").onclick = () => bridge.action("create");
-    $("#workspaceShowHidden").onclick = () => { collapsed = false; bridge.action("show-hidden"); layout(); $("#search").focus({ preventScroll: true }); };
+    $("#workspaceShowHidden").onclick = () => { collapsed = false; bridge.action("show-hidden"); layout(); $(desktop.matches ? "#workspaceSearchButton" : "#search").focus({ preventScroll: true }); };
     $("#workspaceSkip").onclick = () => {
       const target = current().current ? $("#input") : mode === "routines" ? $("#workspaceRoutineFilter") : desktop.matches ? $("#workspaceCreateBot") : $("#search");
       target.focus({ preventScroll: true });

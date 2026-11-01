@@ -3,7 +3,7 @@
   const key = "aurora.avatar-motion.v1", tracked = new Map(), pool = new Map(), moving = new Set();
   const reduced = matchMedia("(prefers-reduced-motion: reduce)");
   const fine = matchMedia("(hover: hover) and (pointer: fine)");
-  let blinkTimer = null, frame = null, previousFrame = 0, pointer = null;
+  let blinkTimer = null, frame = null, previousFrame = 0, pointer = null, ambientUntil = 0;
   let mode = "auto";
   try { if (localStorage.getItem(key) === "off") mode = "off"; } catch {}
   const allowed = () => mode !== "off" && !reduced.matches && !document.hidden;
@@ -12,6 +12,7 @@
     record.x = record.y = record.tx = record.ty = 0;
     record.node.style.setProperty("--gaze-x", "0px");
     record.node.style.setProperty("--gaze-y", "0px");
+    record.node.style.setProperty("--head-turn", "0deg");
     moving.delete(record);
   }
   function update(node) {
@@ -19,11 +20,25 @@
     node.dataset.motion = active(record) ? "on" : "off";
     if (!active(record)) {
       resetGaze(record); node.dataset.blink = "off"; record.blinkEnd = 0; record.nextBlink = 0;
+      node.dataset.gesture = "rest"; record.gestureEnd = 0; record.nextGesture = 0;
     }
   }
   function random(record) {
     record.seed = (Math.imul(record.seed, 1664525) + 1013904223) >>> 0;
     return record.seed / 4294967296;
+  }
+  function gesture(record, kind, now) {
+    record.node.dataset.gesture = kind;
+    record.gestureEnd = now + (kind === "greet" ? 560 : 1800);
+    record.nextGesture = record.gestureEnd + 14000 + random(record) * 16000;
+  }
+  function greet(owner) {
+    const now = performance.now();
+    for (const record of tracked.values()) {
+      if (!active(record) || !owner.contains(record.node) || record.node.dataset.avatarState !== "idle" || now < record.greetAfter) continue;
+      gesture(record, "greet", now); record.greetAfter = now + 3000;
+    }
+    scheduleBlink();
   }
   function scheduleBlink() {
     if (blinkTimer !== null) clearTimeout(blinkTimer);
@@ -39,6 +54,21 @@
         record.node.dataset.blink = "on"; record.blinkEnd = now + 180;
       }
       next = Math.min(next, record.blinkEnd || record.nextBlink);
+      if (record.gestureEnd && now >= record.gestureEnd) {
+        record.node.dataset.gesture = "rest"; record.gestureEnd = 0;
+      }
+      if (record.node.dataset.avatarState === "idle") {
+        if (!record.nextGesture) record.nextGesture = now + 8000 + random(record) * 12000;
+        if (!record.gestureEnd && now >= record.nextGesture) {
+          const engaged = pointer?.owner?.contains(record.node) || record.node.closest?.(owners)?.matches(":focus-visible");
+          if (now < ambientUntil || engaged) record.nextGesture = now + 3000 + random(record) * 5000;
+          else {
+            gesture(record, random(record) < .6 ? "glance" : "settle", now);
+            ambientUntil = record.gestureEnd + 1500;
+          }
+        }
+        next = Math.min(next, record.gestureEnd || record.nextGesture);
+      }
     }
     if (next !== Infinity) blinkTimer = setTimeout(scheduleBlink, Math.max(16, next - now));
   }
@@ -64,6 +94,7 @@
       }
       record.node.style.setProperty("--gaze-x", record.x.toFixed(3) + "px");
       record.node.style.setProperty("--gaze-y", record.y.toFixed(3) + "px");
+      record.node.style.setProperty("--head-turn", (record.x * .55).toFixed(3) + "deg");
     }
     if (moving.size) requestFrame(); else previousFrame = 0;
   }
@@ -90,6 +121,9 @@
     if (!node) return;
     node.dataset.avatarState = ["working", "waiting", "error"].includes(state) ? state : "idle";
     const record = tracked.get(node);
+    if (record && node.dataset.avatarState !== "idle") {
+      node.dataset.gesture = "rest"; record.gestureEnd = 0; record.nextGesture = 0;
+    }
     if (record && (record.x || record.y)) { moving.add(record); requestFrame(); }
   }
   function attach(node, id, state) {
@@ -98,7 +132,8 @@
     for (let i = 0; i < 4; i++) seed = (Math.imul(seed, 1664525) + 1013904223) >>> 0;
     setState(node, state);
     node.style.setProperty("--avatar-work-phase", -((Date.now() + seed) % 3200) / 1000 + "s");
-    tracked.set(node, { node, seed, visible: false, x: 0, y: 0, tx: 0, ty: 0, nextBlink: 0, blinkEnd: 0 });
+    node.style.setProperty("--avatar-direction", seed % 2 ? "1" : "-1");
+    tracked.set(node, { node, seed, visible: false, x: 0, y: 0, tx: 0, ty: 0, nextBlink: 0, blinkEnd: 0, nextGesture: 0, gestureEnd: 0, greetAfter: 0 });
     update(node); observer.observe(node);
     return node;
   }
@@ -125,16 +160,26 @@
     if (!moving.size && frame !== null) { cancelAnimationFrame(frame); frame = null; previousFrame = 0; }
     scheduleBlink();
   }).observe(document.documentElement, { childList: true, subtree: true });
+  const owners = "#whoBtn,.rowin,.feat,.workspace-agent,.workspace-result";
   document.addEventListener("pointermove", event => {
     if (!allowed() || !fine.matches || event.pointerType === "touch" || event.isPrimary === false) return;
-    const owner = event.target.closest?.("#whoBtn,.rowin,.feat,.workspace-agent,.workspace-result");
+    const owner = event.target.closest?.(owners);
     if (!owner) { if (pointer) releasePointer(); return; }
+    if (pointer?.owner !== owner) greet(owner);
     pointer = { owner, x: event.clientX, y: event.clientY };
     for (const record of tracked.values()) if (active(record) && (owner.contains(record.node) || record.x || record.y)) moving.add(record);
     requestFrame();
   }, { passive: true });
   document.addEventListener("pointerleave", releasePointer);
   document.addEventListener("pointercancel", releasePointer);
+  document.addEventListener("focusin", event => {
+    const owner = event.target.closest?.(owners);
+    if (owner?.matches(":focus-visible") && allowed()) greet(owner);
+  });
+  document.addEventListener("scroll", () => {
+    for (const record of tracked.values()) record.rect = null;
+    releasePointer();
+  }, { passive: true, capture: true });
   window.addEventListener("blur", releasePointer);
   window.addEventListener("resize", () => { for (const record of tracked.values()) record.rect = null; releasePointer(); });
   document.addEventListener("visibilitychange", refresh);

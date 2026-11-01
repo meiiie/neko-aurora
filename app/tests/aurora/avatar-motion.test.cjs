@@ -120,3 +120,47 @@ test('blink scheduler varies by identity and stops when all avatars are hidden o
  b.visible(a,false);b.visible(other,false);assert.equal(b.timers.size,0);
  b.visible(a,true);assert.equal(b.timers.size,1);a.isConnected=false;b.mutate();assert.equal(b.timers.size,0);assert.equal(b.observed.has(a),false);
 });
+
+test('idle gestures have quiet gaps and only one ambient performance runs at a time',()=>{
+ const b=boot(),nodes=Array.from({length:12},(_,i)=>{const n=b.node();b.api.attach(n,'coworker-'+i,'idle');b.visible(n,true);return n});
+ let performances=0,rests=0;
+ for(let i=0;i<1200;i++){
+  b.step(50);
+  const performing=nodes.filter(n=>['glance','settle'].includes(n.dataset.gesture));
+  assert.ok(performing.length<=1,'sidebar must not perform in chorus');
+  if(performing.length)performances++;else rests++;
+  assert.equal(b.frames.size,0,'idle motion uses bounded CSS clips, no continuous JS RAF');
+  assert.equal(b.timers.size,1);
+ }
+ assert.ok(performances>0);assert.ok(rests>performances);
+});
+
+test('hover greets once, turns the whole face and returns to rest after a scroll',()=>{
+ const b=boot(),n=b.node();b.api.attach(n,'bot','idle');b.visible(n,true);b.move([n]);
+ assert.equal(n.dataset.gesture,'greet');b.step(600);assert.equal(n.dataset.gesture,'rest');
+ b.move([n]);assert.equal(n.dataset.gesture,'rest','repeated input cannot restart the greeting');
+ for(let i=0;i<80;i++)b.step();assert.equal(n.properties['--head-turn'],'2.750deg');
+ b.documentEvents.scroll();for(let i=0;i<100;i++)b.step();
+ assert.equal(n.properties['--head-turn'],'0.000deg');assert.equal(b.frames.size,0);
+});
+
+test('keyboard focus greets, while an actual busy or approval state takes priority',()=>{
+ const b=boot(),n=b.node();b.api.attach(n,'bot','idle');b.visible(n,true);
+ const event={target:{closest:()=>({contains:x=>x===n,matches:()=>true})}};
+ b.documentEvents.focusin(event);assert.equal(n.dataset.gesture,'greet');
+ for(const state of ['working','waiting','error']){
+  b.api.setState(n,state);b.documentEvents.focusin(event);b.move([n]);
+  assert.equal(n.dataset.gesture,'rest');
+  for(let i=0;i<40;i++)b.step(1000);
+  assert.equal(n.dataset.gesture,'rest');assert.equal(n.dataset.avatarState,state);
+ }
+});
+
+test('reduced motion cancels gestures and turning immediately without replaying hidden activity',()=>{
+ const b=boot(),n=b.node();b.api.attach(n,'bot','idle');b.visible(n,true);b.move([n]);b.step();
+ b.media.matches=true;b.mediaChange();
+ assert.equal(n.dataset.gesture,'rest');assert.equal(n.properties['--head-turn'],'0deg');
+ assert.equal(b.frames.size,0);assert.equal(b.timers.size,0);
+ b.step(90000);b.media.matches=false;b.mediaChange();b.step(100);
+ assert.equal(n.dataset.gesture,'rest');assert.equal(b.frames.size,0);
+});

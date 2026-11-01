@@ -1,20 +1,24 @@
 .face { overflow: visible; }
-.avatar-presence, .avatar-body, .avatar-attention, .avatar-eyes { transform-box: view-box; transform-origin: 50px 55px; }
+.avatar-presence, .avatar-orientation, .avatar-activity, .avatar-body, .avatar-attention, .avatar-eyes { transform-box: view-box; transform-origin: 50px 55px; }
+.avatar-orientation { transform: rotate(var(--head-turn, 0deg)); }
 .avatar-eyes { transform-origin: 50px var(--eye-y, 48px); }
 .avatar-gaze { transform: translate(var(--gaze-x, 0px), var(--gaze-y, 0px)); }
 .avatar-attention { transition: transform 240ms ease; }
 .face[data-motion="on"][data-blink="on"] .avatar-eyes { animation: aurora-blink 180ms ease-in-out; }
-.face[data-motion="on"][data-avatar-state="working"] .avatar-body { animation: aurora-attend 3.2s ease-in-out var(--avatar-work-phase) infinite; }
-.face[data-avatar-state="waiting"] .avatar-attention { transform: translateY(-3px); }
-.face[data-avatar-state="error"] .avatar-attention { transform: translateY(3px); }
-@media (hover: hover) and (pointer: fine) {
-  :is(.rowin, .feat, .workspace-agent, .workspace-result, #whoBtn):hover .face[data-motion="on"][data-avatar-state="idle"] .avatar-presence { animation: aurora-greet 380ms ease-out 1; }
-}
-:is(.rowin, .feat, .workspace-agent, .workspace-result, #whoBtn):focus-visible .face[data-motion="on"][data-avatar-state="idle"] .avatar-presence { animation: aurora-greet 380ms ease-out 1; }
+.face[data-motion="on"][data-avatar-state="working"] .avatar-activity { animation: aurora-attend 3.2s ease-in-out var(--avatar-work-phase) infinite; }
+.face[data-avatar-state="waiting"] .avatar-attention { transform: translateY(-3px) scaleY(1.06); }
+.face[data-avatar-state="error"] .avatar-attention { transform: translateY(3px) scaleY(.8); }
+.face[data-motion="on"][data-gesture="greet"] .avatar-presence { animation: aurora-greet 560ms ease-in-out; }
+.face[data-motion="on"][data-gesture="glance"] .avatar-presence { animation: aurora-glance 1.8s ease-in-out; }
+.face[data-motion="on"][data-gesture="glance"] .avatar-attention { animation: aurora-look 1.8s ease-in-out; }
+.face[data-motion="on"][data-gesture="settle"] .avatar-presence { animation: aurora-settle 1.8s ease-in-out; }
 .face[data-motion="off"] * { animation: none !important; transition: none !important; }
 @keyframes aurora-blink { 0%, 100% { transform: scaleY(1); } 45% { transform: scaleY(.12); } }
-@keyframes aurora-attend { 0%, 100% { transform: rotate(-2deg); } 45% { transform: translateY(-1px) rotate(2deg) scale(.99,1.015); } }
-@keyframes aurora-greet { 0%, 100% { transform: none; } 45% { transform: translateY(-2px) rotate(-3deg); } }
+@keyframes aurora-attend { 0%, 22%, 100% { transform: none; } 46% { transform: translateY(1px) rotate(-3deg); } 70% { transform: translateY(-1px) rotate(2deg); } }
+@keyframes aurora-greet { 0%, 100% { transform: none; } 36% { transform: translateY(-2.5px) rotate(calc(-4deg * var(--avatar-direction))); } 68% { transform: translateY(.6px) rotate(calc(1deg * var(--avatar-direction))); } }
+@keyframes aurora-glance { 0%, 100% { transform: none; } 32%, 58% { transform: rotate(calc(4deg * var(--avatar-direction))); } }
+@keyframes aurora-look { 0%, 100% { transform: none; } 24%, 56% { transform: translate(calc(3px * var(--avatar-direction)), -1px); } }
+@keyframes aurora-settle { 0%, 100% { transform: none; } 28% { transform: translateY(1px) scale(1.015,.98); } 56% { transform: translateY(-1.5px) scale(.99,1.015); } }
 .stack.team-avatar { position: relative; display: block; isolation: isolate; }
 .row-av > .team-avatar, .feat-av > .team-avatar { width: 100% !important; height: 100% !important; }
 .workspace-result > .workspace-result-avatar { flex: 0 0 36px; overflow: visible; }
@@ -54,14 +58,14 @@
   .workspace-filter { font-size: 12px; flex-direction: row; justify-content: center; gap: 4px; min-height: 36px; }
   .workspace-filter small { font-size: 11px; }
   #list .row { border-radius: 12px; margin-bottom: 2px; }
-  #list .rowin { height: 68px; gap: 10px; padding: 9px 8px; }
-  #list .row-av, #list .row-av > .face { width: 44px; height: 44px; }
-  #list .rowh b { font-size: 16px; line-height: 22px; letter-spacing: 0; font-weight: 550; }
-  #list .snip { font-size: 14px; line-height: 20px; letter-spacing: 0; }
-  #list .time { font-size: 11px; letter-spacing: 0; }
-  #list .featured { display: grid; grid-template-columns: repeat(3,minmax(0,1fr)); padding: 14px 6px 18px; gap: 6px; max-height: 300px; overflow: auto; }
+  #list .rowin { height: 60px; gap: 10px; padding: 8px; }
+  #list .row-av, #list .row-av > .face { width: 38px; height: 38px; }
+  #list .rowh b { font-size: 15px; line-height: 21px; letter-spacing: 0; font-weight: 500; }
+  #list .snip { font-size: 13px; line-height: 20px; letter-spacing: 0; }
+  #list .time { font-size: 10px; letter-spacing: 0; }
+  #list .featured { display: grid; grid-template-columns: repeat(3,minmax(0,1fr)); padding: 10px 4px 18px; gap: 8px 2px; max-height: none; overflow: visible; }
   #list .featured.hidden { display: none; }
-  #list .feat { width: auto; padding: 10px 6px; gap: 6px; }
+  #list .feat { width: auto; padding: 8px 4px; gap: 6px; }
   #list .feat-av, #list .feat-av > .face { width: 62px; height: 62px; }
   #list .feat-name { font-size: 13px; line-height: 19px; margin: 0; }
   #list .brief { margin: 2px 0 6px; }
@@ -106,17 +110,54 @@ html:lang(zh) #thread .msg { line-height: 1.75; letter-spacing: .01em; }
 #workspaceFilterToggle { display: flex; align-items: center; gap: 5px; margin-left: auto; min-height: 36px; }
 #workspaceFilterToggle[data-active="true"] { color: var(--workspace-accent); background: var(--workspace-accent-soft); }
 #list .workspace-list-heading [data-workspace-go], #workspaceNewBot { display: none; }
+#workspaceSearchButton { display: none; }
+#list {
+  --sidebar-selected: color-mix(in srgb, var(--ink) 8%, var(--workspace-panel));
+  --sidebar-hover: color-mix(in srgb, var(--ink) 4%, var(--workspace-panel));
+  --sidebar-thumb: color-mix(in srgb, var(--ink) 14%, transparent);
+}
+#listScroll { scrollbar-width: thin; scrollbar-color: var(--sidebar-thumb) transparent; scrollbar-gutter: stable; overscroll-behavior-y: contain; }
+#listScroll:hover, #listScroll:focus-within { --sidebar-thumb: color-mix(in srgb, var(--ink) 25%, transparent); }
+@supports not (scrollbar-width: thin) {
+  #listScroll::-webkit-scrollbar { width: 6px; }
+  #listScroll::-webkit-scrollbar-track { background: transparent; }
+  #listScroll::-webkit-scrollbar-thumb { border-radius: 8px; background: var(--sidebar-thumb); }
+}
+#list .workspace-selected > .rowin, #list .workspace-selected.feat { background: var(--sidebar-selected) !important; }
+#list .rowin:hover, #list .feat:hover { background: var(--sidebar-hover); }
+#list :is(.rowin, .feat):focus-visible { outline: 2px solid var(--workspace-accent); outline-offset: -2px; }
+#list .rowin { transition: background-color 160ms ease; }
+@media (forced-colors: active) {
+  #listScroll { scrollbar-color: auto; }
+  #list .workspace-selected { outline: 1px solid Highlight; outline-offset: -1px; }
+}
 @media (min-width: 900px) {
+  #list > .top { gap: 8px; }
+  #list > .top #workspaceSearchButton { display: grid; place-items: center; margin-left: auto; width: 36px; height: 36px; background: var(--card); border: 1px solid var(--line); box-shadow: none; }
+  #list > .top #newBtn { margin-left: 0; }
+  #list .dock { display: none; }
+  #list .dock:has(input:not(:placeholder-shown)) { display: flex; }
+  #list .workspace-list-heading { padding: 0 12px 2px; }
+  #list .workspace-list-heading h1 { font-size: 12px; }
+  #list .workspace-list-heading output { font-size: 10px; }
+  #app:not([data-sidebar-collapsed="true"]) #workspacePaletteButton { display: none; }
+  #list .unread-pill { bottom: 66px; height: 28px; padding: 0 10px 0 7px; gap: 3px; font-size: 12px; box-shadow: 0 2px 6px #1767c422; }
+  #list, .workspace-rail { --workspace-panel: color-mix(in srgb, var(--bg) 62%, var(--sunk)); }
+  #list .searchbar { background: color-mix(in srgb, var(--ink) 4%, var(--workspace-panel)); }
   #listScroll { padding-bottom: 66px; }
   .workspace-rail {
     inset: auto auto 0 0; width: var(--workspace-sidebar); height: 58px; padding: 7px 12px;
     flex-direction: row; justify-content: space-between; gap: 6px; border-right: 1px solid var(--line);
-    border-top: 1px solid var(--line); background: var(--workspace-panel);
+    border-top: 0; background: var(--workspace-panel);
   }
+  .workspace-rail::before { content: ""; position: absolute; inset: -18px 0 auto; height: 18px; pointer-events: none; background: linear-gradient(transparent, var(--workspace-panel)); }
   .workspace-rail > button { flex: none; width: 40px; height: 40px; border-radius: 50%; }
   .workspace-home-button img { width: 28px; height: 28px; }
   #app[data-sidebar-collapsed="true"] { --workspace-rail: 48px; }
   #app[data-sidebar-collapsed="true"] .workspace-rail { width: 48px; height: auto; padding: 8px 4px; flex-direction: column; }
+}
+@media (prefers-reduced-motion: reduce) {
+  #list .rowin { transition: none; }
 }
 @media (max-width: 899px) {
   #list .workspace-list-heading [data-workspace-go] { display: block; }

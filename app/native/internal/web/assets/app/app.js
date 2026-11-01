@@ -23,7 +23,7 @@ const SHAPES=[ // [markup, eye centre y]
 const SVGNS="http://www.w3.org/2000/svg";
 function face(f,sz,cls){f=f||{};const s=SHAPES[f.shape|0]||SHAPES[0],c=COLORS[f.color|0]||COLORS[0],y=s[1];
  const v=document.createElementNS(SVGNS,"svg");v.setAttribute("viewBox","0 0 100 100");v.setAttribute("width",sz);v.setAttribute("height",sz);v.setAttribute("aria-hidden","true");v.setAttribute("class","face"+(cls?" "+cls:""));
- v.style.setProperty("--eye-y",y+"px");v.innerHTML=`<g class="avatar-presence"><g class="avatar-body" fill="${c}">${s[0].replace(/"C"/g,`"${c}"`)}</g><g class="avatar-gaze"><g class="avatar-attention"><g class="avatar-eyes"><rect x="35" y="${y-11}" width="10" height="22" rx="5" fill="#fff"/><rect x="55" y="${y-11}" width="10" height="22" rx="5" fill="#fff"/></g></g></g></g>`;return v}
+ v.style.setProperty("--eye-y",y+"px");v.innerHTML=`<g class="avatar-presence"><g class="avatar-orientation"><g class="avatar-activity"><g class="avatar-body" fill="${c}">${s[0].replace(/"C"/g,`"${c}"`)}</g><g class="avatar-gaze"><g class="avatar-attention"><g class="avatar-eyes"><rect x="35" y="${y-11}" width="10" height="22" rx="5" fill="#fff"/><rect x="55" y="${y-11}" width="10" height="22" rx="5" fill="#fff"/></g></g></g></g></g></g>`;return v}
 // ---------- server state (real Go control plane at /app/api) ----------
 const S={agents:[],pending:[],brief:null,ai:{},vapid:"",outbound:{},secrets:[],msgs:{},drafts:{}};
 const API="/app/api";let selectionExcerpt=null;
@@ -168,7 +168,7 @@ function renderList(){
  updatePill();
  if(focusId&&(document.activeElement===focused||document.activeElement===document.body)){
   const row=[...ul.children].find(n=>n.dataset.id===focusId),featured=[...fe.children].find(n=>n.dataset.id===focusId),target=row?.querySelector("."+focusKind);
-  (target&&!target.disabled?target:featured||row?.querySelector(".rowin")||$("#search")).focus({preventScroll:true})}}
+  (target&&!target.disabled?target:featured||row?.querySelector(".rowin")||$(matchMedia("(min-width: 900px)").matches?"#workspaceSearchButton":"#search")).focus({preventScroll:true})}}
 // ---------- long-press context menu (iOS-style: blurred backdrop, preview, menu + stacked submenu) ----------
 let showHidden=false,ctxOpen=null;
 function longPress(node,a){let t=null,x0=0,y0=0;const clear=()=>{clearTimeout(t);t=null;node.classList.remove("pressing")};
