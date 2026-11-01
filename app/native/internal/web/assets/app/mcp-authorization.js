@@ -17,7 +17,7 @@
       controls.replaceChildren();if(!account)return;
       accountStatus.textContent=labels[account.phase];
       if(account.scopes?.length)controls.append(value("p","Quyền của phiên: "+account.scopes.join(", ")));
-      if(account.expiresAt)controls.append(el("p","Hết hạn: "+new Date(account.expiresAt*1000).toLocaleString("vi-VN"),"caption"));
+      if(account.expiresAt)controls.append(el("p","Hết hạn: "+new Date(account.expiresAt*1000).toLocaleString(window.__I18N.locale),"caption"));
       if(account.authorizationUrl){const link=el("a","Tiếp tục đăng nhập tại nhà cung cấp","pill");const u=new URL(account.authorizationUrl);if(u.protocol==="https:"&&!u.username&&!u.password){link.href=u.href;link.target="_blank";link.rel="noopener noreferrer";controls.append(link)}}
       const button=(text,action)=>{const b=el("button",text,"pill soft");b.type="button";b.onclick=action;controls.append(b)};
       if(account.canRefresh)button("Làm mới phiên đăng nhập",()=>operate("refresh",{nonce:crypto.randomUUID()}));

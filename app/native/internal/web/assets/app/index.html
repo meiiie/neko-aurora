@@ -22,6 +22,8 @@
 <link rel="stylesheet" href="/app/pages.css">
 <link rel="stylesheet" href="/app/workspace.css">
 <script src="/app/theme.js"></script>
+<script src="/app/aurora/vendor/i18next.min.js"></script>
+<script src="/app/aurora/locales.js"></script>
 <script src="/app/i18n.js"></script>
 <script src="/app/startup.js"></script>
   <script src="/app/md.js"></script><script src="/app/ux.js"></script>
@@ -43,7 +45,9 @@
 <script src="/app/mcp-authorization.js" defer></script>
 <script src="/app/pages.js" defer></script>
 <script src="/app/workspace.js" defer></script>
+<script src="/app/aurora/locale-settings.js" defer></script>
 <script src="/app/app.js" defer></script>
+<link rel="stylesheet" href="/app/aurora/localization.css">
 </head>
 <body>
 <button type="button" class="workspace-skip" id="workspaceSkip">Đi đến nội dung</button>
@@ -57,7 +61,7 @@
   <section class="screen" id="list" aria-label="Bot">
     <header class="top">
       <button class="me" id="meBtn" aria-label="Cài đặt"><img src="/app/icon.svg" alt="" width="36" height="36"></button>
-      <div class="workspace-brand" data-noi18n>Aurora <small>WORKSPACE</small></div>
+      <div class="workspace-brand"><span data-noi18n>Aurora</span> <small>WORKSPACE</small></div>
       <div class="spacer"></div>
       <button class="network-entry" id="networkBtn" type="button" aria-haspopup="dialog" aria-expanded="false" aria-controls="networkDialog"><span id="networkIcon" aria-hidden="true"></span><span>Giao tiếp agent</span><span class="network-count hidden" id="networkUnread"></span></button>
       <button class="icon-btn cloud-entry" id="cloudBtn" type="button" aria-label="Máy tính cloud của bot" title="Máy tính cloud" aria-haspopup="dialog" aria-expanded="false" aria-controls="cloudDialog"><span id="cloudIcon" aria-hidden="true">☁</span></button>

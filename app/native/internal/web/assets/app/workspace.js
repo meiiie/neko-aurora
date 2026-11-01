@@ -194,7 +194,7 @@
     queueMicrotask(() => { queued = false; refresh(); });
   }
   function routineLabel(row) {
-    if (row.repeat === "interval") return `${text("Mỗi")} ${row.intervalMinutes} ${text("phút")}`;
+    if (row.repeat === "interval") return window.__I18N.message("routine.every", { count: row.intervalMinutes });
     const repeat = { daily: "Mỗi ngày", weekdays: "Thứ 2–6", once: "Một lần" }[row.repeat] || row.repeat;
     return [row.date, row.at, text(repeat), row.timezone || "Asia/Ho_Chi_Minh"].filter(Boolean).join(" · ");
   }
@@ -378,6 +378,7 @@
       event.preventDefault();
       if ($("#workspacePalette").open) closePalette(); else openPalette();
     });
+    window.addEventListener("aurora:localechange", () => { refresh(); if (mode === "routines") renderRoutines(); });
     desktop.addEventListener("change", layout);
     matchMedia("(min-width: 1280px)").addEventListener("change", layout);
     $("#messages").addEventListener("scroll", () => rememberReading(), { passive: true });

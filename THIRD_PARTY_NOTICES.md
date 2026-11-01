@@ -153,3 +153,12 @@ Studied provider/model selection, composer, conversation formatting, turn status
 queue receipts and error handling. Aurora implements its own behavior in its
 existing stack; no source code or visual assets copied. See
 [provider and conversation study](docs/research/provider-flow-openmaus-2026-11-01.md).
+
+## i18next — MIT
+
+The local UI includes the unmodified i18next 26.6.0 UMD build from the npm registry.
+Source: https://github.com/i18next/i18next. The package tarball's SHA-512 integrity
+was verified before extraction. Its complete license and provenance are retained
+in `app/native/internal/web/assets/app/aurora/vendor/i18next-LICENSE.txt` and
+`i18next-PROVENANCE.md`. Translation catalogues are Aurora-authored. No remote
+translation service, analytics or CDN is used.
