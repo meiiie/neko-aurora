@@ -245,7 +245,7 @@ function swipeRow(li,inn){let x0,y0,dx=0,mode=null,base=0;
 let cur=null;
 const stateTxt={working:"Đang làm việc…",waiting:"Chờ bạn duyệt",idle:"Sẵn sàng",done:"Đã xong",error:"Có lỗi"};
 const stateLine=a=>isGroup(a)&&a.status!=="working"&&!waiting(a)?(a.members||[]).map(id=>byId(id)?.name).filter(Boolean).join(", "):a.status==="working"&&a.snip&&a.snip.startsWith("Bước")?a.snip:waiting(a)?"Chờ bạn duyệt":stateTxt[a.status]||"";
-function openThread(id){selectionExcerpt?.clear();const a=byId(id);if(!a)return;closeMenu();if(cur?.id!==id){AURORA_MD.closeViewer(false);clearVaultChat();stopVoice();saveComposerDraft();cur=a;restoreComposerDraft()}else cur=a;markSeen(id);headAvatar(a);$("#threadName").textContent=a.name;renderThreadModel(a);$("#threadState").toggleAttribute("data-noi18n",isGroup(a)&&a.status!=="working"&&!waiting(a));$("#threadState").textContent=stateLine(a);$("#input").placeholder=isGroup(a)?"Hỏi cả nhóm":"Hỏi "+a.name;closeFind();renderThread();const cache=S.msgs,loading=loadMsgs(id).catch(()=>{if(S.msgs===cache&&cur?.id===id)toast("Không tải được hội thoại")});$("#thread").classList.remove("off");$("#list").classList.add("under");buzz("tap");const hs=history.state;if(hs&&hs.spent)history.replaceState({t:1},"","#"+id);else if(!(hs&&hs.t))history.pushState({t:1},"","#"+id);return loading}
+function openThread(id,{replace=false}={}){selectionExcerpt?.clear();const a=byId(id);if(!a)return;closeMenu();if(cur?.id!==id){AURORA_MD.closeViewer(false);clearVaultChat();stopVoice();saveComposerDraft();cur=a;restoreComposerDraft()}else cur=a;markSeen(id);headAvatar(a);$("#threadName").textContent=a.name;renderThreadModel(a);$("#threadState").toggleAttribute("data-noi18n",isGroup(a)&&a.status!=="working"&&!waiting(a));$("#threadState").textContent=stateLine(a);$("#input").placeholder=isGroup(a)?"Hỏi cả nhóm":"Hỏi "+a.name;closeFind();renderThread();const cache=S.msgs,loading=loadMsgs(id).catch(()=>{if(S.msgs===cache&&cur?.id===id)toast("Không tải được hội thoại")});$("#thread").classList.remove("off");$("#list").classList.add("under");buzz("tap");const hs=history.state,route="#"+encodeURIComponent(id);if(replace||hs?.spent)history.replaceState({t:1},"",route);else if(location.hash!==route||!hs?.t)history.pushState({t:1},"",route);return loading}
 document.addEventListener("aurora-network-open-task",async e=>{const {botId,conversationId,workId}=e.detail||{},id=byId(conversationId)?conversationId:botId;if(!byId(id)){toast("Phiên bot không còn trong danh sách");return}const cache=S.msgs;openThread(id);try{await loadMsgs(id);if(S.msgs!==cache||cur?.id!==id)return;const card=[...$("#messages").querySelectorAll(".approval")].find(n=>n.dataset.id===workId);if(card){stick=false;card.scrollIntoView({block:"center"});card.querySelector("button")?.focus()}}catch{if(S.msgs===cache&&cur?.id===id)toast("Không tải được tác vụ, thử mở lại hội thoại")}});
 function closeThread(fromPop){selectionExcerpt?.clear();AURORA_MD.closeViewer(false);if(!cur)return;clearVaultChat();if(profId)closeProfile(true);closeFind();markSeen(cur.id);stopVoice();saveComposerDraft();cur=null;inp.value="";setRef(null,false);setReply(null,false);inp.oninput();$("#thread").classList.add("off");$("#list").classList.remove("under");$("#thread").style.transform="";$("#list").style.transform="";renderList();if(!fromPop&&history.state&&history.state.t)history.replaceState({spent:1},"",location.pathname)}
 const deciding=new Set();
@@ -699,7 +699,8 @@ $("#tmFind").onclick=()=>{closeMenu();$("#findBar").classList.remove("hidden");$
 $("#findInput").oninput=runFind;$("#findClose").onclick=closeFind;
 // ---------- misc ----------
 $("#backBtn").onclick=()=>closeThread();
-addEventListener("popstate",()=>{if(skipPop){skipPop=false;return}closeMenu();if(sheetOpen)closeSheet(true);else if(profId)closeProfile(true);else if(cur)closeThread(true)});
+addEventListener("popstate",()=>{if(skipPop){skipPop=false;return}closeMenu();if(sheetOpen)closeSheet(true);else if(profId)closeProfile(true);else{let id="";try{id=decodeURIComponent(location.hash.slice(1))}catch{}if(byId(id))openThread(id,{replace:true});else if(cur)closeThread(true)}});
+addEventListener("hashchange",()=>{if(sheetOpen||profId||!S.workspaceId||!$("#login").classList.contains("hidden"))return;let id="";try{id=decodeURIComponent(location.hash.slice(1))}catch{}if(byId(id)&&cur?.id!==id)openThread(id,{replace:true})});
 $("#search").oninput=e=>{filter=e.target.value;renderList()};
 $("#search").onkeydown=e=>{if(e.key==="Enter")e.target.blur()};
 // Grok-style composer: one line inline with mic/send; once text wraps, the field takes the full width and the buttons drop to a row below.
@@ -710,6 +711,7 @@ inp.onkeydown=e=>{if(e.key==="Enter"&&!e.shiftKey&&!composerComposing(e)){e.prev
 document.addEventListener("visibilitychange",()=>{if(!document.hidden&&es)loadState().catch(()=>{})});
 if("serviceWorker"in navigator)navigator.serviceWorker.register("/app/sw.js",{scope:"/app/"}).then(r=>r.pushManager?.getSubscription()).then(s=>{if(s)pushOn=true}).catch(()=>{});
 async function expiredState(request){
+ $("#login").classList.remove("hidden");
  window.AURORA_PAGES?.close();
  resetVault();closeThread();closeCtx();if(sheetOpen)closeSheet(true);messageLoads.clear();nodeCache.clear();document.querySelectorAll("input[data-secret]").forEach(i=>{i.value=""});
  const config=await fetch("/app/auth/config",{credentials:"same-origin",cache:"no-store",signal:AbortSignal.timeout?AbortSignal.timeout(15000):undefined}).then(r=>r.ok?r.json():null).catch(()=>null);
@@ -718,7 +720,7 @@ async function expiredState(request){
  if(config&&config.hosted){location.replace("/app/signin.html");return}
  $("#login").classList.remove("hidden");
 }
-function boot(){return loadState().then(applied=>{if(!applied)return;if(!es)connect();const h=location.hash.slice(1);if(h)openThread(h)}).catch(e=>{if(e.status!==401){window.AURORA_STARTUP?.failed();toast("Không kết nối được máy chủ")}})}
+function boot(){return loadState().then(applied=>{if(!applied)return;if(!es)connect();window.AURORA_WORKSPACE?.notify()}).catch(e=>{if(e.status!==401){window.AURORA_STARTUP?.failed();toast("Không kết nối được máy chủ")}})}
 let logging=false;$("#loginForm").onsubmit=async e=>{e.preventDefault();if(logging)return;logging=true;try{const r=await fetch("/app/login",{method:"POST",credentials:"same-origin",headers:{"Content-Type":"application/json"},body:JSON.stringify({code:$("#loginCode").value})});if(!r.ok){toast(r.status===429?"Thử quá nhiều lần, đợi 5 phút":"Mã không đúng");return}$("#loginCode").value="";await boot()}catch{toast("Không kết nối được")}finally{logging=false}};
 boot();
 // ---------- Aurora icons (Lucide, ISC) + haptics ----------
@@ -1189,19 +1191,21 @@ window.__AURORA=Object.assign(window.__AURORA||{},{openVault});
 const workspaceRenderThread=renderThread;
 renderThread=function(){workspaceRenderThread();window.AURORA_WORKSPACE?.notify()};
 const workspaceOpenThread=openThread;
-openThread=function(id){if(profId&&profId!==id)closeProfile(true);return workspaceOpenThread(id)};
+openThread=function(id,options){if(profId&&profId!==id)closeProfile(true);return workspaceOpenThread(id,options)};
 window.addEventListener("aurora:localechange",()=>{renderList();if(cur)renderThreadModel(cur);document.querySelectorAll(".daystamp[data-timestamp]").forEach(n=>{n.textContent=dayStamp(Number(n.dataset.timestamp))})});
 window.AURORA_WORKSPACE?.mount({
  workspaceId:()=>S.workspaceId,
  view:()=>{const hidden=store.get("neko-aurora-hidden",[]);return{workspaceId:S.workspaceId,ready:!!S.workspaceId&&$("#login").classList.contains("hidden"),current:cur?.id,agents:S.agents.map(a=>({...a,waiting:waiting(a),unread:unread(a),hidden:Array.isArray(hidden)&&hidden.includes(a.id)}))}},
- avatar:avatarOf,renderList,open:id=>{openThread(id);AURORA_WORKSPACE.notify()},
+ avatar:avatarOf,renderList,open:(id,options)=>{openThread(id,options);AURORA_WORKSPACE.notify()},
+ closeProfile:()=>{if(profId)closeProfile(true)},
  home:()=>{if(profId)closeProfile(true);closeThread();AURORA_WORKSPACE.notify()},
  busy:()=>!!sheetOpen||!!ctxOpen,
  profile:(id,section)=>{openProfile(id);if(section==="schedule")requestAnimationFrame(()=>{const node=$("#schedBox");if(profId===id&&node){node.scrollIntoView({block:"start"});node.focus({preventScroll:true})}})},
  botAction:(kind,id)=>{if(kind==="tools")openExt(id);else if(kind==="memory")openMemory(id);else if(kind==="computer")openProfile(id)},
  action:kind=>{
   if(sheetOpen||ctxOpen)return;
-  if(kind==="create")openCreator();
+  if(kind==="show-hidden"){showHidden=true;filter="";$("#search").value="";renderList()}
+  else if(kind==="create")openCreator();
   else if(kind==="pages")openPages(false);
   else if(kind==="apps")$("#appsBtn").click();
   else if(kind==="vault")openVault();

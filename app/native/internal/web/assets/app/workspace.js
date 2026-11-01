@@ -18,12 +18,14 @@
   const normalize = value => String(value).toLowerCase().normalize("NFD").replace(/\p{Diacritic}/gu, "").replace(/đ/g, "d");
   const desktop = matchMedia("(min-width: 900px)");
   const filters = { all: "Tất cả", unread: "Chưa đọc", working: "Đang làm", waiting: "Cần bạn" };
-  let bridge, scope, filter = "all", mode = "home", queued = false, collapsed = false;
+  let bridge, scope, filter = "all", mode = "chat", queued = false, collapsed = false;
+  let restoredScope = null, useInitialRoute = true;
+  const lastConversations = new Map();
   let routineRequest = null, routineGeneration = 0, routineRows = [], routineError = false;
   let paletteEntries = [], paletteIndex = 0, paletteReturn = null;
   let reading = null;
   const actions = [
-    ["home", "Tổng quan", "layout-grid"],
+    ["chat", "Hội thoại", "message-circle"],
     ["routines", "Lịch chạy", "calendar"],
     ["pages", "Thư viện trang", "folder"],
     ["apps", "Kết nối ứng dụng", "layout-grid"],
@@ -50,23 +52,38 @@
     routineRequest?.abort();
     routineRequest = null;
   }
+  function rememberedConversation() {
+    if (lastConversations.has(scope)) return lastConversations.get(scope);
+    try { return localStorage.getItem("aurora.conversation.v1." + encodeURIComponent(scope)) || ""; } catch { return ""; }
+  }
+  function rememberConversation(id) {
+    if (!id || lastConversations.get(scope) === id) return;
+    lastConversations.set(scope, id);
+    try { localStorage.setItem("aurora.conversation.v1." + encodeURIComponent(scope), id); } catch {}
+  }
+  function resumeConversation(requested = "") {
+    const view = current();
+    const id = window.AURORA_UX.conversationTarget(view.agents, requested, rememberedConversation());
+    if (id) bridge.open(id, { replace: true });
+    return id;
+  }
   function activate(id) {
     if (!current().ready) return;
     $("#workspaceNav").hidePopover();
-    if (id === "home" || id === "routines") {
+    if (id === "chat" || id === "routines") {
       mode = id;
-      bridge.home();
       cancelRoutines();
+      if (id === "routines") bridge.home();
+      else { bridge.closeProfile(); if (!current().current) resumeConversation(); }
       refresh();
       if (id === "routines") void loadRoutines();
-      else if (desktop.matches) $("#workspaceHomeTitle").focus({ preventScroll: true });
-      else $("#search").focus({ preventScroll: true });
+      else (current().current ? $("#input") : desktop.matches ? $("#workspaceCreateBot") : $("#search")).focus({ preventScroll: true });
       return;
     }
     bridge.action(id);
   }
   function openBot(id) {
-    mode = "home";
+    mode = "chat";
     cancelRoutines();
     bridge.open(id);
     refresh();
@@ -81,49 +98,38 @@
     if (!bridge) return;
     const view = current(), hasThread = !!view.current, profile = !$("#profile").classList.contains("off");
     const routines = mode === "routines" && !hasThread && view.ready;
-    $("#app").dataset.workspaceView = hasThread ? "chat" : routines ? "routines" : "home";
+    $("#app").dataset.workspaceView = hasThread ? "chat" : routines ? "routines" : "empty";
     $("#app").dataset.sidebarCollapsed = String(collapsed);
-    $("#workspaceHome").hidden = hasThread || routines || !view.ready;
+    $("#workspaceEmpty").hidden = hasThread || routines || !view.ready;
     $("#workspaceRoutines").hidden = !routines;
     $("#workspaceRoutines").inert = !routines || profile && innerWidth < 1280;
     $("#thread").inert = !hasThread || !view.ready || profile && innerWidth < 1280;
     $("#profile").inert = !profile || !view.ready;
     $("#list").inert = !$("#login").classList.contains("hidden") || view.ready && (desktop.matches ? collapsed : hasThread || profile || routines);
-    $("#workspaceHome").inert = !desktop.matches || !view.ready || profile && innerWidth < 1280;
+    $("#workspaceEmpty").inert = !desktop.matches || !view.ready || profile && innerWidth < 1280;
     $("#workspaceRail").inert = !view.ready;
     const toggle = $("#workspaceSidebarToggle");
     toggle.setAttribute("aria-expanded", String(!collapsed));
     toggle.setAttribute("aria-label", text(collapsed ? "Hiện danh sách bot" : "Thu gọn danh sách bot"));
     toggle.title = toggle.getAttribute("aria-label");
     document.querySelectorAll("[data-workspace-action]").forEach(node => {
-      const active = node.dataset.workspaceAction === (routines ? "routines" : "home");
+      const active = node.dataset.workspaceAction === (routines ? "routines" : "chat");
       if (active) node.setAttribute("aria-current", "page");
       else node.removeAttribute("aria-current");
     });
   }
-  function agentButton(agent) {
-    const node = make("button", "workspace-agent");
-    node.type = "button";
-    node.dataset.agent = agent.id;
-    node.append(bridge.avatar(agent, 40));
-    const copy = make("span", "workspace-agent-copy");
-    copy.append(literal("b", "", agent.name), literal("small", "", agent.desc || (agent.snipKey ? window.__I18N.message(agent.snipKey, agent.snipArgs) : agent.snip) || ""));
-    node.append(copy);
-    const state = agent.waiting ? "Cần bạn" : agent.status === "working" ? "Đang làm" : "Mở hội thoại";
-    node.append(make("span", "workspace-agent-status", state));
-    node.onclick = () => openBot(agent.id);
-    return node;
-  }
   function refresh() {
     if (!bridge) return;
-    const view = current();
+    let view = current();
     const sameScope = scope === view.workspaceId;
     if (!sameScope || !view.ready) {
       $("#workspaceNav").hidePopover();
       $("#workspaceFilters").hidePopover();
+      if (scope && scope !== view.workspaceId) useInitialRoute = false;
       scope = view.workspaceId;
+      if (!view.ready) restoredScope = null;
       filter = "all";
-      mode = "home";
+      mode = "chat";
       cancelRoutines();
       routineRows = [];
       $("#workspaceRoutineFilter").value = "";
@@ -134,8 +140,22 @@
       $("#workspaceResults").replaceChildren();
     }
     if (view.current && mode === "routines") {
-      mode = "home";
+      mode = "chat";
       cancelRoutines();
+    }
+    const removed = view.current && !view.agents.some(a => a.id === view.current);
+    if (removed) { bridge.home(); view = current(); }
+    if (view.ready) {
+      const entering = restoredScope !== scope;
+      restoredScope = scope;
+      if (!view.current && mode === "chat" && (entering || removed || desktop.matches)) {
+        let requested = "";
+        if (entering && useInitialRoute) { try { requested = decodeURIComponent(location.hash.slice(1)); } catch {} }
+        useInitialRoute = false;
+        resumeConversation(requested);
+        view = current();
+      }
+      rememberConversation(view.current);
     }
     layout();
     const agents = view.ready ? view.agents.filter(agent => !agent.hidden) : [];
@@ -148,15 +168,9 @@
     }
     $("#workspaceFilterLabel").textContent = text(filters[filter]);
     $("#workspaceFilterToggle").dataset.active = String(filter !== "all");
-    $("#workspaceBotCount").textContent = agents.length;
-    $("#workspaceWorkingCount").textContent = counts.working;
-    $("#workspaceWaitingCount").textContent = counts.waiting;
     $("#workspaceCount").textContent = agents.length;
-    const recentFocus = sameScope && document.activeElement?.closest(".workspace-agent")?.dataset.agent;
-    $("#workspaceRecent").replaceChildren(...agents.slice().sort((a, b) => Number(b.waiting) - Number(a.waiting) || Date.parse(b.t || 0) - Date.parse(a.t || 0)).slice(0, 5).map(agentButton));
-    if (recentFocus && document.activeElement === document.body) [...$("#workspaceRecent").children].find(node => node.dataset.agent === recentFocus)?.focus({ preventScroll: true });
-    $("#workspaceRecentEmpty").hidden = agents.length > 0;
-    $("#workspaceHomeTitle").textContent = text(agents.length ? "Cùng làm việc, từ đây." : "Một nơi cho mọi việc.");
+    $("#workspaceEmptyTitle").textContent = text(view.agents.length ? "Chưa có hội thoại hiển thị" : "Tạo bot đầu tiên");
+    $("#workspaceShowHidden").hidden = !view.agents.some(a => a.hidden);
     const active = view.agents.find(a => a.id === view.current);
     $("#workspaceThreadTools").hidden = !active || active.kind === "group";
     for (const node of document.querySelectorAll("#rows [data-id], #featured [data-id]")) {
@@ -362,16 +376,16 @@
       try { localStorage.setItem("aurora.workspace.sidebar.v1", collapsed ? "collapsed" : "expanded"); } catch {}
       layout();
     };
-    $("#workspaceHomeButton").onclick = () => activate("home");
+    $("#workspaceHomeButton").onclick = () => activate("chat");
     document.querySelectorAll("[data-workspace-go]").forEach(node => { node.onclick = () => activate(node.dataset.workspaceGo); });
     $("#workspaceCreateBot").onclick = () => bridge.action("create");
     $("#workspaceNewBot").onclick = () => bridge.action("create");
-    $("#workspaceQuickSearch").onclick = openPalette;
+    $("#workspaceShowHidden").onclick = () => { collapsed = false; bridge.action("show-hidden"); layout(); $("#search").focus({ preventScroll: true }); };
     $("#workspaceSkip").onclick = () => {
-      const target = current().current ? $("#input") : mode === "routines" ? $("#workspaceRoutineFilter") : desktop.matches ? $("#workspaceHomeTitle") : $("#search");
+      const target = current().current ? $("#input") : mode === "routines" ? $("#workspaceRoutineFilter") : desktop.matches ? $("#workspaceCreateBot") : $("#search");
       target.focus({ preventScroll: true });
     };
-    $("#workspaceRoutinesBack").onclick = () => activate("home");
+    $("#workspaceRoutinesBack").onclick = () => activate("chat");
     $("#workspaceRoutineReload").onclick = () => void loadRoutines();
     $("#workspaceRoutineFilter").onchange = renderRoutines;
     const toolbar = $("#workspaceThreadTools");
@@ -408,13 +422,13 @@
       if ($("#workspacePalette").open) closePalette(); else openPalette();
     });
     window.addEventListener("aurora:localechange", () => { refresh(); if (mode === "routines") renderRoutines(); });
-    desktop.addEventListener("change", () => { $("#workspaceNav").hidePopover(); $("#workspaceFilters").hidePopover(); layout(); });
+    desktop.addEventListener("change", () => { $("#workspaceNav").hidePopover(); $("#workspaceFilters").hidePopover(); refresh(); });
     matchMedia("(min-width: 1280px)").addEventListener("change", layout);
     $("#messages").addEventListener("scroll", () => rememberReading(), { passive: true });
     if (window.ResizeObserver) new ResizeObserver(restoreReading).observe($("#messages"));
     new MutationObserver(layout).observe($("#profile"), { attributes: true, attributeFilter: ["class"] });
     new MutationObserver(notify).observe($("#login"), { attributes: true, attributeFilter: ["class"] });
-    window.addEventListener("popstate", () => { if (mode === "routines") { mode = "home"; cancelRoutines(); refresh(); } });
+    window.addEventListener("popstate", () => { if (mode === "routines") { mode = "chat"; cancelRoutines(); refresh(); } });
     refresh();
   }
   window.AURORA_WORKSPACE = { mount, notify, matches, filtered: () => filter !== "all" };

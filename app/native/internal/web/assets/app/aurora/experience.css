@@ -73,10 +73,6 @@
   #thread .composer textarea { font-size: 17px; line-height: 1.5; }
   #messages { padding-inline: max(28px, calc((100% - 760px) / 2)); }
   .workspace-tool { font-size: 13px; }
-  .workspace-welcome h2 { font-size: clamp(36px,3.4vw,48px); font-weight: 550; }
-  .workspace-welcome > p { font-size: 17px; line-height: 1.65; }
-  .workspace-agent-copy b { font-size: 16px; font-weight: 550; }
-  .workspace-agent-copy small, .workspace-home-footer { font-size: 14px; line-height: 1.5; }
 }
 @media (max-width: 899px) {
   #list .featured { gap: 8px 0; padding-block: 10px 18px; }

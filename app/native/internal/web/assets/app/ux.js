@@ -89,5 +89,12 @@ function acceptMessage(state,m){
   const time=value=>typeof value==='number'?value:Date.parse(value),gap=time(current.t)-time(previous.t);
   return Number.isFinite(gap)&&gap>=0&&gap<5*60*1000;
  }
- const X={sameMessageRun,streamText,readableDraft,acceptMessage,statusGate,compositionGuard,CHECKPOINT,phase,cmdShown,foldCmd,outSummary,fileInfo,kb,isDownload,isCheckpoint,isNoise,statusText};
+ function conversationTarget(agents,requested,remembered){
+  if(requested&&agents.some(a=>a.id===requested))return requested;
+  const visible=agents.filter(a=>!a.hidden);
+  if(remembered&&visible.some(a=>a.id===remembered))return remembered;
+  const time=a=>{const n=typeof a.t==='number'?a.t:Date.parse(a.t);return Number.isFinite(n)?n:0};
+  return visible.reduce((latest,a)=>!latest||time(a)>time(latest)?a:latest,null)?.id||null;
+ }
+ const X={conversationTarget,sameMessageRun,streamText,readableDraft,acceptMessage,statusGate,compositionGuard,CHECKPOINT,phase,cmdShown,foldCmd,outSummary,fileInfo,kb,isDownload,isCheckpoint,isNoise,statusText};
 g.AURORA_UX=X;if(typeof module!=="undefined")module.exports=X})(typeof window!=="undefined"?window:globalThis);
