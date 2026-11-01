@@ -59,5 +59,15 @@ function compositionGuard(root){
  root.addEventListener("pointerdown",()=>{imeKey=false},true);
  return blocked;
 }
-const X={statusGate,compositionGuard,CHECKPOINT,phase,cmdShown,foldCmd,outSummary,fileInfo,kb,isDownload,isCheckpoint,isNoise,statusText};
+function acceptMessage(state,m){
+ const list=state.msgs[m.agentId],index=list?.findIndex(x=>x.id===m.id)??-1;
+ delete state.drafts[m.id];
+ if(m.interrupted&&index<0)delete state.drafts[m.taskId];
+ if(!list)return;
+ if(index>=0){list[index]=m;return}
+ let before=m.interrupted?list.findIndex(x=>x.id===m.beforeRequestId+":u"):-1;
+ if(before<0&&(m.interrupted||/:step\d+$/.test(m.id)))before=list.findIndex(x=>x.id===m.taskId);
+ if(before>=0)list.splice(before,0,m);else list.push(m);
+}
+const X={acceptMessage,statusGate,compositionGuard,CHECKPOINT,phase,cmdShown,foldCmd,outSummary,fileInfo,kb,isDownload,isCheckpoint,isNoise,statusText};
 g.AURORA_UX=X;if(typeof module!=="undefined")module.exports=X})(typeof window!=="undefined"?window:globalThis);

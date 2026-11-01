@@ -20,6 +20,7 @@ import (
 	"time"
 
 	"nekoaurora.local/native/internal/ledger"
+	"nekoaurora.local/native/internal/tools"
 )
 
 const (
@@ -439,6 +440,9 @@ func (s *Service) steer(w ledger.Work, tc *toolCtx) bool {
 			continue
 		}
 		tc.note("NGƯỜI DÙNG VỪA NHẮN THÊM GIỮA CHỪNG (gộp vào việc đang làm: trả lời/điều chỉnh theo tin này trong CÙNG câu trả lời; nói thẳng bằng “bạn”, không thuật lại kiểu “bạn đổi ý”; vẫn trích nguồn [n]): " + clean(q.Text, 1500))
+		if q.PeerMessageID == "" {
+			tc.ownerURLs = append(tc.ownerURLs, tools.RequestedURLs(stripRef(q.Text))...)
+		}
 		s.record(w.BotID, w.RequestID, "step", "Nhận chỉ dẫn mới giữa chừng")
 		got = true
 	}
@@ -475,7 +479,7 @@ var errSteered = errors.New("steered")
 // ask runs one model call that a new owner message can interrupt
 // (interrupt-and-merge, as Claude Code / Codex steering and neko-core's
 // checkpointed continuation): while the answer streams, the inbox is
-// polled; a new message cancels the stream, the draft is discarded, the
+// polled; a new message cancels the stream, visible text is journaled, the
 // message is folded in and the call is rebuilt. Bounded so a stream of
 // messages cannot starve the answer forever.
 func (s *Service) ask(ctx context.Context, w ledger.Work, tc *toolCtx, build func() []ChatMsg) (directives, error) {
@@ -491,6 +495,9 @@ func (s *Service) ask(ctx context.Context, w ledger.Work, tc *toolCtx, build fun
 		d, err := s.call(cctx, w, build())
 		cancel()
 		if hit.Load() && ctx.Err() == nil {
+			if err := s.keepInterrupted(w, d.Preview); err != nil {
+				return directives{}, err
+			}
 			s.publish("draft_end", map[string]string{"id": w.RequestID, "agentId": threadOf(w)})
 			continue
 		}

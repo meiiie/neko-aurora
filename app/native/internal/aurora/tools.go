@@ -20,8 +20,9 @@ import (
 // sources; the prompt forbids numbers that are not in those results.
 
 type toolCtx struct {
-	blocks  []string
-	sources []ledger.DirectSource
+	blocks    []string
+	sources   []ledger.DirectSource
+	ownerURLs []string
 
 	mu         sync.Mutex
 	pendingCmd string // computer_run waiting for the owner's approval
@@ -179,6 +180,11 @@ func (s *Service) runTools(ctx context.Context, w ledger.Work, tc *toolCtx, call
 		return
 	}
 	found := tc.found()
+	found = append(found, tc.ownerURLs...)
+	// Exact owner-supplied URLs use the same HTTPS/public-address guard as search results.
+	if w.PeerMessageID == "" {
+		found = append(found, tools.RequestedURLs(stripRef(w.Text))...)
+	}
 	var wg sync.WaitGroup
 	for _, x := range runs {
 		s.agui(AGUIEvent{Type: STEP_STARTED, ThreadID: w.BotID, RunID: w.RequestID, StepName: "tool:" + x.call.name})

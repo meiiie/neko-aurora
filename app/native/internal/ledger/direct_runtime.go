@@ -25,6 +25,14 @@ type DirectStep struct {
 	Note   string `json:"note,omitempty"` // short milestone update once the step is done
 }
 
+// DirectPartial keeps visible answer text superseded by an owner interjection.
+// It is conversation history, never a completed result or an executable directive.
+type DirectPartial struct {
+	Text            string `json:"text"`
+	At              string `json:"at"`
+	BeforeRequestID string `json:"beforeRequestId"`
+}
+
 type DirectDelivery struct {
 	Status string `json:"status"` // queued|sending|sent|failed
 	Detail string `json:"detail,omitempty"`
@@ -72,7 +80,8 @@ type DirectRun struct {
 	// (lease pattern from CopilotKit/openmuse worker.ts, MIT).
 	LeaseUntil string `json:"leaseUntil,omitempty"`
 	// Steered lists queued owner messages folded into this run mid-turn.
-	Steered []string `json:"steered,omitempty"`
+	Steered  []string        `json:"steered,omitempty"`
+	Partials []DirectPartial `json:"partials,omitempty"`
 }
 
 // DirectTool is one read-only data tool call made during the turn.
@@ -131,6 +140,7 @@ func validDirectSecret(x *DirectSecret) bool {
 }
 
 func copyDirectRun(d DirectRun) DirectRun {
+	d.Partials = append([]DirectPartial(nil), d.Partials...)
 	d.Plan = append([]DirectStep(nil), d.Plan...)
 	d.Choices = append([]string(nil), d.Choices...)
 	d.Questions = CopyDirectQuestions(d.Questions)
@@ -184,6 +194,17 @@ func validDirectRun(d *DirectRun) bool {
 	}
 	if !directText(d.Model, 128) || d.StartedAt == "" || !directText(d.PlanIntro, 2000) || !directText(d.Ack, 600) || len(d.Plan) > 8 || len(d.Steered) > MaxSteered || len(d.Choices) > 4 || len(d.Items) > 8 {
 		return false
+	}
+	if len(d.Partials) > MaxSteered {
+		return false
+	}
+	for _, p := range d.Partials {
+		if strings.TrimSpace(p.Text) == "" || !directText(p.Text, 60000) || p.BeforeRequestID == "" || !directText(p.BeforeRequestID, 128) {
+			return false
+		}
+		if _, err := time.Parse(time.RFC3339Nano, p.At); err != nil {
+			return false
+		}
 	}
 	for _, st := range d.Plan {
 		if !directStepStatus[st.Status] || !directText(st.Title, 480) || !directText(st.Note, 1600) {

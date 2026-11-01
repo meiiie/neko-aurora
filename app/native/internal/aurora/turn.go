@@ -49,6 +49,7 @@ var directiveRe = regexp.MustCompile(`(?m)^\s*(PLAN|CHOICES|QUESTIONS|APPROVAL|S
 
 type directives struct {
 	Text        string
+	Preview     string // public text emitted before any control directive
 	Plan        []string
 	Choices     []string
 	Questions   []ledger.DirectQuestion
@@ -518,6 +519,11 @@ func (s *Service) call(ctx context.Context, w ledger.Work, msgs []ChatMsg) (dire
 	flush()
 	cut := strings.Contains(full, truncMark)
 	d := ParseDirectives(strings.ReplaceAll(full, truncMark, ""))
+	preview := full
+	if preview == "" {
+		preview = sb.String()
+	}
+	d.Preview = interruptedText(preview)
 	s.networkFilterDirectives(w, &d)
 	d.Cut = cut
 	return d, err
@@ -889,9 +895,14 @@ func (s *Service) runTurn(ctx context.Context, w ledger.Work) (*Approval, *quest
 		msgs := append(tc.inject(s.history(w.BotID, w.RequestID)), ChatMsg{Role: "system", Content: finalNudge})
 		d, err = s.call(ctx, w, msgs)
 	}
+	if err == nil && len(d.Plan) == 0 && len(s.inbox(w)) > 0 {
+		if e := s.keepInterrupted(w, d.Preview); e != nil {
+			return nil, nil, e
+		}
+	}
 	if err == nil && len(d.Plan) == 0 && s.steer(w, tc) {
 		// The owner changed course while this answer was being written:
-		// discard the draft and answer once more with the new instruction.
+		// keep the interrupted segment and answer with the new instruction.
 		s.publish("draft_end", map[string]string{"id": w.RequestID, "agentId": threadOf(w)})
 		d, err = s.call(ctx, w, tc.inject(s.history(w.BotID, w.RequestID)))
 		if err == nil && len(d.Tools) > 0 && (s.Tools != nil || hasNetworkTool(d.Tools)) {

@@ -59,8 +59,8 @@ func sendBurst(t *testing.T, url string) {
 	}
 }
 
-// checkOneReply: every burst message absorbed by the first run, exactly one
-// agent bubble, all queued turns closed silently, user messages before it.
+// checkOneReply: every burst message absorbed by the first run, exactly one final
+// agent bubble plus retained interrupted segments, all queued turns closed silently, user messages before it.
 func checkOneReply(t *testing.T, svc *Service, bot string, a *slowAI) {
 	t.Helper()
 	waitTask(t, svc, bot)
@@ -69,6 +69,9 @@ func checkOneReply(t *testing.T, svc *Service, bot string, a *slowAI) {
 	for i, m := range msgs {
 		switch m.Role {
 		case "agent":
+			if m.Interrupted {
+				continue
+			}
 			agent++
 			if firstAgent < 0 {
 				firstAgent = i
