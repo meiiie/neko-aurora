@@ -40,29 +40,29 @@
 .workspace-palette { width: min(640px, calc(100vw - 24px)); }
 .workspace-results { max-height: min(440px, 54dvh); }
 @media (min-width: 900px) {
-  :root { --workspace-rail: 56px; --workspace-sidebar: 320px; }
+  :root { --workspace-rail: 0px; --workspace-sidebar: 280px; }
   .workspace-rail { padding-inline: 6px; gap: 16px; }
-  #list > .top { min-height: 68px; padding-inline: 18px; }
-  .workspace-brand { font-size: 23px; font-weight: 600; letter-spacing: -.03em; }
+  #list > .top { min-height: 58px; padding: 10px 16px; }
+  .workspace-brand { font-size: 21px; font-weight: 600; letter-spacing: -.025em; }
   .workspace-brand small { display: none; }
   #list > .top #newBtn { width: 36px; height: 36px; border-radius: 50%; background: var(--card); border-color: var(--line); }
-  #list .searchbar { height: 42px; background: var(--sunk); border-color: transparent; border-radius: 11px; }
-  #list .searchbar input { font-size: 15px; }
-  .workspace-list-heading { padding: 16px 18px 8px; }
+  #list .searchbar { height: 36px; background: var(--sunk); border-color: transparent; border-radius: 10px; }
+  #list .searchbar input { font-size: 14px; height: 34px; }
+  .workspace-list-heading { padding: 12px 16px 6px; }
   .workspace-list-heading h1 { font-size: 14px; font-weight: 550; }
   .workspace-list-heading button { font-size: 14px; }
   .workspace-filter { font-size: 12px; flex-direction: row; justify-content: center; gap: 4px; min-height: 36px; }
   .workspace-filter small { font-size: 11px; }
   #list .row { border-radius: 12px; margin-bottom: 2px; }
-  #list .rowin { height: 70px; gap: 12px; padding: 10px 12px; }
-  #list .row-av, #list .row-av > .face { width: 38px; height: 38px; }
-  #list .rowh b { font-size: 16px; line-height: 23px; letter-spacing: 0; font-weight: 550; }
-  #list .snip { font-size: 14px; line-height: 21px; letter-spacing: 0; }
+  #list .rowin { height: 68px; gap: 10px; padding: 9px 8px; }
+  #list .row-av, #list .row-av > .face { width: 44px; height: 44px; }
+  #list .rowh b { font-size: 16px; line-height: 22px; letter-spacing: 0; font-weight: 550; }
+  #list .snip { font-size: 14px; line-height: 20px; letter-spacing: 0; }
   #list .time { font-size: 11px; letter-spacing: 0; }
   #list .featured { display: grid; grid-template-columns: repeat(3,minmax(0,1fr)); padding: 14px 6px 18px; gap: 6px; max-height: 300px; overflow: auto; }
   #list .featured.hidden { display: none; }
   #list .feat { width: auto; padding: 10px 6px; gap: 6px; }
-  #list .feat-av, #list .feat-av > .face { width: 56px; height: 56px; }
+  #list .feat-av, #list .feat-av > .face { width: 62px; height: 62px; }
   #list .feat-name { font-size: 13px; line-height: 19px; margin: 0; }
   #list .brief { margin: 2px 0 6px; }
   #list .brief-head { height: 58px; }
@@ -88,3 +88,40 @@
   .face *, .feat, .rowin { animation: none !important; transition: none !important; }
 }
 html:lang(zh) #thread .msg { line-height: 1.75; letter-spacing: .01em; }
+
+:root:not([data-theme]), [data-theme="light"] {
+  --na-bg: #fcfcfd; --na-bg-sunken: #f0f0f2; --na-fg: #202124; --na-fg-muted: #686a70;
+  --na-line: #e6e6e9; --na-line-strong: #d4d5d9;
+  --workspace-accent: #1767c4; --workspace-accent-soft: #e8f0fb;
+}
+#workspaceNav:not(:popover-open), #workspaceFilters:not(:popover-open) { display: none; }
+#workspaceNav:popover-open, #workspaceFilters:popover-open {
+  position: fixed; inset: auto; margin: 0; width: min(244px, calc(100vw - 24px)); max-height: calc(100dvh - 90px);
+  overflow: auto; display: flex; flex-direction: column; gap: 2px; padding: 6px;
+  background: var(--card); color: var(--ink); border: 1px solid var(--line); border-radius: 14px;
+  box-shadow: 0 8px 28px #14202e18;
+}
+#workspaceNav .workspace-nav-button, #workspaceFilters .workspace-filter {
+  width: 100%; min-height: 44px; padding: 8px 12px; display: flex; flex-direction: row;
+  align-items: center; gap: 12px; border-radius: 8px; font-size: 14px; text-align: start;
+}
+#workspaceNav .workspace-nav-button > span { position: static; opacity: 1; padding: 0; background: none; color: inherit; white-space: normal; }
+#workspaceFilters .workspace-filter small { margin-left: auto; font-size: 12px; }
+#workspaceFilterToggle { display: flex; align-items: center; gap: 5px; margin-left: auto; min-height: 36px; }
+#workspaceFilterToggle[data-active="true"] { color: var(--workspace-accent); background: var(--workspace-accent-soft); }
+#list .workspace-list-heading [data-workspace-go], #workspaceNewBot { display: none; }
+@media (min-width: 900px) {
+  #listScroll { padding-bottom: 66px; }
+  .workspace-rail {
+    inset: auto auto 0 0; width: var(--workspace-sidebar); height: 58px; padding: 7px 12px;
+    flex-direction: row; justify-content: space-between; gap: 6px; border-right: 1px solid var(--line);
+    border-top: 1px solid var(--line); background: var(--workspace-panel);
+  }
+  .workspace-rail > button { flex: none; width: 40px; height: 40px; border-radius: 50%; }
+  .workspace-home-button img { width: 28px; height: 28px; }
+  #app[data-sidebar-collapsed="true"] { --workspace-rail: 48px; }
+  #app[data-sidebar-collapsed="true"] .workspace-rail { width: 48px; height: auto; padding: 8px 4px; flex-direction: column; }
+}
+@media (max-width: 899px) {
+  #list .workspace-list-heading [data-workspace-go] { display: block; }
+}

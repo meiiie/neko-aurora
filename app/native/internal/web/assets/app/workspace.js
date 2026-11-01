@@ -52,6 +52,7 @@
   }
   function activate(id) {
     if (!current().ready) return;
+    $("#workspaceNav").hidePopover();
     if (id === "home" || id === "routines") {
       mode = id;
       bridge.home();
@@ -71,6 +72,7 @@
     refresh();
   }
   function chooseFilter(value) {
+    $("#workspaceFilters").hidePopover();
     filter = value;
     bridge.renderList();
     refresh();
@@ -117,6 +119,8 @@
     const view = current();
     const sameScope = scope === view.workspaceId;
     if (!sameScope || !view.ready) {
+      $("#workspaceNav").hidePopover();
+      $("#workspaceFilters").hidePopover();
       scope = view.workspaceId;
       filter = "all";
       mode = "home";
@@ -142,6 +146,8 @@
       node.setAttribute("aria-label", `${text(label)} (${counts[key]})`);
       node.querySelector("small").textContent = counts[key];
     }
+    $("#workspaceFilterLabel").textContent = text(filters[filter]);
+    $("#workspaceFilterToggle").dataset.active = String(filter !== "all");
     $("#workspaceBotCount").textContent = agents.length;
     $("#workspaceWorkingCount").textContent = counts.working;
     $("#workspaceWaitingCount").textContent = counts.waiting;
@@ -338,6 +344,17 @@
       tabs.append(node);
     }
     $("#workspacePaletteButton").append(icon("search"));
+    $("#workspaceMenuButton").append(icon("layout-grid"));
+    for (const [trigger, target, above] of [["workspaceMenuButton", "workspaceNav", true], ["workspaceFilterToggle", "workspaceFilters", false]]) {
+      const popover = $("#" + target);
+      popover.addEventListener("beforetoggle", event => {
+        if (event.newState !== "open") return;
+        const rect = $("#" + trigger).getBoundingClientRect();
+        popover.style.left = Math.max(12, Math.min(innerWidth - 256, rect.left)) + "px";
+        popover.style.top = above ? "auto" : rect.bottom + 6 + "px";
+        popover.style.bottom = above ? innerHeight - rect.top + 8 + "px" : "auto";
+      });
+    }
     $("#workspacePaletteButton").onclick = openPalette;
     $("#workspaceSidebarToggle").append(icon("list-checks"));
     $("#workspaceSidebarToggle").onclick = () => {
@@ -391,7 +408,7 @@
       if ($("#workspacePalette").open) closePalette(); else openPalette();
     });
     window.addEventListener("aurora:localechange", () => { refresh(); if (mode === "routines") renderRoutines(); });
-    desktop.addEventListener("change", layout);
+    desktop.addEventListener("change", () => { $("#workspaceNav").hidePopover(); $("#workspaceFilters").hidePopover(); layout(); });
     matchMedia("(min-width: 1280px)").addEventListener("change", layout);
     $("#messages").addEventListener("scroll", () => rememberReading(), { passive: true });
     if (window.ResizeObserver) new ResizeObserver(restoreReading).observe($("#messages"));

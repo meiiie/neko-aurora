@@ -82,5 +82,12 @@ function acceptMessage(state,m){
   return (marker<0?raw:raw.slice(0,marker)).trim();
  }
  function readableDraft(text){const t=streamText(text);return !/^[`*_#>\s~-]*$/.test(t)&&/[\p{L}\p{N}\p{S}]/u.test(t)}
- const X={streamText,readableDraft,acceptMessage,statusGate,compositionGuard,CHECKPOINT,phase,cmdShown,foldCmd,outSummary,fileInfo,kb,isDownload,isCheckpoint,isNoise,statusText};
+ function sameMessageRun(previous,current){
+  if(!previous||!current||!['agent','user'].includes(current.role)||previous.role!==current.role)return false;
+  if((previous.from||previous.agentId)!==(current.from||current.agentId))return false;
+  if([previous,current].some(m=>!m.text||m.quote||m.interrupted||m.queued||m.approval||m.plan||m.form||m.questions||m.choices||m.secret||m.recovery))return false;
+  const time=value=>typeof value==='number'?value:Date.parse(value),gap=time(current.t)-time(previous.t);
+  return Number.isFinite(gap)&&gap>=0&&gap<5*60*1000;
+ }
+ const X={sameMessageRun,streamText,readableDraft,acceptMessage,statusGate,compositionGuard,CHECKPOINT,phase,cmdShown,foldCmd,outSummary,fileInfo,kb,isDownload,isCheckpoint,isNoise,statusText};
 g.AURORA_UX=X;if(typeof module!=="undefined")module.exports=X})(typeof window!=="undefined"?window:globalThis);

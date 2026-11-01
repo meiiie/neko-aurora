@@ -57,7 +57,8 @@
 <div id="app">
   <aside class="workspace-rail" id="workspaceRail" aria-label="Không gian làm việc">
     <button type="button" class="workspace-home-button" id="workspaceHomeButton" aria-label="Tổng quan"><img src="/app/icon.svg" alt="" width="34" height="34"></button>
-    <nav id="workspaceNav" aria-label="Điều hướng chính"></nav>
+    <button type="button" class="workspace-nav-button" id="workspaceMenuButton" aria-label="Điều hướng chính" popovertarget="workspaceNav"></button>
+    <nav id="workspaceNav" aria-label="Điều hướng chính" popover></nav>
     <button type="button" class="workspace-nav-button" id="workspacePaletteButton" aria-label="Tìm nhanh" title="Tìm nhanh · Ctrl/Cmd+K"></button>
     <button type="button" class="workspace-nav-button" id="workspaceSidebarToggle" aria-label="Thu gọn danh sách bot" aria-controls="list" aria-expanded="true"></button>
   </aside>
@@ -70,8 +71,8 @@
       <button class="icon-btn cloud-entry" id="cloudBtn" type="button" aria-label="Máy tính cloud của bot" title="Máy tính cloud" aria-haspopup="dialog" aria-expanded="false" aria-controls="cloudDialog"><span id="cloudIcon" aria-hidden="true">☁</span></button>
       <button class="round" id="newBtn" aria-label="Tạo mới" aria-haspopup="menu"></button>
     </header>
-    <div class="workspace-list-heading"><h1>Bot &amp; nhóm</h1><output id="workspaceCount">0</output><button type="button" data-workspace-go="routines">Lịch chạy</button><button type="button" id="workspaceNewBot" aria-label="Tạo bot mới">+</button></div>
-    <div class="workspace-filters" id="workspaceFilters" role="group" aria-label="Lọc hội thoại"></div>
+    <div class="workspace-list-heading"><h1>Bot &amp; nhóm</h1><output id="workspaceCount">0</output><button type="button" data-workspace-go="routines">Lịch chạy</button><button type="button" id="workspaceNewBot" aria-label="Tạo bot mới">+</button><button type="button" id="workspaceFilterToggle" aria-label="Lọc hội thoại" popovertarget="workspaceFilters"><span id="workspaceFilterLabel">Tất cả</span><span aria-hidden="true">⌄</span></button></div>
+    <div class="workspace-filters" id="workspaceFilters" role="group" aria-label="Lọc hội thoại" popover></div>
     <div class="scroll" id="listScroll">
       <section class="startup" id="startup" aria-label="Neko Aurora">
         <p id="startupStatus" role="status">Đang mở Neko Aurora…</p>
