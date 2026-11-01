@@ -145,3 +145,11 @@ WITHOUT WARRANTY OF ANY KIND.
 https://github.com/Fei2411/DeepSeek-Bot — Apache License 2.0, © 2026 Fei2411 and the DS Bot contributors.
 Neko Aurora ports design ideas only (post-turn memory review, a clock in the model context, restart-safe
 request handling); no source code was copied. See docs/deepseek-bot-study-2026-10-23.md.
+
+## OpenMausBot — Apache-2.0 reference
+
+Source: https://github.com/milind-soni/OpenMausBot at 88d54eb17a3655b968470cbbf3b5097de225a8b5.
+Studied provider/model selection, composer, conversation formatting, turn status,
+queue receipts and error handling. Aurora implements its own behavior in its
+existing stack; no source code or visual assets copied. See
+[provider and conversation study](docs/research/provider-flow-openmaus-2026-11-01.md).
