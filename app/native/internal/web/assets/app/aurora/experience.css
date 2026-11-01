@@ -1,19 +1,20 @@
 .face { overflow: visible; }
-.avatar-body, .avatar-eyes { transform-box: view-box; transform-origin: 50px 55px; }
+.avatar-presence, .avatar-body, .avatar-attention, .avatar-eyes { transform-box: view-box; transform-origin: 50px 55px; }
 .avatar-eyes { transform-origin: 50px var(--eye-y, 48px); }
-.face[data-motion="on"] .avatar-eyes { animation: aurora-blink 6.4s ease-in-out var(--avatar-phase) infinite; }
+.avatar-gaze { transform: translate(var(--gaze-x, 0px), var(--gaze-y, 0px)); }
+.avatar-attention { transition: transform 240ms ease; }
+.face[data-motion="on"][data-blink="on"] .avatar-eyes { animation: aurora-blink 180ms ease-in-out; }
 .face[data-motion="on"][data-avatar-state="working"] .avatar-body { animation: aurora-attend 3.2s ease-in-out var(--avatar-work-phase) infinite; }
-.face[data-motion="on"][data-avatar-state="working"] .avatar-gaze { animation: aurora-look 3.2s ease-in-out var(--avatar-work-phase) infinite; }
-.face[data-avatar-state="waiting"] .avatar-gaze { transform: translateY(-3px); }
-.face[data-avatar-state="error"] .avatar-gaze { transform: translateY(3px); }
-@media (hover: hover) {
-  :is(.rowin, .feat, .workspace-agent, .workspace-result):hover .face[data-motion="on"] .avatar-body { animation: aurora-greet 460ms cubic-bezier(.2,.75,.25,1) 1; }
+.face[data-avatar-state="waiting"] .avatar-attention { transform: translateY(-3px); }
+.face[data-avatar-state="error"] .avatar-attention { transform: translateY(3px); }
+@media (hover: hover) and (pointer: fine) {
+  :is(.rowin, .feat, .workspace-agent, .workspace-result, #whoBtn):hover .face[data-motion="on"][data-avatar-state="idle"] .avatar-presence { animation: aurora-greet 380ms ease-out 1; }
 }
-:is(.rowin, .feat, .workspace-agent, .workspace-result):focus-visible .face[data-motion="on"] .avatar-body { animation: aurora-greet 460ms cubic-bezier(.2,.75,.25,1) 1; }
-@keyframes aurora-blink { 0%, 42%, 46%, 100% { transform: scaleY(1); } 44% { transform: scaleY(.15); } }
-@keyframes aurora-attend { 0%, 100% { transform: rotate(-3deg) scale(1,1); } 45% { transform: translateY(-2px) rotate(3deg) scale(.98,1.025); } 70% { transform: rotate(1deg) scale(1.02,.985); } }
-@keyframes aurora-look { 0%, 100% { transform: translate(-2px,0); } 45%, 65% { transform: translate(3px,-2px); } }
-@keyframes aurora-greet { 0%, 100% { transform: none; } 30% { transform: translateY(2px) scale(1.06,.95); } 65% { transform: translateY(-4px) rotate(-5deg) scale(.98,1.03); } }
+:is(.rowin, .feat, .workspace-agent, .workspace-result, #whoBtn):focus-visible .face[data-motion="on"][data-avatar-state="idle"] .avatar-presence { animation: aurora-greet 380ms ease-out 1; }
+.face[data-motion="off"] * { animation: none !important; transition: none !important; }
+@keyframes aurora-blink { 0%, 100% { transform: scaleY(1); } 45% { transform: scaleY(.12); } }
+@keyframes aurora-attend { 0%, 100% { transform: rotate(-2deg); } 45% { transform: translateY(-1px) rotate(2deg) scale(.99,1.015); } }
+@keyframes aurora-greet { 0%, 100% { transform: none; } 45% { transform: translateY(-2px) rotate(-3deg); } }
 .stack.team-avatar { position: relative; display: block; isolation: isolate; }
 .row-av > .team-avatar, .feat-av > .team-avatar { width: 100% !important; height: 100% !important; }
 .workspace-result > .workspace-result-avatar { flex: 0 0 36px; overflow: visible; }

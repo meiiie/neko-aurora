@@ -23,7 +23,7 @@ const SHAPES=[ // [markup, eye centre y]
 const SVGNS="http://www.w3.org/2000/svg";
 function face(f,sz,cls){f=f||{};const s=SHAPES[f.shape|0]||SHAPES[0],c=COLORS[f.color|0]||COLORS[0],y=s[1];
  const v=document.createElementNS(SVGNS,"svg");v.setAttribute("viewBox","0 0 100 100");v.setAttribute("width",sz);v.setAttribute("height",sz);v.setAttribute("aria-hidden","true");v.setAttribute("class","face"+(cls?" "+cls:""));
- v.style.setProperty("--eye-y",y+"px");v.innerHTML=`<g class="avatar-body" fill="${c}">${s[0].replace(/"C"/g,`"${c}"`)}</g><g class="avatar-gaze"><g class="avatar-eyes"><rect x="35" y="${y-11}" width="10" height="22" rx="5" fill="#fff"/><rect x="55" y="${y-11}" width="10" height="22" rx="5" fill="#fff"/></g></g>`;return v}
+ v.style.setProperty("--eye-y",y+"px");v.innerHTML=`<g class="avatar-presence"><g class="avatar-body" fill="${c}">${s[0].replace(/"C"/g,`"${c}"`)}</g><g class="avatar-gaze"><g class="avatar-attention"><g class="avatar-eyes"><rect x="35" y="${y-11}" width="10" height="22" rx="5" fill="#fff"/><rect x="55" y="${y-11}" width="10" height="22" rx="5" fill="#fff"/></g></g></g></g>`;return v}
 // ---------- server state (real Go control plane at /app/api) ----------
 const S={agents:[],pending:[],brief:null,ai:{},vapid:"",outbound:{},secrets:[],msgs:{},drafts:{}};
 const API="/app/api";let selectionExcerpt=null;
@@ -40,7 +40,7 @@ const isGroup=a=>a&&a.kind==="group";
 const bots=()=>S.agents.filter(a=>!isGroup(a));
 const byId=id=>S.agents.find(x=>x.id===id);
 function aiLabel(ai){const tr=s=>window.__I18N?.t(s)||s;if(!ai?.model||(!ai.configured&&!ai.selection))return tr("Chưa kết nối AI");return [ai.provider,ai.modelLabel||ai.model].filter(Boolean).join(" · ")+(ai.issue?" · "+tr("Không khả dụng"):ai.configured?"":" · "+tr("Chưa kết nối"))}
-function renderThreadModel(a){const n=$("#threadModel"),b=$("#composerAI"),tr=s=>window.__I18N?.t(s)||s,selected=aiLabel(a.ai||S.ai);n.hidden=isGroup(a);n.textContent=isGroup(a)?"":a.activeModel?tr("Đang dùng")+": "+a.activeModel:selected;n.title=tr(a.activeModel?"AI của lượt đang chạy":"AI được chọn cho tin nhắn mới");b.hidden=isGroup(a);b.textContent=selected+" ▾";b.title=tr("AI được chọn cho tin nhắn mới");b.setAttribute("aria-label",tr("Chọn AI cho bot"));b.onclick=()=>openModels(false,a.id)}
+function renderThreadModel(a){const n=$("#threadModel"),b=$("#composerAI"),tr=s=>window.__I18N?.t(s)||s,selected=aiLabel(a.ai||S.ai);n.hidden=isGroup(a)||!a.activeModel;n.textContent=isGroup(a)?"":a.activeModel?tr("Đang dùng")+": "+a.activeModel:selected;n.title=tr(a.activeModel?"AI của lượt đang chạy":"AI được chọn cho tin nhắn mới");b.hidden=isGroup(a);b.textContent=selected+" ▾";b.title=tr("AI được chọn cho tin nhắn mới");b.setAttribute("aria-label",tr("Chọn AI cho bot"));b.onclick=()=>openModels(false,a.id)}
 const waiting=a=>S.pending.some(m=>m.agentId===a.id)||a.status==="waiting";
 const ago=t=>{t=T(t);if(!(t>0))return"";const s=(Date.now()-t)/1e3;if(s<60)return l10n.message("time.now");if(s<3600)return l10n.relative(-Math.floor(s/60),"minute");if(s<86400&&new Date(t).toDateString()===new Date().toDateString())return l10n.date(t,{hour:"2-digit",minute:"2-digit"});return l10n.date(t,{day:"numeric",month:"numeric"})};
 const listTime=t=>{t=T(t);if(!(t>0))return"";const now=new Date(),day=new Date(t);if(day.toDateString()===now.toDateString())return l10n.date(t,{hour:"numeric",minute:"2-digit"});now.setDate(now.getDate()-1);return day.toDateString()===now.toDateString()?l10n.t("Hôm qua"):l10n.date(t,{day:"numeric",month:"numeric"})};
@@ -100,16 +100,16 @@ function connect(){const previous=es;es=null;previous?.close();const stream=new 
  on("message",e=>{const m=JSON.parse(e.data);AURORA_UX.acceptMessage(S,m);
   S.pending=S.pending.filter(x=>x.id!==m.id);if(m.approval&&m.approval.state==="pending")S.pending.push(m);
   if(cur&&cur.id===m.agentId)renderThread();renderListSoon()});
- on("delta",e=>{const d=JSON.parse(e.data);S.deltaCount=(S.deltaCount||0)+1;if(!S.drafts[d.id])setTimeout(()=>{if(es===stream&&S.drafts[d.id]&&cur&&cur.id===d.agentId&&!document.getElementById("d_"+d.id))paintDraft(d.id)},470);const x=S.drafts[d.id]||(S.drafts[d.id]={agentId:d.agentId,from:d.from,text:"",t0:Date.now()});x.text=typeof d.text==="string"?d.text:x.text+d.delta;if(cur&&cur.id===d.agentId)paintDraft(d.id)});
+ on("delta",e=>{const d=JSON.parse(e.data);S.deltaCount=(S.deltaCount||0)+1;const x=S.drafts[d.id]||(S.drafts[d.id]={agentId:d.agentId,from:d.from,text:"",t0:Date.now()});x.text=typeof d.text==="string"?d.text:x.text+d.delta;if(cur&&cur.id===d.agentId)paintDraft(d.id)});
  on("draft_end",e=>{const d=JSON.parse(e.data);if(S.drafts[d.id]){delete S.drafts[d.id];if(cur&&cur.id===d.agentId)renderThread()}});
  on("activity",e=>{if(sheetOpen===$("#activity"))renderLog([JSON.parse(e.data)],true)});
  on("brief",e=>{S.brief=JSON.parse(e.data);renderListSoon()});
  on("notify",e=>{const n=JSON.parse(e.data);if(muted.includes((n.url||"").split("#")[1]))return;if(document.hidden&&!pushOn&&"Notification"in window&&Notification.permission==="granted")navigator.serviceWorker?.ready.then(r=>{if(es===stream)r.showNotification(n.title,{body:n.body,data:{url:n.url},tag:n.url})})});
 }
 // ---------- list ----------
-function avatarOf(a,sz){const one=(b,size,cls)=>window.AURORA_AVATARS.attach(face(b?.av,size,cls),b?.id||a.id,b&&(waiting(b)?"waiting":b.status));if(!isGroup(a))return one(a,sz);const members=[...new Set(a.members||[])],w=el("span","stack team-avatar");w.setAttribute("aria-hidden","true");w.style.width=w.style.height=sz+"px";w.dataset.members=String(Math.min(3,members.length));members.slice(0,3).forEach((id,i)=>w.append(one(byId(id),Math.round(sz*.62),"s"+i)));if(!members.length)w.append(face({shape:1,color:10},sz));if(members.length>3)w.append(literalEl("span","team-avatar-more","+"+l10n.number(members.length-3)));return w}
+function avatarOf(a,sz,slot){const one=(b,size,cls)=>{const id=b?.id||a.id,state=b&&(waiting(b)?"waiting":b.status),create=()=>face(b?.av,size,cls);return slot?AURORA_AVATARS.reuse([S.workspaceId,slot,a.id,id,cls||""].join("/"),JSON.stringify([b?.av,size]),create,id,state):AURORA_AVATARS.attach(create(),id,state)};if(!isGroup(a))return one(a,sz);const members=[...new Set(a.members||[])],w=el("span","stack team-avatar");w.setAttribute("aria-hidden","true");w.style.width=w.style.height=sz+"px";w.dataset.members=String(Math.min(3,members.length));members.slice(0,3).forEach((id,i)=>w.append(one(byId(id),Math.round(sz*.62),"s"+i)));if(!members.length)w.append(face({shape:1,color:10},sz));if(members.length>3)w.append(literalEl("span","team-avatar-more","+"+l10n.number(members.length-3)));return w}
 // chat header avatar carries the same presence dot as the list (Messenger-style)
-function headAvatar(a){const h=$("#threadAvatar");const k=a.status==="working"?"work":waiting(a)?"wait":a.status,look=JSON.stringify(isGroup(a)?(a.members||[]).map(id=>[id,byId(id)?.av||{},byId(id)?.status]):a.av||{});if(h.dataset.k===k&&h.dataset.id===a.id&&h.dataset.look===look&&h.firstChild)return;h.dataset.k=k;h.dataset.id=a.id;h.dataset.look=look;h.classList.add("head-av");h.replaceChildren(avatarOf(a,32));const bd=badge(a);if(bd)h.append(bd)}
+function headAvatar(a){const h=$("#threadAvatar");const k=waiting(a)?"wait":a.status,look=JSON.stringify(isGroup(a)?(a.members||[]).map(id=>[id,byId(id)?.av||{},byId(id)?.status,byId(id)?waiting(byId(id)):false]):a.av||{});if(h.dataset.k===k&&h.dataset.id===a.id&&h.dataset.look===look&&h.firstChild)return;h.dataset.k=k;h.dataset.id=a.id;h.dataset.look=look;h.classList.add("head-av");h.replaceChildren(avatarOf(a,32,"header"));const bd=badge(a);if(bd)h.append(bd)}
 function badge(a){const k=a.status==="working"?"work":waiting(a)?"wait":a.status==="error"?"err":"";if(!k)return null;const b=el("i","badge "+k);b.setAttribute("aria-hidden","true");return b}
 let filter="",listScope;
 const statusLine=a=>a.status==="working"?l10n.t("Đang làm việc…"):waiting(a)?l10n.t("Chờ bạn duyệt"):a.snipKey?l10n.message(a.snipKey,a.snipArgs):a.snip||a.desc||"";
@@ -141,7 +141,7 @@ function renderList(){
  const q=filter.trim().toLowerCase(),match=a=>(!q||a.name.toLowerCase().includes(q)||(a.snip||"").toLowerCase().includes(q)||(a.members||[]).some(id=>(byId(id)?.name||"").toLowerCase().includes(q)))&&(!window.AURORA_WORKSPACE||AURORA_WORKSPACE.matches(a,{waiting:waiting(a),unread:unread(a)}));
  const pinned=all.filter(a=>a.pin&&match(a)),rest=all.filter(a=>!a.pin&&match(a));
  const fe=$("#featured");fe.innerHTML="";fe.classList.toggle("hidden",!pinned.length);
- pinned.forEach(a=>{const b=el("button","feat");b.dataset.id=a.id;b.dataset.noi18n="";b.setAttribute("aria-label",a.name);const av=el("span","feat-av");av.append(avatarOf(a,92));const bd=badge(a);if(bd)av.append(bd);const nm=el("span","feat-name");nm.append(el("span",0,a.name));if(unread(a)){nm.append(el("i","dot"));b.setAttribute("aria-label",a.name+", "+(window.__I18N?.t("chưa đọc")||"chưa đọc"))}b.append(av,nm);b.onclick=e=>{if(e.detail&&performance.now()<suppress)return;closePinnedPreview();openThread(a.id);if(e.detail===0)inp.focus({preventScroll:true})};longPress(b,a);pinnedPeek(b,a);fe.append(b)});
+ pinned.forEach(a=>{const b=el("button","feat");b.dataset.id=a.id;b.dataset.noi18n="";b.setAttribute("aria-label",a.name);const av=el("span","feat-av");av.append(avatarOf(a,92,"pinned"));const bd=badge(a);if(bd)av.append(bd);const nm=el("span","feat-name");nm.append(el("span",0,a.name));if(unread(a)){nm.append(el("i","dot"));b.setAttribute("aria-label",a.name+", "+(window.__I18N?.t("chưa đọc")||"chưa đọc"))}b.append(av,nm);b.onclick=e=>{if(e.detail&&performance.now()<suppress)return;closePinnedPreview();openThread(a.id);if(e.detail===0)inp.focus({preventScroll:true})};longPress(b,a);pinnedPeek(b,a);fe.append(b)});
  renderBrief(q);
  const ul=$("#rows");ul.innerHTML="";
  const hid=new Set(store.get("neko-aurora-hidden",[])),secs=store.get("neko-aurora-sections",{list:[],of:{}});
@@ -154,7 +154,7 @@ function renderList(){
   if(!isGroup(a)){const acts=el("div","actions"),pin=el("button","pin",a.pin?"Bỏ ghim":"Ghim"),ar=el("button","arch","Lưu trữ");acts.append(pin,ar);li.append(acts);
    pin.onclick=e=>{e.stopPropagation();suppress=performance.now()+600;api(`/agents/${a.id}`,{pin:!a.pin}).then(upsert).then(()=>{buzz("tap");renderList()}).catch(()=>toast("Không ghim được"))};
    ar.onclick=e=>{e.stopPropagation();suppress=performance.now()+600;if(ar.disabled)return;ar.disabled=true;api(`/agents/${a.id}`,{archived:true}).then(()=>{S.agents=S.agents.filter(x=>x.id!==a.id);S.pending=S.pending.filter(m=>m.agentId!==a.id);renderList();toast("Đã lưu trữ "+a.name)}).catch(()=>{ar.disabled=false;toast("Không lưu trữ được")})}}
-  const inn=el("button","rowin");inn.type="button";const av=el("span","row-av");av.append(avatarOf(a,48));const bd=badge(a);if(bd)av.append(bd);inn.append(av);
+  const inn=el("button","rowin");inn.type="button";const av=el("span","row-av");av.append(avatarOf(a,48,"list"));const bd=badge(a);if(bd)av.append(bd);inn.append(av);
   const tx=el("span","rowtxt"),h=el("span","rowh");h.append(literalEl("b",0,a.name));if(isGroup(a))h.append(el("span","tag",(a.members||[]).length+" bot"));
   const live=a.status==="working",un=unread(a);h.append(el("span","time"+(live?" now":"")+(un?" un":""),live?"bây giờ":listTime(a.t)));
   const sn=el("span","snip"+(waiting(a)?" wait":"")+(live?" dots":"")+(a.status==="error"?" err":"")+(un?" un":""),statusLine(a));
@@ -293,7 +293,7 @@ function renderThread(){const a=cur;if(!a)return;$("#threadName").textContent=a.
  const keepSec=[...box.querySelectorAll(".secret input[data-secret]")].map(i=>[i.closest(".secret").dataset.inputKey,i.dataset.secret,i.value]);
  const keepHints=[...box.querySelectorAll(".vault-card textarea[name=useHint]")].map(i=>({key:i.closest(".vault-card").dataset.hintKey,value:i.value,focused:i===focused,start:i.selectionStart,end:i.selectionEnd,direction:i.selectionDirection}));
  const keepEdit=[...box.querySelectorAll(".ap-body")].map(t=>[t.closest(".approval").dataset.id,t.value,t.closest(".approval").querySelector(".ap-subject")?.value]);
- clearVaultInputs(box);const sEl=statusEl();[...box.childNodes].forEach(n=>n!==sEl&&n.remove());if(sEl.parentNode!==box)box.append(sEl);const all=S.msgs[a.id]||[];const W=win[a.id]||(win[a.id]=PAGE);const L=all.length>W?all.slice(-W):all;const last={v:null};
+ const draftNodes=new Map([...box.querySelectorAll(".msg.draft[id]")].map(n=>[n.id,n]));clearVaultInputs(box);const sEl=statusEl();[...box.childNodes].forEach(n=>n!==sEl&&n.remove());if(sEl.parentNode!==box)box.append(sEl);const all=S.msgs[a.id]||[];const W=win[a.id]||(win[a.id]=PAGE);const L=all.length>W?all.slice(-W):all;const last={v:null};
  const first=stickFor!==a.id;if(first){stickFor=a.id;stick=true;nodeCache.clear()}const frag=document.createDocumentFragment();const mark=(n0,isNew)=>{if(isNew)[...frag.childNodes].slice(n0).forEach(n=>{if(!n.classList)return;n.classList.add("enter");n.addEventListener("animationend",()=>n.classList.remove("enter"),{once:true})})};
  if(all.length>W){const o=el("button","older","Xem tin nhắn cũ hơn");o.type="button";o.onclick=loadOlder;frag.append(o)}if(justSent)stick=true;let prevT=0;
  L.forEach((m,idx)=>{
@@ -323,7 +323,7 @@ function renderThread(){const a=cur;if(!a)return;$("#threadName").textContent=a.
  keepHints.forEach(h=>{const card=[...box.querySelectorAll(".vault-card")].find(c=>c.dataset.hintKey===h.key),i=card?.querySelector("textarea[name=useHint]");if(!i)return;if(!i.value)i.value=h.value;if(h.focused&&(document.activeElement===document.body||document.activeElement===focused)){i.focus({preventScroll:true});i.setSelectionRange(h.start,h.end,h.direction)}});
  keepEdit.forEach(([id,v,sj])=>{const c=box.querySelector(`.approval[data-id="${id}"]`);if(c){const t=c.querySelector(".ap-body");if(t)t.value=v;const s2=c.querySelector(".ap-subject");if(s2&&sj!=null)s2.value=sj}});
  outbox.filter(o=>o.agentId===a.id).forEach(o=>{last.v=null;frag.append(pendingCard(o))});
- Object.entries(S.drafts).forEach(([id,d])=>{if(d.agentId===a.id&&shown(d)){speaker(frag,{role:"agent",from:d.from},last);const b=el("div","msg bot draft"+(shownIds.has(id)?"":" enter"));shownIds.add(id);b.id="d_"+id;const at=L.findIndex(m=>m.taskId===id),next=at<0?null:L.slice(at+1).find(m=>m.role==="user"&&m.queued),anchor=next&&[...box.querySelectorAll(".message-item")].find(n=>n.dataset.messageId===next.id);if(anchor)box.insertBefore(b,anchor);else frag.append(b);if(reduceMotion())d.sl=1e9;drawDraft(id,b);requestAnimationFrame(()=>paintDraft(id))}});
+ Object.entries(S.drafts).forEach(([id,d])=>{if(d.agentId===a.id&&shown(d)){speaker(frag,{role:"agent",from:d.from},last);const b=draftNodes.get("d_"+id)||el("div","msg bot draft"+(shownIds.has(id)?"":" enter"));shownIds.add(id);b.id="d_"+id;const at=L.findIndex(m=>m.taskId===id),next=at<0?null:L.slice(at+1).find(m=>m.role==="user"&&m.queued),anchor=next&&[...box.querySelectorAll(".message-item")].find(n=>n.dataset.messageId===next.id);if(anchor)box.insertBefore(b,anchor);else frag.append(b);drawDraft(id,b)}});
  // an answer just landed (first seen < 2.5 s ago, nothing running): no status line while the bot state catches up
  const lm=L.at(-1),age=lm&&seenAt.has(lm.id)?Date.now()-seenAt.get(lm.id):1e9;
  const landed=lm&&lm.role==="agent"&&lm.text&&age<2500&&!(lm.tools||[]).some(t=>t.status==="running")&&!(lm.approval&&lm.approval.state==="pending");
@@ -337,7 +337,6 @@ function renderThread(){const a=cur;if(!a)return;$("#threadName").textContent=a.
 // or scrolling to the top) with the scroll position kept
 const PAGE=60,win={},nodeCache=new Map(),seenAt=new Map();
 function loadOlder(){if(!cur)return;const box=$("#messages"),h=box.scrollHeight,top=box.scrollTop;win[cur.id]=(win[cur.id]||PAGE)+PAGE;stick=false;renderThread();box.scrollTop=top+box.scrollHeight-h}
-// a finished answer that arrived whole (no stream) types in like a stream
 // PWA install: Android/Chrome gives a prompt event; iOS Safari only has the
 // Share menu, so the cell explains it. Hidden inside the app shell or once installed.
 let installEv=null;addEventListener("beforeinstallprompt",e=>{e.preventDefault();installEv=e});addEventListener("appinstalled",()=>{installEv=null;toast("Đã cài Neko Aurora")});
@@ -357,8 +356,8 @@ let stEl=null;const shownIds=new Set();const sent=new Map();const sentRecently=t
 function statusEl(){if(!stEl){stEl=el("div","status off");stEl.setAttribute("role","status");stEl.setAttribute("aria-live","polite");const x=el("button","st-stop");x.type="button";x.setAttribute("aria-label","Dừng");x.append(I("square",12));x.onclick=()=>stopAgent();stEl.append(el("span","st-mascot"),el("span","st-t"),x)}return stEl}
 const statusGate=AURORA_UX.statusGate();
 function setStatus(a,L,on){const st=statusEl(),u=[...L].reverse().find(m=>m.role==="user"),p=statusGate(JSON.stringify([S.workspaceId,a.id,u?.id||u?.t||""]),on?AURORA_UX.phase(a,L):null),t=st.children[1];st.classList.toggle("off",!p);if(!p){t.replaceChildren();t.dataset.label="";return}
- const key=a.id+JSON.stringify(a.av||{});if(st.dataset.av!==key){st.dataset.av=key;st.firstChild.replaceChildren(face(a.av||{},28))}
- st.dataset.k=p.k;st.lastChild.hidden=a.status!=="working";if(!p.t){t.replaceChildren();t.dataset.label="";return}if(t.dataset.label===p.t)return;t.dataset.label=p.t;const old=t.querySelector("span:not(.out)");
+ const key=a.id+JSON.stringify(a.av||{});if(st.dataset.av!==key){st.dataset.av=key;st.firstChild.replaceChildren(AURORA_AVATARS.attach(face(a.av||{},28),a.id,waiting(a)?"waiting":a.status))}
+ AURORA_AVATARS.setState(st.firstChild.firstChild,waiting(a)?"waiting":a.status);st.dataset.k=p.k;st.lastChild.hidden=a.status!=="working";if(!p.t){t.replaceChildren();t.dataset.label="";return}if(t.dataset.label===p.t)return;t.dataset.label=p.t;const old=t.querySelector("span:not(.out)");
  if(old){old.classList.add("out");setTimeout(()=>old.remove(),260)}t.append(el("span",old?"in":"",p.t))}
 setInterval(()=>{if(cur&&stEl&&!stEl.classList.contains("off"))setStatus(cur,S.msgs[cur.id]||[],true)},1000);
 // download links in a reply become file chips (type, name, size; 48px tap target)
@@ -373,30 +372,31 @@ let stick=true,stickFor=null;
 const dayStamp=t=>{const d=new Date(t),n=new Date(),y=new Date(n);y.setDate(y.getDate()-1);const time=l10n.date(d,{hour:"2-digit",minute:"2-digit"});return d.toDateString()===n.toDateString()?l10n.message("time.today",{time}):d.toDateString()===y.toDateString()?l10n.message("time.yesterday",{time}):l10n.date(d,{day:"numeric",month:"numeric",hour:"2-digit",minute:"2-digit"})};
 function dayStampNode(t){const n=el("div","daystamp",dayStamp(t));n.dataset.timestamp=t;n.dataset.noi18n="";return n}
 function syncJump(){const b=$("#messages");$("#jumpBtn").classList.toggle("hidden",atBottom(b))}
-const visible=t=>{const i=t.search(/(^|\n)\s*(APPROVAL|PLAN|CHOICES|QUESTIONS|TOOL|SECRET|MEMORY|HANDOFF|SCHEDULE|FORM):|(APPROVAL|PLAN|CHOICES|QUESTIONS|TOOL|SECRET|MEMORY|HANDOFF|SCHEDULE|FORM):\s*[\[{]/);return(i>=0?t.slice(0,i):t).trim()||"…"};
-// A draft is painted only once it has a letter or digit: a lone "-" or "**"
-// at the start of a streamed step must not flash as its own bubble.
-function shown(d){const t=visible(d.text||"");return Date.now()-(d.t0||0)>=450&&/[\p{L}\p{N}]/u.test(t)&&/\s/.test(t.trim())} // a whole first word, never a lone "Đ"
-// Streaming reveal: the draft shows words up to d.sl, which a frame loop
-// walks toward the received text (faster the further behind), so a chunked
-// stream reads as a steady typewriter. Reduced motion shows text as it lands.
-const reveal={};
-function paintDraft(id){const d=S.drafts[id];if(!d)return;const n=document.getElementById("d_"+id);if(!n){if(shown(d))renderThread();return}
- if(reduceMotion()){d.sl=1e9;drawDraft(id,n);return}
- if(reveal[id])return;reveal[id]=requestAnimationFrame(function step(){const d=S.drafts[id],n=document.getElementById("d_"+id);if(!d||!n){delete reveal[id];return}
-  const full=visible(d.text).length,gap=full-(d.sl||0);if(gap<=0){delete reveal[id];return}d.sl=(d.sl||0)+Math.max(2,Math.ceil(gap/12));drawDraft(id,n);reveal[id]=requestAnimationFrame(step)})}
-function drawDraft(id,n){const d=S.drafts[id],t=visible(d.text);let k=Math.min(t.length,d.sl||0);while(k<t.length&&!/\s/.test(t[k]))k++;if(k===t.length){const w=t.trimEnd().search(/\s\S*$/);if(w>0)k=w} // the word still arriving waits for its end
- n.replaceChildren();md(n,t.slice(0,k),srcOf(id),true);const box=$("#messages");if(stick&&!selectionExcerpt?.hasSelection())box.scrollTop=box.scrollHeight;syncJump()}
+const visible=AURORA_UX.streamText;
+function shown(d){return AURORA_UX.readableDraft(d.text)}
+const reveal=new Map(),draftPaint=new WeakMap();
+function paintDraft(id){
+ if(!S.drafts[id])return;
+ if(!document.getElementById("d_"+id)){if(shown(S.drafts[id]))renderThread();return}
+ if(reveal.has(id))return;
+ reveal.set(id,requestAnimationFrame(()=>{reveal.delete(id);const n=document.getElementById("d_"+id);if(n&&S.drafts[id])drawDraft(id,n)}));
+}
+function drawDraft(id,n){
+ const d=S.drafts[id];if(!d)return;const text=visible(d.text);
+ if(draftPaint.get(n)===text)return;
+ draftPaint.set(n,text);n.replaceChildren();md(n,text,srcOf(id),true);
+ const box=$("#messages");if(stick&&!selectionExcerpt?.hasSelection())box.scrollTop=box.scrollHeight;syncJump();
+}
 async function decide(m,v,bs,extra){if(deciding.has(m.id))return;deciding.add(m.id);bs.querySelectorAll("button").forEach(b=>b.disabled=true);
  try{await api(`/approvals/${m.id}`,{decision:v,...(extra||{})});buzz(v==="approved"?"confirm":"soft");editing.delete(m.id)}catch(e){if(e.status!==409){deciding.delete(m.id);toast("Không ghi nhận được, thử lại");bs.querySelectorAll("button").forEach(b=>b.disabled=false)}}}
-// the composer never locks or turns into stop: voice when empty, send with text (stop lives on the status line)
-function setSendMode(){const b=$("#composer .send");const voice=!$("#input").value.trim();b.classList.toggle("voice",voice);b.replaceChildren(I(voice?"audio-lines":"arrow-up"));b.setAttribute("aria-label",voice?"Nói":"Gửi")}
-let stopping=false;async function stopAgent(){if(!cur||stopping)return;stopping=true;try{await api(`/agents/${cur.id}/stop`,{});buzz("soft");toast("Đã dừng")}catch{toast("Không dừng được")}finally{stopping=false}}
+// Sending stays available during work; stopping has its own control.
+function setSendMode(){const b=$("#composer .send");const empty=!$("#input").value.trim(),supported=!!(window.SpeechRecognition||window.webkitSpeechRecognition),voice=empty&&supported;b.classList.toggle("voice",voice);b.disabled=empty&&!supported;b.replaceChildren(I(voice?(rec?"square":"mic"):"arrow-up"));b.setAttribute("aria-label",voice?(rec?"Dừng nhập giọng nói":"Nói để nhập"):"Gửi");$("#micBtn").classList.toggle("hidden",empty||!supported);const stop=$("#composerStop");stop.hidden=cur?.status!=="working";stop.disabled=stopping}
+let stopping=false;async function stopAgent(){if(!cur||stopping)return;stopping=true;setSendMode();try{await api(`/agents/${cur.id}/stop`,{});buzz("soft");toast("Đã dừng")}catch{toast("Không dừng được")}finally{stopping=false;setSendMode()}}
 
 // Outbox: the composer never blocks. Every message gets a client nonce, shows
 // at once, and is delivered in order; retries (offline, reconnect, 429/5xx)
-// reuse the nonce so the server stores it exactly once. The running bot folds
-// new messages into its current turn (server inbox), so nothing waits.
+// reuse the nonce so the server stores it exactly once. A follow-up can remain
+// queued while the current reply finishes.
 const outbox=[];let pumping=false,outboxStore=null;const sleep=ms=>new Promise(r=>setTimeout(r,ms));
 try{outboxStore=window.AURORA_OUTBOX.create(localStorage)}catch{}
 function bindOutbox(){outbox.length=0;try{outbox.push(...outboxStore.list(S.workspaceId))}catch{toast("Chưa đọc được tin chưa gửi trên thiết bị này")}pump()}
@@ -613,7 +613,7 @@ async function enableNotify(){if(!("Notification"in window)||!("serviceWorker"in
  else toast("Bật thông báo khi app đang mở");notifOn=true}
 // ---------- voice input (Web Speech API where supported) ----------
 const SR=window.SpeechRecognition||window.webkitSpeechRecognition;let rec=null;
-function syncVoice(){const b=$("#micBtn");b.classList.toggle("on",!!rec);b.setAttribute("aria-pressed",String(!!rec));b.setAttribute("aria-label",rec?"Dừng nhập giọng nói":"Nói để nhập")}
+function syncVoice(){const b=$("#micBtn");b.classList.toggle("on",!!rec);b.setAttribute("aria-pressed",String(!!rec));b.setAttribute("aria-label",rec?"Dừng nhập giọng nói":"Nói để nhập");setSendMode()}
 function stopVoice(){const previous=rec;rec=null;syncVoice();if(previous)try{previous.stop()}catch{}}
 syncVoice();
 if(!SR)$("#micBtn").classList.add("hidden");
@@ -698,10 +698,10 @@ addEventListener("popstate",()=>{if(skipPop){skipPop=false;return}closeMenu();if
 $("#search").oninput=e=>{filter=e.target.value;renderList()};
 $("#search").onkeydown=e=>{if(e.key==="Enter")e.target.blur()};
 // Grok-style composer: one line inline with mic/send; once text wraps, the field takes the full width and the buttons drop to a row below.
-const inp=$("#input"),ask=inp.parentElement;inp.oninput=e=>{if(e&&rec)stopVoice();const was=ask.classList.contains("multi");if(!inp.value)ask.classList.remove("multi");inp.style.height="auto";if(!was&&inp.value&&inp.scrollHeight>52)ask.classList.add("multi");inp.style.height="auto";inp.style.height=Math.min(160,inp.scrollHeight)+"px";setSendMode();saveComposerDraft()};
+const inp=$("#input"),ask=inp.parentElement;inp.oninput=e=>{if(e&&rec)stopVoice();ask.classList.remove("multi");inp.style.height="auto";ask.classList.toggle("multi",!!inp.value&&inp.scrollHeight>54);inp.style.height=Math.min(160,inp.scrollHeight)+"px";setSendMode();saveComposerDraft()};
 const composerComposing=AURORA_UX.compositionGuard($("#composer"));
-$("#composer").onsubmit=async e=>{e.preventDefault();if(composerComposing(e))return;stopVoice();const v=inp.value;if(!v.trim()){if(SR)$("#micBtn").click();else inp.focus();return}inp.value="";inp.style.height="";ask.classList.remove("multi");justSent=true;setSendMode();if(!sendMsg(v)){inp.value=v;inp.oninput()}};
-inp.onkeydown=e=>{if(e.key==="Enter"&&!e.shiftKey&&!composerComposing(e)){e.preventDefault();$("#composer").requestSubmit()}};
+$("#composer").onsubmit=async e=>{e.preventDefault();if(composerComposing(e))return;if(rec&&!inp.value.trim()){stopVoice();return}stopVoice();const v=inp.value;if(!v.trim()){if(SR)$("#micBtn").click();else inp.focus();return}inp.value="";inp.style.height="";ask.classList.remove("multi");justSent=true;setSendMode();if(!sendMsg(v)){inp.value=v;inp.oninput()}};
+inp.onkeydown=e=>{if(e.key==="Enter"&&!e.shiftKey&&!composerComposing(e)){e.preventDefault();if(!e.repeat)$("#composer").requestSubmit()}};
 document.addEventListener("visibilitychange",()=>{if(!document.hidden&&es)loadState().catch(()=>{})});
 if("serviceWorker"in navigator)navigator.serviceWorker.register("/app/sw.js",{scope:"/app/"}).then(r=>r.pushManager?.getSubscription()).then(s=>{if(s)pushOn=true}).catch(()=>{});
 async function expiredState(request){
@@ -725,6 +725,7 @@ function buzz(k){try{if(CAP&&CAP.Haptics){if(!haptics||matchMedia("(prefers-redu
 [["#newBtn","plus"],["#threadMore","ellipsis"],["#plusBtn","plus"],["#profBack","chevron-left"],["#profShare","share"],["#profMore","ellipsis"],["#appsBtn","layout-grid"],["#searchIc","search"],["#backBtn","chevron-left"],["#jumpBtn","chevron-down"],["#micBtn","mic"],["#cancelBtn","x"],["#closeGroup","x"],["#closeSetup","chevron-left"],["#closeSettings","x"],["#closeConnectors","x"]].forEach(([q,n])=>{const b=$(q);if(b)b.replaceChildren(I(n))});
 document.querySelectorAll(".mi[data-i]").forEach(s=>s.replaceChildren(I(s.dataset.i,18)));
 setSendMode();
+$("#composerStop").onclick=()=>stopAgent();
 $("#messages").addEventListener("scroll",()=>{const b=$("#messages");stick=atBottom(b);syncJump();if(b.scrollTop<80&&cur&&(S.msgs[cur.id]||[]).length>(win[cur.id]||PAGE)&&!olderBusy){olderBusy=true;requestAnimationFrame(()=>{loadOlder();olderBusy=false})}},{passive:true});let olderBusy=false;
 if(window.visualViewport)visualViewport.addEventListener("resize",()=>{if(cur&&stick&&!selectionExcerpt?.hasSelection()){const b=$("#messages");b.scrollTop=b.scrollHeight}});if(window.ResizeObserver)new ResizeObserver(syncJump).observe($("#messages"));$("#jumpBtn").onclick=()=>{const b=$("#messages");b.scrollTo({top:b.scrollHeight,behavior:"smooth"});buzz("tap")};
 window.__AURORA={state:()=>S,reload:loadState,current:()=>cur&&cur.id,render:()=>renderThread()};

@@ -76,5 +76,11 @@ function acceptMessage(state,m){
   list.splice(list.indexOf(m),0,...anchored);
  }
 }
-const X={acceptMessage,statusGate,compositionGuard,CHECKPOINT,phase,cmdShown,foldCmd,outSummary,fileInfo,kb,isDownload,isCheckpoint,isNoise,statusText};
+ function streamText(text){
+  const raw=String(text||"").replace(/[\uD800-\uDBFF]$/,"");
+  const marker=raw.search(/(^|\n)\s*(APPROVAL|PLAN|CHOICES|QUESTIONS|TOOL|SECRET|MEMORY|HANDOFF|SCHEDULE|FORM):|(APPROVAL|PLAN|CHOICES|QUESTIONS|TOOL|SECRET|MEMORY|HANDOFF|SCHEDULE|FORM):\s*[\[{]/);
+  return (marker<0?raw:raw.slice(0,marker)).trim();
+ }
+ function readableDraft(text){const t=streamText(text);return !/^[`*_#>\s~-]*$/.test(t)&&/[\p{L}\p{N}\p{S}]/u.test(t)}
+ const X={streamText,readableDraft,acceptMessage,statusGate,compositionGuard,CHECKPOINT,phase,cmdShown,foldCmd,outSummary,fileInfo,kb,isDownload,isCheckpoint,isNoise,statusText};
 g.AURORA_UX=X;if(typeof module!=="undefined")module.exports=X})(typeof window!=="undefined"?window:globalThis);

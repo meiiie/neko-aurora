@@ -1,29 +1,113 @@
 (() => {
   "use strict";
-  const key = "aurora.avatar-motion.v1", tracked = new Map();
+  const key = "aurora.avatar-motion.v1", tracked = new Map(), pool = new Map(), moving = new Set();
   const reduced = matchMedia("(prefers-reduced-motion: reduce)");
+  const fine = matchMedia("(hover: hover) and (pointer: fine)");
+  let blinkTimer = null, frame = null, previousFrame = 0, pointer = null;
   let mode = "auto";
   try { if (localStorage.getItem(key) === "off") mode = "off"; } catch {}
   const allowed = () => mode !== "off" && !reduced.matches && !document.hidden;
-  const update = node => { node.dataset.motion = allowed() && tracked.get(node) ? "on" : "off"; };
+  const active = record => allowed() && record.visible;
+  function resetGaze(record) {
+    record.x = record.y = record.tx = record.ty = 0;
+    record.node.style.setProperty("--gaze-x", "0px");
+    record.node.style.setProperty("--gaze-y", "0px");
+    moving.delete(record);
+  }
+  function update(node) {
+    const record = tracked.get(node); if (!record) return;
+    node.dataset.motion = active(record) ? "on" : "off";
+    if (!active(record)) {
+      resetGaze(record); node.dataset.blink = "off"; record.blinkEnd = 0; record.nextBlink = 0;
+    }
+  }
+  function random(record) {
+    record.seed = (Math.imul(record.seed, 1664525) + 1013904223) >>> 0;
+    return record.seed / 4294967296;
+  }
+  function scheduleBlink() {
+    if (blinkTimer !== null) clearTimeout(blinkTimer);
+    blinkTimer = null;
+    const now = performance.now(); let next = Infinity;
+    for (const record of tracked.values()) {
+      if (!active(record)) continue;
+      if (record.blinkEnd && now >= record.blinkEnd) {
+        record.node.dataset.blink = "off"; record.blinkEnd = 0; record.nextBlink = 0;
+      }
+      if (!record.nextBlink) record.nextBlink = now + 4500 + random(record) * 6500;
+      if (!record.blinkEnd && now >= record.nextBlink) {
+        record.node.dataset.blink = "on"; record.blinkEnd = now + 180;
+      }
+      next = Math.min(next, record.blinkEnd || record.nextBlink);
+    }
+    if (next !== Infinity) blinkTimer = setTimeout(scheduleBlink, Math.max(16, next - now));
+  }
+  function requestFrame() { if (frame === null && moving.size) frame = requestAnimationFrame(tick); }
+  function tick(now) {
+    frame = null;
+    const dt = previousFrame ? Math.min(50, now - previousFrame) : 16; previousFrame = now;
+    for (const record of moving) {
+      if (!active(record) || !record.node.isConnected) { resetGaze(record); continue; }
+      const engaged = pointer?.owner?.contains(record.node) && !["waiting", "error"].includes(record.node.dataset.avatarState);
+      record.tx = record.ty = 0;
+      if (engaged) {
+        if (!record.rect || now - record.rectAt > 200) { record.rect = record.node.getBoundingClientRect(); record.rectAt = now; }
+        const rect = record.rect, strength = record.node.dataset.avatarState === "working" ? .45 : 1;
+        const direction = value => Math.abs(value) < .08 ? 0 : Math.max(-1, Math.min(1, value));
+        record.tx = direction((pointer.x - rect.x - rect.width / 2) / Math.max(24, rect.width)) * 5 * strength;
+        record.ty = direction((pointer.y - rect.y - rect.height / 2) / Math.max(24, rect.height)) * 3 * strength;
+      }
+      const blend = 1 - Math.exp(-dt / (engaged ? 85 : 140));
+      record.x += (record.tx - record.x) * blend; record.y += (record.ty - record.y) * blend;
+      if (Math.abs(record.x - record.tx) + Math.abs(record.y - record.ty) < .025) {
+        record.x = record.tx; record.y = record.ty; moving.delete(record);
+      }
+      record.node.style.setProperty("--gaze-x", record.x.toFixed(3) + "px");
+      record.node.style.setProperty("--gaze-y", record.y.toFixed(3) + "px");
+    }
+    if (moving.size) requestFrame(); else previousFrame = 0;
+  }
+  function releasePointer() {
+    pointer = null;
+    for (const record of tracked.values()) if (record.x || record.y) moving.add(record);
+    requestFrame();
+  }
   function refresh() {
     for (const node of tracked.keys()) update(node);
+    if (!allowed() || !fine.matches) releasePointer();
+    if (!moving.size && frame !== null) { cancelAnimationFrame(frame); frame = null; previousFrame = 0; }
+    scheduleBlink();
     window.dispatchEvent(new Event("aurora:motionchange"));
   }
   const observer = new IntersectionObserver(entries => {
     for (const { target, isIntersecting } of entries) {
       if (!tracked.has(target)) continue;
-      tracked.set(target, isIntersecting); update(target);
+      tracked.get(target).visible = isIntersecting; update(target);
     }
+    scheduleBlink();
   });
+  function setState(node, state) {
+    if (!node) return;
+    node.dataset.avatarState = ["working", "waiting", "error"].includes(state) ? state : "idle";
+    const record = tracked.get(node);
+    if (record && (record.x || record.y)) { moving.add(record); requestFrame(); }
+  }
   function attach(node, id, state) {
     let seed = 0;
     for (const char of String(id)) seed = (seed * 31 + char.codePointAt(0)) >>> 0;
-    node.dataset.avatarState = state === "working" ? "working" : state === "waiting" ? "waiting" : state === "error" ? "error" : "idle";
-    node.style.setProperty("--avatar-phase", -((Date.now() + seed) % 6400) / 1000 + "s");
+    for (let i = 0; i < 4; i++) seed = (Math.imul(seed, 1664525) + 1013904223) >>> 0;
+    setState(node, state);
     node.style.setProperty("--avatar-work-phase", -((Date.now() + seed) % 3200) / 1000 + "s");
-    tracked.set(node, false); update(node); observer.observe(node);
+    tracked.set(node, { node, seed, visible: false, x: 0, y: 0, tx: 0, ty: 0, nextBlink: 0, blinkEnd: 0 });
+    update(node); observer.observe(node);
     return node;
+  }
+  function reuse(key, signature, create, id, state) {
+    let entry = pool.get(key);
+    if (!entry || entry.signature !== signature) {
+      entry = { node: attach(create(), id, state), signature }; pool.set(key, entry);
+    } else setState(entry.node, state);
+    return entry.node;
   }
   function setMode(value) {
     if (!["auto", "off"].includes(value)) return false;
@@ -35,10 +119,27 @@
   new MutationObserver(() => {
     for (const node of tracked.keys()) if (!node.isConnected) {
       observer.unobserve(node); tracked.delete(node);
+      for (const record of moving) if (record.node === node) moving.delete(record);
     }
+    for (const [key, entry] of pool) if (!entry.node.isConnected) pool.delete(key);
+    if (!moving.size && frame !== null) { cancelAnimationFrame(frame); frame = null; previousFrame = 0; }
+    scheduleBlink();
   }).observe(document.documentElement, { childList: true, subtree: true });
+  document.addEventListener("pointermove", event => {
+    if (!allowed() || !fine.matches || event.pointerType === "touch" || event.isPrimary === false) return;
+    const owner = event.target.closest?.("#whoBtn,.rowin,.feat,.workspace-agent,.workspace-result");
+    if (!owner) { if (pointer) releasePointer(); return; }
+    pointer = { owner, x: event.clientX, y: event.clientY };
+    for (const record of tracked.values()) if (active(record) && (owner.contains(record.node) || record.x || record.y)) moving.add(record);
+    requestFrame();
+  }, { passive: true });
+  document.addEventListener("pointerleave", releasePointer);
+  document.addEventListener("pointercancel", releasePointer);
+  window.addEventListener("blur", releasePointer);
+  window.addEventListener("resize", () => { for (const record of tracked.values()) record.rect = null; releasePointer(); });
   document.addEventListener("visibilitychange", refresh);
   reduced.addEventListener("change", refresh);
+  fine.addEventListener("change", refresh);
   window.addEventListener("storage", event => {
     if (event.key !== key && event.key !== null) return;
     try { mode = localStorage.getItem(key) === "off" ? "off" : "auto"; } catch {}
@@ -64,5 +165,5 @@
     row.append(label, select); card.append(row); section.append(heading, card, note, status);
     return section;
   }
-  window.AURORA_AVATARS = { attach, createSettings, setMode, mode: () => mode };
+  window.AURORA_AVATARS = { attach, reuse, setState, createSettings, setMode, mode: () => mode };
 })();

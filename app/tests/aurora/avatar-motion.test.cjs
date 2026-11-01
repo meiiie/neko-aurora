@@ -7,13 +7,18 @@ const source = fs.readFileSync(path.resolve(__dirname, '../../native/internal/we
 
 function boot({ stored = {}, reduce = false, hidden = false, failStorage = false } = {}) {
   const events = {}, documentEvents = {}, observed = new Set();
-  let intersect, mutate, mediaChange;
+  let intersect, mutate, mediaChange, fineChange;
+  let now=0, next=0; const frames=new Map(), timers=new Map();
   const media = { matches: reduce, addEventListener: (_, fn) => { mediaChange = fn; } };
+  const fine = {matches:true,addEventListener:(_,fn)=>{fineChange=fn}};
   const context = {
+    performance:{now:()=>now},
+    requestAnimationFrame:fn=>{frames.set(++next,fn);return next},cancelAnimationFrame:id=>frames.delete(id),
+    setTimeout:(fn,delay)=>{timers.set(++next,{fn,at:now+delay});return next},clearTimeout:id=>timers.delete(id),
     Date, Event, console,
     document: { hidden, documentElement: {}, addEventListener: (type, fn) => { documentEvents[type] = fn; } },
     localStorage: { getItem: key => stored[key], setItem: (key, value) => { if (failStorage) throw Error('unavailable'); stored[key] = value; } },
-    matchMedia: () => media,
+    matchMedia: query => query.includes("reduced") ? media : fine,
     IntersectionObserver: class {
       constructor(fn) { intersect = fn; }
       observe(node) { observed.add(node); }
@@ -25,9 +30,11 @@ function boot({ stored = {}, reduce = false, hidden = false, failStorage = false
   };
   context.window = context;
   vm.runInNewContext(source, context);
-  const node = () => ({ dataset: {}, properties: {}, isConnected: true, style: { setProperty() {} } });
+  const node = () => {const properties={};return { dataset: {}, properties, isConnected: true, getBoundingClientRect:()=>({x:0,y:0,width:48,height:48}), style: { setProperty:(k,v)=>{properties[k]=v} } }};
+  const step=(ms=16)=>{now+=ms;const pending=[...frames.values()];frames.clear();pending.forEach(fn=>fn(now));for(const [id,t] of [...timers])if(t.at<=now){timers.delete(id);t.fn()}};
+  const move=(nodes,x=72,y=24,type="mouse")=>{const owner={contains:n=>nodes.includes(n)};documentEvents.pointermove({target:{closest:()=>owner},clientX:x,clientY:y,pointerType:type,isPrimary:true})};
   const visible = (target, value) => intersect([{ target, isIntersecting: value }]);
-  return { api: context.AURORA_AVATARS, context, node, visible, observed, mutate, media, mediaChange: () => mediaChange(), events, documentEvents, stored };
+  return { api: context.AURORA_AVATARS, context, node, visible, observed, mutate, media, mediaChange: () => mediaChange(), events, documentEvents, stored, frames, timers, step, move, fine, fineChange:()=>fineChange() };
 }
 
 test('motion only runs when visible and returns to rest offscreen or with a hidden document', () => {
@@ -76,4 +83,40 @@ test('avatar state follows supplied status and never upgrades unknown status to 
     const node = b.node(); b.api.attach(node, 'bot-1', state);
     assert.equal(node.dataset.avatarState, ['working', 'waiting', 'error'].includes(state) ? state : 'idle');
   }
+});
+
+
+test('same surface retains the avatar, gaze and blink deadline across status updates',()=>{
+ const b=boot();let creates=0;const create=()=>{creates++;return b.node()};
+ const n=b.api.reuse('header/bot','shape-1',create,'bot','idle');b.visible(n,true);b.move([n]);for(let i=0;i<80;i++)b.step();
+ const x=n.properties['--gaze-x'];assert.equal(x,'5.000px');
+ const deadline=[...b.timers.values()][0].at;
+ assert.equal(b.api.reuse('header/bot','shape-1',create,'bot','working'),n);
+ assert.equal(creates,1);assert.equal(n.properties['--gaze-x'],x);assert.equal([...b.timers.values()][0].at,deadline);
+ assert.notEqual(b.api.reuse('list/bot','shape-1',create,'bot','idle'),n);
+ assert.notEqual(b.api.reuse('header/bot','shape-2',create,'bot','idle'),n);
+});
+
+test('pointer gaze is bounded, local, settles with no RAF, and returns after leaving',()=>{
+ const b=boot(),a=b.node(),other=b.node();b.api.attach(a,'a','idle');b.api.attach(other,'b','idle');b.visible(a,true);b.visible(other,true);
+ b.move([a],10000,-10000);for(let i=0;i<80;i++)b.step();
+ assert.equal(a.properties['--gaze-x'],'5.000px');assert.equal(a.properties['--gaze-y'],'-3.000px');
+ assert.equal(other.properties['--gaze-x'],'0px');assert.equal(b.frames.size,0);
+ b.documentEvents.pointerleave();for(let i=0;i<100;i++)b.step();
+ assert.equal(a.properties['--gaze-x'],'0.000px');assert.equal(b.frames.size,0);
+});
+
+test('approval state, touch and reduced motion cannot be overridden by gaze',()=>{
+ const b=boot(),n=b.node();b.api.attach(n,'bot','waiting');b.visible(n,true);b.move([n]);for(let i=0;i<10;i++)b.step();assert.equal(n.properties['--gaze-x'],'0.000px');
+ b.api.setState(n,'idle');b.move([n],72,24,'touch');b.step();assert.equal(b.frames.size,0);
+ b.move([n]);b.step();b.media.matches=true;b.mediaChange();assert.equal(n.properties['--gaze-x'],'0px');assert.equal(b.frames.size,0);assert.equal(b.timers.size,0);
+});
+
+test('blink scheduler varies by identity and stops when all avatars are hidden or removed',()=>{
+ const deadline=id=>{const b=boot(),n=b.node();b.api.attach(n,id,'idle');b.visible(n,true);return [...b.timers.values()][0].at};
+ assert.equal(deadline('bot-1'),deadline('bot-1'));assert.ok(Math.abs(deadline('bot-1')-deadline('bot-2'))>100);
+ const b=boot(),a=b.node(),other=b.node();b.api.attach(a,'a','idle');b.api.attach(other,'b','idle');b.visible(a,true);b.visible(other,true);
+ assert.equal(b.timers.size,1);b.step(11000);assert.equal(a.dataset.blink,'on');b.step(180);assert.equal(a.dataset.blink,'off');
+ b.visible(a,false);b.visible(other,false);assert.equal(b.timers.size,0);
+ b.visible(a,true);assert.equal(b.timers.size,1);a.isConnected=false;b.mutate();assert.equal(b.timers.size,0);assert.equal(b.observed.has(a),false);
 });
