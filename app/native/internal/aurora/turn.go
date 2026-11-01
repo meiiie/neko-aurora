@@ -41,7 +41,8 @@ SCHEDULE: {"at":"HH:MM","timezone":"<múi giờ IANA nếu người dùng chỉ 
 MEMORY: {"text":"<một sở thích/bối cảnh lâu dài Darren vừa nói rõ hoặc xác nhận>"}   ← chỉ khi Darren nói rõ muốn bạn nhớ hoặc nêu sở thích lâu dài; thêm "scope":"team" nếu điều đó áp dụng cho mọi bot (tên, cách xưng hô, ngôn ngữ); không bao giờ ghi bí mật, mật khẩu.
 - Số liệu (giá, tỷ giá, ngày, phần trăm) chỉ được lấy từ KẾT QUẢ CÔNG CỤ, ghi nguồn dạng [1], [2]. Tuyệt đối không bịa hay ước đoán số; thiếu dữ liệu thì nói rõ thiếu. Khi đã có KẾT QUẢ CÔNG CỤ thì trả lời thẳng, không dùng PLAN.
 - Không bao giờ nhắc tên kỹ thuật của công cụ hay chỉ thị (web_search, web_fetch, gold_price, TOOL…) trong câu trả lời; nói bằng lời thường như "tìm trên web", "đọc trang".
-- Với email: kind là "email", dùng đúng địa chỉ Darren đưa; không lặp lại toàn văn thư ở phần trả lời.`
+- Tin nhắn bổ sung là yêu cầu mới trong ngữ cảnh hiện có: giữ nguyên các dữ kiện đã trả lời; không kể lại, viết lại hoặc đổi ví dụ đã hoàn tất trừ khi người dùng yêu cầu sửa.
+- Khi được nhờ SOẠN email, viết bản nháp ngay trong chat; thiếu người nhận/chủ đề thì dùng chỗ trống [Người nhận], [Chủ đề] và hỏi ngắn để hoàn thiện, không tự bịa. Chỉ tạo APPROVAL kind "email" khi người dùng yêu cầu GỬI và đã cung cấp địa chỉ; không lặp lại toàn văn thư bên ngoài thẻ duyệt.`
 
 var gluedDirective = regexp.MustCompile(`([^\s\n])[ \t]*((?:PLAN|CHOICES|QUESTIONS|APPROVAL|SECRET|TOOL|MEMORY|HANDOFF|SCHEDULE|FORM):\s*[\[{])`)
 
@@ -49,7 +50,6 @@ var directiveRe = regexp.MustCompile(`(?m)^\s*(PLAN|CHOICES|QUESTIONS|APPROVAL|S
 
 type directives struct {
 	Text        string
-	Preview     string // public text emitted before any control directive
 	Plan        []string
 	Choices     []string
 	Questions   []ledger.DirectQuestion
@@ -452,13 +452,28 @@ func (s *Service) history(botID, current string) []ChatMsg {
 	if len(l) > maxHistoryTurns {
 		l = l[len(l)-maxHistoryTurns:]
 	}
+	by := v.steeredBy()
+	works := map[string]ledger.Work{}
+	for _, w := range v.byBot[botID] {
+		works[w.RequestID] = w
+	}
 	for _, w := range l {
+		if parent := by[w.RequestID]; parent != "" && parent != current {
+			continue
+		}
 		if w.Direct == nil || w.Direct.Kind == "" || w.Direct.Kind == "computer" {
 			input := w.Text
 			if s.networkPeerWork(w) {
 				input = s.networkPeerInput(w)
 			}
 			msgs = append(msgs, ChatMsg{"user", input})
+		}
+		if w.Direct != nil {
+			for _, id := range w.Direct.Steered {
+				if q, ok := works[id]; ok {
+					msgs = append(msgs, ChatMsg{Role: "user", Content: q.Text})
+				}
+			}
 		}
 		if w.RequestID == current {
 			break
@@ -519,11 +534,6 @@ func (s *Service) call(ctx context.Context, w ledger.Work, msgs []ChatMsg) (dire
 	flush()
 	cut := strings.Contains(full, truncMark)
 	d := ParseDirectives(strings.ReplaceAll(full, truncMark, ""))
-	preview := full
-	if preview == "" {
-		preview = sb.String()
-	}
-	d.Preview = interruptedText(preview)
 	s.networkFilterDirectives(w, &d)
 	d.Cut = cut
 	return d, err
@@ -894,22 +904,6 @@ func (s *Service) runTurn(ctx context.Context, w ledger.Work) (*Approval, *quest
 		s.publish("draft_end", map[string]string{"id": w.RequestID, "agentId": threadOf(w)})
 		msgs := append(tc.inject(s.history(w.BotID, w.RequestID)), ChatMsg{Role: "system", Content: finalNudge})
 		d, err = s.call(ctx, w, msgs)
-	}
-	if err == nil && len(d.Plan) == 0 && len(s.inbox(w)) > 0 {
-		if e := s.keepInterrupted(w, d.Preview); e != nil {
-			return nil, nil, e
-		}
-	}
-	if err == nil && len(d.Plan) == 0 && s.steer(w, tc) {
-		// The owner changed course while this answer was being written:
-		// keep the interrupted segment and answer with the new instruction.
-		s.publish("draft_end", map[string]string{"id": w.RequestID, "agentId": threadOf(w)})
-		d, err = s.call(ctx, w, tc.inject(s.history(w.BotID, w.RequestID)))
-		if err == nil && len(d.Tools) > 0 && (s.Tools != nil || hasNetworkTool(d.Tools)) {
-			s.publish("draft_end", map[string]string{"id": w.RequestID, "agentId": threadOf(w)})
-			s.runTools(ctx, w, tc, callsOf(d.Tools))
-			d, err = s.call(ctx, w, append(tc.inject(s.history(w.BotID, w.RequestID)), ChatMsg{Role: "system", Content: finalNudge}))
-		}
 	}
 	if err != nil {
 		return nil, nil, err

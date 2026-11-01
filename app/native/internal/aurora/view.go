@@ -383,6 +383,16 @@ func (v *view) messages(botID string, limit int) []*Message {
 		}
 		out = append(out, ms...)
 	}
+	// Supply the same ordering anchor to live SSE clients as the journal projection.
+	nextUser := ""
+	for i := len(out) - 1; i >= 0; i-- {
+		m := out[i]
+		if m.Role == "user" {
+			nextUser = m.TaskID
+		} else if !m.Interrupted {
+			m.BeforeRequestID = nextUser
+		}
+	}
 	if limit > 0 && len(out) > limit {
 		out = out[len(out)-limit:]
 	}

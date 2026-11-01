@@ -16,7 +16,6 @@ import (
 	"strconv"
 	"strings"
 	"sync"
-	"sync/atomic"
 	"time"
 
 	"nekoaurora.local/native/internal/ledger"
@@ -417,12 +416,8 @@ func (s *Service) memoryRoutes() {
 
 // ---- mid-turn steering ----
 
-// steer picks up messages the owner sent to this bot while the turn is still
-// running (Grok Bot / Claude Code style: a new message mid-work steers the
-// current task rather than waiting in a queue). The text is injected into
-// the next model call and the request id is journaled on this run
-// (DirectRun.Steered), so the thread shows it before the rewritten answer
-// and the queued turn later only confirms.
+// steer consumes queued owner input only at a model-call boundary. An active
+// stream finishes normally; completed prose is never cancelled or regenerated.
 func (s *Service) steer(w ledger.Work, tc *toolCtx) bool {
 	if threadOf(w) != w.BotID || w.PeerMessageID != "" {
 		return false
@@ -439,7 +434,6 @@ func (s *Service) steer(w ledger.Work, tc *toolCtx) bool {
 		if !ok {
 			continue
 		}
-		tc.note("NGƯỜI DÙNG VỪA NHẮN THÊM GIỮA CHỪNG (gộp vào việc đang làm: trả lời/điều chỉnh theo tin này trong CÙNG câu trả lời; nói thẳng bằng “bạn”, không thuật lại kiểu “bạn đổi ý”; vẫn trích nguồn [n]): " + clean(q.Text, 1500))
 		if q.PeerMessageID == "" {
 			tc.ownerURLs = append(tc.ownerURLs, tools.RequestedURLs(stripRef(q.Text))...)
 		}
@@ -474,55 +468,12 @@ func (s *Service) inbox(w ledger.Work) []ledger.Work {
 	return out
 }
 
-var errSteered = errors.New("steered")
-
-// ask runs one model call that a new owner message can interrupt
-// (interrupt-and-merge, as Claude Code / Codex steering and neko-core's
-// checkpointed continuation): while the answer streams, the inbox is
-// polled; a new message cancels the stream, visible text is journaled, the
-// message is folded in and the call is rebuilt. Bounded so a stream of
-// messages cannot starve the answer forever.
+// ask admits additional input before the next model call. The current adapters
+// cannot steer an active stream, so arrivals during it remain in the durable
+// inbox until the next tool step or the next turn.
 func (s *Service) ask(ctx context.Context, w ledger.Work, tc *toolCtx, build func() []ChatMsg) (directives, error) {
-	for i := 0; ; i++ {
-		if i < maxInterrupts {
-			s.steer(w, tc)
-		}
-		cctx, cancel := context.WithCancel(ctx)
-		var hit atomic.Bool
-		if i < maxInterrupts {
-			go s.watchInbox(cctx, w, func() { hit.Store(true); cancel() })
-		}
-		d, err := s.call(cctx, w, build())
-		cancel()
-		if hit.Load() && ctx.Err() == nil {
-			if err := s.keepInterrupted(w, d.Preview); err != nil {
-				return directives{}, err
-			}
-			s.publish("draft_end", map[string]string{"id": w.RequestID, "agentId": threadOf(w)})
-			continue
-		}
-		return d, err
-	}
-}
-
-const maxInterrupts = 3
-
-var inboxPoll = 250 * time.Millisecond
-
-func (s *Service) watchInbox(ctx context.Context, w ledger.Work, fire func()) {
-	t := time.NewTicker(inboxPoll)
-	defer t.Stop()
-	for {
-		select {
-		case <-ctx.Done():
-			return
-		case <-t.C:
-			if len(s.inbox(w)) > 0 {
-				fire()
-				return
-			}
-		}
-	}
+	s.steer(w, tc)
+	return s.call(ctx, w, build())
 }
 
 // steeredBy maps a steered request id to the run that absorbed it.

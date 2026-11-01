@@ -9,31 +9,14 @@ import (
 	"nekoaurora.local/native/internal/ledger"
 )
 
-func TestInterruptedPreviewHidesIncompleteControls(t *testing.T) {
-	for _, control := range []string{"TOOL", "APPROVAL", "FORM", "MEMORY", "HANDOFF", "SCHEDULE", "PLAN", "QUESTIONS", "SECRET", "CHOICES"} {
-		for _, gap := range []string{"\n", ""} {
-			text := "Mình đã đọc phần đầu." + gap + control + ": {\n\"private\": \"unfinished"
-			if got := interruptedText(text); got != "Mình đã đọc phần đầu." {
-				t.Fatalf("%s: leaked control payload: %q", control, got)
-			}
-		}
-	}
-	for _, text := range []string{"", "…", "**", "Ch", "TOOL: {\nunfinished"} {
-		if got := interruptedText(text); got != "" {
-			t.Fatalf("empty/control preview became a message: %q", got)
-		}
-	}
-}
-
-func TestInterruptedStreamIsSavedBeforeDraftEnds(t *testing.T) {
-	oldPoll := inboxPoll
-	inboxPoll = 20 * time.Millisecond
-	t.Cleanup(func() { inboxPoll = oldPoll })
+func TestFollowupDoesNotCancelOrRewriteVisibleAnswer(t *testing.T) {
+	const joke = "Một lập trình viên đi mua đồ, người yêu dặn: Mua một hộp sữa nhé. Nếu có trứng thì mua sáu hộp. Anh về với sáu hộp sữa vì cửa hàng có trứng."
+	const email = "Tiêu đề: [Nội dung trao đổi]. Kính gửi [Người nhận], mình xin trao đổi về [chủ đề]. Trân trọng, [Tên]. Email này gửi cho ai và về việc gì?"
 	a := &slowAI{delay: 20 * time.Millisecond, next: func(n int, _ string) string {
 		if n == 0 {
-			return "Đoạn đầu đang được viết. " + strings.Repeat("Nội dung tiếp theo vẫn đang được viết. ", 20)
+			return joke
 		}
-		return "Đã nhận yêu cầu bổ sung."
+		return email
 	}}
 	fa := a.server(t)
 	defer fa.Close()
@@ -49,45 +32,43 @@ func TestInterruptedStreamIsSavedBeforeDraftEnds(t *testing.T) {
 	defer srv.Close()
 	bot := firstBot(svc)
 	url := srv.URL + "/app/api/agents/" + bot + "/messages"
-	post(t, url, `{"text":"Viết một đoạn văn về mùa thu."}`)
+	post(t, url, `{"text":"kể cho tôi một câu chuyện cười đi"}`)
 	deadline := time.After(5 * time.Second)
 waitPreview:
 	for {
 		select {
 		case e := <-events:
-			if e.Type == "delta" && strings.Contains(e.Data.(map[string]any)["text"].(string), "Đoạn đầu đang được viết.") {
+			if e.Type == "delta" && strings.Contains(e.Data.(map[string]any)["text"].(string), "người yêu dặn") {
 				break waitPreview
 			}
 		case <-deadline:
 			t.Fatal("no streamed preview")
 		}
 	}
-	post(t, url, `{"text":"Bổ sung: chỉ cần xác nhận đã nhận yêu cầu bổ sung."}`)
-	saved := false
-waitSaved:
-	for {
-		select {
-		case e := <-events:
-			if e.Type == "message" && e.Data.(*Message).Interrupted {
-				saved = true
-			}
-			if e.Type == "draft_end" {
-				if !saved {
-					t.Fatal("visible draft cleared before durable message was published")
-				}
-				break waitSaved
-			}
-		case <-deadline:
-			t.Fatal("no saved interruption")
-		}
-	}
+	post(t, url, `{"text":"và song song đó giúp tôi soạn một email sao cho chuyên nghiệp nhé"}`)
 	waitTask(t, svc, bot)
 	msgs := svc.view().messages(bot, 0)
-	if len(msgs) != 4 || msgs[0].Role != "user" || !msgs[1].Interrupted || msgs[2].Role != "user" || msgs[3].Interrupted || msgs[3].Text != "Đã nhận yêu cầu bổ sung." {
-		t.Fatalf("lost or reordered messages: %+v", msgs)
+	if len(msgs) != 4 || msgs[0].Role != "user" || msgs[1].Text != joke || msgs[1].Interrupted || msgs[2].Role != "user" || msgs[3].Text != email {
+		t.Fatalf("expected original complete joke then separate email reply: %+v", msgs)
 	}
-	if !strings.HasPrefix(msgs[1].Text, "Đoạn đầu đang được viết.") || msgs[1].ID == msgs[3].ID {
-		t.Fatalf("partial replaced by final: %+v", msgs[1])
+	if a.calls() != 2 {
+		t.Fatalf("completed response was regenerated: %d calls", a.calls())
+	}
+	if !strings.Contains(a.last(), joke) {
+		t.Fatal("follow-up lost the completed assistant response")
+	}
+	saved := false
+	for len(events) > 0 {
+		e := <-events
+		if e.Type == "message" {
+			m := e.Data.(*Message)
+			if m.Text == joke {
+				saved = true
+			}
+		}
+		if e.Type == "draft_end" && !saved {
+			t.Fatal("cleared first draft before saving complete answer")
+		}
 	}
 }
 

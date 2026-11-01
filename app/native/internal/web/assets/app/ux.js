@@ -61,13 +61,20 @@ function compositionGuard(root){
 }
 function acceptMessage(state,m){
  const list=state.msgs[m.agentId],index=list?.findIndex(x=>x.id===m.id)??-1;
- delete state.drafts[m.id];
+ // Tool/status updates share a task ID with the stream, but are not its answer.
+ if(m.text&&(index<0||list[index].text!==m.text))delete state.drafts[m.id];
  if(m.interrupted&&index<0)delete state.drafts[m.taskId];
  if(!list)return;
- if(index>=0){list[index]=m;return}
- let before=m.interrupted?list.findIndex(x=>x.id===m.beforeRequestId+":u"):-1;
+ if(index>=0)list.splice(index,1);
+ let before=m.beforeRequestId?list.findIndex(x=>x.id===m.beforeRequestId+":u"):-1;
  if(before<0&&(m.interrupted||/:step\d+$/.test(m.id)))before=list.findIndex(x=>x.id===m.taskId);
- if(before>=0)list.splice(before,0,m);else list.push(m);
+ if(before>=0)list.splice(before,0,m);else if(index>=0)list.splice(index,0,m);else list.push(m);
+ // A delayed owner event can arrive after the response it anchors.
+ if(m.role==="user"){
+  const anchored=list.filter(x=>x.beforeRequestId===m.taskId);
+  for(const x of anchored)list.splice(list.indexOf(x),1);
+  list.splice(list.indexOf(m),0,...anchored);
+ }
 }
 const X={acceptMessage,statusGate,compositionGuard,CHECKPOINT,phase,cmdShown,foldCmd,outSummary,fileInfo,kb,isDownload,isCheckpoint,isNoise,statusText};
 g.AURORA_UX=X;if(typeof module!=="undefined")module.exports=X})(typeof window!=="undefined"?window:globalThis);
