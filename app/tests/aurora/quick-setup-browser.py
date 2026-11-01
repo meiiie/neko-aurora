@@ -14,6 +14,8 @@ ROOT = Path(__file__).resolve().parents[3]
 OUT = Path(os.environ.get('AURORA_BROWSER_AUDIT_DIR', ROOT/'.audit/quick-setup-browser'))
 OUT.mkdir(parents=True, exist_ok=True)
 
+HISTORY='A saved reply must appear in full on reload.\n\n```js\nconst saved = true;\n```\n\n| Item | State |\n| --- | --- |\n| History | Complete |'
+
 class Static(http.server.SimpleHTTPRequestHandler):
     def log_message(self, *args): pass
 
@@ -52,7 +54,7 @@ class Fixture:
         elif path == '/events':
             route.fulfill(content_type='text/event-stream',body='');return
         elif path.endswith('/messages'):
-            data = [{'id':'failure','agentId':'bot-a','role':'system','text':'Tin nhắn chưa được xử lý.','recovery':'check_ai','t':'2026-10-30T15:00:00Z'}]
+            data = [{'id':'history','agentId':'bot-a','role':'agent','text':HISTORY,'t':'2026-10-29T15:00:00Z'},{'id':'failure','agentId':'bot-a','role':'system','text':'Tin nhắn chưa được xử lý.','recovery':'check_ai','t':'2026-10-30T15:00:00Z'}]
         elif path == '/models':
             data = {'models':[],'providers':[],'vision':'glm:fixture','browser':False,'defaultConfigured':False}
         elif path == '/agents/bot-a/ext':
@@ -91,7 +93,11 @@ with sync_playwright() as p:
     def setup(): page.locator('.ai-setup-card').get_by_role('button',name='AI của bot',exact=True).click()
     def close(): page.locator('#closeExt').click();page.wait_for_timeout(450)
     try:
+        page.add_init_script('''window.historyReplayed=false;new MutationObserver(records=>{for(const r of records)for(const n of r.addedNodes){if(n.nodeType===1&&(n.matches('.typing')||n.querySelector('.typing')))window.historyReplayed=true}}).observe(document,{childList:true,subtree:true});''')
         page.goto(f'http://127.0.0.1:{server.server_port}/app/#bot-a')
+        expect(page.locator('[data-message-id="history"] pre')).to_contain_text('const saved = true;')
+        expect(page.locator('[data-message-id="history"] table')).to_contain_text('Complete')
+        assert not page.evaluate('window.historyReplayed'), 'history was animated as a new reply'
         page.locator('#input').fill('Bản nháp cần giữ.')
         expect(page.locator('#threadModel')).to_have_text('Chưa kết nối AI')
         setup();expect(page.locator('#quickProvider')).to_have_value('zai')
@@ -118,7 +124,8 @@ with sync_playwright() as p:
         page.get_by_role('button',name='Quay lại trò chuyện',exact=True).click();page.wait_for_timeout(450)
         expect(page.locator('#input')).to_have_value('Bản nháp cần giữ.')
         page.reload();setup();expect(page.locator('#quickKey')).to_have_attribute('placeholder','Đã lưu khóa · để trống để dùng tiếp')
-        print('PASS GLM setup, save failure/retry, write-only key, reload and draft retention')
+        assert not page.evaluate('window.historyReplayed'), 'history replayed after reload'
+        print('PASS GLM setup, save failure/retry, write-only key, reload, draft retention and complete history without replay')
 
         page.locator('#quickProvider').select_option('zai-openai')
         expect(page.locator('#quickSetup')).to_contain_text('trả phí theo mức sử dụng')
