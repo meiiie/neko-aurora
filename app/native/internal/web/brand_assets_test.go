@@ -19,7 +19,11 @@ func TestBrandAssetsServed(t *testing.T) {
 	want := map[string]string{
 		"/app/icon-180.png": "image/png", "/app/icon-192.png": "image/png", "/app/icon-512.png": "image/png",
 		"/app/icon-maskable-512.png": "image/png", "/app/favicon.ico": "image/x-icon", "/app/icon.svg": "image/svg+xml",
-		"/app/aurora/wordmark.svg": "image/svg+xml",
+		"/app/aurora/wordmark.svg":   "image/svg+xml",
+		"/app/aurora/typography.css": "text/css", "/app/aurora/experience.css": "text/css",
+		"/app/aurora/fonts/source-sans-3-upright.woff2": "font/woff2",
+		"/app/aurora/fonts/source-sans-3-italic.woff2":  "font/woff2",
+		"/app/aurora/fonts/source-sans-3-OFL.txt":       "text/plain",
 	}
 	for p, ct := range want {
 		w := get(p)

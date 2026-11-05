@@ -24,6 +24,25 @@ import (
 )
 
 func TestMain(m *testing.M) {
+	if len(os.Args) == 7 && os.Args[1] == "--no-env-file" && filepath.Base(os.Args[4]) == "aurora-setup.ts" && os.Args[5] == "models" {
+		model := map[string]string{"chatgpt": "gpt-fixture", "zai": "glm-fixture", "zai-openai": "glm-api-fixture"}[os.Args[6]]
+		fmt.Printf(`{"models":[{"id":%q,"label":"Fixture","available":true,"transport":"responses"}],"checkedAt":"2026-11-01T00:00:00Z"}`, model)
+		os.Exit(0)
+	}
+	if len(os.Args) > 4 && os.Args[1] == "--no-env-file" && filepath.Base(os.Args[4]) == "aurora-completion.ts" {
+		if len(os.Args) != 6 || os.Args[2] != "--no-install" || !strings.HasPrefix(os.Args[3], "--config=") || os.Getenv("HOME") != os.Getenv("USERPROFILE") || os.Getenv("NEKO_CREDENTIAL_HOME") != "" {
+			os.Exit(2)
+		}
+		var messages []ChatMsg
+		if json.NewDecoder(os.Stdin).Decode(&messages) != nil || len(messages) == 0 {
+			os.Exit(4)
+		}
+		if os.Args[5] == "chatgpt" && (os.Getenv("ZAI_API_KEY") != "" || os.Getenv("OPENAI_API_KEY") != "") {
+			os.Exit(3)
+		}
+		fmt.Print("Core fixture " + os.Args[5])
+		os.Exit(0)
+	}
 	if len(os.Args) > 1 && strings.HasPrefix(os.Args[1], "aurora-core-fixture-") {
 		if len(os.Args) != 7 || os.Args[2] != "--profile" || os.Args[4] != "--no-tools" || os.Args[5] != "run" {
 			os.Exit(2)
@@ -194,7 +213,7 @@ func TestNoKeyIsHonest(t *testing.T) {
 	svc.poke()
 	waitTask(t, svc, bot)
 	ms := svc.view().messages(bot, 0)
-	if last := ms[len(ms)-1]; last.Role != "system" || !strings.Contains(last.Text, "ZAI_API_KEY") {
+	if last := ms[len(ms)-1]; last.Role != "system" || strings.Contains(last.Text, "ZAI_API_KEY") || !strings.Contains(last.Text, "đã được lưu") || !strings.Contains(mustJSON(last), `"recovery":"configure_ai"`) {
 		t.Fatalf("%+v", last)
 	}
 }

@@ -25,7 +25,7 @@ if ($LASTEXITCODE -ne 0) { throw 'Host build failed' }
 Copy-Item app/.build/host-target/debug/neko-host.exe app/.build/neko-host.exe
 ```
 
-Chạy Go và mở `http://127.0.0.1:8765` trong trình duyệt:
+Chạy Go và mở `http://127.0.0.1:8765/app/` trong trình duyệt để dùng workspace hiện tại:
 
 ```powershell
 ./app/.build/neko-aurora.exe --state ./app/.state/local --listen 127.0.0.1:8765
@@ -43,7 +43,7 @@ if ($LASTEXITCODE -ne 0) { throw 'Desktop build failed' }
 Copy-Item app/.build/desktop-target/debug/neko-desktop.exe app/.build/neko-desktop.exe
 ```
 
-Shell hiện tại yêu cầu startup receipt và xác minh process/port/hash/state, nên không mở chỉ bằng double-click hoặc launcher `run-local.ps1 -Desktop` cũ. Tạo manifest hash **development** cho chính các binary vừa build, rồi dùng launcher hiện tại:
+Shell mở workspace tại `/app/` sau khi xác minh startup receipt và process/port/hash/state, nên không mở chỉ bằng double-click hoặc launcher `run-local.ps1 -Desktop` cũ. Tạo manifest hash **development** cho chính các binary vừa build, rồi dùng launcher hiện tại:
 
 ```powershell
 function Get-LocalBinaryEntry([string]$Name) {

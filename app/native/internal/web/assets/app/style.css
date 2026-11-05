@@ -562,3 +562,32 @@ details.sources[open]>:not(summary),details.think[open]>:not(summary),details.pl
 .copy-reply-action[aria-disabled=true]{opacity:.55}
 
 .vault-contacts{display:grid;gap:16px}.vault-contacts fieldset{min-width:0;border:1px solid var(--line);border-radius:16px;padding:12px}.vault-contacts legend{font-weight:600;padding:0 6px}.contact-row{display:flex;flex-wrap:wrap;align-items:center;gap:8px;padding:10px 0;border-bottom:1px solid var(--line)}.contact-row code{overflow-wrap:anywhere;min-width:0;flex:1 1 160px}.contact-actions{display:flex;flex-wrap:wrap;gap:6px;margin:6px 0}.contact-primary{font-weight:600}.vault-contacts .fld{margin-top:12px}
+
+.msg.ai-setup-card{max-width:38rem;padding:20px;background:var(--sunk);border-radius:16px;text-align:left;line-height:1.6}
+.ai-setup-card h3{margin:0 0 8px;color:var(--ink);font-size:16px;font-weight:600}
+.ai-setup-card p{margin:0 0 16px;text-wrap:pretty}
+.ai-setup-card button{min-height:44px}
+/* Quick provider setup keeps connection choices ahead of technical settings. */
+.quick-setup{margin:20px 0;padding:24px;display:grid;gap:16px}
+.quick-setup h3{font-size:22px;letter-spacing:-.03em;margin:0}
+.quick-setup p{margin:0;line-height:1.6}
+.quick-content,.quick-form{display:grid;gap:16px;min-width:0}
+.quick-form>.pill{justify-self:start;max-width:100%}
+.quick-options,.quick-advanced{border-top:1px solid var(--line);padding-top:16px}
+.quick-options summary,.quick-advanced>summary{cursor:pointer;padding:8px 0;font-size:14px;font-weight:600}
+.quick-options[open] summary{margin-bottom:12px}
+.quick-advanced{margin-top:24px}
+.quick-setup [hidden]{display:none!important}
+@media(max-width:520px){.quick-setup{padding:18px}.quick-form>.pill{width:100%;justify-self:stretch}}
+
+#thread .who #threadModel{display:block;max-width:100%;font-size:12px;color:var(--mute);line-height:1.5}
+#thread .who #threadModel[hidden]{display:none}
+.quick-current{display:grid;gap:4px;padding:12px 0;border-bottom:1px solid var(--line)}
+.quick-current strong{font-size:14px;overflow-wrap:anywhere}
+.composer-model{flex:none;width:min(100%,960px);margin:0 auto;padding:4px 24px 0;min-width:0}
+.composer-model button{max-width:100%;border:0;background:transparent;color:var(--mute);font:inherit;font-size:12px;line-height:1.5;padding:6px 10px;border-radius:8px;text-overflow:ellipsis;white-space:nowrap;overflow:hidden;cursor:pointer;text-align:left}
+.composer-model button:hover{background:var(--sunk);color:var(--ink)}
+.composer-model button:focus-visible{outline:2px solid var(--na-focus);outline-offset:2px}
+.composer-model button[hidden]{display:none}
+.quick-form select{min-height:44px}
+.quick-form[aria-busy=true] #quickCatalogNote{opacity:.7}

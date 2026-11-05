@@ -52,7 +52,7 @@
       if(done){
         if(Array.isArray(answerValues)&&answerValues.length===f.fields.length&&answerValues.every(v=>typeof v==="string")){
           const result=el("dl",null,"form-result");result.tabIndex=0;result.setAttribute("aria-label","Câu trả lời đã gửi");
-          f.fields.forEach((field,i)=>{const value=data("dd",answerValues[i]);if(!answerValues[i].trim()){value.replaceChildren(el("em","Bỏ trống"))}result.append(data("dt",field.label),value)});root.append(result);
+          f.fields.forEach((field,i)=>{const value=data("dd",answerValues[i]);if(!answerValues[i].trim()){value.replaceChildren(window.__I18N.uiText(el("em"),"Bỏ trống"))}result.append(data("dt",field.label),value)});root.append(result);
         }else if(typeof answerText==="string"&&answerText){const prefix="📋 "+f.title+"\n",result=data("pre",answerText.startsWith(prefix)?answerText.slice(prefix.length):answerText);result.className="form-result";result.tabIndex=0;result.setAttribute("aria-label","Câu trả lời đã gửi");root.append(result)}
         go=el("button","Đã gửi","pill");go.type="submit";go.disabled=true;root.append(go);return;
       }
@@ -89,7 +89,7 @@
     const composing=AURORA_UX.compositionGuard(root);
     root.onsubmit=event=>{
       event.preventDefault();if(composing(event)||locked||blocked||!active()||!root.isConnected||!root.reportValidity()||!save())return;
-      const text="📋 "+f.title+"\n"+f.fields.map((x,i)=>"- "+x.label+": "+(values[i].trim()||"(bỏ trống)")).join("\n");
+      const text="📋 "+f.title+"\n"+f.fields.map((x,i)=>"- "+x.label+": "+(values[i].trim()||window.__I18N.t("(bỏ trống)"))).join("\n");
       send(text,{formFor:m.taskId,formValues:[...values],formAnswerVersion:f.answerVersion===1?1:undefined});
     };
     render();return root;

@@ -1,8 +1,11 @@
 package aurora
 
 import (
+	"encoding/json"
 	"fmt"
+
 	"io"
+	"nekoaurora.local/native/internal/ledger"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -59,8 +62,8 @@ func sendBurst(t *testing.T, url string) {
 	}
 }
 
-// checkOneReply: every burst message absorbed by the first run, exactly one
-// agent bubble, all queued turns closed silently, user messages before it.
+// checkOneReply: every burst message absorbed by the first run, exactly one final
+// agent bubble plus retained interrupted segments, all queued turns closed silently, user messages before it.
 func checkOneReply(t *testing.T, svc *Service, bot string, a *slowAI) {
 	t.Helper()
 	waitTask(t, svc, bot)
@@ -69,6 +72,9 @@ func checkOneReply(t *testing.T, svc *Service, bot string, a *slowAI) {
 	for i, m := range msgs {
 		switch m.Role {
 		case "agent":
+			if m.Interrupted {
+				continue
+			}
 			agent++
 			if firstAgent < 0 {
 				firstAgent = i
@@ -100,8 +106,7 @@ func checkOneReply(t *testing.T, svc *Service, bot string, a *slowAI) {
 	}
 }
 
-func TestBurstDuringStreamingMergesIntoOneReply(t *testing.T) {
-	inboxPoll = 20 * time.Millisecond
+func TestBurstDuringStreamingQueuesAfterCompleteReply(t *testing.T) {
 	a := &slowAI{delay: 30 * time.Millisecond, next: func(int, string) string {
 		return "Đây là câu trả lời khá dài để có thời gian nhắn thêm trong lúc đang viết từng chữ một nhé bạn."
 	}}
@@ -121,18 +126,35 @@ func TestBurstDuringStreamingMergesIntoOneReply(t *testing.T) {
 	}
 	time.Sleep(150 * time.Millisecond) // mid-stream
 	sendBurst(t, url)
-	checkOneReply(t, svc, bot, a)
-	// bound: the first call, maxInterrupts rebuilt calls, plus one final
-	// re-answer in runTurn for messages that landed during the last
-	// (unwatched) call. The old "1+maxInterrupts" check ignored that last
-	// call and failed whenever the burst straddled it (timing-dependent).
-	if a.calls() > 2+maxInterrupts {
-		t.Fatalf("too many model calls: %d", a.calls())
+	waitTask(t, svc, bot)
+	msgs := svc.view().messages(bot, 0)
+	agents, users := 0, 0
+	for _, m := range msgs {
+		if m.Interrupted {
+			t.Fatal("ordinary follow-up interrupted an answer")
+		}
+		if m.Role == "agent" {
+			agents++
+		}
+		if m.Role == "user" {
+			users++
+		}
 	}
+	if agents != 2 || users != 6 || a.calls() != 2 {
+		t.Fatalf("agents=%d users=%d calls=%d", agents, users, a.calls())
+	}
+	if msgs[1].Role != "agent" || msgs[1].BeforeRequestID != msgs[2].TaskID {
+		t.Fatal("first completed answer must precede queued messages")
+	}
+	for _, m := range burst {
+		if !strings.Contains(a.last(), m) {
+			t.Fatalf("missing queued input %q", m)
+		}
+	}
+
 }
 
 func TestBurstDuringToolCallIsAbsorbedAtNextStep(t *testing.T) {
-	inboxPoll = 20 * time.Millisecond
 	a := &slowAI{delay: 2 * time.Millisecond, next: func(n int, _ string) string {
 		if n == 0 {
 			return "Để mình tra.\nTOOL: {\"name\":\"web_search\",\"q\":\"Hải Phòng\"}"
@@ -162,6 +184,48 @@ func TestBurstDuringToolCallIsAbsorbedAtNextStep(t *testing.T) {
 	<-inTool
 	sendBurst(t, url)
 	checkOneReply(t, svc, bot, a)
+	var body struct {
+		Messages []ChatMsg `json:"messages"`
+	}
+	if err := json.Unmarshal([]byte(a.last()), &body); err != nil {
+		t.Fatal(err)
+	}
+	checkInputs := func(msgs []ChatMsg) {
+		t.Helper()
+		for _, input := range burst {
+			count := 0
+			for _, msg := range msgs {
+				if msg.Content == input && msg.Role == "user" {
+					count++
+				}
+			}
+			if count != 1 {
+				t.Fatalf("owner input must be a user message exactly once: %q count=%d", input, count)
+			}
+		}
+	}
+	checkInputs(body.Messages)
+	// A rebuilt history has the same owner inputs after the in-memory tool context is gone.
+	first := svc.view().byBot[bot][0]
+	checkInputs(svc.history(bot, first.RequestID))
+	next, _, err := svc.L.Accept(ledger.Input{BotID: bot, ClientNonce: "after-burst", Text: "tiếp tục"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	hist := svc.history(bot, next.RequestID)
+	checkInputs(hist)
+	lastUser, lastAssistant := -1, -1
+	for i, msg := range hist {
+		if msg.Content == burst[len(burst)-1] {
+			lastUser = i
+		}
+		if strings.Contains(msg.Content, "Hải Phòng là thành phố cảng") {
+			lastAssistant = i
+		}
+	}
+	if lastUser < 0 || lastAssistant < lastUser {
+		t.Fatal("absorbed owner inputs must precede the assistant response in history")
+	}
 }
 
 func TestResendSameNonceIsOneMessage(t *testing.T) {

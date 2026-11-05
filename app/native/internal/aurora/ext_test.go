@@ -32,6 +32,29 @@ func TestParseExtDirectives(t *testing.T) {
 	}
 }
 
+func TestModelsReportsDefaultConfiguration(t *testing.T) {
+	for _, configured := range []bool{false, true} {
+		t.Run(fmt.Sprint(configured), func(t *testing.T) {
+			key := ""
+			if configured {
+				key = "fixture-configuration-only"
+			}
+			t.Setenv("ZAI_API_KEY", key)
+			svc, _ := newSvc(t)
+			srv := httptest.NewServer(svc)
+			defer srv.Close()
+			var got map[string]any
+			getJSON(t, srv.URL+"/app/api/models", &got)
+			if got["defaultConfigured"] != configured {
+				t.Fatalf("default configuration = %v, want %v", got["defaultConfigured"], configured)
+			}
+			if key != "" && strings.Contains(mustJSON(got), key) {
+				t.Fatal("configuration response exposed a credential")
+			}
+		})
+	}
+}
+
 func TestFolderCall(t *testing.T) {
 	c := folderCall("dự án/q4", toolCall{"computer_run", "python3 a.py"})
 	if c.arg != "mkdir -p ~/'dự án/q4' && cd ~/'dự án/q4' && python3 a.py" {

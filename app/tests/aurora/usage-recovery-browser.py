@@ -4,7 +4,7 @@ from pathlib import Path
 from urllib.parse import urlsplit,parse_qs
 from playwright.sync_api import expect,sync_playwright
 ROOT=Path(__file__).resolve().parents[3]
-OUT=ROOT/'.audit/2026-10-29-usage-recovery';OUT.mkdir(exist_ok=True)
+OUT=Path(os.environ.get('AURORA_BROWSER_AUDIT_DIR', ROOT/'.audit/2026-10-29-usage-recovery'));OUT.mkdir(exist_ok=True)
 class Server(http.server.ThreadingHTTPServer):request_queue_size=64
 class Handler(http.server.SimpleHTTPRequestHandler):
     def log_message(self,*_):pass
@@ -36,7 +36,7 @@ try:
         context=browser.new_context(viewport={'width':390,'height':844},locale='vi-VN',service_workers='block',reduced_motion='reduce');context.add_init_script('window.EventSource=class{addEventListener(){}close(){}}')
         page=context.new_page();fx=Fixture();errors=[];page.on('pageerror',lambda e:errors.append(str(e)));page.route('**/app/api/**',fx.route)
         url=f'http://127.0.0.1:{server.server_port}/app/';page.goto(url,wait_until='networkidle');body=page.locator('#usageBody');hero=body.locator('.use-hero');status=body.locator('.usage-status')
-        def open_usage():page.locator('#meBtn').click();page.locator('#openUsage').click()
+        def open_usage():page.locator('#meBtn:visible, [data-workspace-action="settings"]:visible').click();page.locator('#openUsage').click()
         def close_usage():page.keyboard.press('Escape');page.wait_for_timeout(450)
         def pending():
             end=time.monotonic()+3

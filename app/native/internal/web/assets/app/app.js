@@ -23,7 +23,7 @@ const SHAPES=[ // [markup, eye centre y]
 const SVGNS="http://www.w3.org/2000/svg";
 function face(f,sz,cls){f=f||{};const s=SHAPES[f.shape|0]||SHAPES[0],c=COLORS[f.color|0]||COLORS[0],y=s[1];
  const v=document.createElementNS(SVGNS,"svg");v.setAttribute("viewBox","0 0 100 100");v.setAttribute("width",sz);v.setAttribute("height",sz);v.setAttribute("aria-hidden","true");v.setAttribute("class","face"+(cls?" "+cls:""));
- v.innerHTML=`<g fill="${c}">${s[0].replace(/"C"/g,`"${c}"`)}</g><rect x="35" y="${y-11}" width="10" height="22" rx="5" fill="#fff"/><rect x="55" y="${y-11}" width="10" height="22" rx="5" fill="#fff"/>`;return v}
+ v.style.setProperty("--eye-y",y+"px");v.innerHTML=`<g class="avatar-presence"><g class="avatar-orientation"><g class="avatar-activity"><g class="avatar-body" fill="${c}">${s[0].replace(/"C"/g,`"${c}"`)}</g><g class="avatar-gaze"><g class="avatar-attention"><g class="avatar-eyes"><rect x="35" y="${y-11}" width="10" height="22" rx="5" fill="#fff"/><rect x="55" y="${y-11}" width="10" height="22" rx="5" fill="#fff"/></g></g></g></g></g></g>`;return v}
 // ---------- server state (real Go control plane at /app/api) ----------
 const S={agents:[],pending:[],brief:null,ai:{},vapid:"",outbound:{},secrets:[],msgs:{},drafts:{}};
 const API="/app/api";let selectionExcerpt=null;
@@ -35,11 +35,15 @@ async function api(path,body,retry){const get=body===undefined,memory=/^\/agents
  if(get&&!retry&&r.status===503){await new Promise(f=>setTimeout(f,1500));return api(path,body,true)}
  if(!r.ok){const e=new Error(String(r.status));e.status=r.status;e.body=await r.json().catch(()=>null);throw e}return get?await r.json():r.json()}catch(e){if(get&&!retry&&!e.status){await new Promise(f=>setTimeout(f,800));return api(path,body,true)}throw e}}
 const T=x=>new Date(x).getTime();
+const l10n=window.__I18N;
 const isGroup=a=>a&&a.kind==="group";
 const bots=()=>S.agents.filter(a=>!isGroup(a));
 const byId=id=>S.agents.find(x=>x.id===id);
+function aiLabel(ai){const tr=s=>window.__I18N?.t(s)||s;if(!ai?.model||(!ai.configured&&!ai.selection))return tr("Chưa kết nối AI");return [ai.provider,ai.modelLabel||ai.model].filter(Boolean).join(" · ")+(ai.issue?" · "+tr("Không khả dụng"):ai.configured?"":" · "+tr("Chưa kết nối"))}
+function renderThreadModel(a){const n=$("#threadModel"),b=$("#composerAI"),tr=s=>window.__I18N?.t(s)||s,selected=aiLabel(a.ai||S.ai);n.hidden=isGroup(a)||!a.activeModel;n.textContent=isGroup(a)?"":a.activeModel?tr("Đang dùng")+": "+a.activeModel:selected;n.title=tr(a.activeModel?"AI của lượt đang chạy":"AI được chọn cho tin nhắn mới");b.hidden=isGroup(a);b.textContent=selected+" ▾";b.title=tr("AI được chọn cho tin nhắn mới");b.setAttribute("aria-label",tr("Chọn AI cho bot"));b.onclick=()=>openModels(false,a.id)}
 const waiting=a=>S.pending.some(m=>m.agentId===a.id)||a.status==="waiting";
-const ago=t=>{t=T(t);if(!(t>0))return"";const s=(Date.now()-t)/1e3;if(s<60)return"bây giờ";if(s<3600)return Math.floor(s/60)+" phút";if(s<86400&&new Date(t).getDate()===new Date().getDate())return new Date(t).toLocaleTimeString("vi-VN",{hour:"2-digit",minute:"2-digit"});return new Date(t).toLocaleDateString("vi-VN",{day:"numeric",month:"numeric"})};
+const ago=t=>{t=T(t);if(!(t>0))return"";const s=(Date.now()-t)/1e3;if(s<60)return l10n.message("time.now");if(s<3600)return l10n.relative(-Math.floor(s/60),"minute");if(s<86400&&new Date(t).toDateString()===new Date().toDateString())return l10n.date(t,{hour:"2-digit",minute:"2-digit"});return l10n.date(t,{day:"numeric",month:"numeric"})};
+const listTime=t=>{t=T(t);if(!(t>0))return"";const now=new Date(),day=new Date(t);if(day.toDateString()===now.toDateString())return l10n.date(t,{hour:"numeric",minute:"2-digit"});now.setDate(now.getDate()-1);return day.toDateString()===now.toDateString()?l10n.t("Hôm qua"):l10n.date(t,{day:"numeric",month:"numeric"})};
 const el=(t,c,x)=>{const e=document.createElement(t);if(c)e.className=c;if(x!=null)e.textContent=x;return e};
 const literalEl=(t,c,x)=>{const e=el(t,c,x);e.dataset.noi18n="";return e};
 let toastT;const toast=m=>{const t=$("#toast");t.textContent=m;t.classList.add("show");clearTimeout(toastT);toastT=setTimeout(()=>t.classList.remove("show"),2200)};
@@ -93,31 +97,51 @@ function connect(){const previous=es;es=null;previous?.close();const stream=new 
  stream.onerror=()=>{if(es!==stream)return;esDown=true;setTimeout(net,2500)};
  on("agent",e=>{const a=JSON.parse(e.data);const was=S.agents.find(x=>x.id===a.id);if(was&&was.status==="working"&&a.status!=="working"&&S.msgs[a.id])loadMsgs(a.id).catch(()=>{});/* adopt server order once a turn ends (messages folded in mid-turn sit before the answer) */if(seen&&seen[a.id]==null)markSeen(a.id);upsert(a);if(cur&&cur.id===a.id){cur=a;markSeen(a.id);renderThread()}renderListSoon()});
  on("archived",e=>{const {id}=JSON.parse(e.data);S.agents=S.agents.filter(a=>a.id!==id);S.pending=S.pending.filter(m=>m.agentId!==id);renderListSoon()});
- on("message",e=>{const m=JSON.parse(e.data);const L=S.msgs[m.agentId];delete S.drafts[m.id];
-  if(L){const i=L.findIndex(x=>x.id===m.id);if(i>=0)L[i]=m;else{const j=/:step\d+$/.test(m.id)?L.findIndex(x=>x.id===m.taskId):-1;if(j>=0)L.splice(j,0,m);else L.push(m)}}
+ on("message",e=>{const m=JSON.parse(e.data);AURORA_UX.acceptMessage(S,m);
   S.pending=S.pending.filter(x=>x.id!==m.id);if(m.approval&&m.approval.state==="pending")S.pending.push(m);
   if(cur&&cur.id===m.agentId)renderThread();renderListSoon()});
- on("delta",e=>{const d=JSON.parse(e.data);S.deltaCount=(S.deltaCount||0)+1;if(!S.drafts[d.id])setTimeout(()=>{if(es===stream&&S.drafts[d.id]&&cur&&cur.id===d.agentId&&!document.getElementById("d_"+d.id))paintDraft(d.id)},470);const x=S.drafts[d.id]||(S.drafts[d.id]={agentId:d.agentId,from:d.from,text:"",t0:Date.now()});x.text=typeof d.text==="string"?d.text:x.text+d.delta;if(cur&&cur.id===d.agentId)paintDraft(d.id)});
+ on("delta",e=>{const d=JSON.parse(e.data);S.deltaCount=(S.deltaCount||0)+1;const x=S.drafts[d.id]||(S.drafts[d.id]={agentId:d.agentId,from:d.from,text:"",t0:Date.now()});x.text=typeof d.text==="string"?d.text:x.text+d.delta;if(cur&&cur.id===d.agentId)paintDraft(d.id)});
  on("draft_end",e=>{const d=JSON.parse(e.data);if(S.drafts[d.id]){delete S.drafts[d.id];if(cur&&cur.id===d.agentId)renderThread()}});
  on("activity",e=>{if(sheetOpen===$("#activity"))renderLog([JSON.parse(e.data)],true)});
  on("brief",e=>{S.brief=JSON.parse(e.data);renderListSoon()});
  on("notify",e=>{const n=JSON.parse(e.data);if(muted.includes((n.url||"").split("#")[1]))return;if(document.hidden&&!pushOn&&"Notification"in window&&Notification.permission==="granted")navigator.serviceWorker?.ready.then(r=>{if(es===stream)r.showNotification(n.title,{body:n.body,data:{url:n.url},tag:n.url})})});
 }
 // ---------- list ----------
-function avatarOf(a,sz){if(!isGroup(a))return face(a.av,sz);const w=el("span","stack");w.style.width=w.style.height=sz+"px";(a.members||[]).slice(0,2).forEach((id,i)=>{const b=byId(id);w.append(face(b&&b.av,Math.round(sz*.64),"s"+i))});return w}
+function avatarOf(a,sz,slot){const one=(b,size,cls)=>{const id=b?.id||a.id,state=b&&(waiting(b)?"waiting":b.status),create=()=>face(b?.av,size,cls);return slot?AURORA_AVATARS.reuse([S.workspaceId,slot,a.id,id,cls||""].join("/"),JSON.stringify([b?.av,size]),create,id,state):AURORA_AVATARS.attach(create(),id,state)};if(!isGroup(a))return one(a,sz);const members=[...new Set(a.members||[])],w=el("span","stack team-avatar");w.setAttribute("aria-hidden","true");w.style.width=w.style.height=sz+"px";w.dataset.members=String(Math.min(3,members.length));members.slice(0,3).forEach((id,i)=>w.append(one(byId(id),Math.round(sz*.62),"s"+i)));if(!members.length)w.append(face({shape:1,color:10},sz));if(members.length>3)w.append(literalEl("span","team-avatar-more","+"+l10n.number(members.length-3)));return w}
 // chat header avatar carries the same presence dot as the list (Messenger-style)
-function headAvatar(a){const h=$("#threadAvatar");const k=a.status==="working"?"work":waiting(a)?"wait":"",look=JSON.stringify(isGroup(a)?(a.members||[]).slice(0,2).map(id=>[id,byId(id)?.av||{}]):a.av||{});if(h.dataset.k===k&&h.dataset.id===a.id&&h.dataset.look===look&&h.firstChild)return;h.dataset.k=k;h.dataset.id=a.id;h.dataset.look=look;h.classList.add("head-av");h.replaceChildren(avatarOf(a,32));const bd=badge(a);if(bd)h.append(bd)}
+function headAvatar(a){const h=$("#threadAvatar");const k=waiting(a)?"wait":a.status,look=JSON.stringify(isGroup(a)?(a.members||[]).map(id=>[id,byId(id)?.av||{},byId(id)?.status,byId(id)?waiting(byId(id)):false]):a.av||{});if(h.dataset.k===k&&h.dataset.id===a.id&&h.dataset.look===look&&h.firstChild)return;h.dataset.k=k;h.dataset.id=a.id;h.dataset.look=look;h.classList.add("head-av");h.replaceChildren(avatarOf(a,32,"header"));const bd=badge(a);if(bd)h.append(bd)}
 function badge(a){const k=a.status==="working"?"work":waiting(a)?"wait":a.status==="error"?"err":"";if(!k)return null;const b=el("i","badge "+k);b.setAttribute("aria-hidden","true");return b}
 let filter="",listScope;
-const statusLine=a=>a.status==="working"?"Đang làm việc…":waiting(a)?"Chờ bạn duyệt":a.snip||a.desc||"";
+const statusLine=a=>a.status==="working"?l10n.t("Đang làm việc…"):waiting(a)?l10n.t("Chờ bạn duyệt"):a.snipKey?l10n.message(a.snipKey,a.snipArgs):a.snip||a.desc||"";
+let pinnedPreview=null,pinnedPreviewOwner=null,pinnedPreviewTimer;
+function closePinnedPreview(){clearTimeout(pinnedPreviewTimer);pinnedPreview?.remove();pinnedPreviewOwner?.removeAttribute("aria-describedby");pinnedPreview=pinnedPreviewOwner=null}
+function pinnedPeek(button,a){
+ const leave=()=>{clearTimeout(pinnedPreviewTimer);pinnedPreviewTimer=setTimeout(closePinnedPreview,120)};
+ const show=()=>{closePinnedPreview();pinnedPreviewTimer=setTimeout(()=>{
+  if(!button.isConnected)return;
+  const tip=el("div","feat-preview");tip.id="pinnedPreview";tip.setAttribute("role","tooltip");
+  tip.append(literalEl("b",0,a.name),literalEl("span",0,isGroup(a)?(a.members||[]).map(id=>byId(id)?.name).filter(Boolean).join(" · "):statusLine(a)));
+  tip.addEventListener("pointerenter",()=>clearTimeout(pinnedPreviewTimer));tip.addEventListener("pointerleave",closePinnedPreview);
+  document.body.append(tip);const r=button.getBoundingClientRect();
+  tip.style.left=Math.max(12,Math.min(innerWidth-tip.offsetWidth-12,r.right+8))+"px";
+  tip.style.top=Math.max(12,Math.min(innerHeight-tip.offsetHeight-12,r.top))+"px";
+  button.setAttribute("aria-describedby",tip.id);pinnedPreview=tip;pinnedPreviewOwner=button;
+ },220)};
+ button.addEventListener("pointerenter",e=>{if(e.pointerType==="mouse")show()});button.addEventListener("pointerleave",leave);
+ button.addEventListener("focus",show);button.addEventListener("blur",closePinnedPreview);button.addEventListener("pointerdown",closePinnedPreview);
+}
+addEventListener("keydown",e=>{if(e.key==="Escape")closePinnedPreview()});
+addEventListener("resize",closePinnedPreview);document.addEventListener("scroll",closePinnedPreview,true);
 function renderList(){
+ closePinnedPreview();
+ window.AURORA_WORKSPACE?.notify();
  const focused=document.activeElement,focusControl=listScope===S.workspaceId&&focused.matches("#rows .rowin,#rows .pin,#rows .arch,#featured .feat");
  const focusId=focusControl?focused.closest("[data-id]").dataset.id:null,focusKind=focusControl?["rowin","pin","arch","feat"].find(c=>focused.classList.contains(c)):null;listScope=S.workspaceId;
  const all=[...S.agents].sort((a,b)=>(waiting(b)-waiting(a))||T(b.t)-T(a.t));
- const q=filter.trim().toLowerCase(),match=a=>!q||a.name.toLowerCase().includes(q)||(a.snip||"").toLowerCase().includes(q);
+ const q=filter.trim().toLowerCase(),match=a=>(!q||a.name.toLowerCase().includes(q)||(a.snip||"").toLowerCase().includes(q)||(a.members||[]).some(id=>(byId(id)?.name||"").toLowerCase().includes(q)))&&(!window.AURORA_WORKSPACE||AURORA_WORKSPACE.matches(a,{waiting:waiting(a),unread:unread(a)}));
  const pinned=all.filter(a=>a.pin&&match(a)),rest=all.filter(a=>!a.pin&&match(a));
  const fe=$("#featured");fe.innerHTML="";fe.classList.toggle("hidden",!pinned.length);
- pinned.forEach(a=>{const b=el("button","feat");b.dataset.id=a.id;b.dataset.noi18n="";b.setAttribute("aria-label",a.name);const av=el("span","feat-av");av.append(avatarOf(a,92));const bd=badge(a);if(bd)av.append(bd);const nm=el("span","feat-name");nm.append(el("span",0,a.name));if(unread(a)){nm.append(el("i","dot"));b.setAttribute("aria-label",a.name+", "+(window.__I18N?.t("chưa đọc")||"chưa đọc"))}b.append(av,nm);b.onclick=e=>{if(e.detail&&performance.now()<suppress)return;openThread(a.id);if(e.detail===0)inp.focus({preventScroll:true})};longPress(b,a);fe.append(b)});
+ pinned.forEach(a=>{const b=el("button","feat");b.dataset.id=a.id;b.dataset.noi18n="";b.setAttribute("aria-label",a.name);const av=el("span","feat-av");av.append(avatarOf(a,92,"pinned"));const bd=badge(a);if(bd)av.append(bd);const nm=el("span","feat-name");nm.append(el("span",0,a.name));if(unread(a)){nm.append(el("i","dot"));b.setAttribute("aria-label",a.name+", "+(window.__I18N?.t("chưa đọc")||"chưa đọc"))}b.append(av,nm);b.onclick=e=>{if(e.detail&&performance.now()<suppress)return;closePinnedPreview();openThread(a.id);if(e.detail===0)inp.focus({preventScroll:true})};longPress(b,a);pinnedPeek(b,a);fe.append(b)});
  renderBrief(q);
  const ul=$("#rows");ul.innerHTML="";
  const hid=new Set(store.get("neko-aurora-hidden",[])),secs=store.get("neko-aurora-sections",{list:[],of:{}});
@@ -130,9 +154,9 @@ function renderList(){
   if(!isGroup(a)){const acts=el("div","actions"),pin=el("button","pin",a.pin?"Bỏ ghim":"Ghim"),ar=el("button","arch","Lưu trữ");acts.append(pin,ar);li.append(acts);
    pin.onclick=e=>{e.stopPropagation();suppress=performance.now()+600;api(`/agents/${a.id}`,{pin:!a.pin}).then(upsert).then(()=>{buzz("tap");renderList()}).catch(()=>toast("Không ghim được"))};
    ar.onclick=e=>{e.stopPropagation();suppress=performance.now()+600;if(ar.disabled)return;ar.disabled=true;api(`/agents/${a.id}`,{archived:true}).then(()=>{S.agents=S.agents.filter(x=>x.id!==a.id);S.pending=S.pending.filter(m=>m.agentId!==a.id);renderList();toast("Đã lưu trữ "+a.name)}).catch(()=>{ar.disabled=false;toast("Không lưu trữ được")})}}
-  const inn=el("button","rowin");inn.type="button";const av=el("span","row-av");av.append(avatarOf(a,48));const bd=badge(a);if(bd)av.append(bd);inn.append(av);
+  const inn=el("button","rowin");inn.type="button";const av=el("span","row-av");av.append(avatarOf(a,48,"list"));const bd=badge(a);if(bd)av.append(bd);inn.append(av);
   const tx=el("span","rowtxt"),h=el("span","rowh");h.append(literalEl("b",0,a.name));if(isGroup(a))h.append(el("span","tag",(a.members||[]).length+" bot"));
-  const live=a.status==="working",un=unread(a);h.append(el("span","time"+(live?" now":"")+(un?" un":""),live?"bây giờ":ago(a.t)));
+  const live=a.status==="working",un=unread(a);h.append(el("span","time"+(live?" now":"")+(un?" un":""),live?"bây giờ":listTime(a.t)));
   const sn=el("span","snip"+(waiting(a)?" wait":"")+(live?" dots":"")+(a.status==="error"?" err":"")+(un?" un":""),statusLine(a));
   if(!live&&!waiting(a))sn.dataset.noi18n="";
   tx.append(h,sn);inn.append(tx);if(un)inn.append(el("i","dot"));li.append(inn);ul.append(li);
@@ -140,11 +164,11 @@ function renderList(){
   if(hid.has(a.id))li.classList.add("is-hidden");
   if(!isGroup(a))swipeRow(li,inn);longPress(inn,a)});
  if(hiddenN&&!q){const li=el("li","hid-toggle"),b=el("button","text-btn",showHidden?"Ẩn lại "+hiddenN+" bot":"Đã ẩn · "+hiddenN);b.onclick=()=>{showHidden=!showHidden;buzz("tap");renderList()};li.append(b);ul.append(li)}
- const em=$("#empty");em.classList.toggle("hidden",!!(pinned.length||rest.length));em.textContent=q?"Không tìm thấy “"+filter.trim()+"”.":"Chưa có bot nào. Bấm + để tạo.";
+ const em=$("#empty");em.classList.toggle("hidden",!!(pinned.length||rest.length));em.textContent=q?"Không tìm thấy “"+filter.trim()+"”.":window.AURORA_WORKSPACE?.filtered()?"Không có hội thoại trong bộ lọc này.":"Chưa có bot nào. Bấm + để tạo.";
  updatePill();
  if(focusId&&(document.activeElement===focused||document.activeElement===document.body)){
   const row=[...ul.children].find(n=>n.dataset.id===focusId),featured=[...fe.children].find(n=>n.dataset.id===focusId),target=row?.querySelector("."+focusKind);
-  (target&&!target.disabled?target:featured||row?.querySelector(".rowin")||$("#search")).focus({preventScroll:true})}}
+  (target&&!target.disabled?target:featured||row?.querySelector(".rowin")||$(matchMedia("(min-width: 900px)").matches?"#workspaceSearchButton":"#search")).focus({preventScroll:true})}}
 // ---------- long-press context menu (iOS-style: blurred backdrop, preview, menu + stacked submenu) ----------
 let showHidden=false,ctxOpen=null;
 function longPress(node,a){let t=null,x0=0,y0=0;const clear=()=>{clearTimeout(t);t=null;node.classList.remove("pressing")};
@@ -181,7 +205,7 @@ function openCtx(a,from){if(ctxOpen||sheetOpen)return;closeMenu();if(openRow)clo
 function openSub(o,menu,a){if(menu.querySelector(".ctx-sub"))return;buzz("tap");const more=menu.querySelector("#ctxMore");const sub=el("div","ctx-sub glass");sub.setAttribute("role","menu");
  const head=ctxItem("ellipsis","Thêm",()=>sub._close(),{chev:"chevron-down"});head.classList.add("ctx-subh");sub.append(head,el("div","ctx-sep"));
  sub.append(ctxItem("copy","Sao chép ID",()=>{closeCtx();(navigator.clipboard?navigator.clipboard.writeText(a.id):Promise.reject()).then(()=>toast("Đã sao chép ID")).catch(()=>toast(a.id))},{id:"ctxCopy"}));
- if(!isGroup(a))sub.append(ctxItem("copy-plus","Nhân bản",()=>{closeCtx();api("/agents",{name:(a.name+" (bản sao)").slice(0,40),desc:a.desc||"",av:a.av}).then(x=>{upsert(x);markSeen(x.id);renderList();buzz("confirm");toast("Đã nhân bản "+a.name)}).catch(e=>toast(e.status===409?"Đã đạt giới hạn 32 bot":"Không nhân bản được"))},{id:"ctxDup"}));
+ if(!isGroup(a))sub.append(ctxItem("copy-plus","Nhân bản",()=>{closeCtx();api("/agents",{name:l10n.message("misc.copyName",{name:a.name}).slice(0,40),desc:a.desc||"",av:a.av}).then(x=>{upsert(x);markSeen(x.id);renderList();buzz("confirm");toast("Đã nhân bản "+a.name)}).catch(e=>toast(e.status===409?"Đã đạt giới hạn 32 bot":"Không nhân bản được"))},{id:"ctxDup"}));
  const del=ctxItem("trash-2","Lưu trữ",b=>{if(!b.dataset.arm){b.dataset.arm=1;b.querySelector("span").textContent="Chạm lần nữa để lưu trữ";buzz("soft");return}closeCtx();api(`/agents/${a.id}`,{archived:true}).then(()=>{S.agents=S.agents.filter(x=>x.id!==a.id);renderList();toast("Đã lưu trữ "+a.name)}).catch(()=>toast("Không lưu trữ được"))},{id:"ctxArchive",danger:true});
  if(!isGroup(a))sub.append(del);
  sub._close=()=>{menu.classList.remove("dim");sub.classList.add("out");setTimeout(()=>sub.remove(),reduceMotion()?0:200);more.focus({preventScroll:true})};
@@ -199,7 +223,7 @@ function newSection(menu,a){const f=el("form","ctx-form");const i=el("input");i.
 let briefOpen=false;
 function renderBrief(q){const br=$("#brief");br.innerHTML="";br.classList.toggle("hidden",!!q);if(q)return;const b=S.brief;
  const head=el("button","rowin brief-head");head.setAttribute("aria-expanded",briefOpen);const av=el("span","row-av brief-av");const lg=el("img");lg.src="/app/icon.svg";lg.alt="";av.append(lg);if(S.pending.length){const n=el("i","badge wait");av.append(n)}
- const tx=el("div","rowtxt"),h=el("div","rowh");h.append(el("b",0,"Bản tin sáng"),el("span","time",b?ago(b.generated):""));tx.append(h,el("div","snip",S.pending.length?`${S.pending.length} việc chờ bạn duyệt`:(b?b.text:"Chưa có bản tin.")));head.append(av,tx);head.onclick=()=>{briefOpen=!briefOpen;buzz("tap");renderBrief("")};br.append(head);
+ const tx=el("div","rowtxt"),h=el("div","rowh");h.append(el("b",0,"Bản tin sáng"),el("span","time",b?ago(b.generated):""));tx.append(h,el("div","snip",S.pending.length?l10n.message("chat.pendingTasks",{count:S.pending.length}):(b?b.text:"Chưa có bản tin.")));head.append(av,tx);head.onclick=()=>{briefOpen=!briefOpen;buzz("tap");renderBrief("")};br.append(head);
  if(!briefOpen)return;const body=el("div","brief-body");body.append(el("p",0,b?b.text:"Chưa có bản tin."));if(b)body.append(el("small","meta",`${b.source==="ai"?"AI · "+(S.ai.model||""):"Tự động"}`+(S.ai.configured?"":" · AI chưa cấu hình")));
  const ol=el("ol");S.pending.forEach(m=>{const a=byId(m.agentId);if(!a)return;const li=el("li"),bt=el("button","brief-item");bt.append(el("span","bi-dot"),el("span",0,`${a.name}: ${m.approval.title}`));bt.onclick=()=>openThread(a.id);li.append(bt);ol.append(li)});if(ol.children.length)body.append(ol);
  const rf=el("button","pill soft small","Làm mới");rf.setAttribute("aria-label","Tạo lại bản tin sáng");rf.onclick=refreshBrief;body.append(rf);br.append(body)}
@@ -221,7 +245,7 @@ function swipeRow(li,inn){let x0,y0,dx=0,mode=null,base=0;
 let cur=null;
 const stateTxt={working:"Đang làm việc…",waiting:"Chờ bạn duyệt",idle:"Sẵn sàng",done:"Đã xong",error:"Có lỗi"};
 const stateLine=a=>isGroup(a)&&a.status!=="working"&&!waiting(a)?(a.members||[]).map(id=>byId(id)?.name).filter(Boolean).join(", "):a.status==="working"&&a.snip&&a.snip.startsWith("Bước")?a.snip:waiting(a)?"Chờ bạn duyệt":stateTxt[a.status]||"";
-function openThread(id){selectionExcerpt?.clear();const a=byId(id);if(!a)return;closeMenu();if(cur?.id!==id){AURORA_MD.closeViewer(false);clearVaultChat();stopVoice();saveComposerDraft();cur=a;restoreComposerDraft()}else cur=a;markSeen(id);headAvatar(a);$("#threadName").textContent=a.name;$("#threadState").toggleAttribute("data-noi18n",isGroup(a)&&a.status!=="working"&&!waiting(a));$("#threadState").textContent=stateLine(a);$("#input").placeholder=isGroup(a)?"Hỏi cả nhóm":"Hỏi "+a.name;closeFind();renderThread();const cache=S.msgs,loading=loadMsgs(id).catch(()=>{if(S.msgs===cache&&cur?.id===id)toast("Không tải được hội thoại")});$("#thread").classList.remove("off");$("#list").classList.add("under");buzz("tap");const hs=history.state;if(hs&&hs.spent)history.replaceState({t:1},"","#"+id);else if(!(hs&&hs.t))history.pushState({t:1},"","#"+id);return loading}
+function openThread(id,{replace=false}={}){selectionExcerpt?.clear();const a=byId(id);if(!a)return;closeMenu();if(cur?.id!==id){AURORA_MD.closeViewer(false);clearVaultChat();stopVoice();saveComposerDraft();cur=a;restoreComposerDraft()}else cur=a;markSeen(id);headAvatar(a);$("#threadName").textContent=a.name;renderThreadModel(a);$("#threadState").toggleAttribute("data-noi18n",isGroup(a)&&a.status!=="working"&&!waiting(a));$("#threadState").textContent=stateLine(a);$("#input").placeholder=isGroup(a)?"Hỏi cả nhóm":"Hỏi "+a.name;closeFind();renderThread();const cache=S.msgs,loading=loadMsgs(id).catch(()=>{if(S.msgs===cache&&cur?.id===id)toast("Không tải được hội thoại")});$("#thread").classList.remove("off");$("#list").classList.add("under");buzz("tap");const hs=history.state,route="#"+encodeURIComponent(id);if(replace||hs?.spent)history.replaceState({t:1},"",route);else if(location.hash!==route||!hs?.t)history.pushState({t:1},"",route);return loading}
 document.addEventListener("aurora-network-open-task",async e=>{const {botId,conversationId,workId}=e.detail||{},id=byId(conversationId)?conversationId:botId;if(!byId(id)){toast("Phiên bot không còn trong danh sách");return}const cache=S.msgs;openThread(id);try{await loadMsgs(id);if(S.msgs!==cache||cur?.id!==id)return;const card=[...$("#messages").querySelectorAll(".approval")].find(n=>n.dataset.id===workId);if(card){stick=false;card.scrollIntoView({block:"center"});card.querySelector("button")?.focus()}}catch{if(S.msgs===cache&&cur?.id===id)toast("Không tải được tác vụ, thử mở lại hội thoại")}});
 function closeThread(fromPop){selectionExcerpt?.clear();AURORA_MD.closeViewer(false);if(!cur)return;clearVaultChat();if(profId)closeProfile(true);closeFind();markSeen(cur.id);stopVoice();saveComposerDraft();cur=null;inp.value="";setRef(null,false);setReply(null,false);inp.oninput();$("#thread").classList.add("off");$("#list").classList.remove("under");$("#thread").style.transform="";$("#list").style.transform="";renderList();if(!fromPop&&history.state&&history.state.t)history.replaceState({spent:1},"",location.pathname)}
 const deciding=new Set();
@@ -238,14 +262,20 @@ function approvalCard(m){const ap=m.approval,c=el("div","approval"+(ap.state!=="
  if(ap.subject||(ed&&ap.kind==="email")){if(ed){const i=el("input","ap-subject");i.value=ap.subject||"";i.setAttribute("aria-label","Tiêu đề");c.append(i)}else{const meta=el("div","ap-meta");meta.append(el("span",0,"Tiêu đề: "),el("b",0,ap.subject));c.append(meta)}}
  if(ap.kind==="cloud"){const pre=el("pre","ap-cloud",ap.body);pre.dataset.noi18n="";c.append(pre)}else if(ed){const t=el("textarea","ap-body");t.value=ap.body;t.rows=8;t.setAttribute("aria-label","Nội dung");c.append(t)}else if(ap.kind==="computer"){const cs=AURORA_UX.cmdShown(ap.body),fc=AURORA_UX.foldCmd(cs.cmd),pre=el("pre","ap-cmd",fc.head);pre.title=ap.body;pre.dataset.noi18n="";c.append(pre);if(fc.more){const d=el("details","ap-more"),sm=el("summary",0,"Xem cả lệnh · thêm "+fc.more+" dòng"),rp=el("pre","ap-cmd",fc.rest);rp.dataset.noi18n="";d.append(sm,rp);c.append(d)}}else if(ap.kind==="vault"){c.classList.add("ap-vault");const hd=el("div","ap-vhd");hd.append(I("shield-check",18),el("span",0,"Bot không thấy số thẻ, mật khẩu hay mã"));c.append(hd,el("pre",0,ap.body))}else c.append(el("pre",0,ap.body));
  const os=ap.kind==="computer"&&ap.outcome?AURORA_UX.outSummary(ap.outcome):null;
- if(os&&os.count){if(os.long){const d=el("details","ap-outd"),sm=el("summary",0,`Xem toàn bộ đầu ra · ${os.count} dòng`);const tail=el("pre","ap-out ap-tail",os.tail),full=el("pre","ap-out",os.full);tail.dataset.noi18n=full.dataset.noi18n="";d.append(sm,full);c.append(tail,d)}else{const o=el("pre","ap-out",os.full);o.dataset.noi18n="";c.append(o)}}
+ if(os&&os.count){if(os.long){const d=el("details","ap-outd"),sm=l10n.bind(el("summary"),"chat.fullOutput",{count:os.count});const tail=el("pre","ap-out ap-tail",os.tail),full=el("pre","ap-out",os.full);tail.dataset.noi18n=full.dataset.noi18n="";d.append(sm,full);c.append(tail,d)}else{const o=el("pre","ap-out",os.full);o.dataset.noi18n="";c.append(o)}}
  if(ap.state==="pending"){const bs=el("div","btns"),no=el("button",0,"Để sau"),e=el("button",0,ed?"Huỷ sửa":"Sửa"),vk=ap.kind==="vault"||ap.kind==="cloud",go=el("button","go",ed?"Lưu & duyệt":"Duyệt");
   no.onclick=()=>decide(m,"declined",bs);e.onclick=()=>{ed?editing.delete(m.id):editing.add(m.id);renderThread()};
   go.onclick=()=>{const ex={};if(ed){ex.body=c.querySelector(".ap-body").value;const sj=c.querySelector(".ap-subject");if(sj)ex.subject=sj.value;if(!ex.body.trim()){toast("Nội dung trống");return}}decide(m,"approved",bs,ex)};
   if(deciding.has(m.id))no.disabled=e.disabled=go.disabled=true;vk?bs.append(no,go):bs.append(no,e,go);c.append(bs);
   c.append(el("small","hint","Muốn đổi hướng? Nhắn yêu cầu mới, bản nháp này sẽ được thay."))}
- else if(ap.state!=="superseded"){const dv=ap.delivery;if(ap.kind==="cloud"&&ap.state==="approved"){c.append(el("small","ap-line"+(dv&&dv.status==="failed"?" bad":""),!dv||dv.status==="sending"||dv.status==="queued"?"✓ Đã duyệt · đang chờ xác nhận worker cloud…":dv.status==="failed"?"✓ Đã duyệt · worker chưa xác nhận thao tác; kiểm tra trang trước khi làm lại":"✓ Đã chuyển thao tác · chưa xác nhận đăng nhập hoặc gửi tin thành công"));if(ap.outcome)c.append(el("pre",0,ap.outcome));return c}if(ap.kind==="vault"&&ap.state==="approved"){c.append(el("small","ap-line"+(dv&&dv.status==="failed"?" bad":""),!dv||dv.status==="sending"?"✓ Đã duyệt · đang dùng Vault…":dv.status==="failed"?"✓ Đã duyệt · không dùng được"+(dv.detail?": "+dv.detail:""):"✓ Đã duyệt · đã dùng, giá trị đã che"));if(ap.outcome&&dv&&dv.status==="sent")c.append(el("p","ap-vout",ap.outcome));return c}const DS={queued:"đang chờ kênh email",sending:"đang gửi…",sent:"đã gửi"+(dv&&dv.from?" từ "+dv.from:""),failed:"gửi thất bại"+(dv&&dv.detail?": "+dv.detail:"")};if(ap.kind==="computer"&&ap.state==="approved"){const sec=os&&os.secs!=null?" · "+String(os.secs).replace(".",",")+"s":"";c.append(el("small","ap-line"+(os&&os.exit?" bad":""),!dv||dv.status==="sending"||dv.status==="queued"?"✓ Đã duyệt · đang chạy…":dv.status==="failed"?"✓ Đã duyệt · không chạy được"+(dv.detail?": "+dv.detail:""):os&&os.exit?`✓ Đã duyệt · lỗi (mã thoát ${os.exit})${os.err?" · "+os.err:""}${sec}`:`✓ Đã duyệt · chạy xong${os&&os.exit===0?" · mã thoát 0":""}${sec}`));return c}
- c.append(el("small",0,ap.state==="approved"?(dv?"✓ Bạn đã duyệt · "+DS[dv.status]:"✓ Bạn đã duyệt · chưa gửi ra ngoài (kênh gửi chưa kết nối)"):"Đã hoãn"))}
+ else if(ap.state!=="superseded"){const dv=ap.delivery;if(ap.kind==="cloud"&&ap.state==="approved"){c.append(el("small","ap-line"+(dv&&dv.status==="failed"?" bad":""),!dv||dv.status==="sending"||dv.status==="queued"?"✓ Đã duyệt · đang chờ xác nhận worker cloud…":dv.status==="failed"?"✓ Đã duyệt · worker chưa xác nhận thao tác; kiểm tra trang trước khi làm lại":"✓ Đã chuyển thao tác · chưa xác nhận đăng nhập hoặc gửi tin thành công"));if(ap.outcome)c.append(el("pre",0,ap.outcome));return c}if(ap.kind==="vault"&&ap.state==="approved"){c.append(el("small","ap-line"+(dv&&dv.status==="failed"?" bad":""),!dv||dv.status==="sending"?"✓ Đã duyệt · đang dùng Vault…":dv.status==="failed"?"✓ Đã duyệt · không dùng được"+(dv.detail?": "+dv.detail:""):"✓ Đã duyệt · đã dùng, giá trị đã che"));if(ap.outcome&&dv&&dv.status==="sent")c.append(el("p","ap-vout",ap.outcome));return c}const DS=()=>({queued:"đang chờ kênh email",sending:"đang gửi…",sent:l10n.message("misc.email.sent",{from:dv&&dv.from?l10n.message("misc.email.from",{email:dv.from}):""}),failed:l10n.message("misc.email.failed",{detail:dv&&dv.detail?": "+dv.detail:""})});if(ap.kind==="computer"&&ap.state==="approved"){
+ const line=el("small","ap-line"+(os&&os.exit?" bad":""));
+ if(!dv||dv.status==="sending"||dv.status==="queued")l10n.uiText(line,"✓ Đã duyệt · đang chạy…");
+ else if(dv.status==="failed")l10n.bind(line,"chat.commandFailure",()=>({detail:dv.detail?": "+dv.detail:""}));
+ else if(os&&os.exit)l10n.bind(line,"chat.approval.error",()=>({code:os.exit,detail:os.err?" · "+os.err:"",duration:os.secs!=null?l10n.message("chat.duration",{seconds:os.secs}):""}));
+ else l10n.bind(line,"chat.approval.done",()=>({exit:os&&os.exit===0?l10n.message("chat.exitZero"):"",duration:os&&os.secs!=null?l10n.message("chat.duration",{seconds:os.secs}):""}));
+ c.append(line);return c}
+ const line=el("small");if(ap.state==="approved"&&dv)l10n.bind(line,"chat.approvedState",()=>({status:l10n.t(DS()[dv.status]||dv.status)}));else l10n.uiText(line,ap.state==="approved"?"✓ Bạn đã duyệt · chưa gửi ra ngoài (kênh gửi chưa kết nối)":"Đã hoãn");c.append(line)}
  return c}
 // tool activity stays unobtrusive: a status line while running, folded into the
 // "Nguồn" footer afterwards (states/dedup after CopilotKit/openmuse search-tool-card.tsx, MIT)
@@ -256,14 +286,14 @@ const md=(node,text,src,streaming)=>AURORA_MD.render(node,text,src,{streaming});
 document.addEventListener("aurora-copied",()=>{buzz("confirm");toast("Đã sao chép")});
 function sourceList(m){const w=el("details","sources");const sm=el("summary");const u=uniqSources(m.sources);const ok=u.length>0,T=m.tools||[],bad=T.length>0&&T.every(t=>t.status==="failed");sm.append(el("span",0,ok?`Nguồn · ${u.length}`:bad?"Không lấy được dữ liệu":`Các bước · ${T.length}`),I("chevron-down",14));w.append(sm);
  (m.tools||[]).forEach(t=>{const r=el("p","tool-line"+(t.status==="failed"?" bad":""),(t.summary||t.name)+(t.ms?" · "+(t.ms/1000).toFixed(1).replace(".",",")+"s":""));w.append(r)});const ol=el("ol");
- u.forEach(x=>{const li=el("li");const l=el("a");l.href=x.url;l.target="_blank";l.rel="noopener noreferrer";l.append(el("b",0,"["+x.n+"] "+(x.title||srcHost(x.url))),el("small",0,srcHost(x.url)+(x.at?" · "+new Date(x.at).toLocaleTimeString("vi-VN",{hour:"2-digit",minute:"2-digit"}):"")));li.append(l);ol.append(li)});w.append(ol);return w}
+ u.forEach(x=>{const li=el("li");const l=el("a");l.href=x.url;l.target="_blank";l.rel="noopener noreferrer";l.append(el("b",0,"["+x.n+"] "+(x.title||srcHost(x.url))),el("small",0,srcHost(x.url)+(x.at?" · "+new Date(x.at).toLocaleTimeString(l10n.locale,{hour:"2-digit",minute:"2-digit"}):"")));li.append(l);ol.append(li)});w.append(ol);return w}
 function speaker(box,m,last){if(!isGroup(cur)||m.role!=="agent"||!m.from)return;if(last.v===m.from)return;last.v=m.from;const b=byId(m.from);const h=el("div","speaker");h.append(face(b&&b.av,20),literalEl("span",0,b?b.name:"Bot"));box.append(h)}
-function renderThread(){const a=cur;if(!a)return;$("#threadName").textContent=a.name;$("#input").placeholder=isGroup(a)?"Hỏi cả nhóm":"Hỏi "+a.name;const restoreSelection=selectionExcerpt?.beforeRender();$("#threadState").toggleAttribute("data-noi18n",isGroup(a)&&a.status!=="working"&&!waiting(a));$("#threadState").textContent=stateLine(a);headAvatar(a);const box=$("#messages");
+function renderThread(){const a=cur;if(!a)return;$("#threadName").textContent=a.name;renderThreadModel(a);$("#input").placeholder=isGroup(a)?"Hỏi cả nhóm":"Hỏi "+a.name;const restoreSelection=selectionExcerpt?.beforeRender();$("#threadState").toggleAttribute("data-noi18n",isGroup(a)&&a.status!=="working"&&!waiting(a));$("#threadState").textContent=stateLine(a);headAvatar(a);const box=$("#messages");
  const focused=document.activeElement,focusMessage=box.contains(focused)&&focused.classList.contains("message-item")?focused.dataset.messageId:null;
  const keepSec=[...box.querySelectorAll(".secret input[data-secret]")].map(i=>[i.closest(".secret").dataset.inputKey,i.dataset.secret,i.value]);
  const keepHints=[...box.querySelectorAll(".vault-card textarea[name=useHint]")].map(i=>({key:i.closest(".vault-card").dataset.hintKey,value:i.value,focused:i===focused,start:i.selectionStart,end:i.selectionEnd,direction:i.selectionDirection}));
  const keepEdit=[...box.querySelectorAll(".ap-body")].map(t=>[t.closest(".approval").dataset.id,t.value,t.closest(".approval").querySelector(".ap-subject")?.value]);
- clearVaultInputs(box);const sEl=statusEl();[...box.childNodes].forEach(n=>n!==sEl&&n.remove());if(sEl.parentNode!==box)box.append(sEl);const all=S.msgs[a.id]||[];const W=win[a.id]||(win[a.id]=PAGE);const L=all.length>W?all.slice(-W):all;const last={v:null};
+ const draftNodes=new Map([...box.querySelectorAll(".msg.draft[id]")].map(n=>[n.id,n]));clearVaultInputs(box);const sEl=statusEl();[...box.childNodes].forEach(n=>n!==sEl&&n.remove());if(sEl.parentNode!==box)box.append(sEl);const all=S.msgs[a.id]||[];const W=win[a.id]||(win[a.id]=PAGE);const L=all.length>W?all.slice(-W):all;const last={v:null};
  const first=stickFor!==a.id;if(first){stickFor=a.id;stick=true;nodeCache.clear()}const frag=document.createDocumentFragment();const mark=(n0,isNew)=>{if(isNew)[...frag.childNodes].slice(n0).forEach(n=>{if(!n.classList)return;n.classList.add("enter");n.addEventListener("animationend",()=>n.classList.remove("enter"),{once:true})})};
  if(all.length>W){const o=el("button","older","Xem tin nhắn cũ hơn");o.type="button";o.onclick=loadOlder;frag.append(o)}if(justSent)stick=true;let prevT=0;
  L.forEach((m,idx)=>{
@@ -273,13 +303,14 @@ function renderThread(){const a=cur;if(!a)return;$("#threadName").textContent=a.
   const questionState=m.questions?JSON.stringify([all.some(x=>x.answerFor===m.taskId),outbox.find(x=>x.answerFor===m.taskId&&x.agentId===a.id)||null]):"";
   const formState=m.form?JSON.stringify([all.find(x=>x.formFor===m.taskId&&x.role==="user")||null,outbox.find(x=>x.formFor===m.taskId&&x.agentId===a.id)||null]):"";
   const sig=JSON.stringify(m)+"|"+(idx===L.length-1&&!m.text?a.status:"")+"|"+later+"|"+showThink+"|"+formState+"|"+questionState+"|"+last.v+"|"+prevT+"|"+(m.secret&&!m.secret.vault?S.secrets.includes(m.secret.name):"");
-  const hit=nodeCache.get(m.id);if(hit&&hit.sig===sig){hit.nodes.forEach(n=>frag.append(n));last.v=hit.lastV;prevT=hit.prevT;return}
-  const n0=frag.childNodes.length,isNew=!first&&!shownIds.has(m.id)&&!(m.role==="user"&&sentRecently(m.text));if(!first&&!shownIds.has(m.id))seenAt.set(m.id,Date.now());shownIds.add(m.id);if(m.role!=="agent")last.v=null;const t=T(m.t);if(m.role==="user"&&t>0&&(!prevT||t-prevT>15*60e3))frag.append(el("div","daystamp",dayStamp(t)));if(t>0)prevT=t;
+  const hit=nodeCache.get(m.id);if(hit&&hit.sig===sig){hit.nodes.forEach(n=>{if(n.matches?.(".daystamp[data-timestamp]"))n.textContent=dayStamp(Number(n.dataset.timestamp));frag.append(n)});last.v=hit.lastV;prevT=hit.prevT;return}
+  const n0=frag.childNodes.length,isNew=!first&&!shownIds.has(m.id)&&!(m.role==="user"&&sentRecently(m.text));if(!first&&!shownIds.has(m.id))seenAt.set(m.id,Date.now());shownIds.add(m.id);if(m.role!=="agent")last.v=null;const t=T(m.t);if(m.role==="user"&&t>0&&(!prevT||t-prevT>15*60e3))frag.append(dayStampNode(t));if(t>0)prevT=t;
   const cp=m.role==="agent"&&AURORA_UX.isCheckpoint(m.text),body=cp?m.text.trim().slice(0,-AURORA_UX.CHECKPOINT.length).trim():m.text;
   if(m.thinking&&m.role==="agent"&&showThink)frag.append(thinkCard(m));
   if(m.role==="peer"&&window.AURORA_NETWORK)frag.append(AURORA_NETWORK.peerMessage(m));
-  else if(body&&!AURORA_UX.isNoise(m)){speaker(frag,m,last);const b=el("div","msg"+(m.role==="user"?" mine":m.role==="system"?" sys":" bot"));if(m.role==="agent"){if(isNew&&!reduceMotion())typeIn(b,body,m.sources,a.id);else{md(b,body,m.sources);chipify(b,a.id)}}else b.textContent=body;const item=el("div","message-item"+(m.role==="user"?" mine":""));item.dataset.messageId=m.id;item.tabIndex=-1;if(m.quote)item.append(quotePreview(m.quote));item.append(b);if((m.role==="agent"||m.role==="user")&&!m.plan&&!cp){const author=m.role==="user"?"Bạn":byId(m.from||m.agentId)?.name||a.name,reply=el("button","reply-action text-btn","Trả lời");reply.type="button";reply.dataset.id=m.id;reply.setAttribute("aria-label","Trích dẫn tin nhắn của "+author);reply.onclick=()=>{setReply({id:m.id,author,text:[...body].slice(0,2000).join(""),for:a.id});inp.focus()};item.append(reply);if(m.role==="agent"){const scope=S.workspaceId;AURORA_MD.enableSelectionCopy(b,()=>S.workspaceId===scope&&cur?.id===a.id);item.append(AURORA_MD.copyReplyButton({text:body,sources:m.sources,active:()=>S.workspaceId===scope&&cur?.id===a.id,notice:toast}))}}frag.append(item)}
-  if(m.role==="user"&&m.ref)frag.append(el("div","note-line ref-line","Kèm ngữ cảnh: chat “"+m.ref+"”"));
+  else if(body&&!AURORA_UX.isNoise(m)){speaker(frag,m,last);const b=el("div","msg"+(m.role==="user"?" mine":m.role==="system"?" sys":" bot"));if(m.role==="agent"){md(b,body,m.sources);chipify(b,a.id)}else b.textContent=body;const item=el("div","message-item"+(m.role==="user"?" mine":""));item.dataset.messageId=m.id;item.tabIndex=-1;if(m.quote)item.append(quotePreview(m.quote));item.append(b);if(m.queued)item.append(el("div","note-line queued-note","Đã nhận · chờ phản hồi hiện tại hoàn tất"));if(m.interrupted)item.append(el("div","note-line interrupted-note","Đoạn trả lời bị ngắt khi bạn nhắn thêm"));if(m.role==="system"&&["configure_ai","check_ai"].includes(m.recovery)){const scope=S.workspaceId,setup=el("button","pill",m.recovery==="check_ai"?"AI của bot":"Thiết lập AI");setup.type="button";setup.onclick=()=>{if(S.workspaceId===scope&&cur?.id===a.id)openModels(false,isGroup(a)?null:a.id)};b.classList.add("ai-setup-card");b.replaceChildren(el("h3",0,m.recovery==="check_ai"?"Chưa nhận được phản hồi AI":"Cần kết nối AI để trả lời"),el("p",0,body),setup)}if((m.role==="agent"||m.role==="user")&&!m.plan&&!cp){const author=m.role==="user"?"Bạn":byId(m.from||m.agentId)?.name||a.name,reply=el("button","reply-action text-btn","Trả lời");reply.type="button";reply.dataset.id=m.id;l10n.bindAttribute(reply,"aria-label","chat.quote",()=>({name:m.role==="user"?l10n.t("Bạn"):author}));reply.onclick=()=>{setReply({id:m.id,author,text:[...body].slice(0,2000).join(""),for:a.id});inp.focus()};const actions=el("div","message-actions"),label=el("span","action-label","Trả lời");reply.replaceChildren(I("message-circle",16),label);reply.title=l10n.t("Trả lời");actions.append(reply);if(m.role==="agent"){const scope=S.workspaceId;AURORA_MD.enableSelectionCopy(b,()=>S.workspaceId===scope&&cur?.id===a.id);const copy=AURORA_MD.copyReplyButton({text:body,sources:m.sources,active:()=>S.workspaceId===scope&&cur?.id===a.id,notice:toast});copy.replaceChildren(I("copy",16),el("span","action-label","Sao chép câu trả lời"));copy.title=l10n.t("Sao chép câu trả lời");actions.append(copy)}item.append(actions)}frag.append(item)}
+  if(m.completion&&["waiting","incomplete"].includes(m.completion.status))frag.append(l10n.bind(el("div","note-line completion-note"),"chat.completion."+m.completion.status));
+  if(m.role==="user"&&m.ref)frag.append(l10n.bind(el("div","note-line ref-line"),"chat.contextIncluded",{name:m.ref}));
   if(cp)frag.append(el("div","note-line","↻ Đang làm tiếp ở lượt sau"));
   if(m.plan)frag.append(planCard(m));
   if(m.choices&&m.choices.length){const wrap=el("div","choices");const answered=L.some(x=>x.answerFor===m.taskId)||outbox.some(x=>x.answerFor===m.taskId);const choose=text=>sendMsg(text,{answerFor:m.taskId});m.choices.forEach(ch=>{const b=el("button","choice",ch);b.dataset.noi18n="";b.disabled=answered;b.onclick=()=>choose(ch);wrap.append(b)});
@@ -289,11 +320,15 @@ function renderThread(){const a=cur;if(!a)return;$("#threadName").textContent=a.
   if(m.tools&&m.tools.length&&(m.text||m.approval)&&!(a.status==="working"&&idx===L.length-1&&!m.text))frag.append(sourceList(m));
   if(m.approval)frag.append(approvalCard(m));if(m.secret)frag.append(secretCard(m));mark(n0,isNew);nodeCache.set(m.id,{sig,nodes:[...frag.childNodes].slice(n0),lastV:last.v,prevT})});
  box.insertBefore(frag,sEl);
+ const records=new Map(L.map(m=>[m.id,m]));
+ const items=[...box.querySelectorAll(".message-item[data-message-id]")];
+ items.forEach(item=>item.classList.remove("run-joined","run-next"));
+ items.forEach(item=>{const previous=item.previousElementSibling;if(previous?.matches(".message-item")&&AURORA_UX.sameMessageRun(records.get(previous.dataset.messageId),records.get(item.dataset.messageId))){previous.classList.add("run-next");item.classList.add("run-joined")}});
  keepSec.forEach(([key,n,v])=>{if(!key)return;const card=[...box.querySelectorAll(".secret")].find(c=>c.dataset.inputKey===key),i=card&&[...card.querySelectorAll("input[data-secret]")].find(i=>i.dataset.secret===n);if(i)i.value=v});
  keepHints.forEach(h=>{const card=[...box.querySelectorAll(".vault-card")].find(c=>c.dataset.hintKey===h.key),i=card?.querySelector("textarea[name=useHint]");if(!i)return;if(!i.value)i.value=h.value;if(h.focused&&(document.activeElement===document.body||document.activeElement===focused)){i.focus({preventScroll:true});i.setSelectionRange(h.start,h.end,h.direction)}});
  keepEdit.forEach(([id,v,sj])=>{const c=box.querySelector(`.approval[data-id="${id}"]`);if(c){const t=c.querySelector(".ap-body");if(t)t.value=v;const s2=c.querySelector(".ap-subject");if(s2&&sj!=null)s2.value=sj}});
  outbox.filter(o=>o.agentId===a.id).forEach(o=>{last.v=null;frag.append(pendingCard(o))});
- Object.entries(S.drafts).forEach(([id,d])=>{if(d.agentId===a.id&&shown(d)){speaker(frag,{role:"agent",from:d.from},last);const b=el("div","msg bot draft"+(shownIds.has(id)?"":" enter"));shownIds.add(id);b.id="d_"+id;frag.append(b);if(reduceMotion())d.sl=1e9;drawDraft(id,b);requestAnimationFrame(()=>paintDraft(id))}});
+ Object.entries(S.drafts).forEach(([id,d])=>{if(d.agentId===a.id&&shown(d)){speaker(frag,{role:"agent",from:d.from},last);const b=draftNodes.get("d_"+id)||el("div","msg bot draft"+(shownIds.has(id)?"":" enter"));shownIds.add(id);b.id="d_"+id;const at=L.findIndex(m=>m.taskId===id),next=at<0?null:L.slice(at+1).find(m=>m.role==="user"&&m.queued),anchor=next&&[...box.querySelectorAll(".message-item")].find(n=>n.dataset.messageId===next.id);if(anchor)box.insertBefore(b,anchor);else frag.append(b);drawDraft(id,b)}});
  // an answer just landed (first seen < 2.5 s ago, nothing running): no status line while the bot state catches up
  const lm=L.at(-1),age=lm&&seenAt.has(lm.id)?Date.now()-seenAt.get(lm.id):1e9;
  const landed=lm&&lm.role==="agent"&&lm.text&&age<2500&&!(lm.tools||[]).some(t=>t.status==="running")&&!(lm.approval&&lm.approval.state==="pending");
@@ -301,16 +336,13 @@ function renderThread(){const a=cur;if(!a)return;$("#threadName").textContent=a.
  if(!L.length&&!outbox.some(o=>o.agentId===a.id)&&!Object.values(S.drafts).some(d=>d.agentId===a.id))frag.append(emptyThread(a));
  box.insertBefore(frag,sEl);setStatus(a,L,!landed&&!Object.values(S.drafts).some(d=>d.agentId===a.id&&shown(d)));
  setSendMode();
- if(focusMessage){const target=[...box.querySelectorAll(".message-item")].find(n=>n.dataset.messageId===focusMessage);target?.focus({preventScroll:true})}
- restoreSelection?.();if(stick)requestAnimationFrame(()=>{if(selectionExcerpt?.hasSelection())return;box.scrollTop=box.scrollHeight;justSent=false;syncJump()})}
+ if(focused&&box.contains(focused))focused.focus({preventScroll:true});
+ else if(focusMessage){const target=[...box.querySelectorAll(".message-item")].find(n=>n.dataset.messageId===focusMessage);target?.focus({preventScroll:true})}
+ restoreSelection?.();if(stick&&!selectionExcerpt?.hasSelection())box.scrollTop=box.scrollHeight;if(stick)requestAnimationFrame(()=>{if(selectionExcerpt?.hasSelection())return;box.scrollTop=box.scrollHeight;justSent=false;syncJump()})}
 // long chats: the last PAGE messages render; older ones load on demand (button
 // or scrolling to the top) with the scroll position kept
 const PAGE=60,win={},nodeCache=new Map(),seenAt=new Map();
 function loadOlder(){if(!cur)return;const box=$("#messages"),h=box.scrollHeight,top=box.scrollTop;win[cur.id]=(win[cur.id]||PAGE)+PAGE;stick=false;renderThread();box.scrollTop=top+box.scrollHeight-h}
-// a finished answer that arrived whole (no stream) types in like a stream
-function typeIn(b,body,src,id){let k=0;b.classList.add("typing");const step=()=>{if(!b.isConnected&&k>0){md(b,body,src);chipify(b,id);return}const gap=body.length-k;k+=Math.max(3,Math.ceil(gap/14));while(k<body.length&&!/\s/.test(body[k]))k++;
- if(k>=body.length){b.classList.remove("typing");md(b,body,src);chipify(b,id);if(stick&&!selectionExcerpt?.hasSelection()){const x=$("#messages");x.scrollTop=x.scrollHeight}return}
- md(b,body.slice(0,k),src,true);if(stick&&!selectionExcerpt?.hasSelection()){const x=$("#messages");x.scrollTop=x.scrollHeight}requestAnimationFrame(step)};md(b,body.slice(0,Math.min(body.length,24)),src,true);requestAnimationFrame(step)}
 // PWA install: Android/Chrome gives a prompt event; iOS Safari only has the
 // Share menu, so the cell explains it. Hidden inside the app shell or once installed.
 let installEv=null;addEventListener("beforeinstallprompt",e=>{e.preventDefault();installEv=e});addEventListener("appinstalled",()=>{installEv=null;toast("Đã cài Neko Aurora")});
@@ -319,9 +351,9 @@ async function installApp(){if(installEv){installEv.prompt();try{await installEv
 // first open of a bot with no messages: who it is and three starters
 function emptyThread(a){const w=el("div","thread-empty enter");const f=el("div","te-face"),g=isGroup(a);
  const mem=g?(a.members||[]).map(byId).filter(Boolean):[];if(g&&mem.length){f.classList.add("stack");mem.slice(0,3).forEach(b=>f.append(face(b.av||{},48)))}else f.append(face(a.av||{},64));
- const names=mem.map(b=>b.name);const who=names.length>1?names.slice(0,-1).join(", ")+" và "+names.at(-1):names[0]||"";
- w.append(f,literalEl("b",0,a.name),((g?who:a.desc)?literalEl:el)("p",0,g?(who?"Nhóm gồm "+who+". Nhắn một lần, các bot cùng làm.":"Nhóm chat"):a.desc||"Sẵn sàng nhận việc."));
- const c=el("div","choices");(g?["Mỗi bạn giới thiệu ngắn một câu nhé","Chia việc giúp mình: lên kế hoạch tuần này","Cả nhóm cùng góp ý một ý tưởng"]:["Bạn giúp được mình những gì?","Gợi ý 3 việc mình nên giao cho bạn","Bắt đầu với một việc nhỏ hôm nay nhé"]).forEach(t=>{const b=el("button","choice",t);b.type="button";b.onclick=()=>sendMsg(t);c.append(b)});w.append(c);return w}
+ const names=mem.map(b=>b.name);const who=new Intl.ListFormat(l10n.lang,{style:"long",type:"conjunction"}).format(names);
+ w.append(f,literalEl("b",0,a.name),((g?who:a.desc)?literalEl:el)("p",0,g?(who?l10n.message("misc.groupMembers",{names:who}):"Nhóm chat"):a.desc||"Sẵn sàng nhận việc."));if(g&&who)l10n.bind(w.lastChild,"misc.groupMembers",()=>({names:new Intl.ListFormat(l10n.lang,{style:"long",type:"conjunction"}).format(names)}));
+ const c=el("div","choices");(g?["Mỗi bạn giới thiệu ngắn một câu nhé","Chia việc giúp mình: lên kế hoạch tuần này","Cả nhóm cùng góp ý một ý tưởng"]:["Bạn giúp được mình những gì?","Gợi ý 3 việc mình nên giao cho bạn","Bắt đầu với một việc nhỏ hôm nay nhé"]).forEach(t=>{const b=el("button","choice",t);b.type="button";b.onclick=()=>sendMsg(l10n.t(t));c.append(b)});w.append(c);return w}
 // Working status (one persistent node, so the mascot and shine never restart
 // on a re-render): the bot's own mascot moves per phase (bob/scan/hop…, eyes
 // blink), the phase text shines and crossfades when it changes, the stop
@@ -330,51 +362,67 @@ let stEl=null;const shownIds=new Set();const sent=new Map();const sentRecently=t
 function statusEl(){if(!stEl){stEl=el("div","status off");stEl.setAttribute("role","status");stEl.setAttribute("aria-live","polite");const x=el("button","st-stop");x.type="button";x.setAttribute("aria-label","Dừng");x.append(I("square",12));x.onclick=()=>stopAgent();stEl.append(el("span","st-mascot"),el("span","st-t"),x)}return stEl}
 const statusGate=AURORA_UX.statusGate();
 function setStatus(a,L,on){const st=statusEl(),u=[...L].reverse().find(m=>m.role==="user"),p=statusGate(JSON.stringify([S.workspaceId,a.id,u?.id||u?.t||""]),on?AURORA_UX.phase(a,L):null),t=st.children[1];st.classList.toggle("off",!p);if(!p){t.replaceChildren();t.dataset.label="";return}
- const key=a.id+JSON.stringify(a.av||{});if(st.dataset.av!==key){st.dataset.av=key;st.firstChild.replaceChildren(face(a.av||{},28))}
- st.dataset.k=p.k;st.lastChild.hidden=a.status!=="working";if(!p.t){t.replaceChildren();t.dataset.label="";return}if(t.dataset.label===p.t)return;t.dataset.label=p.t;const old=t.querySelector("span:not(.out)");
+ const key=a.id+JSON.stringify(a.av||{});if(st.dataset.av!==key){st.dataset.av=key;st.firstChild.replaceChildren(AURORA_AVATARS.attach(face(a.av||{},28),a.id,waiting(a)?"waiting":a.status))}
+ AURORA_AVATARS.setState(st.firstChild.firstChild,waiting(a)?"waiting":a.status);st.dataset.k=p.k;st.lastChild.hidden=a.status!=="working";if(!p.t){t.replaceChildren();t.dataset.label="";return}if(t.dataset.label===p.t)return;t.dataset.label=p.t;const old=t.querySelector("span:not(.out)");
  if(old){old.classList.add("out");setTimeout(()=>old.remove(),260)}t.append(el("span",old?"in":"",p.t))}
 setInterval(()=>{if(cur&&stEl&&!stEl.classList.contains("off"))setStatus(cur,S.msgs[cur.id]||[],true)},1000);
 // download links in a reply become file chips (type, name, size; 48px tap target)
 const pcSizes={};
 function chipify(b,id){const scope=S.workspaceId;const links=[...b.querySelectorAll("a[href]")].filter(x=>AURORA_UX.isDownload(x.getAttribute("href")));if(!links.length)return;
- const paint=()=>links.forEach(x=>{const f=AURORA_UX.fileInfo(x.getAttribute("href"),pcSizes[id]);x.className="file-chip";x.removeAttribute("target");x.setAttribute("download",f.name);x.onclick=e=>{if(e.button||e.ctrlKey||e.metaKey||e.shiftKey||e.altKey)return;e.preventDefault();AURORA_DOWNLOADS.save({href:x.href,workspaceId:scope,active:()=>scope===S.workspaceId&&cur?.id===id&&x.isConnected,notice:toast})};x.setAttribute("aria-label",`Tải ${f.name}`);x.replaceChildren(el("span","fc-ext",(f.ext||"file").toUpperCase().slice(0,4)),Object.assign(el("span","fc-txt"),{}));const t=x.lastChild;t.append(el("b",0,f.name),el("small",0,f.label+(f.size?" · "+f.size:"")))});
- paint();if(!pcSizes[id]){pcSizes[id]={};api(`/agents/${id}/computer`).then(st=>{(st.files||[]).forEach(f=>{if(!f.dir)pcSizes[id][f.path]=f.size});paint()}).catch(()=>{})}}
+ const paint=()=>links.forEach(x=>{const f=AURORA_UX.fileInfo(x.getAttribute("href"),pcSizes[id]);x.className="file-chip";x.removeAttribute("target");x.setAttribute("download",f.name);x.onclick=e=>{if(e.button||e.ctrlKey||e.metaKey||e.shiftKey||e.altKey)return;e.preventDefault();AURORA_DOWNLOADS.save({href:x.href,workspaceId:scope,active:()=>scope===S.workspaceId&&cur?.id===id&&x.isConnected,notice:toast})};x.setAttribute("aria-label",l10n.message("network.download",{name:f.name}));x.replaceChildren(el("span","fc-ext",(f.ext||"file").toUpperCase().slice(0,4)),Object.assign(el("span","fc-txt"),{}));const t=x.lastChild;t.append(el("b",0,f.name),el("small",0,f.label+(f.size?" · "+f.size:"")))});
+ paint();links.forEach(x=>{const u=new URL(x.href,location.href),p=u.searchParams.get("path");if(u.origin!==location.origin||u.pathname!==API+`/agents/${id}/computer/download`||!p||!(/\.html?$/i.test(p)))return;const button=el("button","pill soft pc-preview-button");button.type="button";l10n.bind(button,"workspace.preview");button.onclick=()=>{if(scope===S.workspaceId)openComputerPreview(id,p,scope)};x.after(button)});if(!pcSizes[id]){pcSizes[id]={};api(`/agents/${id}/computer`).then(st=>{(st.files||[]).forEach(f=>{if(!f.dir)pcSizes[id][f.path]=f.size});paint()}).catch(()=>{})}}
+let computerPreview=null;
+async function openComputerPreview(id,path,scope=S.workspaceId){
+ if(scope!==S.workspaceId)return;if(computerPreview)computerPreview.close();
+ const origin=document.activeElement,dialog=el("dialog","pc-preview"),head=el("header"),title=literalEl("strong",0,path),close=el("button","pill soft"),download=el("button","pill soft"),note=el("p","caption"),status=el("p","caption"),body=el("div","pc-preview-body"),abort=new AbortController();
+ l10n.bind(close,"workspace.close");l10n.bind(download,"workspace.download");l10n.bind(note,"workspace.previewNote");l10n.bind(status,"workspace.loadingPreview");
+ close.type=download.type="button";close.onclick=()=>dialog.close();title.id="computerPreviewTitle";dialog.setAttribute("aria-labelledby",title.id);status.setAttribute("role","status");
+ const base=API+`/agents/${id}/computer/`,query=`?path=${encodeURIComponent(path)}&workspaceId=${encodeURIComponent(scope)}`,active=()=>scope===S.workspaceId&&dialog.isConnected;
+ download.onclick=()=>AURORA_DOWNLOADS.save({href:base+"download"+query,workspaceId:scope,active,notice:toast});head.append(title,download,close);body.append(status);dialog.append(head,body,note);document.body.append(dialog);computerPreview=dialog;
+ const checkScope=setInterval(()=>{if(scope!==S.workspaceId)dialog.close()},250);
+ dialog.addEventListener("close",()=>{clearInterval(checkScope);abort.abort();dialog.remove();if(computerPreview===dialog)computerPreview=null;if(origin?.isConnected)origin.focus({preventScroll:true})},{once:true});dialog.showModal();
+ try{const response=await fetch(base+"preview"+query,{credentials:"same-origin",cache:"no-store",redirect:"error",signal:abort.signal});await response.body?.cancel();if(!active())return;if(!response.ok||response.headers.get("Content-Type")!=="text/html; charset=utf-8"||response.headers.get("X-Aurora-Workspace")!==scope||response.headers.get("X-Aurora-Bot")!==id)throw Error("preview_unavailable");
+  const frame=document.createElement("iframe");frame.title=path;frame.setAttribute("sandbox","allow-scripts allow-forms");frame.referrerPolicy="no-referrer";frame.src=base+"preview"+query;body.replaceChildren(frame);
+ }catch(e){if(active()&&e.name!=="AbortError")l10n.bind(status,"workspace.previewFailed")}
+}
 const srcOf=id=>{const m=(S.msgs[cur&&cur.id]||[]).find(x=>x.id===id);return m&&m.sources};
 const atBottom=b=>b.scrollHeight-b.scrollTop-b.clientHeight<120;let justSent=false;
 // stick: follow new text; a user scroll up releases it, scrolling back down or sending re-arms it
 let stick=true,stickFor=null;
-const dayStamp=t=>{const d=new Date(t),n=new Date(),y=new Date(n-864e5);const hm=d.toLocaleTimeString("vi-VN",{hour:"2-digit",minute:"2-digit"});return(d.toDateString()===n.toDateString()?"Hôm nay ":d.toDateString()===y.toDateString()?"Hôm qua ":d.toLocaleDateString("vi-VN",{day:"numeric",month:"numeric"})+" ")+hm};
+const dayStamp=t=>{const d=new Date(t),n=new Date(),y=new Date(n);y.setDate(y.getDate()-1);const time=l10n.date(d,{hour:"2-digit",minute:"2-digit"});return d.toDateString()===n.toDateString()?l10n.message("time.today",{time}):d.toDateString()===y.toDateString()?l10n.message("time.yesterday",{time}):l10n.date(d,{day:"numeric",month:"numeric",hour:"2-digit",minute:"2-digit"})};
+function dayStampNode(t){const n=el("div","daystamp",dayStamp(t));n.dataset.timestamp=t;n.dataset.noi18n="";return n}
 function syncJump(){const b=$("#messages");$("#jumpBtn").classList.toggle("hidden",atBottom(b))}
-const visible=t=>{const i=t.search(/(^|\n)\s*(APPROVAL|PLAN|CHOICES|QUESTIONS|TOOL|SECRET):|(APPROVAL|PLAN|CHOICES|QUESTIONS|TOOL|SECRET):\s*[\[{]/);return(i>=0?t.slice(0,i):t).trim()||"…"};
-// A draft is painted only once it has a letter or digit: a lone "-" or "**"
-// at the start of a streamed step must not flash as its own bubble.
-function shown(d){const t=visible(d.text||"");return Date.now()-(d.t0||0)>=450&&/[\p{L}\p{N}]/u.test(t)&&/\s/.test(t.trim())} // a whole first word, never a lone "Đ"
-// Streaming reveal: the draft shows words up to d.sl, which a frame loop
-// walks toward the received text (faster the further behind), so a chunked
-// stream reads as a steady typewriter. Reduced motion shows text as it lands.
-const reveal={};
-function paintDraft(id){const d=S.drafts[id];if(!d)return;const n=document.getElementById("d_"+id);if(!n){if(shown(d))renderThread();return}
- if(reduceMotion()){d.sl=1e9;drawDraft(id,n);return}
- if(reveal[id])return;reveal[id]=requestAnimationFrame(function step(){const d=S.drafts[id],n=document.getElementById("d_"+id);if(!d||!n){delete reveal[id];return}
-  const full=visible(d.text).length,gap=full-(d.sl||0);if(gap<=0){delete reveal[id];return}d.sl=(d.sl||0)+Math.max(2,Math.ceil(gap/12));drawDraft(id,n);reveal[id]=requestAnimationFrame(step)})}
-function drawDraft(id,n){const d=S.drafts[id],t=visible(d.text);let k=Math.min(t.length,d.sl||0);while(k<t.length&&!/\s/.test(t[k]))k++;if(k===t.length){const w=t.trimEnd().search(/\s\S*$/);if(w>0)k=w} // the word still arriving waits for its end
- n.replaceChildren();md(n,t.slice(0,k),srcOf(id),true);const box=$("#messages");if(stick&&!selectionExcerpt?.hasSelection())box.scrollTop=box.scrollHeight;syncJump()}
+const visible=AURORA_UX.streamText;
+function shown(d){return AURORA_UX.readableDraft(d.text)}
+const reveal=new Map(),draftPaint=new WeakMap();
+function paintDraft(id){
+ if(!S.drafts[id])return;
+ if(!document.getElementById("d_"+id)){if(shown(S.drafts[id]))renderThread();return}
+ if(reveal.has(id))return;
+ reveal.set(id,requestAnimationFrame(()=>{reveal.delete(id);const n=document.getElementById("d_"+id);if(n&&S.drafts[id])drawDraft(id,n)}));
+}
+function drawDraft(id,n){
+ const d=S.drafts[id];if(!d)return;const text=visible(d.text);
+ if(draftPaint.get(n)===text)return;
+ draftPaint.set(n,text);n.replaceChildren();md(n,text,srcOf(id),true);
+ const box=$("#messages");if(stick&&!selectionExcerpt?.hasSelection())box.scrollTop=box.scrollHeight;syncJump();
+}
 async function decide(m,v,bs,extra){if(deciding.has(m.id))return;deciding.add(m.id);bs.querySelectorAll("button").forEach(b=>b.disabled=true);
  try{await api(`/approvals/${m.id}`,{decision:v,...(extra||{})});buzz(v==="approved"?"confirm":"soft");editing.delete(m.id)}catch(e){if(e.status!==409){deciding.delete(m.id);toast("Không ghi nhận được, thử lại");bs.querySelectorAll("button").forEach(b=>b.disabled=false)}}}
-// the composer never locks or turns into stop: voice when empty, send with text (stop lives on the status line)
-function setSendMode(){const b=$("#composer .send");const voice=!$("#input").value.trim();b.classList.toggle("voice",voice);b.replaceChildren(I(voice?"audio-lines":"arrow-up"));b.setAttribute("aria-label",voice?"Nói":"Gửi")}
-let stopping=false;async function stopAgent(){if(!cur||stopping)return;stopping=true;try{await api(`/agents/${cur.id}/stop`,{});buzz("soft");toast("Đã dừng")}catch{toast("Không dừng được")}finally{stopping=false}}
+// Sending stays available during work; stopping has its own control.
+function setSendMode(){const b=$("#composer .send");const empty=!$("#input").value.trim(),supported=!!(window.SpeechRecognition||window.webkitSpeechRecognition),voice=empty&&supported;b.classList.toggle("voice",voice);b.disabled=empty&&!supported;b.replaceChildren(I(voice?(rec?"square":"mic"):"arrow-up"));b.setAttribute("aria-label",voice?(rec?"Dừng nhập giọng nói":"Nói để nhập"):"Gửi");$("#micBtn").classList.toggle("hidden",empty||!supported);const stop=$("#composerStop");stop.hidden=cur?.status!=="working";stop.disabled=stopping}
+let stopping=false;async function stopAgent(){if(!cur||stopping)return;stopping=true;setSendMode();try{await api(`/agents/${cur.id}/stop`,{});buzz("soft");toast("Đã dừng")}catch{toast("Không dừng được")}finally{stopping=false;setSendMode()}}
 
 // Outbox: the composer never blocks. Every message gets a client nonce, shows
 // at once, and is delivered in order; retries (offline, reconnect, 429/5xx)
-// reuse the nonce so the server stores it exactly once. The running bot folds
-// new messages into its current turn (server inbox), so nothing waits.
+// reuse the nonce so the server stores it exactly once. A follow-up can remain
+// queued while the current reply finishes.
 const outbox=[];let pumping=false,outboxStore=null;const sleep=ms=>new Promise(r=>setTimeout(r,ms));
 try{outboxStore=window.AURORA_OUTBOX.create(localStorage)}catch{}
 function bindOutbox(){outbox.length=0;try{outbox.push(...outboxStore.list(S.workspaceId))}catch{toast("Chưa đọc được tin chưa gửi trên thiết bị này")}pump()}
 const MAX_MSG=10000;
 function sendMsg(text,options={}){const a=cur;text=text.trim();if(!a||!text)return false;
- if([...text].length>MAX_MSG){toast(`Tin quá dài (tối đa ${MAX_MSG.toLocaleString("vi-VN")} ký tự). Chia nhỏ hoặc gửi dạng file nhé.`);return false}
+ if([...text].length>MAX_MSG){toast(l10n.message("chat.tooLong",{count:MAX_MSG}));return false}
  const ref=!options.answerFor&&!options.formFor&&pendingRef&&pendingRef.for===a.id?pendingRef.id:undefined;
  const quote=!options.answerFor&&!options.formFor&&pendingReply?.for===a.id?{id:pendingReply.id,author:pendingReply.author,text:pendingReply.text}:undefined;
  const it={agentId:a.id,text,ref,quote,replyTo:quote?.id,workspaceId:S.workspaceId,answerFor:options.answerFor,formFor:options.formFor,formValues:options.formValues,formAnswerVersion:options.formAnswerVersion,questionAnswers:options.questionAnswers,n:options.formFor?"form-"+options.formFor:options.answerFor?"choice-"+options.answerFor:window.AURORA_OUTBOX.nonce(),t:Date.now()};
@@ -439,13 +487,13 @@ $("#menuBot").onclick=()=>{closeMenu();openCreator()};
 $("#cancelBtn").onclick=()=>closeSheet(true);
 let creating=false;
 $("#createBtn").onclick=async()=>{if(sheetOpen!==$("#sheet")||creating)return;const name=$("#agentName").value.trim(),desc=$("#agentDesc").value.trim();if(!name)return;creating=true;$("#createBtn").disabled=true;
- try{const ed=editing_bot;const a=await api(ed?`/agents/${ed.id}`:"/agents",{name,desc,av:{...draft}});upsert(a);markSeen(a.id);closeSheet(true);renderList();if(ed){if(cur&&cur.id===a.id){cur=a;$("#threadName").textContent=a.name;$("#threadAvatar").replaceChildren(avatarOf(a,32))}if(profId===a.id)renderProfile()}buzz("confirm");toast((ed?"Đã lưu ":"Đã tạo ")+a.name)}catch(e){toast(editing_bot?"Không lưu được":e.status===409&&!editing_bot?"Đã đạt giới hạn 32 bot (kể cả bot đã lưu trữ)":"Không tạo được bot");syncCreate()}finally{creating=false}};
+ try{const ed=editing_bot;const a=await api(ed?`/agents/${ed.id}`:"/agents",{name,desc,av:{...draft}});upsert(a);markSeen(a.id);closeSheet(true);renderList();if(ed){if(cur&&cur.id===a.id){cur=a;$("#threadName").textContent=a.name;renderThreadModel(a);$("#threadAvatar").replaceChildren(avatarOf(a,32))}if(profId===a.id)renderProfile()}buzz("confirm");toast((ed?"Đã lưu ":"Đã tạo ")+a.name)}catch(e){toast(editing_bot?"Không lưu được":e.status===409&&!editing_bot?"Đã đạt giới hạn 32 bot (kể cả bot đã lưu trữ)":"Không tạo được bot");syncCreate()}finally{creating=false}};
 $("#agentName").onkeydown=e=>{if(e.key==="Enter"){e.preventDefault();$("#createBtn").click()}};
 // ---------- new group chat ----------
 let picked=[];
 function renderGroup(){const q=$("#groupSearch").value.trim().toLowerCase();const ch=$("#groupChips");ch.innerHTML="";
  picked.forEach(id=>{const b=byId(id);if(!b)return;const c=el("button","gchip");c.append(face(b.av,20),literalEl("span",0,b.name));c.setAttribute("aria-label","Bỏ "+b.name);c.onclick=()=>{picked=picked.filter(x=>x!==id);renderGroup()};ch.append(c)});
- const ul=$("#groupList");ul.innerHTML="";const list=bots().filter(b=>!q||b.name.toLowerCase().includes(q)).sort((a,b)=>a.name.localeCompare(b.name,"vi"));
+ const ul=$("#groupList");ul.innerHTML="";const list=bots().filter(b=>!q||b.name.toLowerCase().includes(q)).sort((a,b)=>l10n.compare(a.name,b.name));
  if(!list.length)ul.append(el("li","note",bots().length<2?"Cần ít nhất 2 bot để tạo nhóm.":"Không tìm thấy bot."));
  list.forEach(b=>{const li=el("li"),bt=el("button","pick-row");const on=picked.includes(b.id);bt.setAttribute("aria-pressed",on);bt.append(face(b.av,40));const t=el("span","pt");t.append(literalEl("b",0,b.name),literalEl("small",0,b.desc||""));bt.append(t);const ck=el("span","ck");if(on)ck.append(I("check",16));bt.append(ck);
   bt.onclick=()=>{if(on)picked=picked.filter(x=>x!==b.id);else if(picked.length<8)picked.push(b.id);else toast("Tối đa 8 bot");buzz("tap");renderGroup()};li.append(bt);ul.append(li)});
@@ -465,15 +513,16 @@ function cell(icon,label,opt={}){const b=el(opt.toggle!=null||opt.static?"div":"
 const card=(title,...cells)=>{const w=el("section","card-group");if(title)w.append(el("h3",0,title));const c=el("div","card");cells.forEach(x=>c.append(x));w.append(c);return w};
 function renderSettings(){const B=$("#settingsBody");B.innerHTML="";
  const acc=el("div","account");const m=el("img");m.src="/app/icon.svg";m.alt="";m.width=m.height=52;const at=el("div");at.append(el("b",0,"Chủ sở hữu"),el("small",0,location.host));acc.append(m,at);B.append(card(null,acc));
- fetch("/app/auth/me").then(r=>r.ok?r.json():null).then(me=>{if(!me)return;const q=me.quota||{};at.replaceChildren(el("b",0,me.name||"Bạn"),el("small",0,[me.email,q.daily?`Gói ${me.plan||"free"} · ${q.used||0}/${q.daily} tin hôm nay`:""].filter(Boolean).join(" · ")))}).catch(()=>{});
- B.append(card("Mức dùng",cell("sparkles","Mô hình AI",{static:1,value:S.ai.configured?(S.ai.model||"đã cấu hình"):"chưa cấu hình"}),cell("activity","Lõi chạy",{static:1,value:S.ai.runtime||"Neko Core"}),cell("users","Bot & nhóm",{static:1,value:`${bots().length} bot · ${S.agents.length-bots().length} nhóm`})));
+ fetch("/app/auth/me").then(r=>r.ok?r.json():null).then(me=>{if(!me)return;const q=me.quota||{};at.replaceChildren(literalEl("b",0,me.name||l10n.t("Bạn")),el("small",0,[me.email,q.daily?l10n.message("app.ownerUsage",{plan:me.plan||"free",used:q.used||0,limit:q.daily}):""].filter(Boolean).join(" · ")))}).catch(()=>{});
+ B.append(window.AURORA_LOCALE_SETTINGS.create(),AURORA_AVATARS.createSettings());
+ B.append(card("Mức dùng",cell("sparkles","AI mặc định Aurora",{value:aiLabel(S.ai),onClick:()=>openModels()}),cell("activity","Lõi chạy",{static:1,value:S.ai.runtime||"Neko Core"}),cell("users","Bot & nhóm",{static:1,value:`${bots().length} bot · ${S.agents.length-bots().length} nhóm`})));
  B.append(card("Tài liệu",cell("folder","Thư viện trang",{id:"openPages",sub:"Ghi chú và lịch sử phiên bản",onClick:()=>openPages(false)})));
  B.append(card("Ứng dụng",cell("layout-grid","Kết nối ứng dụng",{id:"openConnectors",value:connectedCount()+" đã kết nối",onClick:()=>{renderConnectors();swapSheet($("#connectors"))}})));
  B.append(card("Bot",cell("check","Luôn duyệt trước khi gửi",{toggle:true,locked:true,sub:"Không gì rời máy chủ khi bạn chưa bấm Duyệt"}),
   cell("bell","Thông báo",{id:"notifyCell",toggle:pushOn||notifOn,sub:pushOn?"Thông báo đẩy đang bật":notifOn?"Khi app đang mở":"Báo khi bot cần bạn",onToggle:sw=>{if(sw.getAttribute("aria-checked")==="true"){toast("Tắt trong Cài đặt của máy");return}enableNotify().then(renderSettings).catch(()=>toast("Không bật được thông báo"))}}),
   ...(installable()?[cell("smartphone","Cài app lên màn hình chính",{id:"installCell",sub:installEv?"Mở nhanh như ứng dụng, toàn màn hình":"Safari: bấm Chia sẻ rồi “Thêm vào MH chính”",onClick:installApp})]:[]),
   cell("smartphone","Phản hồi rung",{id:"hapticsCell",toggle:haptics,sub:CAP?"Rung nhẹ khi chạm":"Rung nhẹ khi chạm (Android)",onToggle:sw=>{haptics=!haptics;store.set("neko-aurora-haptics",haptics);sw.setAttribute("aria-checked",haptics);buzz("tap")}}),
-  cell("message-circle","Ngôn ngữ",{id:"langCell",value:{auto:"Theo thiết bị",vi:"Tiếng Việt",en:"English"}[window.__I18N?__I18N.pref():"auto"],onClick:()=>{if(!window.__I18N)return;const order=["auto","vi","en"],p=__I18N.pref();__I18N.set(order[(order.indexOf(p)+1)%3])}}),
+
   cell("sun-moon","Giao diện",{id:"openThemes",value:(THEMES.find(t=>t.id===curTheme())||THEMES[0]).name,onClick:()=>{renderThemes();swapSheet($("#themes"))}})));
  const link=(icon,label,href)=>cell(icon,label,{ext:1,onClick:()=>window.open(href,"_blank","noopener")});
  B.append(card("Trợ giúp",link("message-circle","Trung tâm trợ giúp","https://github.com/meiiie/neko-aurora#readme"),link("check","Quyền riêng tư","/app/privacy.html"),link("list-checks","Điều khoản sử dụng","/app/terms.html"),link("git-branch","Giấy phép mã nguồn mở","/app/aurora/lucide-LICENSE.txt")));
@@ -511,8 +560,8 @@ const CONN_GROUPS=[
 const connCollapsed=new Set(store.get("neko-aurora-conn-collapsed",[]));
 function connState(c){const o=OB(),g=o.gmail||{},sm=o.smtp||{},pu=o.push||{};
  if(c.id==="zalo")return{label:"Mở máy tính",act:()=>{closeSheet(true);setTimeout(()=>document.dispatchEvent(new CustomEvent("aurora:cloud-open",{detail:cur&&!isGroup(cur)?{botId:cur.id}:{}})),340)}};
- if(c.id==="gmail")return g.connected?{on:1,sub:"1 tài khoản"+(g.from?" · "+g.from:""),act:()=>openSetup("gmail")}:{act:()=>openSetup("gmail")};
- if(c.id==="smtp")return sm.connected?{on:1,sub:(sm.accounts||1)+" tài khoản"+(sm.from?" · "+sm.from:""),act:()=>openSetup("smtp")}:{act:()=>openSetup("smtp")};
+ if(c.id==="gmail")return g.connected?{on:1,sub:g.from?l10n.message("misc.accountFrom",{count:1,email:g.from}):l10n.message("count.accounts",{count:1}),act:()=>openSetup("gmail")}:{act:()=>openSetup("gmail")};
+ if(c.id==="smtp")return sm.connected?{on:1,sub:sm.from?l10n.message("misc.accountFrom",{count:sm.accounts||1,email:sm.from}):l10n.message("count.accounts",{count:sm.accounts||1}),act:()=>openSetup("smtp")}:{act:()=>openSetup("smtp")};
  if(c.id==="push")return pushOn?{on:1,sub:"Máy này · "+Math.max(1,pu.accounts|0)+" thiết bị"}:pu.connected?{act:()=>enableNotify().then(()=>{renderConnectors();renderSettings()}).catch(()=>toast("Không bật được thông báo"))}:{soon:1,label:"Chưa có khoá"};
  return{soon:1}}
 function connectedCount(){let n=0;CONN_GROUPS.forEach(g=>g.items.forEach(c=>{if(connState(c).on)n++}));return n}
@@ -558,7 +607,7 @@ function renderSetup(){const B=$("#setupBody");B.innerHTML="";const o=OB();
   B.append(h.w,pt.w,u.w,f.w,card,save);if(sm.accounts){const off=el("button","text-btn danger","Ngắt kết nối SMTP");off.onclick=async()=>{S.outbound=await api("/connectors/smtp/disconnect",{});renderSetup()};B.append(off)}}}
 // "Gửi thử": asks the first bot to draft a test email; delivery still waits for the owner's Duyệt
 async function gmailTest(to){if(!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(to)){toast("Địa chỉ không hợp lệ");return}const b=bots()[0];if(!b){toast("Cần ít nhất 1 bot");return}
- try{await api(`/agents/${b.id}/messages`,{text:`Soạn email thử tới ${to}, tiêu đề "Neko Aurora: thư thử Gmail", nội dung ngắn xác nhận Gmail đã kết nối. Chờ mình duyệt.`});buzz("confirm");closeSheet(true);setTimeout(()=>openThread(b.id),340)}catch{toast("Không gửi được yêu cầu")}}
+ try{await api(`/agents/${b.id}/messages`,{text:l10n.message("chat.gmailTest",{email:to})});buzz("confirm");closeSheet(true);setTimeout(()=>openThread(b.id),340)}catch{toast("Không gửi được yêu cầu")}}
 $("#closeConnectors").onclick=()=>closeSheet(true);
 $("#appsBtn").onclick=()=>{if(sheetOpen)return;renderConnectors();openSheet($("#connectors"))};
 // in-chat secret request card: masked input → vault; message/journal hold only the name
@@ -584,11 +633,11 @@ async function enableNotify(){if(!("Notification"in window)||!("serviceWorker"in
  else toast("Bật thông báo khi app đang mở");notifOn=true}
 // ---------- voice input (Web Speech API where supported) ----------
 const SR=window.SpeechRecognition||window.webkitSpeechRecognition;let rec=null;
-function syncVoice(){const b=$("#micBtn");b.classList.toggle("on",!!rec);b.setAttribute("aria-pressed",String(!!rec));b.setAttribute("aria-label",rec?"Dừng nhập giọng nói":"Nói để nhập")}
+function syncVoice(){const b=$("#micBtn");b.classList.toggle("on",!!rec);b.setAttribute("aria-pressed",String(!!rec));b.setAttribute("aria-label",rec?"Dừng nhập giọng nói":"Nói để nhập");setSendMode()}
 function stopVoice(){const previous=rec;rec=null;syncVoice();if(previous)try{previous.stop()}catch{}}
 syncVoice();
 if(!SR)$("#micBtn").classList.add("hidden");
-$("#micBtn").onclick=()=>{if(rec){stopVoice();return}if(!cur)return;try{rec=new SR()}catch{toast("Không nghe được, thử lại");return}rec.lang=window.__I18N?.lang==="en"?"en-US":"vi-VN";rec.interimResults=true;rec.continuous=false;const base=inp.value+(inp.value&&!/\s$/.test(inp.value)?" ":""),activeRec=rec,target=cur.id,scope=S.workspaceId;let owned=inp.value;
+$("#micBtn").onclick=()=>{if(rec){stopVoice();return}if(!cur)return;try{rec=new SR()}catch{toast("Không nghe được, thử lại");return}rec.lang=l10n.speechLocale;rec.interimResults=true;rec.continuous=false;const base=inp.value+(inp.value&&!/\s$/.test(inp.value)?" ":""),activeRec=rec,target=cur.id,scope=S.workspaceId;let owned=inp.value;
  rec.onresult=e=>{if(rec!==activeRec||cur?.id!==target||S.workspaceId!==scope)return;if(inp.value!==owned){stopVoice();return}let t="";for(const r of e.results)t+=r[0].transcript;inp.value=owned=base+t;inp.oninput()};rec.onend=()=>{if(rec===activeRec){rec=null;syncVoice()}};rec.onerror=e=>{if(rec===activeRec){stopVoice();toast(e.error==="not-allowed"||e.error==="service-not-allowed"?"Chưa cho phép micro":"Không nghe được, thử lại")}};
  try{rec.start();syncVoice()}catch{stopVoice();toast("Không nghe được, thử lại")}};
 // ---------- themes ----------
@@ -617,32 +666,36 @@ function renderProfile(){profileVersion++;const a=byId(profId);const B=$("#profB
  if(isGroup(a))rows.push(cell("users","Thành viên",{static:1,value:(a.members||[]).map(id=>byId(id)?.name).filter(Boolean).join(", ")}));
  else rows.push(cell("users","Nhóm",{static:1,value:S.agents.filter(g=>isGroup(g)&&(g.members||[]).includes(a.id)).length+" nhóm"}));
  rows.push(cell("folder","Hoạt động",{id:"prLog",onClick:()=>{renderLog([]);openSheet($("#activity"));api("/activity?limit=80").then(x=>renderLog(x)).catch(()=>toast("Không tải được hoạt động"))}}));
- rows.push(cell("monitor","Máy chạy",{id:"prRun",value:a.status==="working"?"Đang làm":waiting(a)?"Chờ bạn":"Rảnh",onClick:()=>toast((S.ai.runtime||"Neko Core")+" · "+(S.ai.model||"AI chưa cấu hình"))}));
+ if(!isGroup(a))rows.push(cell("sparkles","AI của bot",{id:"prAI",value:aiLabel(a.ai||S.ai),sub:a.ai?.inherited?"Theo mặc định Aurora":"Đã chọn riêng cho bot này",onClick:()=>openModels(false,a.id)}));
+ rows.push(cell("monitor","Máy chạy",{id:"prRun",value:a.status==="working"?"Đang làm":waiting(a)?"Chờ bạn":"Rảnh",onClick:()=>toast(((a.ai||S.ai).runtime||"Neko Core")+" · "+aiLabel(a.ai||S.ai))}));
  B.append(card(null,...rows));
  const on=!muted.includes(a.id);const nc=card(null,cell("bell","Thông báo",{id:"prNotify",toggle:on,onToggle:sw=>{const now=sw.getAttribute("aria-checked")!=="true";muted=now?muted.filter(x=>x!==a.id):[...muted,a.id];store.set("neko-aurora-muted",muted);sw.setAttribute("aria-checked",now);buzz("tap");if(now&&!pushOn&&!notifOn)enableNotify().catch(()=>{})}}));
  B.append(nc,el("p","caption","Báo khi bot này xong việc hoặc đang chờ bạn (trên máy này)."));
  if(!isGroup(a)){B.append(card("Máy tính cloud",cell("monitor","Mở trình duyệt cloud",{id:"prCloud",sub:"Hồ sơ riêng của bot · xem màn hình, đăng nhập và can thiệp",onClick:()=>document.dispatchEvent(new CustomEvent("aurora:cloud-open",{detail:{botId:a.id,name:a.name}}))})));const pc=el("div");pc.id="pcBox";B.append(pc);renderComputer(a.id,pc)}
  $("#pmPinT").textContent=a.pin?"Bỏ ghim":"Ghim";$("#pmPin").classList.toggle("hidden",isGroup(a));$("#pmArch").classList.toggle("hidden",isGroup(a))}
 // bot computer: sandboxed home, recent commands, files, reset
-const kb=n=>n<1024?n+" B":n<1048576?(n/1024).toFixed(1)+" KB":(n/1048576).toFixed(1)+" MB";
+const kb=n=>l10n.number(n<1024?n:n<1048576?n/1024:n/1048576,{maximumFractionDigits:n<1024?0:1})+(n<1024?" B":n<1048576?" KB":" MB");
 function renderComputer(id,box,scope=S.workspaceId){return api(`/agents/${id}/computer`).then(st=>{if(profId!==id||scope!==S.workspaceId||!box.isConnected)return false;box.innerHTML="";
- const rows=[cell("monitor","Trạng thái",{static:1,value:st.recovery?"Chờ phục hồi":st.available?"Sẵn sàng":"Đang tắt",sub:st.available?"Linux riêng · "+kb(st.usedBytes)+" / "+kb(st.quotaBytes):st.error||""})];
- box.append(card("Máy tính",...rows));
- const actionStatus=el("p","caption");actionStatus.setAttribute("role","status");const refresh=el("button","pill soft","Tải lại trạng thái");refresh.type="button";refresh.hidden=true;refresh.onclick=()=>renderComputer(id,box,scope);
+ const wkey=st.recovery?"recovery":!st.fileAccess?"disabled":st.canWrite?"writable":"readonly",ekey=st.available?"ready":st.setupCode==="docker_offline"?"dockerOffline":st.setupCode==="docker_image_missing"?"dockerImage":st.setupCode==="docker_missing"?"dockerMissing":"executionOff";
+ const rows=[cell("folder",l10n.message("workspace.files"),{static:1,value:l10n.message("workspace."+wkey),sub:st.fileAccess?kb(st.usedBytes)+" / "+kb(st.quotaBytes):l10n.message("workspace.enableHint")}),cell("terminal",l10n.message("workspace.execution"),{static:1,value:l10n.message("workspace."+ekey),sub:l10n.message(st.available?"workspace.executionReadyHint":"workspace.executionOffHint")})];
+ rows.forEach((row,index)=>{l10n.bind(row.querySelector(".cell-t > span"),index?"workspace.execution":"workspace.files");l10n.bind(row.querySelector(".cell-v"),"workspace."+(index?ekey:wkey));if(index||!st.fileAccess)l10n.bind(row.querySelector("small"),index?(st.available?"workspace.executionReadyHint":"workspace.executionOffHint"):"workspace.enableHint")});
+ const workspaceCard=card(l10n.message("workspace.title"),...rows);l10n.bind(workspaceCard.querySelector("h3"),"workspace.title");box.append(workspaceCard);
+ const actionStatus=el("p","caption");actionStatus.setAttribute("role","status");const refresh=el("button","pill soft","Tải lại trạng thái");refresh.type="button";refresh.hidden=false;refresh.onclick=()=>renderComputer(id,box,scope);
  let changing=false,received=false;
  const action=async kind=>{if(changing||received||scope!==S.workspaceId)return;changing=true;box.querySelectorAll("button").forEach(b=>b.disabled=true);actionStatus.textContent=kind==="recover"?"Đang tải lại file…":"Đang làm mới máy tính…";
-  try{await api(`/agents/${id}/computer/${kind}`,{workspaceId:scope});received=true;if(scope!==S.workspaceId||profId!==id||!box.isConnected)return;const message=kind==="recover"?"Đã tải lại file; lệnh không chạy lại.":"Đã làm mới máy tính.";toast(message);if(await renderComputer(id,box,scope)===false){actionStatus.textContent=message+" Chưa tải lại được trạng thái.";refresh.hidden=false}}
+  try{await api(`/agents/${id}/computer/${kind}`,{workspaceId:scope});received=true;if(scope!==S.workspaceId||profId!==id||!box.isConnected)return;const message=kind==="recover"?"Đã tải lại file; lệnh không chạy lại.":"Đã làm mới máy tính.";toast(message);if(await renderComputer(id,box,scope)===false){l10n.bind(actionStatus,"misc.statusReload",()=>({message:l10n.t(message)}));refresh.hidden=false}}
   catch(e){if(scope!==S.workspaceId||profId!==id||!box.isConnected)return;actionStatus.textContent=e.body?.error==="computer_recovery_local_files_changed"?"File local đã thay đổi. Đã giữ nguyên dữ liệu; chưa tải đè từ máy ảo.":e.status===409?"Trạng thái máy hoặc tài khoản đã thay đổi. Tải lại trạng thái để kiểm tra.":"Chưa nhận được xác nhận. Tải lại trạng thái để kiểm tra trước khi thử lại.";refresh.hidden=false}
   finally{changing=false;if(scope===S.workspaceId&&actionStatus.isConnected){box.querySelectorAll("button").forEach(b=>b.disabled=received);refresh.disabled=false}}
  };
  if(st.recovery?.canRecover){const recover=el("button","pill soft","Tải lại file từ máy ảo");recover.type="button";recover.onclick=()=>action("recover");box.append(recover)}
  box.append(actionStatus,refresh);
  if(st.log.length){const w=el("section","card-group");w.append(el("h3",0,"Lệnh gần đây"));const c=el("div","card pc-log");st.log.slice(-5).reverse().forEach(r=>{const d=el("details","pc-run");const s=el("summary");s.append(el("code",0,"$ "+r.cmd),el("span","pc-exit"+(r.exitCode?" bad":""),r.timedOut?"hết giờ":r.exitCode?"lỗi "+r.exitCode:"xong"));d.append(s,el("pre",0,r.output||"(không có đầu ra)"));c.append(d)});w.append(c);box.append(w)}
- const files=st.files.filter(f=>!f.dir).slice(0,12);
- if(files.length)box.append(card("File",...files.map(f=>cell("folder",f.path,{value:kb(f.size),onClick:()=>/\.(pptx?|docx?|xlsx?|pdf|png|jpe?g|gif|webp|mp4|webm|mov|zip|gz|tar)$/i.test(f.path)?AURORA_DOWNLOADS.save({href:API+`/agents/${id}/computer/download?path=${encodeURIComponent(f.path)}`,workspaceId:scope,active:()=>scope===S.workspaceId&&profId===id&&actionStatus.isConnected,notice:toast}):api(`/agents/${id}/computer/file?path=${encodeURIComponent(f.path)}`).then(x=>{const old=box.querySelector(".pc-view");if(old)old.remove();const p=el("pre","pc-view",x.text+(x.truncated?"\n…":""));box.append(p);p.scrollIntoView({behavior:"smooth",block:"nearest"})}).catch(()=>toast("Không mở được file"))}))));
- box.append(card(null,cell("x","Làm mới máy tính",{danger:1,id:"pcReset",onClick:()=>{if(!confirm(st.recovery?"Làm mới sẽ xóa máy ảo, file và lịch sử lệnh, kể cả file chưa tải về. Hãy giữ bản sao cần thiết trước. Tiếp tục?":"Xoá mọi file và lịch sử lệnh trên máy tính của bot này?"))return;action("reset")}})),el("p","caption","Mỗi bot có một máy Linux riêng, cách ly với máy chủ, mặc định không có mạng. Bot tự chạy lệnh trên máy này; việc gửi ra ngoài, tiêu tiền hay dùng khoá của bạn luôn chờ bạn duyệt."))
+ const files=(st.files||[]).filter(f=>!f.dir).slice(0,12);
+ if(files.length)box.append(card("File",...files.map(f=>cell("folder",f.path,{value:kb(f.size),onClick:()=>/\.html?$/i.test(f.path)?openComputerPreview(id,f.path,scope):/\.(pptx?|docx?|xlsx?|pdf|png|jpe?g|gif|webp|mp4|webm|mov|zip|gz|tar)$/i.test(f.path)?AURORA_DOWNLOADS.save({href:API+`/agents/${id}/computer/download?path=${encodeURIComponent(f.path)}`,workspaceId:scope,active:()=>scope===S.workspaceId&&profId===id&&actionStatus.isConnected,notice:toast}):api(`/agents/${id}/computer/file?path=${encodeURIComponent(f.path)}`).then(x=>{const old=box.querySelector(".pc-view");if(old)old.remove();const p=el("pre","pc-view",x.text+(x.truncated?"\n…":""));box.append(p);p.scrollIntoView({behavior:"smooth",block:"nearest"})}).catch(()=>toast("Không mở được file"))}))));
+ if(st.fileAccess)box.append(card(null,cell("x","Làm mới máy tính",{danger:1,id:"pcReset",onClick:()=>{if(!confirm(st.recovery?"Làm mới sẽ xóa máy ảo, file và lịch sử lệnh, kể cả file chưa tải về. Hãy giữ bản sao cần thiết trước. Tiếp tục?":"Xoá mọi file và lịch sử lệnh trên máy tính của bot này?"))return;action("reset")}})));
+ const note=el("p","caption");l10n.bind(note,"workspace.privacy");box.append(note)
 ;return true
-}).catch(()=>{if(profId===id&&scope===S.workspaceId&&box.isConnected)toast("Chưa tải được trạng thái máy tính");return false})}
+}).catch(()=>{if(profId===id&&scope===S.workspaceId&&box.isConnected){const message=el("p","caption"),retry=el("button","pill soft","Tải lại trạng thái");l10n.bind(message,"workspace.statusFailed");retry.type="button";retry.onclick=()=>renderComputer(id,box,scope);box.replaceChildren(message,retry)}return false})}
 $("#profBack").onclick=()=>closeProfile();
 $("#profShare").onclick=()=>{const a=byId(profId);if(a)shareLink(a)};
 $("#profMore").onclick=e=>{e.stopPropagation();toggleMenu($("#profMenu"),$("#profMore"))};
@@ -664,17 +717,19 @@ $("#tmFind").onclick=()=>{closeMenu();$("#findBar").classList.remove("hidden");$
 $("#findInput").oninput=runFind;$("#findClose").onclick=closeFind;
 // ---------- misc ----------
 $("#backBtn").onclick=()=>closeThread();
-addEventListener("popstate",()=>{if(skipPop){skipPop=false;return}closeMenu();if(sheetOpen)closeSheet(true);else if(profId)closeProfile(true);else if(cur)closeThread(true)});
+addEventListener("popstate",()=>{if(skipPop){skipPop=false;return}closeMenu();if(sheetOpen)closeSheet(true);else if(profId)closeProfile(true);else{let id="";try{id=decodeURIComponent(location.hash.slice(1))}catch{}if(byId(id))openThread(id,{replace:true});else if(cur)closeThread(true)}});
+addEventListener("hashchange",()=>{if(sheetOpen||profId||!S.workspaceId||!$("#login").classList.contains("hidden"))return;let id="";try{id=decodeURIComponent(location.hash.slice(1))}catch{}if(byId(id)&&cur?.id!==id)openThread(id,{replace:true})});
 $("#search").oninput=e=>{filter=e.target.value;renderList()};
 $("#search").onkeydown=e=>{if(e.key==="Enter")e.target.blur()};
 // Grok-style composer: one line inline with mic/send; once text wraps, the field takes the full width and the buttons drop to a row below.
-const inp=$("#input"),ask=inp.parentElement;inp.oninput=e=>{if(e&&rec)stopVoice();const was=ask.classList.contains("multi");if(!inp.value)ask.classList.remove("multi");inp.style.height="auto";if(!was&&inp.value&&inp.scrollHeight>52)ask.classList.add("multi");inp.style.height="auto";inp.style.height=Math.min(160,inp.scrollHeight)+"px";setSendMode();saveComposerDraft()};
+const inp=$("#input"),ask=inp.parentElement;inp.oninput=e=>{if(e&&rec)stopVoice();ask.classList.remove("multi");inp.style.height="auto";ask.classList.toggle("multi",!!inp.value&&inp.scrollHeight>54);inp.style.height=Math.min(160,inp.scrollHeight)+"px";setSendMode();saveComposerDraft()};
 const composerComposing=AURORA_UX.compositionGuard($("#composer"));
-$("#composer").onsubmit=async e=>{e.preventDefault();if(composerComposing(e))return;stopVoice();const v=inp.value;if(!v.trim()){if(SR)$("#micBtn").click();else inp.focus();return}inp.value="";inp.style.height="";ask.classList.remove("multi");justSent=true;setSendMode();if(!sendMsg(v)){inp.value=v;inp.oninput()}};
-inp.onkeydown=e=>{if(e.key==="Enter"&&!e.shiftKey&&!composerComposing(e)){e.preventDefault();$("#composer").requestSubmit()}};
+$("#composer").onsubmit=async e=>{e.preventDefault();if(composerComposing(e))return;if(rec&&!inp.value.trim()){stopVoice();return}stopVoice();const v=inp.value;if(!v.trim()){if(SR)$("#micBtn").click();else inp.focus();return}inp.value="";inp.style.height="";ask.classList.remove("multi");justSent=true;setSendMode();if(!sendMsg(v)){inp.value=v;inp.oninput()}};
+inp.onkeydown=e=>{if(e.key==="Enter"&&!e.shiftKey&&!composerComposing(e)){e.preventDefault();if(!e.repeat)$("#composer").requestSubmit()}};
 document.addEventListener("visibilitychange",()=>{if(!document.hidden&&es)loadState().catch(()=>{})});
 if("serviceWorker"in navigator)navigator.serviceWorker.register("/app/sw.js",{scope:"/app/"}).then(r=>r.pushManager?.getSubscription()).then(s=>{if(s)pushOn=true}).catch(()=>{});
 async function expiredState(request){
+ $("#login").classList.remove("hidden");
  window.AURORA_PAGES?.close();
  resetVault();closeThread();closeCtx();if(sheetOpen)closeSheet(true);messageLoads.clear();nodeCache.clear();document.querySelectorAll("input[data-secret]").forEach(i=>{i.value=""});
  const config=await fetch("/app/auth/config",{credentials:"same-origin",cache:"no-store",signal:AbortSignal.timeout?AbortSignal.timeout(15000):undefined}).then(r=>r.ok?r.json():null).catch(()=>null);
@@ -683,7 +738,7 @@ async function expiredState(request){
  if(config&&config.hosted){location.replace("/app/signin.html");return}
  $("#login").classList.remove("hidden");
 }
-function boot(){return loadState().then(applied=>{if(!applied)return;if(!es)connect();const h=location.hash.slice(1);if(h)openThread(h)}).catch(e=>{if(e.status!==401){window.AURORA_STARTUP?.failed();toast("Không kết nối được máy chủ")}})}
+function boot(){return loadState().then(applied=>{if(!applied)return;if(!es)connect();window.AURORA_WORKSPACE?.notify()}).catch(e=>{if(e.status!==401){window.AURORA_STARTUP?.failed();toast("Không kết nối được máy chủ")}})}
 let logging=false;$("#loginForm").onsubmit=async e=>{e.preventDefault();if(logging)return;logging=true;try{const r=await fetch("/app/login",{method:"POST",credentials:"same-origin",headers:{"Content-Type":"application/json"},body:JSON.stringify({code:$("#loginCode").value})});if(!r.ok){toast(r.status===429?"Thử quá nhiều lần, đợi 5 phút":"Mã không đúng");return}$("#loginCode").value="";await boot()}catch{toast("Không kết nối được")}finally{logging=false}};
 boot();
 // ---------- Aurora icons (Lucide, ISC) + haptics ----------
@@ -695,6 +750,7 @@ function buzz(k){try{if(CAP&&CAP.Haptics){if(!haptics||matchMedia("(prefers-redu
 [["#newBtn","plus"],["#threadMore","ellipsis"],["#plusBtn","plus"],["#profBack","chevron-left"],["#profShare","share"],["#profMore","ellipsis"],["#appsBtn","layout-grid"],["#searchIc","search"],["#backBtn","chevron-left"],["#jumpBtn","chevron-down"],["#micBtn","mic"],["#cancelBtn","x"],["#closeGroup","x"],["#closeSetup","chevron-left"],["#closeSettings","x"],["#closeConnectors","x"]].forEach(([q,n])=>{const b=$(q);if(b)b.replaceChildren(I(n))});
 document.querySelectorAll(".mi[data-i]").forEach(s=>s.replaceChildren(I(s.dataset.i,18)));
 setSendMode();
+$("#composerStop").onclick=()=>stopAgent();
 $("#messages").addEventListener("scroll",()=>{const b=$("#messages");stick=atBottom(b);syncJump();if(b.scrollTop<80&&cur&&(S.msgs[cur.id]||[]).length>(win[cur.id]||PAGE)&&!olderBusy){olderBusy=true;requestAnimationFrame(()=>{loadOlder();olderBusy=false})}},{passive:true});let olderBusy=false;
 if(window.visualViewport)visualViewport.addEventListener("resize",()=>{if(cur&&stick&&!selectionExcerpt?.hasSelection()){const b=$("#messages");b.scrollTop=b.scrollHeight}});if(window.ResizeObserver)new ResizeObserver(syncJump).observe($("#messages"));$("#jumpBtn").onclick=()=>{const b=$("#messages");b.scrollTo({top:b.scrollHeight,behavior:"smooth"});buzz("tap")};
 window.__AURORA={state:()=>S,reload:loadState,current:()=>cur&&cur.id,render:()=>renderThread()};
@@ -711,7 +767,7 @@ function memoryDraft(view,B){if(!view.recoveryDraft)return;const box=el("section
 function memoryText(tag,cls,text){const n=el(tag,cls,text);n.dataset.noi18n="";return n}
 function memRow(it,i,team,view,active,mutate){
  const li=el("li","mem-it");li.tabIndex=0;li.setAttribute("role","button");
- li.append(memoryText("p","mem-t",it.text),el("small","mem-m",new Date(it.at).toLocaleDateString("vi-VN")));
+ li.append(memoryText("p","mem-t",it.text),el("small","mem-m",new Date(it.at).toLocaleDateString(l10n.locale)));
  const start=()=>{
   if(!active()||view.busy||li.classList.contains("editing"))return;
   li.classList.add("editing");li.removeAttribute("role");li.removeAttribute("tabindex");li.replaceChildren();
@@ -757,14 +813,14 @@ async function openMemory(id,keep=false){
  const sc=el("label","mem-scope"),cb=el("input");cb.type="checkbox";cb.id="memTeam";sc.append(cb,el("span",0,"Cho mọi bot"));const go=el("button","pill","Thêm"),status=el("p","mem-action-status");go.type="submit";status.setAttribute("role","status");add.append(inp,sc,go,status);
  add.onsubmit=e=>{e.preventDefault();const text=inp.value.trim();if(text)void mutate(()=>api(memoryPath(view,`/agents/${id}/memory`,cb.checked?view.teamRevision:view.revision),{text,team:cb.checked}),status,"Đã ghi nhớ")};
  B.append(add,memSection("Riêng "+(a?a.name:"bot"),m.items,false,"Chưa có gì. Bot tự ghi khi bạn nêu sở thích lâu dài.",view,active,mutate),memSection("Chung cho mọi bot",m.team,true,"Tên, cách xưng hô, ngôn ngữ… áp dụng cho mọi bot.",view,active,mutate));
- if(m.journal.length){const d=el("details","mem-log");d.append(el("summary",0,"Lịch sử thay đổi ("+m.journal.length+")"));const ol=el("ol");m.journal.forEach(c=>{const li=el("li");li.append(el("b",0,(OP[c.op]||c.op)+(c.bot==="_team"?" · chung":"")),memoryText("span",0," "+(c.after||c.before||"")),el("small",0," — "+(BY[c.by]||c.by)+", "+ago(c.at)));if(c.op==="edit"&&c.before)li.append(memoryText("s",0,c.before));ol.append(li)});d.append(ol);B.append(d)}
+ if(m.journal.length){const d=el("details","mem-log");d.append(el("summary",0,"Lịch sử thay đổi ("+m.journal.length+")"));const ol=el("ol");m.journal.forEach(c=>{const li=el("li");li.append(el("b",0,l10n.t(OP[c.op]||c.op)+(c.bot==="_team"?" · "+l10n.t("Chung cho mọi bot"):"")),memoryText("span",0," "+(c.after||c.before||"")),el("small",0," — "+l10n.t(BY[c.by]||c.by)+", "+ago(c.at)));if(c.op==="edit"&&c.before)li.append(memoryText("s",0,c.before));ol.append(li)});d.append(ol);B.append(d)}
  B.append(el("p","caption","Bộ nhớ là dữ liệu, không phải lệnh. Không bao giờ lưu mật khẩu hay khoá."));memoryTools(view,B,active,mutate);memoryDraft(view,B);return true;
 }
 $("#closeMem").onclick=()=>closeSheet(true);
 // ---------- permission presets ----------
 const PRESETS=[["readonly","Chỉ đọc","Chỉ xem, đọc file; mọi thay đổi chờ bạn duyệt"],["workspace","Máy riêng","Tự làm trên máy riêng của bot, không mạng"],["full","Toàn quyền","Có mạng; gửi ra ngoài vẫn hỏi bạn"]];
 function presetCard(id,box){api(`/agents/${id}/computer`).then(st=>{const p=st.policy||{};const cur=p.preset||(p.network?"full":"workspace");const w=el("section","card-group");w.id="presetBox";w.append(el("h3",0,"Quyền của bot"));const seg=el("div","seg");seg.setAttribute("role","radiogroup");
- PRESETS.forEach(([k,n])=>{const b=el("button","seg-b",n);b.dataset.preset=k;b.setAttribute("role","radio");b.setAttribute("aria-checked",k===cur);b.onclick=()=>api(`/agents/${id}/computer/policy`,{preset:k}).then(np=>{buzz("tap");toast("Quyền: "+n);presetCard(id,box)}).catch(()=>toast("Không lưu được"));seg.append(b)});
+ PRESETS.forEach(([k,n])=>{const b=el("button","seg-b",n);b.dataset.preset=k;b.setAttribute("role","radio");b.setAttribute("aria-checked",k===cur);b.onclick=()=>api(`/agents/${id}/computer/policy`,{preset:k}).then(np=>{buzz("tap");toast(l10n.message("misc.permissions",{name:l10n.t(n)}));presetCard(id,box)}).catch(()=>toast("Không lưu được"));seg.append(b)});
  w.append(seg,el("p","caption",PRESETS.find(x=>x[0]===cur)[2]));const old=box.querySelector("#presetBox");old?old.replaceWith(w):box.prepend(w)}).catch(()=>{})}
 // ---------- profile hooks ----------
 const _rp=renderProfile;renderProfile=function(){_rp();const a=byId(profId);if(!a)return;const B=$("#profBody");if(isGroup(a)){B.append(card("Ghi nhớ",cell("sparkles","Bộ nhớ nhóm",{id:"prMem",sub:"Điều cả nhóm nhớ, chỉ dùng trong nhóm này",onClick:()=>openMemory(a.id)})));return}schedCard(a.id,B);
@@ -794,7 +850,7 @@ function usageRender(view,reading,state){
  const B=$("#usageBody"),range=view.range,seg=el("div","seg"),notice=el("div","usage-status caption");notice.setAttribute("role","status");B.replaceChildren();
  usagePeriods.forEach(([k,n])=>{const b=el("button","seg-b",n);b.type="button";b.setAttribute("aria-checked",k===range);b.onclick=()=>{if(usageView!==view)return;usageRange=k;void openUsage(true)};seg.append(b)});B.append(seg);
  const message=state==="error"?"Chưa tải được mức dùng. Hãy thử lại.":state==="loading"?"Đang cập nhật mức dùng…":state==="unsaved"?"Chưa lưu được lần đọc này trên thiết bị. Số liệu vẫn còn trong cửa sổ này.":"Đã cập nhật mức dùng.";
- notice.append(el("p",0,message));if(reading){const stamp=el("time",0,new Date(reading.at).toLocaleString());stamp.dateTime=new Date(reading.at).toISOString();notice.append(el("span",0,"Lần đọc gần nhất: "),stamp)}
+ notice.append(el("p",0,message));if(reading){const stamp=el("time",0,new Date(reading.at).toLocaleString(l10n.locale));stamp.dateTime=new Date(reading.at).toISOString();notice.append(el("span",0,"Lần đọc gần nhất: "),stamp)}
  if(state==="error"){const retry=el("button","pill soft","Thử lại");retry.type="button";retry.onclick=()=>{if(usageView===view)void openUsage(true)};notice.append(retry)}B.append(notice);
  if(!reading)return;const u=reading.data,hero=el("div","use-hero");hero.append(el("b",0,"≈ "+fmtTok(u.total.tokens)+" token"),el("small",0,u.total.calls+" lượt gọi mô hình"));B.append(hero);
  const mx=Math.max(1,...u.days.map(d=>d.tokens));if(u.days.length>1){const ch=el("div","use-bars");u.days.slice(-31).forEach(d=>{const c=el("i");c.style.height=Math.max(3,Math.round(d.tokens/mx*72))+"px";c.title=d.key+": "+fmtTok(d.tokens);ch.append(c)});B.append(ch)}
@@ -829,7 +885,7 @@ function quotePreview(q){const b=el("blockquote","quoted-message"),who=el("cite"
 function jumpToQuote(id){if(!cur)return;const all=S.msgs[cur.id]||[],index=all.findIndex(m=>m.id===id);if(index<0){toast("Tin gốc nằm ngoài phần lịch sử đang tải. Bản trích dẫn vẫn được giữ.");return}win[cur.id]=Math.max(win[cur.id]||PAGE,all.length-index);stick=false;renderThread();requestAnimationFrame(()=>{const target=[...$("#messages").querySelectorAll(".message-item")].find(n=>n.dataset.messageId===id);if(target){target.focus({preventScroll:true});target.scrollIntoView({block:"center",behavior:"auto"})}})}
 function setReply(r,persist=true){pendingReply=r;if(persist)saveComposerDraft();$("#replyChip")?.remove();if(!r)return;const chip=el("div","reply-chip");chip.id="replyChip";chip.append(quotePreview(r));const remove=el("button","text-btn","Bỏ trích dẫn");remove.type="button";remove.onclick=()=>setReply(null);chip.append(remove);$("#composer").before(chip)}
 $("#pmRef").onclick=()=>{closeMenu();if(!cur)return;const B=$("#refBody");B.innerHTML="";const L=S.agents.filter(x=>x.id!==cur.id);
- B.append(card(null,...L.map(x=>cell(isGroup(x)?"users":"message-circle",x.name,{sub:x.snip||"",onClick:()=>{setRef({id:x.id,name:x.name,for:cur.id});closeSheet(true);toast("Sẽ kèm chat “"+x.name+"”")}}))),el("p","caption","Tin nhắn gần nhất của chat đó được gửi kèm làm ngữ cảnh cho tin tiếp theo của bạn."));openSheet($("#refSheet"))};
+ B.append(card(null,...L.map(x=>cell(isGroup(x)?"users":"message-circle",x.name,{sub:x.snip||"",onClick:()=>{setRef({id:x.id,name:x.name,for:cur.id});closeSheet(true);toast(l10n.message("chat.contextPreview",{name:x.name}))}}))),el("p","caption","Tin nhắn gần nhất của chat đó được gửi kèm làm ngữ cảnh cho tin tiếp theo của bạn."));openSheet($("#refSheet"))};
 $("#closeRef").onclick=()=>closeSheet(true);
 // ---------- schedules on the profile ----------
 let scheduleTestStore,scheduleLoad=0;try{scheduleTestStore=window.AURORA_SCHEDULE_TEST.create(localStorage)}catch{}
@@ -868,6 +924,7 @@ let extViewVersion=0;
 let showThink=localStorage.getItem("aurora.think")!=="0";
 function thinkCard(m){const d=el("details","think");d.append(el("summary",0,"Suy nghĩ của bot"));const p=el("pre",0,m.thinking.slice(0,6000));d.append(p);return d}
 function formCard(m){const scope=S.workspaceId,bot=m.agentId,answer=(S.msgs[bot]||[]).find(x=>x.role==="user"&&x.formFor===m.taskId);return window.AURORA_FORMS.create({message:m,pending:outbox.find(x=>x.formFor===m.taskId&&x.agentId===bot),answered:!!answer,answerText:answer?.text,answerValues:answer?.formValues,workspaceId:scope,storage:draftStorage,send:sendMsg,active:()=>S.workspaceId===scope&&cur?.id===bot})}
+function skillCell(k,opt={}){const c=cell("sparkles",k.name,{...opt,sub:k.desc});if(k.id.startsWith("pstack-")){l10n.bind(c.querySelector(".cell-t>span"),`skill.${k.id}.name`);l10n.bind(c.querySelector(".cell-t>small"),`skill.${k.id}.desc`);const sw=c.querySelector('[role="switch"]');if(sw)l10n.bindAttribute(sw,"aria-label",`skill.${k.id}.name`)}return c}
 const CAPS=[["web","Tìm & đọc web"],["computer","Máy tính"],["browser","Trình duyệt"],["mcp","Máy chủ MCP"],["bots","Tạo/sửa bot"],["skills","Kỹ năng"]];
 function sel(opts,cur){const s=el("select","ext-sel");opts.forEach(([v,n])=>{const o=el("option",0,n);o.value=v;if(v===cur)o.selected=true;s.append(o)});return s}
 function field(label,node,hint){const l=el("label","fm-row");l.append(el("span",0,label),node);if(hint)l.append(el("small","caption",hint));return l}
@@ -880,43 +937,103 @@ async function openExt(id,keep){const a=byId(id),{body:B,scope,current}=startExt
  if(x.workspaceId!==scope){B.replaceChildren(el("p","caption","Tài khoản đã thay đổi. Mở lại cài đặt để tải phiên bản mới."));return}
  B.replaceChildren();const notice=el("p","caption"),reload=el("button","pill soft","Tải lại cấu hình");notice.setAttribute("role","status");notice.tabIndex=-1;reload.type="button";reload.hidden=true;reload.onclick=()=>{if(current())openExt(id,true)};B.append(notice,reload);
  let saving=false;const save=async(p,msg)=>{if(!current()||saving)return;saving=true;const enabled=[...B.querySelectorAll("input,select,button,textarea")].filter(n=>!n.disabled);enabled.forEach(n=>n.disabled=true);notice.textContent="Đang lưu…";reload.hidden=true;
-  try{await api(`/agents/${id}/ext`,{...p,workspaceId:scope,...(Object.hasOwn(p,"mcp")?{mcpRevision:x.mcpRevision}:{})});if(!current())return;buzz("tap");toast(msg||"Đã lưu");await openExt(id,true)}
+  try{await api(`/agents/${id}/ext`,{...p,workspaceId:scope,...(Object.hasOwn(p,"mcp")?{mcpRevision:x.mcpRevision}:{})});if(!current())return;buzz("tap");toast(msg||"Đã lưu");await loadState();if(current())await openExt(id,true)}
   catch(e){if(!current())return;notice.textContent=e.status===409?"Cấu hình đã thay đổi. Nhập liệu vẫn được giữ; tải lại để xem phiên bản mới trước khi sửa tiếp.":"Chưa xác nhận được thay đổi. Nhập liệu vẫn được giữ; tải lại cấu hình để kiểm tra.";reload.hidden=false;notice.focus({preventScroll:true});notice.scrollIntoView({block:"nearest"})}
   finally{if(current()){saving=false;enabled.forEach(n=>n.disabled=false)}}};
- const ms=sel([["","Mặc định máy chủ"],...x.menu.map(m=>[m.id,m.label+" · "+m.provider])],x.model||"");ms.id="extModel";ms.onchange=()=>save({model:ms.value},"Đã đổi mô hình");
+ const ms=sel([["","Mặc định máy chủ"],...x.menu.map(m=>[m.id,m.label+" · "+m.provider])],x.model||"");if(x.model&&!x.menu.some(m=>m.id===x.model)){const missing=literalEl("option",0,x.model+" · "+(window.__I18N?.t("Không có trong danh sách")||"Không có trong danh sách"));missing.value=x.model;missing.disabled=missing.selected=true;ms.append(missing)}ms.id="extModel";ms.onchange=()=>save({model:ms.value},"Đã đổi mô hình");
  const g1=el("section","card-group");g1.append(el("h3",0,"Mô hình"));const c1=el("div","card pad");c1.append(field("Mô hình trả lời",ms,"Thêm nhà cung cấp và khoá riêng ở Cài đặt › Mô hình."));g1.append(c1);
  const th=card(null,cell("sparkles","Hiện suy nghĩ",{id:"extThink",sub:"Bot suy nghĩ trước khi trả lời (chậm hơn); phần suy nghĩ gập lại dưới tin nhắn",toggle:!!x.thinking,onToggle:sw=>save({thinking:sw.getAttribute("aria-checked")!=="true"})}));g1.append(th);
  const fi=el("input","ext-in");fi.id="extFolder";fi.placeholder="vd. du-an/bao-cao";fi.value=x.folder||"";const fb=el("button","pill","Lưu");fb.type="button";fb.onclick=()=>save({folder:fi.value},"Đã đặt thư mục làm việc");const fr=el("div","row-in");fr.append(fi,fb);
  const g2=el("section","card-group");g2.append(el("h3",0,"Thư mục làm việc"));const c2=el("div","card pad");c2.append(field("Trong /home/bot",fr,"Lệnh và file của bot mặc định nằm trong thư mục này."));g2.append(c2);
  const off=x.off||{};const g3=card("Khả năng",...CAPS.map(([k,n])=>cell("check",n,{id:"cap_"+k,toggle:!off[k],onToggle:sw=>{const o={...off};if(sw.getAttribute("aria-checked")==="true")o[k]=true;else delete o[k];save({off:o})}})));
- const on=new Set(x.skills||[]);const g4=card("Kỹ năng"+(on.size?"":" · tất cả"),...(x.allSkills||[]).map(k=>cell("sparkles",k.name,{sub:k.desc,toggle:!on.size||on.has(k.id),onToggle:sw=>{let l=on.size?[...on]:(x.allSkills||[]).map(z=>z.id);l=sw.getAttribute("aria-checked")==="true"?l.filter(z=>z!==k.id):[...l,k.id];l.length?save({skills:l.length===(x.allSkills||[]).length?[]:l}):save({off:{...off,skills:true}})}})));
+ const on=new Set(x.skills||[]);const g4=card(on.size?l10n.t("Kỹ năng"):l10n.t("Kỹ năng")+" · "+l10n.t("Tất cả"),...(x.allSkills||[]).map(k=>skillCell(k,{toggle:!on.size||on.has(k.id),onToggle:sw=>{let l=on.size?[...on]:(x.allSkills||[]).map(z=>z.id);l=sw.getAttribute("aria-checked")==="true"?l.filter(z=>z!==k.id):[...l,k.id];l.length?save({skills:l.length===(x.allSkills||[]).length?[]:l}):save({off:{...off,skills:true}})}})));
  const mcp=x.mcp||[];const strip=()=>mcp.map(m=>({name:m.name,url:m.url,header:m.header||undefined,secret:m.secret||undefined}));
- const g5=card("Máy chủ MCP",...mcp.map((m,i)=>cell("link",m.name,{sub:m.error?("Lỗi: "+m.error):(m.tools||[]).map(t=>t.name).join(", ")||"chưa có công cụ",value:"Gỡ",onClick:()=>{const l=strip();l.splice(i,1);save({mcp:l},"Đã gỡ máy chủ")}})));
- mcp.filter(m=>m.state&&m.state!=="ready").forEach(m=>{const retry=el("button","pill soft","Kết nối lại · "+m.name),until=m.retryAt?new Date(m.retryAt):null;retry.type="button";retry.disabled=m.state==="rate_limited"&&until>Date.now();if(retry.disabled)setTimeout(()=>{if(current()&&retry.isConnected)retry.disabled=false},Math.min(86400000,until-Date.now())+50);retry.onclick=async()=>{if(!current()||saving)return;retry.disabled=true;try{await api(`/agents/${id}/mcp/reconnect`,{name:m.name,workspaceId:scope,mcpRevision:x.mcpRevision});if(current())await openExt(id,true)}catch(e){if(!current())return;notice.textContent=e.status===409?"Cấu hình đã thay đổi. Tải lại trước khi kết nối.":"Chưa thể kết nối lại; kiểm tra xác thực hoặc chờ hết giới hạn.";reload.hidden=false;notice.focus({preventScroll:true});notice.scrollIntoView({block:"nearest"});retry.disabled=false}};g5.append(retry);if(until&&!isNaN(until)&&until>Date.now())g5.append(el("p","caption","Có thể thử lại sau "+until.toLocaleTimeString("vi-VN")))});
+ const g5=card("Máy chủ MCP",...mcp.map((m,i)=>cell("link",m.name,{sub:m.error?(l10n.t("Lỗi")+": "+m.error):(m.tools||[]).map(t=>t.name).join(", ")||"chưa có công cụ",value:"Gỡ",onClick:()=>{const l=strip();l.splice(i,1);save({mcp:l},"Đã gỡ máy chủ")}})));
+ mcp.filter(m=>m.state&&m.state!=="ready").forEach(m=>{const retry=el("button","pill soft","Kết nối lại · "+m.name),until=m.retryAt?new Date(m.retryAt):null;retry.type="button";retry.disabled=m.state==="rate_limited"&&until>Date.now();if(retry.disabled)setTimeout(()=>{if(current()&&retry.isConnected)retry.disabled=false},Math.min(86400000,until-Date.now())+50);retry.onclick=async()=>{if(!current()||saving)return;retry.disabled=true;try{await api(`/agents/${id}/mcp/reconnect`,{name:m.name,workspaceId:scope,mcpRevision:x.mcpRevision});if(current())await openExt(id,true)}catch(e){if(!current())return;notice.textContent=e.status===409?"Cấu hình đã thay đổi. Tải lại trước khi kết nối.":"Chưa thể kết nối lại; kiểm tra xác thực hoặc chờ hết giới hạn.";reload.hidden=false;notice.focus({preventScroll:true});notice.scrollIntoView({block:"nearest"});retry.disabled=false}};g5.append(retry);if(until&&!isNaN(until)&&until>Date.now())g5.append(el("p","caption","Có thể thử lại sau "+until.toLocaleTimeString(l10n.locale)))});
  for(const m of mcp)g5.append(AURORA_MCP_AUTHORIZATION.create({server:m,workspaceId:scope,api:body=>api(`/agents/${id}/mcp/authorization/preview`,body),oauth:(action,body)=>api(`/agents/${id}/mcp/oauth/${action}`,{...body,mcpRevision:x.mcpRevision}),active:current}));
  const mf=el("form","mcp-add");const mn=el("input","ext-in");mn.placeholder="Tên (vd. deepwiki)";mn.id="mcpName";const mu=el("input","ext-in");mu.placeholder="https://…/mcp hoặc …/sse";mu.id="mcpUrl";mu.inputMode="url";const mh=el("input","ext-in");mh.placeholder="Header xác thực (tuỳ chọn, vd. Authorization)";const msx=el("input","ext-in");msx.placeholder="Tên bí mật trong kho (vd. MCP_TOKEN)";const mb=el("button","pill","Thêm máy chủ");mb.type="submit";
  mf.append(mn,mu,mh,msx,mb);mf.onsubmit=e=>{e.preventDefault();if(!mn.value.trim()||!mu.value.trim())return;save({mcp:[...strip(),{name:mn.value.trim(),url:mu.value.trim(),header:mh.value.trim()||undefined,secret:msx.value.trim()||undefined}]},"Đã thêm máy chủ MCP")};
  g5.append(mf,el("p","caption","Bot gọi thẳng công cụ của máy chủ đã thêm. Khoá đặt trong kho bí mật, không bao giờ hiện ra."));
- B.append(g1,g2,g3,g4,g5)}
+ const quick=el("button","pill soft","Thiết lập nhanh");quick.type="button";quick.onclick=()=>{if(current())openModels(false,id)};B.append(quick,g1,g2,g3,g4,g5)}
 $("#closeExt").onclick=()=>closeSheet(true);
-async function openModels(keep){const {body:B,current}=startExtView("Mô hình & nhà cung cấp",keep);
- let x;try{x=await api("/models")}catch{if(current())B.replaceChildren(el("p","caption","Không tải được"));return}if(!current())return;B.innerHTML="";
- B.append(card("Nhà cung cấp",cell("sparkles","GLM (mặc định)",{static:1,sub:"Có sẵn trên máy chủ",value:"✓"}),...(x.providers||[]).map(p=>cell("link",p.name,{sub:p.base+" · "+p.models.join(", ")+(p.hasKey?" · có khoá":" · chưa có khoá"),value:"Xoá",onClick:()=>api(`/providers/${p.id}/delete`,{}).then(()=>{if(current()){toast("Đã xoá");openModels(true)}})}))));
+async function quickSetupCard(B,botId,scope,current){
+ const panel=el("section","quick-setup card pad"),loading=el("p","caption","Đang tải lựa chọn AI…");panel.id="quickSetup";panel.append(loading);B.append(panel);
+ let x;try{x=await api("/quick-setup"+(botId?"?botId="+encodeURIComponent(botId):""))}catch{if(current()){loading.textContent="Chưa tải được thiết lập nhanh.";const retry=el("button","pill soft","Thử lại");retry.type="button";retry.onclick=()=>{if(current()){panel.remove();quickSetupCard(B,botId,scope,current)}};panel.append(retry)}return}
+ if(!current())return;
+ if(x.workspaceId!==scope){loading.textContent="Tài khoản đã thay đổi. Mở lại cài đặt để tải phiên bản mới.";return}
+ if(!x.available||!x.providers?.length){loading.textContent="Thiết lập nhanh cần Neko Core trên máy chạy Aurora. Bạn vẫn có thể thêm kết nối trong Cấu hình nâng cao.";return}
+ panel.replaceChildren(el("h3",0,"Chọn AI của bạn"),el("p","caption",botId?"Kết nối này sẽ dùng cho bot đang mở.":"Dùng mặc định cho các bot chưa chọn mô hình riêng."));
+ const names={zai:"GLM · Coding Plan","zai-openai":"GLM · API",chatgpt:"ChatGPT",openai:"OpenAI · API",claude:"Claude · API","gemini-api":"Gemini · API",deepseek:"DeepSeek · API"};
+ const summary=el("div","quick-current"),renderCurrent=()=>{const ai=x.effective;summary.hidden=!ai?.selection&&!ai?.configured;summary.replaceChildren(el("span","caption",botId?"AI của bot":"AI mặc định Aurora"),literalEl("strong",0,aiLabel(ai)));if(botId&&ai?.inherited)summary.append(el("small","caption","Theo mặc định Aurora"))};renderCurrent();panel.append(summary,el("p","caption","Thay đổi AI áp dụng từ lượt tiếp theo. Lượt đang chạy giữ nguyên AI đã chọn."));
+ const selected=x.selection||x.effective?.selection||"";
+ const chosen=x.providers.find(p=>selected.startsWith("core-"+p.id+":"))||x.providers[0];
+ const picker=sel(x.providers.map(p=>[p.id,names[p.id]||p.label]),chosen.id);picker.id="quickProvider";const content=el("div","quick-content");panel.append(field("Nhà cung cấp AI",picker),content);
+ let generation=0;
+ const render=()=>{const version=++generation,active=()=>current()&&version===generation,p=x.providers.find(p=>p.id===picker.value);if(p.candidateCatalog){p.modelSource="account_required";p.models=[];p.modelOptions=[];p.catalogError="";p.candidateCatalog=false}content.replaceChildren();
+  const hint=p.id==="zai"?"Dùng khóa của gói GLM Coding Plan.":p.id==="zai-openai"?"Dùng khóa GLM API trả phí theo mức sử dụng.":p.id==="chatgpt"?"Đăng nhập tài khoản ChatGPT qua Neko Core, không cần API key.":"Dán API key của nhà cung cấp này.";
+  content.append(el("p","caption",hint));const form=el("form","quick-form"),notice=el("p","caption");notice.setAttribute("role","status");notice.setAttribute("aria-live","polite");
+  const key=el("input","ext-in");key.type="password";key.autocomplete="off";key.maxLength=8192;key.id="quickKey";key.placeholder=p.configured?"Đã lưu khóa · để trống để dùng tiếp":"Dán API key tại đây";
+  if(p.auth!=="chatgpt_oauth"){key.required=!p.configured;form.append(field("API key",key,"Khóa được lưu trong kho bí mật trên máy chạy Aurora."))}
+  const activeSelection=x.selection||x.effective?.selection||"",account=p.auth==="chatgpt_oauth",savedModel=activeSelection.startsWith("core-"+p.id+":")?activeSelection.slice(activeSelection.indexOf(":")+1):"",model=sel([],"");model.id="quickModel";
+  const catalogNote=el("p","caption"),refresh=el("button","pill soft","Tải lại danh sách model");catalogNote.id="quickCatalogNote";catalogNote.setAttribute("role","status");refresh.id="quickRefreshModels";refresh.type="button";
+  let loadedKey=p.modelSource==="account"?"":null;
+  const canUse=()=>p.modelSource==="account"&&loadedKey===key.value.trim()&&p.models.includes(model.value)&&!p.catalogError;
+  const fillModels=(value)=>{const opts=p.modelOptions||[];model.replaceChildren();const placeholder=el("option",0,"Chọn model");placeholder.value="";model.append(placeholder);opts.forEach(m=>{const o=literalEl("option",0,(m.label===m.id?m.id:m.label+" · "+m.id)+(m.available?"":" · "+(window.__I18N?.t("Cần cập nhật ChatGPT")||"Cần cập nhật ChatGPT")));o.value=m.id;o.disabled=!m.available;model.append(o)});if(value&&!opts.some(m=>m.id===value)){const o=literalEl("option",0,value+" · "+(window.__I18N?.t("Không có trong danh sách")||"Không có trong danh sách"));o.value=value;o.disabled=true;model.append(o)}model.value=value||"";
+   const selected=x.selection||x.effective?.selection||"",selectedModel=selected.startsWith("core-"+p.id+":")?selected.slice(selected.indexOf(":")+1):"";
+   catalogNote.textContent=p.catalogError==="core_auth_required"?(account?"Đăng nhập ChatGPT cần được kết nối lại.":"API key chưa được chấp nhận. Kiểm tra khóa và đúng gói kết nối."):p.catalogError==="core_rate_limited"?"Nhà cung cấp đang giới hạn lượt kiểm tra. Hãy thử lại sau.":p.catalogError?"Chưa tải được danh sách mới. Hãy kiểm tra mạng và thử lại.":p.modelSource!=="account"?(account?"Đăng nhập rồi tải danh sách model của tài khoản.":"Dán API key rồi bấm Tải danh sách model. Khóa chưa được lưu ở bước này."):selectedModel&&!p.models.includes(selectedModel)?"Model đang chọn không khả dụng. Chọn model trong danh sách tài khoản rồi bấm Dùng kết nối này.":!opts.length?"Kết nối này chưa trả về model hỗ trợ trò chuyện.":account?"Danh sách từ tài khoản ChatGPT. Thay đổi chỉ có hiệu lực khi bạn bấm Dùng kết nối này.":"Danh sách từ kết nối này. Chọn model rồi bấm Dùng kết nối này; chưa gửi tin nhắn hay dùng lượt chat.";
+  };fillModels(savedModel);
+  const options=el("details","quick-options");options.open=true;options.append(el("summary",0,"Tùy chọn mô hình"),field("Mô hình",model),catalogNote,refresh);form.append(options);if(!account)refresh.textContent=p.modelSource==="account"?"Tải lại danh sách model":"Tải danh sách model";
+  const save=el("button","pill",p.configured?"Dùng kết nối này":"Lưu và dùng"),back=el("button","pill soft","Quay lại trò chuyện");save.type="submit";back.type="button";back.hidden=true;back.onclick=()=>{if(active())closeSheet(true)};
+  const login=el("button","pill","Đăng nhập ChatGPT"),cancel=el("button","pill soft","Hủy đăng nhập"),link=el("a","pill","Mở trang đăng nhập");login.type=cancel.type="button";link.target="_blank";link.rel="noopener noreferrer";link.hidden=cancel.hidden=true;
+  let attempt="",busy=false;
+  const lock=value=>{busy=value;picker.disabled=value;key.disabled=value;model.disabled=value||p.modelSource!=="account"||loadedKey!==key.value.trim();save.disabled=value||!canUse();login.disabled=value;refresh.disabled=value||!(p.configured||!account&&key.value.trim());form.setAttribute("aria-busy",String(value))};
+  key.oninput=()=>{loadedKey=null;catalogNote.textContent="Khóa đã thay đổi. Tải lại danh sách trước khi chọn model.";lock(false)};
+  const cancelLogin=async()=>{cancel.disabled=true;try{const r=await api(`/quick-setup/login/${attempt}/cancel`,{workspaceId:scope});if(!active())return;if(r.state==="connected"){connected();return}notice.textContent="Đã hủy đăng nhập.";attempt="";link.hidden=cancel.hidden=true;lock(false)}catch{if(active())notice.textContent="Chưa xác nhận được việc hủy. Hãy thử lại."}finally{if(active())cancel.disabled=false}};
+  const connected=()=>{p.configured=true;p.modelSource="account_required";attempt="";link.hidden=cancel.hidden=true;login.textContent="Đăng nhập lại";login.className="pill soft";save.hidden=false;save.textContent="Dùng kết nối này";notice.textContent="Đã đăng nhập ChatGPT. Chọn dùng kết nối để hoàn tất.";lock(false);refreshModels()};
+  const poll=async()=>{if(!active()||!attempt)return;try{const r=await api(`/quick-setup/login/${attempt}`);if(!active()||!attempt)return;
+    if(r.state==="connected"){connected();return}
+    if(r.state==="failed"||r.state==="cancelled"){attempt="";link.hidden=cancel.hidden=true;lock(false);notice.textContent=r.state==="cancelled"?"Đã hủy đăng nhập.":"Chưa đăng nhập được. Hãy thử lại; đóng lượt đăng nhập Neko Core khác nếu đang mở.";return}
+    if(r.url){const u=new URL(r.url);if(u.protocol==="https:"&&u.host==="auth.openai.com"&&u.pathname==="/oauth/authorize"){link.href=r.url;link.hidden=false;notice.textContent="Mở trang đăng nhập, rồi quay lại Aurora để hoàn tất."}}
+   }catch{if(active())notice.textContent="Đang chờ trạng thái đăng nhập…"}if(active()&&attempt)setTimeout(poll,1000)};
+  login.onclick=async()=>{if(!active()||busy)return;lock(true);notice.textContent="Đang chuẩn bị đăng nhập…";try{const r=await api("/quick-setup/login",{workspaceId:scope});if(!active())return;attempt=r.id;cancel.hidden=false;poll()}catch{if(active()){lock(false);notice.textContent="Không mở được đăng nhập. Hãy thử lại."}}};cancel.onclick=cancelLogin;
+  if(p.auth==="chatgpt_oauth"){save.hidden=!p.configured;if(p.configured){login.textContent="Đăng nhập lại";login.className="pill soft"}form.append(login,link,cancel)}
+  form.append(save,back,notice);content.append(form);
+  if(p.configured)notice.textContent=p.auth==="chatgpt_oauth"?"Đã đăng nhập ChatGPT.":"Đã lưu khóa · chưa kiểm tra kết nối.";
+  const refreshModels=async()=>{if(!active()||busy||!(p.configured||!account&&key.value.trim()))return;const wanted=model.value,candidate=key.value.trim();lock(true);catalogNote.textContent="Đang tải model từ kết nối của bạn…";
+   try{const r=await api("/quick-setup/models",{workspaceId:scope,botId:botId||"",provider:p.id,key:candidate});if(!active())return;if(r.workspaceId!==scope){loadedKey=null;catalogNote.textContent="Tài khoản đã thay đổi. Mở lại cài đặt để tải phiên bản mới.";return}const updated=r.providers.find(row=>row.id===p.id);if(!updated)throw Error("catalog");Object.assign(p,updated);p.candidateCatalog=!!candidate;loadedKey=p.catalogError?null:candidate;x.effective=r.effective;fillModels(wanted);renderCurrent();loadState().catch(()=>{})}
+   catch{if(active()){loadedKey=null;catalogNote.textContent="Chưa tải được danh sách mới. Hãy kiểm tra mạng và thử lại."}}
+   finally{if(active())lock(false)}
+  };refresh.onclick=refreshModels;model.onchange=()=>{save.disabled=busy||!canUse()};lock(false);
+  if(p.configured&&p.modelSource!=="account"&&!p.catalogError)refreshModels();
+  form.onsubmit=async e=>{e.preventDefault();if(!active()||busy||!canUse())return;const secret=key.value.trim();lock(true);notice.textContent="Đang lưu…";
+   try{const r=await api("/quick-setup",{workspaceId:scope,botId:botId||"",provider:p.id,model:model.value,key:secret,expectedSelection:x.selection||""});key.value="";loadedKey="";if(!active())return;x.selection=r.selection;x.effective=r.effective;Object.assign(p,r.providers.find(row=>row.id===p.id)||{});p.candidateCatalog=false;fillModels(model.value);renderCurrent();p.configured=true;key.required=false;key.placeholder="Đã lưu khóa · để trống để dùng tiếp";save.textContent="Dùng kết nối này";back.hidden=false;notice.textContent="Đã chọn AI. Bạn có thể quay lại trò chuyện và gửi tin nhắn khi sẵn sàng.";loadState().catch(()=>{})}
+   catch(e){if(active()){const code=e.body?.error;notice.textContent=e.status===409?"Cấu hình đã thay đổi. Mở lại thiết lập để chọn lại; chưa đổi AI cho bot.":code==="core_model_unavailable"?"Model không còn khả dụng với kết nối này. Tải lại danh sách để chọn lại.":code==="core_auth_required"?"API key chưa được chấp nhận. Kiểm tra khóa và đúng gói kết nối.":"Chưa xác nhận được kết nối. Chưa đổi AI của bot; kiểm tra mạng rồi thử lại.";if(code?.startsWith("core_")){loadedKey=null;save.disabled=true}}}
+   finally{if(active())lock(false)}
+  };
+ };picker.onchange=render;render();
+}
+async function openModels(keep,botId){const {body:B,scope,current}=startExtView("Mô hình & nhà cung cấp",keep);
+ let x;try{x=await api("/models")}catch{if(current()){const retry=el("button","pill soft","Thử lại");retry.type="button";retry.onclick=()=>{if(current())openModels(true,botId)};B.replaceChildren(el("p","caption","Chưa tải được cấu hình AI. Hãy thử lại."),retry)}return}if(!current())return;B.innerHTML="";
+ B.append(el("p","caption","Chọn AI và kết nối tài khoản của bạn. Tin nhắn đã lưu sẽ không tự gửi lại."));
+ quickSetupCard(B,botId,scope,current);
+ const advanced=el("details","quick-advanced"),A=el("div");advanced.id="providerAdvanced";advanced.append(el("summary",0,"Cấu hình nâng cao"),A);B.append(advanced);
+ if(botId&&byId(botId)){const choose=el("button","pill soft","Chọn mô hình cho bot này");choose.type="button";choose.onclick=()=>{if(current())openExt(botId)};A.append(choose)}
+ A.append(card("Nhà cung cấp",cell("sparkles","AI mặc định",{static:1,sub:x.defaultConfigured===true?"Đã có cấu hình · chưa kiểm tra kết nối":x.defaultConfigured===false?"Chưa thiết lập kết nối AI":"Chưa xác định trạng thái cấu hình",value:x.defaultConfigured===true?"Đã cấu hình":x.defaultConfigured===false?"Cần thiết lập":""}),...(x.providers||[]).map(p=>cell("link",p.name,{sub:p.base+" · "+p.models.join(", ")+(p.hasKey?" · có khoá":" · chưa có khoá"),value:"Xoá",onClick:()=>api(`/providers/${p.id}/delete`,{}).then(()=>{if(current()){toast("Đã xoá");openModels(true,botId)}})}))));
  const f=el("form","mcp-add");f.id="provForm";const ins=[["id","Mã (vd. openai)"],["name","Tên hiển thị"],["base","Địa chỉ API (vd. https://api.openai.com/v1)"],["models","Các mô hình, cách nhau dấu phẩy"]].map(([k,p])=>{const i=el("input","ext-in");i.name=k;i.placeholder=p;f.append(i);return i});
  const key=el("input","ext-in");key.type="password";key.autocomplete="off";key.name="key";key.placeholder="Khoá API (lưu vào kho bí mật)";f.append(key);const b=el("button","pill","Lưu nhà cung cấp");b.type="submit";f.append(b);
- f.onsubmit=e=>{e.preventDefault();const [id,name,base,models]=ins.map(i=>i.value.trim());api("/providers",{id,name,base,models:models.split(",").map(s=>s.trim()).filter(Boolean),key:key.value||undefined}).then(()=>{key.value="";if(!current())return;toast("Đã lưu nhà cung cấp");openModels(true)}).catch(()=>{if(current())toast("Không lưu được (kiểm tra mã và địa chỉ https)")})};
- const g=el("section","card-group");g.append(el("h3",0,"Thêm nhà cung cấp tương thích OpenAI"));const c=el("div","card pad");c.append(f,el("p","caption","Khoá chỉ được ghi vào kho bí mật mã hoá; không bao giờ hiện lại hay gửi cho mô hình."));g.append(c);B.append(g);
- const vs=sel(x.models.map(m=>[m.id,m.label+" · "+m.provider]).concat(x.models.some(m=>m.id===x.vision)?[]:[[x.vision,x.vision]]),x.vision);vs.id="visionSel";vs.onchange=()=>api("/vision",{model:vs.value}).then(()=>toast("Đã đổi mô hình đọc ảnh")).catch(()=>toast("Không lưu được"));
- const g2=el("section","card-group");g2.append(el("h3",0,"Mô hình đọc ảnh"));const c2=el("div","card pad");c2.append(field("Khi bạn gửi ảnh",vs,"Mô hình trả lời chỉ đọc chữ; ảnh được mô hình này mô tả lại."));g2.append(c2);B.append(g2);
- const tg=card("Hiển thị",cell("sparkles","Hiện phần suy nghĩ",{id:"thinkShow",sub:"Với bot bật “Hiện suy nghĩ”",toggle:showThink,onToggle:sw=>{showThink=sw.getAttribute("aria-checked")!=="true";localStorage.setItem("aurora.think",showThink?"1":"0");sw.setAttribute("aria-checked",showThink)}}),cell("activity","Trình duyệt của bot",{static:1,value:x.browser?"Có":"Đọc trang thường",sub:x.browser?"Trình duyệt không giao diện, chỉ đọc":"Máy chủ này không có Chrome; dùng trình đọc trang"}));B.append(tg)}
+ f.onsubmit=e=>{e.preventDefault();const [id,name,base,models]=ins.map(i=>i.value.trim());api("/providers",{id,name,base,models:models.split(",").map(s=>s.trim()).filter(Boolean),key:key.value||undefined}).then(()=>{key.value="";if(!current())return;toast("Đã lưu nhà cung cấp");openModels(true,botId)}).catch(()=>{if(current())toast("Không lưu được (kiểm tra mã và địa chỉ https)")})};
+ const g=el("section","card-group");g.append(el("h3",0,"Thêm nhà cung cấp tương thích OpenAI"));const c=el("div","card pad");c.append(f,el("p","caption","Khoá chỉ được ghi vào kho bí mật mã hoá; không bao giờ hiện lại hay gửi cho mô hình."));g.append(c);A.append(g);
+ const vs=sel(x.models.filter(m=>!m.id.startsWith("core-")).map(m=>[m.id,m.label+" · "+m.provider]).concat(x.models.some(m=>m.id===x.vision)?[]:[[x.vision,x.vision]]),x.vision);vs.id="visionSel";vs.onchange=()=>api("/vision",{model:vs.value}).then(()=>toast("Đã đổi mô hình đọc ảnh")).catch(()=>toast("Không lưu được"));
+ const g2=el("section","card-group");g2.append(el("h3",0,"Mô hình đọc ảnh"));const c2=el("div","card pad");c2.append(field("Khi bạn gửi ảnh",vs,"Mô hình trả lời chỉ đọc chữ; ảnh được mô hình này mô tả lại."));g2.append(c2);A.append(g2);
+ const tg=card("Hiển thị",cell("sparkles","Hiện phần suy nghĩ",{id:"thinkShow",sub:"Với bot bật “Hiện suy nghĩ”",toggle:showThink,onToggle:sw=>{showThink=sw.getAttribute("aria-checked")!=="true";localStorage.setItem("aurora.think",showThink?"1":"0");sw.setAttribute("aria-checked",showThink)}}),cell("activity","Trình duyệt của bot",{static:1,value:x.browser?"Có":"Đọc trang thường",sub:x.browser?"Trình duyệt không giao diện, chỉ đọc":"Máy chủ này không có Chrome; dùng trình đọc trang"}));A.append(tg)}
 async function openSkills(keep){const {body:B,current}=startExtView("Kỹ năng",keep);
  let x;try{x=await api("/skills")}catch{if(current())B.replaceChildren(el("p","caption","Không tải được"));return}if(!current())return;B.innerHTML="";
- B.append(card("Kỹ năng",...x.skills.map(k=>cell("sparkles",k.name,{sub:k.desc,value:k.id.startsWith("sk-")?"Xoá":"",onClick:()=>{if(k.id.startsWith("sk-"))api(`/skills/${k.id}/delete`,{}).then(()=>{if(current())openSkills(true)})}}))));
+ B.append(card("Kỹ năng",...x.skills.map(k=>skillCell(k,{value:k.id.startsWith("sk-")?"Xoá":"",onClick:()=>{if(k.id.startsWith("sk-"))api(`/skills/${k.id}/delete`,{}).then(()=>{if(current())openSkills(true)})}}))));
  const f=el("form","mcp-add");f.id="skillForm";const n=el("input","ext-in");n.placeholder="Tên kỹ năng";const d=el("input","ext-in");d.placeholder="Dùng khi nào (một dòng)";const b=el("textarea","ext-in");b.rows=4;b.placeholder="Hướng dẫn từng bước cho bot";const go=el("button","pill","Thêm kỹ năng");go.type="submit";f.append(n,d,b,go);
  f.onsubmit=e=>{e.preventDefault();api("/skills",{name:n.value.trim(),desc:d.value.trim(),body:b.value.trim()}).then(()=>{if(current()){toast("Đã thêm kỹ năng");openSkills(true)}}).catch(()=>toast("Cần tên và hướng dẫn"))};
  const g=el("section","card-group");g.append(el("h3",0,"Kỹ năng mới"));const c=el("div","card pad");c.append(f);g.append(c,el("p","caption","Bot chỉ thấy tên và mô tả; khi việc khớp, bot đọc hướng dẫn đầy đủ."));B.append(g)}
 const _rp2=renderProfile;renderProfile=function(){_rp2();const a=byId(profId);if(!a||isGroup(a))return;const B=$("#profBody");const c=card("AI & công cụ",cell("sparkles","Mô hình, suy nghĩ, kỹ năng, MCP",{id:"prExt",sub:"Thư mục làm việc và các khả năng của bot",onClick:()=>openExt(a.id)}));const m=$("#prMem");const g=m&&m.closest(".card-group");g?g.after(c):B.append(c)};
-const _rs2=renderSettings;renderSettings=function(){_rs2();const B=$("#settingsBody");const c=card("AI",cell("sparkles","Mô hình & nhà cung cấp",{id:"openModels",sub:"GLM mặc định, thêm khoá riêng, mô hình đọc ảnh",onClick:()=>openModels()}),cell("list-checks","Kỹ năng",{id:"openSkills",sub:"Hướng dẫn bot dùng lại cho việc lặp lại",onClick:()=>openSkills()}));const u=$("#openUsage");const g=u&&u.closest(".card-group");g?g.before(c):B.append(c)};
+const _rs2=renderSettings;renderSettings=function(){_rs2();const B=$("#settingsBody");const c=card("AI",cell("sparkles","Mô hình & nhà cung cấp",{id:"openModels",sub:"Chọn GLM, đăng nhập ChatGPT hoặc dùng API key",onClick:()=>openModels()}),cell("list-checks","Kỹ năng",{id:"openSkills",sub:"Hướng dẫn bot dùng lại cho việc lặp lại",onClick:()=>openSkills()}));const u=$("#openUsage");const g=u&&u.closest(".card-group");g?g.before(c):B.append(c)};
 // memory: ask + summarize
 function memoryTools(view,B,active,mutate){
  const id=view.bot,bar=el("div","mem-tools"),ask=el("button","pill soft","Hỏi bộ nhớ"),sum=el("button","pill soft","Gộp trùng lặp");ask.type=sum.type="button";ask.id="memAsk";sum.id="memSum";bar.append(ask,sum);B.querySelector(".mem-add").after(bar);
@@ -965,8 +1082,9 @@ async function refreshUploadQueue(){
 }
 async function insertUpload(item){
  const here=cur?.id===item.agent&&S.workspaceId===item.scope;
- const d=here?{text:inp.value,ref:pendingRef,reply:pendingReply}:composerDrafts.get(item.scope,item.agent),token="[Ảnh: "+item.path+"]";
- if(!d.text.includes(token))d.text=(d.text?d.text+"\n":"Bạn xem ảnh này giúp mình.\n")+token;
+ const d=here?{text:inp.value,ref:pendingRef,reply:pendingReply}:composerDrafts.get(item.scope,item.agent),token=l10n.message("chat.imageAttachment",{name:item.path});
+ const attached=[...d.text.matchAll(/\[(?:Ảnh: |Image: |图片：|圖片：)(uploads\/[^\]\s]{1,90})\]/g)].some(match=>match[1]===item.path);
+ if(!attached)d.text=(d.text?d.text+"\n":l10n.message("chat.imagePrompt"))+token;
  const saved=storeComposerDraft(item.scope,item.agent,d);
  if(here){restoreComposerDraft();inp.focus()}
  if(saved)await uploadQueue.remove(item);
@@ -1003,7 +1121,7 @@ addEventListener("focus",()=>{if(cur)refreshUploadQueue()});
 selectionExcerpt=window.AURORA_SELECTION_EXCERPT.mount({root:$("#messages"),context:()=>({workspace:S.workspaceId,agent:cur?.id}),notice:toast,insert:(id,text)=>{
  const message=(S.msgs[cur?.id]||[]).find(x=>x.id===id);if(!message)return false;
  const author=message.role==="user"?"Bạn":byId(message.from||message.agentId)?.name||cur.name;
- const excerpt="Trích từ "+author+":\n"+text.replace(/\r\n?/g,"\n").split("\n").map(line=>"> "+line).join("\n");
+ const excerpt=l10n.message("misc.excerpt",{name:author,text:text.replace(/\r\n?/g,"\n").split("\n").map(line=>"> "+line).join("\n")});
  const next=(inp.value?inp.value+"\n\n":"")+excerpt+"\n\n";
  if([...next].length>MAX_MSG){toast("Nháp sẽ vượt 10.000 ký tự. Rút gọn nháp hoặc chọn đoạn ngắn hơn.");return false}
  inp.value=next;inp.oninput();inp.focus();return true;
@@ -1025,9 +1143,9 @@ function clearVaultInputs(root){root.querySelectorAll(".secret input[data-secret
 function clearVaultChat(){vaultChatVersion++;const root=$("#messages");clearVaultInputs(root);root.querySelectorAll(".secret[data-id]").forEach(n=>nodeCache.delete(n.dataset.id))}
 function resetVault(){vaultView++;vaultData=null;vaultOpen=null;vaultEdit=null;vaultTab="all";hideVaultValues();clearVaultInputs($("#vaultBody"));$("#vaultBody").replaceChildren()}
 const vaultActive=(scope,view,node)=>scope===S.workspaceId&&view===vaultView&&sheetOpen===$("#vaultSheet")&&node.isConnected;
-const vSub=it=>it.type==="card"?(it.hint.brand||"Thẻ")+" •••• "+(it.hint.last4||""):it.type==="login"?[it.hint.site,it.hint.user].filter(Boolean).join(" · ")+(it.hint.totp?" · 2 lớp":""):(it.hint.name||"")+" · "+(it.filled||[]).length+" mục";
+const vSub=it=>it.type==="card"?(it.hint.brand||l10n.t("Thẻ"))+" •••• "+(it.hint.last4||""):it.type==="login"?[it.hint.site,it.hint.user].filter(Boolean).join(" · ")+(it.hint.totp?" · "+l10n.t("Xác thực hai lớp"):""):(it.hint.name||"")+" · "+l10n.message("misc.items",{count:(it.filled||[]).length});
 function vaultDeleteButton(it,root,active,onBusy=()=>{}){const scope=S.workspaceId,del=el("button","pill ghost danger");del.type="button";del.dataset.vdelete=it.id;del.append(I("trash-2",16),el("span",0,"Xoá"));
- del.onclick=async()=>{if(!active()||del.disabled)return;const question=window.__I18N?.lang==="en"?"Remove “"+it.label+"” from Vault?":"Xoá “"+it.label+"” khỏi Vault?";if(!confirm(question))return;del.disabled=true;onBusy(true);
+ del.onclick=async()=>{if(!active()||del.disabled)return;const question=l10n.message("vault.removeConfirm",{name:it.label});if(!confirm(question))return;del.disabled=true;onBusy(true);
   try{await api(`/vault/${it.id}/delete`,{workspaceId:scope});clearVaultInputs(root);if(!active())return;hideVaultValues();vaultOpen=null;toast("Đã xoá");openVault(true)}catch{if(active()){del.disabled=false;onBusy(false);toast("Không xoá được")}}};return del}
 function vaultForm(type,item,onSaved,work){const f=el("form","vault-form");const ins={},scope=S.workspaceId,view=vaultView,chat=cur?.id,chatVersion=vaultChatVersion;
  const active=()=>work?scope===S.workspaceId&&cur?.id===chat&&vaultChatVersion===chatVersion&&f.isConnected:vaultActive(scope,view,f);
@@ -1089,4 +1207,29 @@ function vaultCard(m){const x=m.secret,t=x.vault,scope=S.workspaceId,key="aurora
  c.append(vaultForm(t,null,it=>{const persisted=rememberVaultCard(key,it);nodeCache.delete(m.id);renderThread();if(!persisted)toast("Đã lưu vào Vault. Thiết bị chưa nhớ được trạng thái thẻ.")},{task:m.taskId,label:x.label,site:x.site}));return c}
 {const _rs3=renderSettings;renderSettings=function(){_rs3();const B=$("#settingsBody");const c=card("Bảo mật",cell("shield-check","Vault",{id:"openVault",sub:"Thẻ, đăng nhập, thông tin cá nhân · mã hoá",onClick:()=>openVault()}));const u=$("#openUsage");const g=u&&u.closest(".card-group");g?g.after(c):B.append(c)}}
 window.__AURORA=Object.assign(window.__AURORA||{},{openVault});
+const workspaceRenderThread=renderThread;
+renderThread=function(){workspaceRenderThread();window.AURORA_WORKSPACE?.notify()};
+const workspaceOpenThread=openThread;
+openThread=function(id,options){if(profId&&profId!==id)closeProfile(true);return workspaceOpenThread(id,options)};
+window.addEventListener("aurora:localechange",()=>{renderList();if(cur)renderThreadModel(cur);document.querySelectorAll(".daystamp[data-timestamp]").forEach(n=>{n.textContent=dayStamp(Number(n.dataset.timestamp))})});
+window.AURORA_WORKSPACE?.mount({
+ workspaceId:()=>S.workspaceId,
+ view:()=>{const hidden=store.get("neko-aurora-hidden",[]);return{workspaceId:S.workspaceId,ready:!!S.workspaceId&&$("#login").classList.contains("hidden"),current:cur?.id,agents:S.agents.map(a=>({...a,waiting:waiting(a),unread:unread(a),hidden:Array.isArray(hidden)&&hidden.includes(a.id)}))}},
+ avatar:avatarOf,renderList,open:(id,options)=>{openThread(id,options);AURORA_WORKSPACE.notify()},
+ closeProfile:()=>{if(profId)closeProfile(true)},
+ home:()=>{if(profId)closeProfile(true);closeThread();AURORA_WORKSPACE.notify()},
+ busy:()=>!!sheetOpen||!!ctxOpen,
+ profile:(id,section)=>{openProfile(id);if(section==="schedule")requestAnimationFrame(()=>{const node=$("#schedBox");if(profId===id&&node){node.scrollIntoView({block:"start"});node.focus({preventScroll:true})}})},
+ botAction:(kind,id)=>{if(kind==="tools")openExt(id);else if(kind==="memory")openMemory(id);else if(kind==="computer")openProfile(id)},
+ action:kind=>{
+  if(sheetOpen||ctxOpen)return;
+  if(kind==="show-hidden"){showHidden=true;filter="";$("#search").value="";renderList()}
+  else if(kind==="create")openCreator();
+  else if(kind==="pages")openPages(false);
+  else if(kind==="apps")$("#appsBtn").click();
+  else if(kind==="vault")openVault();
+  else if(kind==="network")$("#networkBtn").click();
+  else if(kind==="settings")$("#meBtn").click();
+ }
+});
 })();

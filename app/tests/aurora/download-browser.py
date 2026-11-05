@@ -4,7 +4,7 @@ from pathlib import Path
 from urllib.parse import urlsplit,parse_qs
 from playwright.sync_api import expect,sync_playwright
 from fixture_http import FixtureHTTPServer
-ROOT=Path(__file__).resolve().parents[3];OUT=ROOT/'.audit/2026-10-29-downloads';OUT.mkdir(exist_ok=True)
+ROOT=Path(__file__).resolve().parents[3];OUT=Path(os.environ.get('AURORA_BROWSER_AUDIT_DIR', ROOT/'.audit/2026-10-29-downloads'));OUT.mkdir(exist_ok=True)
 DATA=b'complete binary fixture\x00\xff'
 class Handler(http.server.SimpleHTTPRequestHandler):
     def log_message(self,*_):pass

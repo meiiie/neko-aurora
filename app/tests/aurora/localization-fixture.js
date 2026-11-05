@@ -1,0 +1,7 @@
+"use strict";
+const store = {data:new Map(),get length(){return this.data.size},key(i){return [...this.data.keys()][i]},getItem(k){return this.data.get(k)??null},setItem(k,v){this.data.set(k,v)},removeItem(k){this.data.delete(k)}};
+const scope="ui-only-fixture",active=()=>true,send=()=>{},notice=()=>{};
+document.querySelector("#fixtureForm").append(AURORA_FORMS.create({message:{agentId:"fixture",taskId:"form",form:{answerVersion:1,title:"Cài đặt",fields:[{name:"name",label:"Tên của tôi / 我的名字",type:"text"}]}},workspaceId:scope,storage:store,active,send}));
+document.querySelector("#fixtureQuestions").append(AURORA_QUESTIONS.create({message:{agentId:"fixture",taskId:"questions",questions:[{id:"q1",prompt:"Cài đặt",options:["Hello / 你好","Tiếng Việt"]},{id:"q2",prompt:"Second literal question",options:["Yes","No"]}]},workspaceId:scope,storage:store,send,notice}));
+AURORA_MEMORY_IMPORT.mount(document.querySelector("#fixtureMemory"),"fixture",async()=>({items:["Cài đặt"],duplicates:1,rejected:2,remaining:10,revision:1}),()=>{});
+document.querySelector("#fixtureMcp").append(AURORA_MCP_AUTHORIZATION.create({server:{name:"Cài đặt",url:"https://example.test/mcp"},workspaceId:scope,active,api:async()=>({resource:"https://example.test/mcp",issuers:["https://example.test"],scopes:["read:fixture"],authorization:{issuer:"https://example.test",pkceS256:true}}),oauth:async()=>({phase:"connected",generation:"fixture",revision:1,scopes:["read:fixture"],expiresAt:1900000000,canRefresh:false})}));

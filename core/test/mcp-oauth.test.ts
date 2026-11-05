@@ -1,4 +1,4 @@
-import { expect, spyOn, test } from "bun:test";
+import { expect, setDefaultTimeout, spyOn, test } from "bun:test";
 import { createHash } from "node:crypto";
 import { mkdtempSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { createServer, request } from "node:http";
@@ -14,6 +14,10 @@ import { McpHub } from "../src/adapters/mcp.ts";
 import { isText } from "../src/shared/wire.ts";
 import * as atomic from "../src/shared/atomic.ts";
 import { readOAuthRecord } from "../src/adapters/mcp-oauth-storage.ts";
+
+// ACL setup and durable credential writes can outlast Bun's five-second
+// fixture budget on Windows. Explicit protocol/abort deadlines stay intact.
+if (process.platform === "win32") setDefaultTimeout(30_000);
 
 const resource = "https://mcp.example.test/mcp", issuer = "https://auth.example.test";
 function discovery(as = issuer, target = resource): OAuthDiscoveryState {

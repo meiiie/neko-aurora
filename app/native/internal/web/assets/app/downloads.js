@@ -23,7 +23,7 @@
       const rawSize=response.headers.get("Content-Length"),size=Number(rawSize);
       if(response.headers.get("X-Aurora-Workspace")!==workspaceId||response.headers.get("X-Aurora-Bot")!==bot||response.headers.get("Content-Type")?.split(";")[0]!=="application/octet-stream"||!/^\d+$/.test(rawSize||"")||!Number.isSafeInteger(size))throw Error("download_response");
       const blob=await response.blob();if(!active())return false;if(blob.size!==size)throw Error("download_incomplete");
-      const local=URL.createObjectURL(blob),link=document.createElement("a");link.href=local;link.download=name;link.hidden=true;document.body.append(link);
+      const local=URL.createObjectURL(blob),link=document.createElement("a");link.href=local;link.download=name;link.hidden=true;(document.querySelector("dialog[open]")||document.body).append(link);
       try{link.click()}finally{link.remove();setTimeout(()=>URL.revokeObjectURL(local),1000)}
       notice(t("Đã chuyển file cho trình duyệt."));return true;
     } catch(e) {

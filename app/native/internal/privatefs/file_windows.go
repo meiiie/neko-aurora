@@ -22,6 +22,10 @@ func currentSID() (*syscall.Tokenuser, error) {
 }
 
 func descriptor() (*byte, error) {
+	return descriptorForFlags("")
+}
+
+func descriptorForFlags(flags string) (*byte, error) {
 	u, err := currentSID()
 	if err != nil {
 		return nil, err
@@ -30,7 +34,7 @@ func descriptor() (*byte, error) {
 	if err != nil {
 		return nil, err
 	}
-	text, err := syscall.UTF16PtrFromString("O:" + sid + "D:P(A;;FA;;;" + sid + ")")
+	text, err := syscall.UTF16PtrFromString("O:" + sid + "D:P(A;" + flags + ";FA;;;" + sid + ")")
 	if err != nil {
 		return nil, err
 	}
@@ -92,7 +96,11 @@ func Protect(path string) error {
 		return err
 	}
 	defer syscall.CloseHandle(h)
-	sd, err := descriptor()
+	return protectHandle(h, "", 0, true)
+}
+
+func protectHandle(h syscall.Handle, flags string, aceFlags byte, setOwner bool) error {
+	sd, err := descriptorForFlags(flags)
 	if err != nil {
 		return err
 	}
@@ -105,12 +113,32 @@ func Protect(path string) error {
 	if ok, _, _ := advapi.NewProc("GetSecurityDescriptorOwner").Call(uintptr(unsafe.Pointer(sd)), uintptr(unsafe.Pointer(&owner)), uintptr(unsafe.Pointer(&defaulted))); ok == 0 || owner == nil {
 		return ErrPrivate
 	}
-	code, _, _ := advapi.NewProc("SetSecurityInfo").Call(uintptr(h), 1, 0x80000005, uintptr(unsafe.Pointer(owner)), 0, uintptr(unsafe.Pointer(acl)), 0)
+	securityInfo := uintptr(0x80000004)
+	ownerPointer := uintptr(0)
+	if setOwner {
+		securityInfo |= 1
+		ownerPointer = uintptr(unsafe.Pointer(owner))
+	} else {
+		var existingOwner, existingSD *byte
+		code, _, _ := advapi.NewProc("GetSecurityInfo").Call(uintptr(h), 1, 1, uintptr(unsafe.Pointer(&existingOwner)), 0, 0, 0, uintptr(unsafe.Pointer(&existingSD)))
+		if code != 0 {
+			return syscall.Errno(code)
+		}
+		defer syscall.LocalFree(syscall.Handle(uintptr(unsafe.Pointer(existingSD))))
+		if existingOwner == nil {
+			return ErrPrivate
+		}
+		equal, _, _ := advapi.NewProc("EqualSid").Call(uintptr(unsafe.Pointer(existingOwner)), uintptr(unsafe.Pointer(owner)))
+		if equal == 0 {
+			return ErrPrivate
+		}
+	}
+	code, _, _ := advapi.NewProc("SetSecurityInfo").Call(uintptr(h), 1, securityInfo, ownerPointer, 0, uintptr(unsafe.Pointer(acl)), 0)
 	runtime.KeepAlive(sd)
 	if code != 0 {
 		return syscall.Errno(code)
 	}
-	return checkHandle(h)
+	return checkHandleSecurity(h, aceFlags, true)
 }
 
 func Check(path string) error {
@@ -123,6 +151,10 @@ func Check(path string) error {
 }
 
 func checkHandle(h syscall.Handle) error {
+	return checkHandleSecurity(h, 0, true)
+}
+
+func checkHandleSecurity(h syscall.Handle, aceFlags byte, protected bool) error {
 	var owner *syscall.SID
 	var acl, sd *byte
 	code, _, _ := advapi.NewProc("GetSecurityInfo").Call(uintptr(h), 1, 5, uintptr(unsafe.Pointer(&owner)), 0, uintptr(unsafe.Pointer(&acl)), 0, uintptr(unsafe.Pointer(&sd)))
@@ -136,7 +168,7 @@ func checkHandle(h syscall.Handle) error {
 	var control uint16
 	var revision uint32
 	ok, _, _ := advapi.NewProc("GetSecurityDescriptorControl").Call(uintptr(unsafe.Pointer(sd)), uintptr(unsafe.Pointer(&control)), uintptr(unsafe.Pointer(&revision)))
-	if ok == 0 || control&0x1000 == 0 || binary.LittleEndian.Uint16(unsafe.Slice(acl, 8)[4:6]) != 1 {
+	if ok == 0 || (control&0x1000 != 0) != protected || binary.LittleEndian.Uint16(unsafe.Slice(acl, 8)[4:6]) != 1 {
 		return ErrPrivate
 	}
 	var ace *byte
@@ -145,7 +177,7 @@ func checkHandle(h syscall.Handle) error {
 		return ErrPrivate
 	}
 	header := unsafe.Slice(ace, 8)
-	if header[0] != 0 || header[1] != 0 || binary.LittleEndian.Uint16(header[2:4]) < 16 || binary.LittleEndian.Uint32(header[4:8]) != 0x001f01ff {
+	if header[0] != 0 || header[1] != aceFlags || binary.LittleEndian.Uint16(header[2:4]) < 16 || binary.LittleEndian.Uint32(header[4:8]) != 0x001f01ff {
 		return ErrPrivate
 	}
 	u, err := currentSID()

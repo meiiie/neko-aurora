@@ -516,11 +516,15 @@ func (s *Service) scheduleRoutes() {
 		writeJSON(w, 200, map[string]any{"schedule": x})
 	})
 	s.mux.HandleFunc("GET /app/api/schedules", func(w http.ResponseWriter, r *http.Request) {
+		if scopes, supplied := r.URL.Query()["workspaceId"]; supplied && (len(scopes) != 1 || scopes[0] != s.workspaceID) {
+			fail(w, ledger.ErrConflict)
+			return
+		}
 		if err := s.sched.storageError(); err != nil {
 			fail(w, err)
 			return
 		}
-		writeJSON(w, 200, map[string]any{"schedules": s.sched.list(r.URL.Query().Get("bot"))})
+		writeJSON(w, 200, map[string]any{"workspaceId": s.workspaceID, "schedules": s.sched.list(r.URL.Query().Get("bot"))})
 	})
 	s.mux.HandleFunc("POST /app/api/schedules/{id}/delete", func(w http.ResponseWriter, r *http.Request) {
 		var in struct {

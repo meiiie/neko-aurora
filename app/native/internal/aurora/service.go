@@ -45,10 +45,12 @@ type Service struct {
 	steward       *steward
 	usage         *usageLog
 	ext           *extStore
+	quick         *quickSetup
 	sched         *schedStore
 	PC            *computer.Manager    // per-bot sandboxed computers (nil = off)
 	Cloud         *cloudbrowser.Client // isolated persistent cloud browser; nil fails closed
 	cloudStateDir string
+	coreStateDir  string
 	mux           *http.ServeMux
 	pcb           pcBook // bot computer build state (build.go)
 	mu            sync.Mutex
@@ -142,10 +144,14 @@ func New(ctx context.Context, store *ledger.Store, stateDir string, opt Options)
 	s := &Service{L: store, AI: model, Push: p, V: v, Tools: toolsFromEnv(), Mem: openMemory(stateDir), steward: openSteward(stateDir), usage: openUsage(stateDir), sched: openSchedules(stateDir), ext: openExt(stateDir), PC: openComputers(stateDir), Prefs: prefs, subs: map[chan Event]struct{}{}, ctx: ctx, wake: make(chan struct{}, 1), running: map[string]bool{}, seen: map[string]string{}, Now: time.Now}
 	s.owner = opt.OwnerName
 	s.workspaceID = workspaceID
+	if !hosted() && opt.RunTurns && !store.ReadOnly() {
+		s.quick = openQuickSetup(ctx, stateDir)
+	}
 	s.oauth = newMCPOAuthManager(v, opt.OAuthOrigins, func() time.Time { return s.Now() })
 	s.utilityAdmission = opt.UtilityAdmission
 	s.routineAdmission = opt.RoutineAdmission
 	s.cloudStateDir = stateDir
+	s.coreStateDir = stateDir
 	if !store.ReadOnly() && !opt.DisableCloud {
 		s.Cloud = openCloudBrowser(stateDir)
 	}
@@ -238,6 +244,7 @@ func (s *Service) sync() {
 			continue
 		}
 		a := v.agent(b, s.Prefs.Bot(b.ID))
+		a.AI = s.aiViewFor(b.ID)
 		j, _ := json.Marshal(a)
 		next["a:"+b.ID] = string(j)
 		if s.seen["a:"+b.ID] != string(j) && !first {
@@ -396,7 +403,7 @@ func (s *Service) runBrief(w ledger.Work) {
 	}
 	text := fmt.Sprintf("Chào "+s.ownerName()+". %d agent đang hoạt động, %d việc cần bạn.", n, len(pend))
 	run := ledger.DirectRun{Runtime: s.AI.Runtime(), Kind: "brief"}
-	if s.AI.Configured() {
+	if s.modelConfigured(w.BotID) {
 		c, cancel := context.WithTimeout(s.ctx, 90*time.Second)
 		out, err := s.stream(c, w.BotID, "brief", []ChatMsg{
 			{"system", `Bạn viết bản tin sáng cho Darren từ trạng thái các agent. Trả về DUY NHẤT JSON: {"text":"1-2 câu chào và tóm tắt","items":["tối đa 5 dòng ngắn, ưu tiên việc cần Darren duyệt"]}. Tiếng Việt. Không bịa dữ kiện ngoài dữ liệu.`},
@@ -553,7 +560,9 @@ func (s *Service) routes() {
 		agents := []*Agent{}
 		for _, b := range v.snap.Bots {
 			if !v.archived[b.ID] {
-				agents = append(agents, v.agent(b, s.Prefs.Bot(b.ID)))
+				a := v.agent(b, s.Prefs.Bot(b.ID))
+				a.AI = s.aiViewFor(b.ID)
+				agents = append(agents, a)
 			}
 		}
 		for _, c := range v.groups() {
@@ -562,7 +571,7 @@ func (s *Service) routes() {
 		writeJSON(w, 200, map[string]any{
 			"workspaceId": s.workspaceID,
 			"agents":      agents, "pending": v.pending(), "brief": v.brief(),
-			"ai":             map[string]any{"configured": s.AI.Configured(), "model": s.AI.ModelName(), "provider": "z.ai", "runtime": s.AI.Runtime()},
+			"ai":             s.aiView(),
 			"vapidPublicKey": s.Push.Pub, "pushSubscriptions": len(s.Prefs.PushSubs()),
 			"outbound": s.outboundInfo(), "secrets": s.secretNames(),
 		})

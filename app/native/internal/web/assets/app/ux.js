@@ -59,5 +59,42 @@ function compositionGuard(root){
  root.addEventListener("pointerdown",()=>{imeKey=false},true);
  return blocked;
 }
-const X={statusGate,compositionGuard,CHECKPOINT,phase,cmdShown,foldCmd,outSummary,fileInfo,kb,isDownload,isCheckpoint,isNoise,statusText};
+function acceptMessage(state,m){
+ const list=state.msgs[m.agentId],index=list?.findIndex(x=>x.id===m.id)??-1;
+ // Tool/status updates share a task ID with the stream, but are not its answer.
+ if(m.text&&(index<0||list[index].text!==m.text))delete state.drafts[m.id];
+ if((m.interrupted||m.segment)&&index<0)delete state.drafts[m.taskId];
+ if(!list)return;
+ if(index>=0)list.splice(index,1);
+ let before=m.beforeRequestId?list.findIndex(x=>x.id===m.beforeRequestId+":u"):-1;
+ if(before<0&&(m.interrupted||m.segment||/:step\d+$/.test(m.id)))before=list.findIndex(x=>x.id===m.taskId);
+ if(before>=0)list.splice(before,0,m);else if(index>=0)list.splice(index,0,m);else list.push(m);
+ // A delayed owner event can arrive after the response it anchors.
+ if(m.role==="user"){
+  const anchored=list.filter(x=>x.beforeRequestId===m.taskId);
+  for(const x of anchored)list.splice(list.indexOf(x),1);
+  list.splice(list.indexOf(m),0,...anchored);
+ }
+}
+ function streamText(text){
+  const raw=String(text||"").replace(/[\uD800-\uDBFF]$/,"");
+  const marker=raw.search(/(^|\n)\s*(APPROVAL|PLAN|CHOICES|QUESTIONS|TOOL|SECRET|MEMORY|HANDOFF|SCHEDULE|FORM):|(APPROVAL|PLAN|CHOICES|QUESTIONS|TOOL|SECRET|MEMORY|HANDOFF|SCHEDULE|FORM):\s*[\[{]/);
+  return (marker<0?raw:raw.slice(0,marker)).trim();
+ }
+ function readableDraft(text){const t=streamText(text);return !/^[`*_#>\s~-]*$/.test(t)&&/[\p{L}\p{N}\p{S}]/u.test(t)}
+ function sameMessageRun(previous,current){
+  if(!previous||!current||!['agent','user'].includes(current.role)||previous.role!==current.role)return false;
+  if((previous.from||previous.agentId)!==(current.from||current.agentId))return false;
+  if([previous,current].some(m=>!m.text||m.quote||m.interrupted||m.queued||m.approval||m.plan||m.form||m.questions||m.choices||m.secret||m.recovery))return false;
+  const time=value=>typeof value==='number'?value:Date.parse(value),gap=time(current.t)-time(previous.t);
+  return Number.isFinite(gap)&&gap>=0&&gap<5*60*1000;
+ }
+ function conversationTarget(agents,requested,remembered){
+  if(requested&&agents.some(a=>a.id===requested))return requested;
+  const visible=agents.filter(a=>!a.hidden);
+  if(remembered&&visible.some(a=>a.id===remembered))return remembered;
+  const time=a=>{const n=typeof a.t==='number'?a.t:Date.parse(a.t);return Number.isFinite(n)?n:0};
+  return visible.reduce((latest,a)=>!latest||time(a)>time(latest)?a:latest,null)?.id||null;
+ }
+ const X={conversationTarget,sameMessageRun,streamText,readableDraft,acceptMessage,statusGate,compositionGuard,CHECKPOINT,phase,cmdShown,foldCmd,outSummary,fileInfo,kb,isDownload,isCheckpoint,isNoise,statusText};
 g.AURORA_UX=X;if(typeof module!=="undefined")module.exports=X})(typeof window!=="undefined"?window:globalThis);

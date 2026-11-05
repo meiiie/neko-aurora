@@ -52,19 +52,23 @@ func plainMD(v string) string {
 // ---- views: the mobile JSON shapes, projected from ledger bots and work ----
 
 type Agent struct {
-	ID      string    `json:"id"`
-	Name    string    `json:"name"`
-	Desc    string    `json:"desc"`
-	Tag     string    `json:"tag,omitempty"`
-	Face    *Face     `json:"av,omitempty"`
-	Status  string    `json:"status"` // idle|working|waiting|done|error
-	Task    string    `json:"task"`   // OpenMuse-style TaskStatus of the latest task
-	Snip    string    `json:"snip"`
-	Doing   string    `json:"doing,omitempty"` // live activity while working ("Đang tìm nguồn…")
-	Pinned  bool      `json:"pin"`
-	Kind    string    `json:"kind,omitempty"` // ""|group
-	Members []string  `json:"members,omitempty"`
-	Updated time.Time `json:"t"`
+	ActiveModel string         `json:"activeModel,omitempty"`
+	AI          map[string]any `json:"ai,omitempty"`
+	ID          string         `json:"id"`
+	Name        string         `json:"name"`
+	Desc        string         `json:"desc"`
+	Tag         string         `json:"tag,omitempty"`
+	Face        *Face          `json:"av,omitempty"`
+	Status      string         `json:"status"` // idle|working|waiting|done|error
+	Task        string         `json:"task"`   // OpenMuse-style TaskStatus of the latest task
+	Snip        string         `json:"snip"`
+	SnipKey     string         `json:"snipKey,omitempty"`
+	SnipArgs    map[string]any `json:"snipArgs,omitempty"`
+	Doing       string         `json:"doing,omitempty"` // live activity while working ("Đang tìm nguồn…")
+	Pinned      bool           `json:"pin"`
+	Kind        string         `json:"kind,omitempty"` // ""|group
+	Members     []string       `json:"members,omitempty"`
+	Updated     time.Time      `json:"t"`
 }
 
 type Step = ledger.DirectStep
@@ -74,31 +78,37 @@ type Plan struct {
 type Approval = ledger.DirectApproval
 
 type Message struct {
-	Quote         *ledger.MessageQuote    `json:"quote,omitempty"`
-	AnswerFor     string                  `json:"answerFor,omitempty"`
-	FormFor       string                  `json:"formFor,omitempty"`
-	FormValues    []string                `json:"formValues,omitempty"`
-	ID            string                  `json:"id"`
-	TaskID        string                  `json:"taskId"`
-	AgentID       string                  `json:"agentId"`
-	Role          string                  `json:"role"` // user|agent|system
-	Text          string                  `json:"text"`
-	Approval      *Approval               `json:"approval,omitempty"`
-	Plan          *Plan                   `json:"plan,omitempty"`
-	Choices       []string                `json:"choices,omitempty"`
-	Questions     []ledger.DirectQuestion `json:"questions,omitempty"`
-	Secret        *ledger.DirectSecret    `json:"secret,omitempty"`
-	Tools         []ledger.DirectTool     `json:"tools,omitempty"`
-	Sources       []ledger.DirectSource   `json:"sources,omitempty"`
-	Queued        bool                    `json:"queued,omitempty"`
-	Ref           string                  `json:"ref,omitempty"`  // name of a chat attached as context
-	From          string                  `json:"from,omitempty"` // speaking bot, in group threads
-	Origin        string                  `json:"origin,omitempty"`
-	FromName      string                  `json:"fromName,omitempty"`
-	PeerMessageID string                  `json:"peerMessageId,omitempty"`
-	Thinking      string                  `json:"thinking,omitempty"` // folded model reasoning (thinking toggle)
-	Form          *form                   `json:"form,omitempty"`     // interactive form card
-	Created       time.Time               `json:"t"`
+	Quote           *ledger.MessageQuote     `json:"quote,omitempty"`
+	AnswerFor       string                   `json:"answerFor,omitempty"`
+	FormFor         string                   `json:"formFor,omitempty"`
+	FormValues      []string                 `json:"formValues,omitempty"`
+	ID              string                   `json:"id"`
+	TaskID          string                   `json:"taskId"`
+	AgentID         string                   `json:"agentId"`
+	Role            string                   `json:"role"` // user|agent|system
+	Text            string                   `json:"text"`
+	Recovery        string                   `json:"recovery,omitempty"`
+	Interrupted     bool                     `json:"interrupted,omitempty"`
+	Segment         bool                     `json:"segment,omitempty"`
+	Completion      *ledger.DirectCompletion `json:"completion,omitempty"`
+	BeforeRequestID string                   `json:"beforeRequestId,omitempty"`
+	AfterInputID    string                   `json:"-"`
+	Approval        *Approval                `json:"approval,omitempty"`
+	Plan            *Plan                    `json:"plan,omitempty"`
+	Choices         []string                 `json:"choices,omitempty"`
+	Questions       []ledger.DirectQuestion  `json:"questions,omitempty"`
+	Secret          *ledger.DirectSecret     `json:"secret,omitempty"`
+	Tools           []ledger.DirectTool      `json:"tools,omitempty"`
+	Sources         []ledger.DirectSource    `json:"sources,omitempty"`
+	Queued          bool                     `json:"queued,omitempty"`
+	Ref             string                   `json:"ref,omitempty"`  // name of a chat attached as context
+	From            string                   `json:"from,omitempty"` // speaking bot, in group threads
+	Origin          string                   `json:"origin,omitempty"`
+	FromName        string                   `json:"fromName,omitempty"`
+	PeerMessageID   string                   `json:"peerMessageId,omitempty"`
+	Thinking        string                   `json:"thinking,omitempty"` // folded model reasoning (thinking toggle)
+	Form            *form                    `json:"form,omitempty"`     // interactive form card
+	Created         time.Time                `json:"t"`
 }
 
 type Brief struct {
@@ -196,6 +206,8 @@ func taskStatus(w ledger.Work) TaskStatus {
 		return TaskQueued
 	case w.Status == "running" || w.Status == "starting" || w.Status == "cancelling":
 		return TaskRunning
+	case w.Status == "completed" && w.Direct != nil && w.Direct.Completion != nil && w.Direct.Completion.Status == "incomplete":
+		return TaskIncomplete
 	case w.Status == "completed":
 		return TaskSucceeded
 	case w.Status == "cancelled":
@@ -207,7 +219,7 @@ func taskStatus(w ledger.Work) TaskStatus {
 }
 
 func (v *view) agent(b ledger.Bot, prefs botPrefs) *Agent {
-	a := &Agent{ID: b.ID, Name: displayName(b), Desc: v.desc(b), Tag: prefs.Tag, Pinned: prefs.Pinned, Status: "idle", Snip: "Sẵn sàng nhận việc.", Task: ""}
+	a := &Agent{ID: b.ID, Name: displayName(b), Desc: v.desc(b), Tag: prefs.Tag, Pinned: prefs.Pinned, Status: "idle", Snip: "Sẵn sàng nhận việc.", SnipKey: "agent.ready", Task: ""}
 	av := defaultAvatar(b.ID)
 	if prefs.Avatar != nil {
 		av = *prefs.Avatar
@@ -227,25 +239,31 @@ func (v *view) agent(b ledger.Bot, prefs botPrefs) *Agent {
 	for _, w := range l {
 		if w.Direct != nil && w.Direct.Approval != nil && w.Direct.Approval.State == "pending" {
 			a.Status, a.Snip = "waiting", "Cần bạn duyệt: "+w.Direct.Approval.Title
+			a.SnipKey, a.SnipArgs = "agent.approval", map[string]any{"title": w.Direct.Approval.Title}
 		}
 	}
 	for _, w := range l {
 		if w.Direct != nil && w.Direct.Approval != nil && w.Direct.Approval.Kind == "computer" && w.Direct.Approval.Delivery != nil && w.Direct.Approval.Delivery.Status == "sending" {
 			// an approved command is still running: the bot is busy, not done
 			a.Status, a.Snip = "working", "Đang chạy lệnh trên máy tính…"
+			a.SnipKey, a.SnipArgs = "agent.command", nil
 		}
 		if active(w) {
 			a.Status, a.Snip = "working", "Đang làm việc"
+			a.SnipKey, a.SnipArgs = "agent.working", nil
 			if w.Status == "waiting_host" {
 				a.Snip = "Đang chờ lượt"
+				a.SnipKey = "agent.queued"
 			}
 			if w.Direct != nil {
 				for i, st := range w.Direct.Plan {
 					if st.Status == "running" {
 						a.Snip = "Bước " + itoa(i+1) + "/" + itoa(len(w.Direct.Plan)) + ": " + st.Title
+						a.SnipKey, a.SnipArgs = "agent.step", map[string]any{"current": i + 1, "total": len(w.Direct.Plan), "title": st.Title}
 					}
 				}
 				a.Doing = doingOf(w.Direct)
+				a.ActiveModel = w.Direct.Model
 			}
 			return a
 		}
@@ -254,17 +272,29 @@ func (v *view) agent(b ledger.Bot, prefs botPrefs) *Agent {
 		return a
 	}
 	switch taskStatus(last) {
+	case TaskIncomplete:
+		a.Status, a.Snip = "waiting", "Còn phần chưa hoàn tất"
+		a.SnipKey, a.SnipArgs = "chat.completion.incomplete", nil
 	case TaskWaitingInput:
 		a.Status, a.Snip = "waiting", "Cần bạn chọn để tiếp tục"
+		a.SnipKey, a.SnipArgs = "agent.choice", nil
 	case TaskSucceeded:
 		a.Status, a.Snip = "done", clean(plainMD(firstLine(visibleText(last.Reply))), 140)
+		a.SnipKey, a.SnipArgs = "", nil
 		if a.Snip == "" {
 			a.Snip = "Đã xong"
+			a.SnipKey = "agent.done"
 		}
 	case TaskCancelled:
 		a.Status, a.Snip = "idle", "Đã dừng theo yêu cầu của bạn."
+		a.SnipKey, a.SnipArgs = "agent.stopped", nil
 	case TaskFailed:
 		a.Status, a.Snip = "error", failureText(last.Failure)
+		a.SnipKey, a.SnipArgs = "agent.failed", nil
+		if last.Failure == "ai_not_configured" {
+			a.Snip = "Cần thiết lập AI để trả lời."
+			a.SnipKey = "agent.setup"
+		}
 	}
 	return a
 }
@@ -291,8 +321,32 @@ func firstLine(s string) string {
 
 func failureText(code string) string {
 	switch {
+	case code == "core_effect_unknown":
+		return "Aurora bị ngắt sau khi gửi một thao tác và chưa nhận được kết quả đã lưu. Thao tác không được tự chạy lại. Hãy kiểm tra kết quả trên máy tính của bot trước khi tiếp tục."
+	case code == "core_workspace_changed":
+		return "Thư mục làm việc đã thay đổi trong lúc bot đang chạy. Aurora đã dừng lượt này để tránh thao tác nhầm thư mục."
 	case code == "ai_not_configured":
-		return "Chưa cấu hình AI trên máy chủ (thiếu ZAI_API_KEY). Yêu cầu đã được lưu, hãy nhắn lại sau khi cấu hình."
+		return "Tin nhắn đã được lưu nhưng chưa được xử lý vì chưa có kết nối AI. Hãy thiết lập AI, rồi gửi lại tin nhắn khi bạn muốn tiếp tục."
+	case code == "core_configuration_invalid":
+		return "Aurora chưa khởi động được AI do cấu hình ứng dụng. Hãy cập nhật hoặc khởi động lại Aurora rồi thử lại."
+	case code == "core_auth_required":
+		return "Kết nối AI chưa được xác thực. Mở AI của bot để kiểm tra API key hoặc đăng nhập lại. Tin nhắn đã được giữ."
+	case code == "core_home_unavailable" || code == "core_runtime_unavailable":
+		return "Aurora chưa mở được bộ chạy AI trên máy này. Hãy kiểm tra cài đặt Neko Core rồi thử lại."
+	case code == "core_failed":
+		return "AI chưa trả lời được. Bạn có thể thử lại hoặc kiểm tra kết nối trong thiết lập AI."
+	case code == "core_model_unavailable":
+		return "Model đang chọn không khả dụng với kết nối này. Mở AI của bot, tải lại danh sách và chọn model khác. Tin nhắn đã được giữ."
+	case code == "core_support_required":
+		return "Model này cần cập nhật thành phần ChatGPT trên máy chạy Aurora. Đăng nhập của bạn vẫn được giữ."
+	case code == "core_catalog_unavailable":
+		return "Chưa tải được danh sách model từ nhà cung cấp. Kiểm tra mạng rồi tải lại danh sách trong AI của bot."
+	case code == "core_rate_limited":
+		return "Nhà cung cấp đang giới hạn lượt dùng hoặc tài khoản đã hết hạn mức. Bạn có thể thử lại sau hoặc kiểm tra gói đang dùng."
+	case code == "core_access_denied":
+		return "Kết nối này chưa được phép dùng model đã chọn. Hãy kiểm tra quyền của API key hoặc gói tài khoản."
+	case code == "core_connection_failed":
+		return "Aurora chưa kết nối được với nhà cung cấp AI. Kiểm tra mạng rồi thử lại; thiết lập của bạn vẫn được giữ."
 	case code == "interrupted_by_restart":
 		return "Tác vụ bị gián đoạn khi máy chủ khởi động lại. Nhắn lại để tiếp tục."
 	case code == "stopped_by_owner":
@@ -325,13 +379,60 @@ func (v *view) messages(botID string, limit int) []*Message {
 		if by[w.RequestID] != "" && len(ms) > 0 && ms[0].Role == "user" {
 			ms = ms[1:]
 		}
-		if w.Direct != nil && len(w.Direct.Steered) > 0 {
+		if w.Direct != nil && w.Direct.Engine == "core" && len(w.Direct.Steered) > 0 {
+			ordered := []*Message{}
+			next := 0
+			insertThrough := func(id string) {
+				if id == "" {
+					return
+				}
+				for next < len(w.Direct.Steered) {
+					q := w.Direct.Steered[next]
+					next++
+					if qw, ok := text[q]; ok {
+						ordered = append(ordered, &Message{ID: q + ":u", TaskID: q, AgentID: qw.BotID, Role: "user", Text: qw.Text, Created: ts(qw.CreatedAt), AnswerFor: questionAnswered(qw.ClientNonce), FormFor: formAnswered(qw.ClientNonce)})
+					}
+					if q == id {
+						break
+					}
+				}
+			}
+			for _, m := range ms {
+				if m.Segment && m.AfterInputID != "" {
+					// Already inserted anchors must not consume later queued inputs.
+					for _, q := range w.Direct.Steered[next:] {
+						if q == m.AfterInputID {
+							insertThrough(q)
+							break
+						}
+					}
+				}
+				if m.ID == w.RequestID {
+					insertThrough(w.Direct.Steered[len(w.Direct.Steered)-1])
+				}
+				ordered = append(ordered, m)
+			}
+			insertThrough(w.Direct.Steered[len(w.Direct.Steered)-1])
+			ms = ordered
+		} else if w.Direct != nil && len(w.Direct.Steered) > 0 {
 			var ins []*Message
 			for _, q := range w.Direct.Steered {
 				if qw, ok := text[q]; ok {
+					for _, m := range ms {
+						if m.Interrupted && m.BeforeRequestID == q {
+							ins = append(ins, m)
+						}
+					}
 					ins = append(ins, &Message{ID: q + ":u", TaskID: q, AgentID: qw.BotID, Role: "user", Text: qw.Text, Created: ts(qw.CreatedAt), AnswerFor: questionAnswered(qw.ClientNonce), FormFor: formAnswered(qw.ClientNonce)})
 				}
 			}
+			kept := ms[:0]
+			for _, m := range ms {
+				if !m.Interrupted || by[m.BeforeRequestID] != w.RequestID {
+					kept = append(kept, m)
+				}
+			}
+			ms = kept
 			pos := len(ms)
 			for i, m := range ms {
 				if m.ID == w.RequestID {
@@ -341,6 +442,16 @@ func (v *view) messages(botID string, limit int) []*Message {
 			ms = append(ms[:pos:pos], append(ins, ms[pos:]...)...)
 		}
 		out = append(out, ms...)
+	}
+	// Supply the same ordering anchor to live SSE clients as the journal projection.
+	nextUser := ""
+	for i := len(out) - 1; i >= 0; i-- {
+		m := out[i]
+		if m.Role == "user" {
+			nextUser = m.TaskID
+		} else if !m.Interrupted {
+			m.BeforeRequestID = nextUser
+		}
 	}
 	if limit > 0 && len(out) > limit {
 		out = out[len(out)-limit:]
@@ -385,7 +496,13 @@ func workMessages(w ledger.Work, botRunning bool) []*Message {
 			out = append(out, &Message{ID: fmt.Sprintf("%s:step%d", w.RequestID, i+1), TaskID: w.RequestID, AgentID: w.BotID, Role: "agent", Text: fmt.Sprintf("**Xong bước %d/%d · %s**\n\n%s", i+1, len(d.Plan), st.Title, st.Note), Sources: append([]ledger.DirectSource(nil), d.Sources...), Created: at})
 		}
 	}
+	for i, p := range d.Partials {
+		out = append(out, &Message{ID: fmt.Sprintf("%s:partial%d", w.RequestID, i+1), TaskID: w.RequestID, AgentID: w.BotID, Role: "agent", Text: p.Text, Interrupted: true, BeforeRequestID: p.BeforeRequestID, Sources: append([]ledger.DirectSource(nil), d.Sources...), Created: ts(p.At)})
+	}
 	reply := visibleText(w.Reply)
+	for _, segment := range d.Segments {
+		out = append(out, &Message{ID: w.RequestID + ":segment:" + segment.ID, TaskID: w.RequestID, AgentID: w.BotID, Role: "agent", Text: segment.Text, Segment: true, AfterInputID: segment.AfterInputID, Sources: append([]ledger.DirectSource(nil), d.Sources...), Created: ts(segment.At)})
+	}
 	if reply != "" || d.Approval != nil || len(d.Choices) > 0 || len(d.Questions) > 0 || d.Secret != nil || len(d.Tools) > 0 {
 		m := &Message{ID: w.RequestID, TaskID: w.RequestID, AgentID: w.BotID, Role: "agent", Text: reply, Choices: append([]string(nil), d.Choices...), Questions: ledger.CopyDirectQuestions(d.Questions), Created: at}
 		if d.Approval != nil {
@@ -406,6 +523,10 @@ func workMessages(w ledger.Work, botRunning bool) []*Message {
 			m.Secret = &x
 		}
 		m.Tools = append([]ledger.DirectTool(nil), d.Tools...)
+		m.Completion = d.Completion
+		if m.Completion != nil && m.Completion.Status == "waiting" && d.Approval != nil && d.Approval.State != "pending" {
+			m.Completion = nil
+		}
 		m.Sources = append([]ledger.DirectSource(nil), d.Sources...)
 		out = append(out, m)
 	}
@@ -413,7 +534,13 @@ func workMessages(w ledger.Work, botRunning bool) []*Message {
 		out = append(out, &Message{ID: w.RequestID + ":outcome", TaskID: w.RequestID, AgentID: w.BotID, Role: "agent", Text: d.Approval.Outcome, Created: ts(d.Approval.DecidedAt)})
 	}
 	if w.Status == "failed" || w.Status == "cancelled" {
-		out = append(out, &Message{ID: w.RequestID + ":end", TaskID: w.RequestID, AgentID: w.BotID, Role: "system", Text: failureText(w.Failure), Created: at})
+		m := &Message{ID: w.RequestID + ":end", TaskID: w.RequestID, AgentID: w.BotID, Role: "system", Text: failureText(w.Failure), Created: at}
+		if w.Failure == "ai_not_configured" {
+			m.Recovery = "configure_ai"
+		} else if strings.HasPrefix(w.Failure, "core_") && w.Failure != "core_effect_unknown" && w.Failure != "core_workspace_changed" {
+			m.Recovery = "check_ai"
+		}
+		out = append(out, m)
 	}
 	return out
 }

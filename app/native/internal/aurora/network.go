@@ -72,7 +72,7 @@ func networkScope(r *http.Request) (ledger.NetworkReadScope, bool) {
 }
 
 func (s *Service) networkRunnable() bool {
-	return !s.L.ReadOnly() && s.networkRunTurns && s.AI != nil && s.AI.Configured()
+	return !s.L.ReadOnly() && s.networkRunTurns && s.modelConfigured("")
 }
 
 func (s *Service) networkEnsureSessions(scope ledger.NetworkReadScope) error {

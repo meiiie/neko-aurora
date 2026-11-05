@@ -3,6 +3,7 @@
 const $=s=>document.querySelector(s),dialog=$("#cloudDialog"),entry=$("#cloudBtn"),zoom=$("#cloudZoom");
 if(!dialog||!entry)return;
 const node=(tag,text)=>{const n=document.createElement(tag);if(text!=null)n.textContent=text;return n};
+const I=window.__I18N,t=s=>I.t(s);
 const pendingKey="aurora-cloud-pending-v1",pending=new Map();
 let agents=[],vaultItems=[],selected="",state={},observation=null,frame=null,point=null;
 let busy=false,reading=false,generation=0,revision=0,lastFocus=null,timer=null,readController=null;
@@ -21,7 +22,7 @@ function pendingFor(id=selected){return pending.get(id)||[]}
 function uncertain(){return pendingFor().some(p=>p.status==="unknown")}
 function removePending(id,nonce){const items=pendingFor(id).filter(p=>p.nonce!==nonce);items.length?pending.set(id,items):pending.delete(id);persistPending()}
 const nonce=()=>"cloud-"+(crypto.randomUUID?crypto.randomUUID():Array.from(crypto.getRandomValues(new Uint8Array(16)),n=>n.toString(16).padStart(2,"0")).join(""));
-function notice(text,bad=false){$("#cloudNotice").textContent=text;$("#cloudNotice").classList.toggle("bad",bad)}
+function notice(text,bad=false){I.uiText($("#cloudNotice"),text);$("#cloudNotice").classList.toggle("bad",bad)}
 const statusNames={stopped:"Trình duyệt đã đóng",ready:"Trình duyệt sẵn sàng",starting:"Đang khởi động",recovery_required:"Cần khôi phục · đang tạm dừng",unavailable:"Cloud chưa khả dụng"};
 const authNames={login_required:"Cần bạn đăng nhập",reauth_required:"Cần bạn đăng nhập lại",authenticated:"Trang đã xác nhận đăng nhập",unknown:"Đăng nhập chưa xác minh"};
 const controlNames={owner:"Bạn đang giữ điều khiển",agent:"Agent đang giữ điều khiển · bạn đang quan sát",paused:"Agent đang tạm dừng"};
@@ -135,7 +136,7 @@ function applyObservation(value){
  const targets=Array.isArray(value.targets)?value.targets.slice(0,256).filter(t=>t&&typeof t.id==="string"&&typeof t.role==="string"&&typeof t.name==="string").map(t=>({id:t.id,role:t.role,name:t.name,type:typeof t.type==="string"?t.type:"",protected:t.protected===true})):[];
  if(observation?.id!==value.observationId)$("#cloudVaultConfirm").checked=false;
  observation={id:value.observationId,epoch:state.epoch,botId:selected,ownerObserved:state.control==="owner",protected:value.protected!==false,origin:state.origin||"",targets,text:typeof value.text==="string"?value.text.slice(0,16384):""};
- $("#cloudObservation").textContent=observation.text||"Quan sát không có nội dung văn bản. Xem màn hình và các phần tử hiện tại.";
+ observation.text?I.literal($("#cloudObservation"),observation.text):I.uiText($("#cloudObservation"),"Quan sát không có nội dung văn bản. Xem màn hình và các phần tử hiện tại.");
 }
 function setFrame(value,id,version,operation){
  const f=value.frame;
@@ -153,10 +154,10 @@ function setFrame(value,id,version,operation){
  image.src="data:"+f.mime+";base64,"+f.data;
 }
 function renderTargets(){
- const select=$("#cloudTarget"),targets=observation?.targets||[],signature=JSON.stringify(targets);
+ const select=$("#cloudTarget"),targets=observation?.targets||[],signature=JSON.stringify(targets)+I.lang;
  if(signature===targetSignature)return;
  const current=select.value,options=[node("option",targets.length?"Chọn phần tử cần thao tác":"Chưa có phần tử · quan sát mới")];options[0].value="";
- for(const target of targets){const option=node("option",[target.role,target.name||"Không có tên",target.protected?"mục nhập bảo vệ":""].filter(Boolean).join(" · "));option.value=target.id;option.dataset.noi18n="";options.push(option)}
+ for(const target of targets){const option=node("option",[["textbox","button","link","combobox","checkbox"].includes(target.role)?I.message("cloud.role."+target.role):target.role,target.name||t("Không có tên"),target.protected?t("mục nhập bảo vệ"):""].filter(Boolean).join(" · "));option.value=target.id;option.dataset.noi18n="";options.push(option)}
  select.replaceChildren(...options);select.value=targets.some(t=>t.id===current)?current:"";targetSignature=signature;
 }
 function canonicalOrigin(value){
@@ -166,7 +167,7 @@ function renderVault(){
  const select=$("#cloudVaultItem"),signature=JSON.stringify(vaultItems.map(item=>[item.id,item.label,item.hint?.site]));
  if(signature!==vaultSignature){
   const current=select.value,options=[node("option",vaultItems.length?"Chọn mục đăng nhập":"Chưa có mục đăng nhập trong Vault")];options[0].value="";
-  for(const item of vaultItems){const option=node("option",item.label||item.hint?.site||"Mục đăng nhập");option.value=item.id;option.dataset.noi18n="";options.push(option)}
+  for(const item of vaultItems){const option=node("option",item.label||item.hint?.site||"Mục đăng nhập");option.value=item.id;option.dataset.noi18n="";if(!item.label&&!item.hint?.site)I.uiText(option,"Mục đăng nhập");options.push(option)}
   select.replaceChildren(...options);select.value=vaultItems.some(item=>item.id===current)?current:"";vaultSignature=signature;$("#cloudVaultConfirm").checked=false;
  }
  const item=vaultItems.find(item=>item.id===select.value),site=item?.hint?.site||"",current=observation?.origin||state.origin||"";
@@ -174,7 +175,7 @@ function renderVault(){
  const matches=!!item&&!!canonicalOrigin(site)&&canonicalOrigin(site)===canonicalOrigin(current);
  const allowed=canInput()&&!!observation&&matches;
  select.disabled=busy||!vaultItems.length;$("#cloudVaultConfirm").disabled=!allowed;$("#cloudVaultFill").disabled=!allowed||!$("#cloudVaultConfirm").checked;
- $("#cloudVaultHint").textContent=item&&!matches?"Trang đã lưu phải trùng origin HTTPS của trang đang quan sát. Chưa điền dữ liệu.":"Chỉ tải tên và trang của mục đăng nhập. Giá trị thật được điền trên cloud, không tự gửi form.";
+ I.uiText($("#cloudVaultHint"),item&&!matches?"Trang đã lưu phải trùng origin HTTPS của trang đang quan sát. Chưa điền dữ liệu.":"Chỉ tải tên và trang của mục đăng nhập. Giá trị thật được điền trên cloud, không tự gửi form.");
 }
 function canInput(){return!!selected&&!connectionFailed&&state.configured===true&&state.status==="ready"&&state.control==="owner"&&Number.isSafeInteger(state.epoch)&&state.epoch>0&&!busy&&!uncertain()}
 function canGrantProfile(){return canInput()&&observation?.botId===selected&&observation.epoch===state.epoch&&observation.ownerObserved&&observation.protected===false&&state.protected===false&&!["login_required","reauth_required"].includes(state.authState)}
@@ -184,7 +185,7 @@ function render(){
  const ready=state.configured===true&&state.status==="ready",epoch=Number.isSafeInteger(state.epoch)&&state.epoch>0,owned=canInput(),observed=owned&&observation?.epoch===state.epoch,target=observed&&observation.targets.some(t=>t.id===$("#cloudTarget").value);
  const status=$("#cloudStatus");status.textContent=!selected?"Chưa chọn bot":connectionFailed?"Chưa kết nối được cloud":state.configured===false?"Chưa cấu hình cloud":statusNames[state.status]||"Chưa tải trạng thái";status.classList.toggle("warn",state.configured===false||state.status==="recovery_required");status.classList.toggle("bad",connectionFailed||state.status==="unavailable");
  $("#cloudAuth").textContent=connectionFailed?authNames.unknown:authNames[state.authState]||authNames.unknown;$("#cloudAuth").classList.toggle("warn",connectionFailed||state.authState!=="authenticated");
- $("#cloudPage").textContent=[state.title,state.origin].filter(Boolean).join(" · ")||"Chưa mở trình duyệt";
+ const page=[state.title,state.origin].filter(Boolean).join(" · ");page?I.literal($("#cloudPage"),page):I.uiText($("#cloudPage"),"Chưa mở trình duyệt");
  $("#cloudControlState").textContent=busy?"Đang chờ xác nhận thao tác…":controlNames[state.control]||"Chỉ chủ sở hữu có thể mở và điều khiển máy cloud.";
  $("#cloudBot").disabled=busy;$("#cloudRefresh").disabled=!selected||busy||reading;
  $("#cloudRefresh").textContent=state.status==="recovery_required"?"Kiểm tra trạng thái":"Quan sát mới";$("#cloudOpen").textContent=state.status==="recovery_required"?"Mở lại trình duyệt":"Mở trình duyệt";
@@ -201,11 +202,11 @@ function render(){
  $("#cloudExpand").disabled=!frame;
  $("#cloudX").max=frame?String(frame.width-1):"0";$("#cloudY").max=frame?String(frame.height-1):"0";
  const validPoint=owned&&frame&&point&&point.frameId===frame.id&&point.epoch===state.epoch;
- $("#cloudPoint").disabled=!validPoint;$("#cloudPointState").textContent=validPoint?`Điểm ${point.x}, ${point.y} · gắn với ảnh hiện tại.`:point?"Ảnh đã đổi. Chọn lại điểm hoặc sửa tọa độ trên ảnh mới.":"Chưa chọn điểm.";
+ $("#cloudPoint").disabled=!validPoint;validPoint?I.bind($("#cloudPointState"),"cloud.point",{x:point.x,y:point.y}):I.uiText($("#cloudPointState"),point?"Ảnh đã đổi. Chọn lại điểm hoặc sửa tọa độ trên ảnh mới.":"Chưa chọn điểm.");
  $("#cloudScrollUp").disabled=!observed;$("#cloudScrollDown").disabled=!observed;
  const recovery=state.status==="recovery_required";
  $("#cloudUncertain").classList.toggle("hidden",!uncertain());$("#cloudUncertainText").textContent=recovery?"Worker cần khôi phục; thao tác cũ có thể đã diễn ra. Kiểm tra trạng thái rồi xác nhận bạn ghi nhận kết quả chưa rõ. Sau đó bạn có thể mở lại trình duyệt với hồ sơ cũ. Aurora không chạy lại thao tác cũ.":"Có thao tác chưa rõ kết quả. Aurora giữ mã yêu cầu và không gửi lại. Quan sát mới, kiểm tra trang và trạng thái trước khi cho phép thao tác tiếp theo.";
- $("#cloudPendingIds").textContent=pendingFor().filter(p=>p.status==="unknown").map(p=>p.nonce+" · kết quả chưa rõ").join("\n");$("#cloudResolve").textContent=recovery?"Tôi ghi nhận kết quả chưa rõ · cho phép mở lại":"Tôi đã kiểm tra trang · cho phép thao tác mới";$("#cloudResolve").disabled=busy||connectionFailed||!reviewed;
+ $("#cloudPendingIds").textContent=pendingFor().filter(p=>p.status==="unknown").map(p=>I.message("cloud.pending",{id:p.nonce})).join("\n");$("#cloudResolve").textContent=recovery?"Tôi ghi nhận kết quả chưa rõ · cho phép mở lại":"Tôi đã kiểm tra trang · cho phép thao tác mới";$("#cloudResolve").disabled=busy||connectionFailed||!reviewed;
  renderVault();
 }
 async function refresh(observe=false,manual=false){
@@ -238,7 +239,7 @@ async function mutate(suffix,body,label){
    removePending(id,marker.nonce);
    if(dialog.open&&generation===version&&selected===id){applyState(result);notice(receipt.status==="dispatched"?"Đã chuyển thao tác tới trình duyệt. Chưa xác nhận đăng nhập, gửi form hoặc gửi tin thành công.":errors[receipt.code]||"Worker đã từ chối thao tác. Quan sát mới để kiểm tra trang.",receipt.status==="rejected")}
   }else{marker.status="unknown";persistPending();if(dialog.open&&generation===version&&selected===id){if(receipt?.nonce===marker.nonce&&receipt.status==="unknown")applyState(result);notice(errors.unknown_outcome,true)}}
- }catch(e){marker.status="unknown";persistPending();if(dialog.open&&generation===version)notice(errorText(e)+" Mã yêu cầu được giữ lại; Aurora không tự gửi lại.",true)}
+ }catch(e){marker.status="unknown";persistPending();if(dialog.open&&generation===version)notice("");I.bind($("#cloudNotice"),"cloud.retained",()=>({error:t(errorText(e))}));$("#cloudNotice").classList.add("bad")}
  finally{
   busy=false;
   if(dialog.open){render();if(selected)await refresh(true,false)}
@@ -256,12 +257,12 @@ function bindPoint(x,y){
 async function loadVault(){
  $("#cloudVaultRefresh").disabled=true;
  try{const data=await request("/vault");vaultItems=Array.isArray(data.items)?data.items.filter(item=>item&&item.type==="login"&&typeof item.id==="string"):[];if(dialog.open)renderVault()}
- catch(e){if(dialog.open){$("#cloudVaultHint").textContent="Không tải được danh sách Vault. "+errorText(e)}}
+ catch(e){if(dialog.open){I.bind($("#cloudVaultHint"),"cloud.vaultError",()=>({error:t(errorText(e))}))}}
  finally{$("#cloudVaultRefresh").disabled=false}
 }
 function chooseBot(id){
  if(busy||!agents.some(agent=>agent.id===id))return;
- generation++;revision++;readController?.abort();reading=false;selected=id;state={};connectionFailed=false;invalidate();clearInputs();clearFrame("Đang lấy trạng thái cloud của bot…");$("#cloudObservation").textContent="Chưa có quan sát.";$("#cloudBot").value=id;notice("");render();refresh(true,true);
+ generation++;revision++;readController?.abort();reading=false;selected=id;state={};connectionFailed=false;invalidate();clearInputs();clearFrame("Đang lấy trạng thái cloud của bot…");I.uiText($("#cloudObservation"),"Chưa có quan sát.");$("#cloudBot").value=id;notice("");render();refresh(true,true);
 }
 async function open(detail={}){
  if(dialog.open){if(detail.botId&&detail.botId!==selected)chooseBot(detail.botId);return}
@@ -283,10 +284,11 @@ async function open(detail={}){
  loadVault();timer=setInterval(()=>{if(dialog.open&&!document.hidden)refresh()},5000);
 }
 function close(){if(dialog.open)dialog.close()}
+window.addEventListener("aurora:localechange",()=>{if(dialog.open)render()});
 entry.addEventListener("click",()=>open());$("#cloudDismiss").onclick=close;
 document.addEventListener("aurora:cloud-open",event=>open(event.detail||{}));
 dialog.addEventListener("close",()=>{
- clearInterval(timer);timer=null;generation++;readController?.abort();reading=false;clearInputs();invalidate();clearFrame("Cửa sổ máy cloud đã đóng.");$("#cloudObservation").textContent="Chưa có quan sát.";entry.setAttribute("aria-expanded","false");if(lastFocus?.isConnected)lastFocus.focus();
+ clearInterval(timer);timer=null;generation++;readController?.abort();reading=false;clearInputs();invalidate();clearFrame("Cửa sổ máy cloud đã đóng.");I.uiText($("#cloudObservation"),"Chưa có quan sát.");entry.setAttribute("aria-expanded","false");if(lastFocus?.isConnected)lastFocus.focus();
 });
 dialog.addEventListener("cancel",event=>{event.preventDefault();zoom.open?closeZoom():close()});
 dialog.addEventListener("keydown",event=>{

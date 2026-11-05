@@ -220,8 +220,8 @@ func (k *Kit) Fetch(ctx context.Context, raw string) (Result, error) {
 	return k.FetchFound(ctx, raw, nil)
 }
 
-// FetchFound also reads a page that a web_search in the same turn returned
-// (exact URL match), so research isn't stuck on the static allowlist. The
+// FetchFound also reads an exact URL supplied by the owner or returned by
+// web_search in the same turn, so research isn't stuck on the static allowlist. The
 // HTTPS-only rule and the public-address dial guard still apply.
 func (k *Kit) FetchFound(ctx context.Context, raw string, found []string) (Result, error) {
 	u, err := url.Parse(strings.TrimSpace(raw))

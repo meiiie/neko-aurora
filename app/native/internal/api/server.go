@@ -88,7 +88,7 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 	if r.Method == http.MethodGet && web.IsPublicAsset(r.URL.Path) {
 		if strings.HasPrefix(r.URL.Path, "/app/") {
-			w.Header().Set("Content-Security-Policy", "default-src 'none'; script-src 'self'; style-src 'self'; connect-src 'self'; img-src 'self' data:; font-src 'self'; manifest-src 'self'; worker-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'")
+			w.Header().Set("Content-Security-Policy", "default-src 'none'; script-src 'self'; style-src 'self'; connect-src 'self'; img-src 'self' data:; font-src 'self'; manifest-src 'self'; worker-src 'self'; frame-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'")
 		}
 		if (r.URL.Path == "/" || r.URL.Path == "/app/") && s.fixture == nil {
 			http.SetCookie(w, &http.Cookie{Name: "neko_local", Value: s.session, Path: "/", HttpOnly: true, SameSite: http.SameSiteStrictMode})

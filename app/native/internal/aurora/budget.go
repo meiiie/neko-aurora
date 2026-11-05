@@ -80,7 +80,7 @@ Trả về DUY NHẤT JSON {"decision":"continue"|"ask","message":"<nếu ask: 1
 // continuation would waste time (DS Bot's steward idea applied to the turn
 // budget instead of the context window).
 func (s *Service) budgetDecision(w ledger.Work, n int) (string, bool) {
-	if s.AI == nil || !s.AI.Configured() {
+	if !s.modelConfigured(w.BotID) {
 		return "", false
 	}
 	st := s.pcSnap(w.BotID)

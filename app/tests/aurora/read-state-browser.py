@@ -13,7 +13,7 @@ class FixtureHTTPServer(http.server.ThreadingHTTPServer):
 
 
 ROOT = Path(__file__).resolve().parents[3]
-OUT = ROOT / '.audit/2026-10-28-read-state'
+OUT = Path(os.environ.get('AURORA_BROWSER_AUDIT_DIR', ROOT / '.audit/2026-10-28-read-state'))
 OUT.mkdir(exist_ok=True)
 
 class Handler(http.server.SimpleHTTPRequestHandler):

@@ -13,7 +13,7 @@ from urllib.parse import urlsplit
 from playwright.sync_api import expect, sync_playwright
 
 ROOT=Path(__file__).resolve().parents[3]
-OUT=ROOT/'.audit/2026-10-28-uploads'
+OUT=Path(os.environ.get('AURORA_BROWSER_AUDIT_DIR', ROOT/'.audit/2026-10-28-uploads'))
 OUT.mkdir(parents=True,exist_ok=True)
 PNG=base64.b64decode('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+a9wAAAABJRU5ErkJggg==')
 class Handler(http.server.SimpleHTTPRequestHandler):

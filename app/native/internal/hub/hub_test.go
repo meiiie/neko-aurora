@@ -232,9 +232,16 @@ func TestSignupIsolationQuotaOnboarding(t *testing.T) {
 	}
 	_, mb := b.do("GET", "/app/auth/me", nil)
 	_ = mb
-	time.Sleep(600 * time.Millisecond)
-	if s, _ := b.do("GET", "/app/api/state", nil); s != 401 {
-		t.Fatal("deleted account still signed in")
+	deadline := time.Now().Add(5 * time.Second)
+	for {
+		status, _ := b.do("GET", "/app/api/state", nil)
+		if status == 401 {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("deleted account session not revoked: status=%d", status)
+		}
+		time.Sleep(25 * time.Millisecond)
 	}
 }
 

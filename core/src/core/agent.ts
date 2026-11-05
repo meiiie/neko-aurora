@@ -25,7 +25,7 @@ import {
   type CompactionSourceEvent,
   type TrustedReadFileSource,
 } from "./compaction-source.ts";
-import { ProviderAttemptError, type CompleteOptions, type DeltaHook, type Provider, type ToolCall } from "./ports.ts";
+import { ProviderAttemptError, type AgentHostCompletion, type AgentTurnHost, type CompleteOptions, type DeltaHook, type Provider, type ToolCall } from "./ports.ts";
 import { todosContextBlock, type ToolRegistry } from "./tool-runtime.ts";
 import { taskDelegatesReadOnly } from "./tools.ts";
 import { createToolOperation, type ToolOperationContext } from "./tool-operation.ts";
@@ -145,6 +145,11 @@ function cleanProviderMessages(messages: any[]): any[] {
     delete clean._neko_tool_guidance;
     delete clean._neko_tool_operations;
     delete clean._neko_host_effect_operation;
+    delete clean._neko_host_input;
+    delete clean._neko_host_segment;
+    delete clean._neko_host_segment_at;
+    delete clean._neko_host_after_input;
+    delete clean._neko_host_history;
     return clean;
   });
 }
@@ -206,7 +211,7 @@ export type ImageAttachment = string | NumberedImageAttachment;
 
 export interface AgentCompletionStatus {
   ok: boolean;
-  reason?: "validation_failed" | "validation_missing" | "contract_failed" | "contract_unverified" | "outcome_unverified" | "artifacts_missing" | "failed_checks_unresolved";
+  reason?: "validation_failed" | "validation_missing" | "contract_failed" | "contract_unverified" | "outcome_unverified" | "artifacts_missing" | "failed_checks_unresolved" | "host_incomplete" | "host_waiting";
   command?: string;
   detail?: string;
 }
@@ -319,6 +324,32 @@ export function imageContent(instruction: string, images: ImageAttachment[]): an
 }
 
 export class Agent {
+  private readonly turnHost?: AgentTurnHost;
+  private readonly hostInputIds = new Set<string>();
+  private hostVerdict?: AgentHostCompletion;
+
+  get acceptedHostInputs(): string[] { return [...this.hostInputIds]; }
+  get hostCompletion(): AgentHostCompletion | undefined {
+    return this.hostVerdict ? structuredClone(this.hostVerdict) : undefined;
+  }
+  /** The session adapter validates persisted input identities before restoring them. */
+  restoreHostInputs(ids: readonly string[]): void {
+    this.hostInputIds.clear();
+    for (const id of ids) this.hostInputIds.add(id);
+  }
+  private async admitHostInputs(signal?: AbortSignal): Promise<boolean> {
+    if (!this.turnHost) return false;
+    let changed = false;
+    for (const input of await this.turnHost.inputs(signal)) {
+      if (this.hostInputIds.has(input.id)) continue;
+      this.messages.push({ role: "user", content: input.text, _neko_internal: false, _neko_host_input: input.id });
+      this.hostInputIds.add(input.id);
+      this.emit("host_input", { id: input.id });
+      changed = true;
+    }
+    if (changed) await this.durableCheckpoint();
+    return changed;
+  }
   private hostEffectSessionId?: string;
   private hostEffectJournal: HostEffectRecord[] = [];
   private hostEffectCommitFailure?: Error;
@@ -448,6 +479,7 @@ export class Agent {
   private hitMaxSteps = false;
 
   constructor(opts: AgentOptions) {
+    this.turnHost = opts.turnHost;
     this.provider = opts.provider;
     this.tools = opts.tools;
     this.maxSteps = opts.maxSteps ?? 20;
@@ -474,6 +506,9 @@ export class Agent {
   /** Deterministic controller verdict for automation. It says only whether known validation debt is
    * resolved; it never pretends to judge the semantic quality of the model's prose. */
   get completionStatus(): AgentCompletionStatus {
+    if (this.hostVerdict && this.hostVerdict.status !== "ready") {
+      return { ok: false, reason: this.hostVerdict.status === "waiting" ? "host_waiting" : "host_incomplete", detail: this.hostVerdict.summary };
+    }
     if (this.validationExpected && this.mutationEpoch > 0) {
       const current = this.validationResult?.epoch === this.mutationEpoch ? this.validationResult : undefined;
       if (!current?.ok) {
@@ -1687,10 +1722,19 @@ export class Agent {
       }
     };
     let budgetNudges = 0; // SOTA "completion predicate": remind the model to LAND the deliverable near the budget edge
+    let previousHostGap = "";
+    this.hostVerdict = undefined;
     const workStartedAt = Date.now();
     for (let step = 0; step < runStepLimit; step++) {
       successfulEditThisStep = false;
+      const waiting = this.turnHost?.waiting?.();
+      if (waiting) {
+        this.hostVerdict = waiting;
+        this.emit("host_completion", waiting);
+        return this.recordFinal(waiting.summary);
+      }
       this.emit("step", step + 1);
+      if (await this.admitHostInputs(signal)) previousHostGap = "";
       await this.durableCheckpoint(); // user prompt / prior tool result is durable before provider work
       if (signal?.aborted) return "[interrupted]";
       // Compact before a long single turn can overflow the next provider request.
@@ -1777,7 +1821,8 @@ export class Agent {
         const hadInflight = inflightAssistant !== null;
         const message = inflightAssistant ?? ensureInflight();
         // Append only a returned suffix that was not already journaled from deltas.
-        if (!hadInflight || !managedTrace) message.content = text;
+        if (!hadInflight && managedTrace && streamedContent && text.startsWith(streamedContent)) message.content = text.slice(streamedContent.length);
+        else if (!hadInflight || !managedTrace) message.content = text;
         else if (!streamedContent) message.content = text;
         else if (text.startsWith(streamedContent)) message.content += text.slice(streamedContent.length);
         if (calls.length) {
@@ -1892,13 +1937,20 @@ export class Agent {
         this.tools.mcp?.requiresOperationContext ? { ...call } : call);
 
       if (!toolCalls.length) {
-        const final = response.content ?? "";
+        let final = response.content ?? "";
         // A bridge may stream only pre-tool progress, then return its post-tool final from complete()
         // without an onDelta. When the last durable message is the tool result, append that final as a
         // new assistant segment instead of dropping it because earlier segments happened to stream.
         if (inflightAssistant || !managedTrace || !streamedContent
           || (final && this.messages.at(-1)?.role === "tool")) {
           finalizeInflight(final, [], response.continuation);
+        }
+        // Hosted transports can return all streamed prose concatenated. Earlier
+        // progress is already a durable segment; the handoff is only the last one.
+        const finalSegment = this.messages.at(-1);
+        if (this.turnHost && managedTrace && finalSegment?.role === "assistant"
+          && !finalSegment.tool_calls?.length && isText(finalSegment.content)) {
+          final = finalSegment.content;
         }
         // Output-token cap (max_tokens / finish_reason=length): never treat as terminal success.
         // Keep working with smaller edits so a single long write cannot abort the whole run.
@@ -1975,7 +2027,9 @@ export class Agent {
           continue;
         }
         const validation = this.completionStatus;
-        if (!validation.ok && validation.reason !== "outcome_unverified" && !validationExitChecked && step < runStepLimit - 1) {
+        if (!validation.ok && validation.reason !== "outcome_unverified"
+          && validation.reason !== "host_incomplete" && validation.reason !== "host_waiting"
+          && !validationExitChecked && step < runStepLimit - 1) {
           this.cost.efficiency.verificationNudge();
           validationExitChecked = true;
           verifiedExit = true; // this is stronger than the generic inspection-only gate
@@ -2040,6 +2094,29 @@ export class Agent {
         }
         if (this.unverifiedState) return this.stopUnverified();
         await this.durableCheckpoint();
+        if (this.turnHost) {
+          // Native provider transports may execute several tool steps inside
+          // one completion. Drain input again before accepting that final.
+          // At the step bound leave it queued for a new turn, never ack unseen work.
+          if (step < runStepLimit - 1 && await this.admitHostInputs(signal)) {
+            previousHostGap = "";
+            continue;
+          }
+          const verdict = await this.turnHost.assessCompletion(final, signal);
+          this.hostVerdict = verdict;
+          this.emit("host_completion", verdict);
+          await this.durableCheckpoint();
+          if (verdict.status === "incomplete") {
+            const gap = JSON.stringify([verdict.revision, verdict.summary, verdict.evidence]);
+            if (gap === previousHostGap || step === runStepLimit - 1) {
+              return this.recordFinal(verdict.summary);
+            }
+            previousHostGap = gap;
+            this.messages.push({ role: "user", _neko_internal: true,
+              content: "HOST VERIFICATION: " + verdict.summary + "\nContinue only to resolve this missing evidence. Reuse checks for unchanged artifacts; do not repeat successful work. If blocked, explain the specific missing prerequisite." });
+            continue;
+          }
+        }
         this.emit("final", final);
         return final;
       }

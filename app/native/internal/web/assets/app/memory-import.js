@@ -27,7 +27,7 @@
           const result = await api(`/agents/${bot}/memory/import/preview`, {text:requested});
           if (!form.isConnected || input.value !== requested) { status.textContent = "Nội dung đã đổi. Bấm Xem trước để kiểm tra lại."; return; }
           review.replaceChildren();
-          status.textContent = `${result.items.length} mục có thể nhập · ${result.duplicates} trùng · ${result.rejected} không phù hợp · còn ${result.remaining} chỗ.`;
+          window.__I18N.bind(status,"memory.previewSummary",{items:result.items.length,duplicates:result.duplicates,rejected:result.rejected,remaining:result.remaining});
           const picks = result.items.map((text, i) => {
             const row = el("label", "", "memory-import-pick"), box = el("input");
             box.type = "checkbox"; box.checked = i < result.remaining; const fact = el("span", text); fact.dataset.noi18n = ""; row.append(box, fact); review.append(row);

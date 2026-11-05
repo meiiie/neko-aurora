@@ -3,7 +3,7 @@ import functools,http.server,json,os,threading,time
 from pathlib import Path
 from urllib.parse import urlsplit
 from playwright.sync_api import expect,sync_playwright
-ROOT=Path(__file__).resolve().parents[3];OUT=ROOT/'.audit/2026-10-29-vault-editor';OUT.mkdir(exist_ok=True)
+ROOT=Path(__file__).resolve().parents[3];OUT=Path(os.environ.get('AURORA_BROWSER_AUDIT_DIR', ROOT/'.audit/2026-10-29-vault-editor'));OUT.mkdir(exist_ok=True)
 class Server(http.server.ThreadingHTTPServer):request_queue_size=64
 class Handler(http.server.SimpleHTTPRequestHandler):
     def log_message(self,*_):pass
@@ -34,7 +34,7 @@ try:
     browser=p.chromium.launch(headless=True,executable_path=os.environ.get('AURORA_TEST_CHROME') or 'C:/Program Files/Google/Chrome/Application/chrome.exe')
     def setup():
         ctx=browser.new_context(viewport={'width':390,'height':844},locale='vi-VN',service_workers='block',reduced_motion='reduce');ctx.add_init_script('window.EventSource=class{addEventListener(){}close(){}}');page=ctx.new_page();fx=Fixture();page.on('pageerror',lambda e:errors.append(str(e)));page.route('**/app/api/**',fx.route);page.goto(f'http://127.0.0.1:{server.server_port}/app/',wait_until='networkidle');open_vault(page);return ctx,page,fx
-    def open_vault(page):page.locator('#meBtn').click();page.locator('#openVault').click();expect(page.locator('#vaultBody .vault-row')).not_to_have_count(0)
+    def open_vault(page):page.locator('#meBtn:visible, [data-workspace-action="settings"]:visible').click();page.locator('#openVault').click();expect(page.locator('#vaultBody .vault-row')).not_to_have_count(0)
     def edit(page,id='aabbccdd'):
         body=page.locator('#vaultBody');body.locator('.vault-it[data-id="'+id+'"] .vault-row').click();body.get_by_role('button',name='Sửa',exact=True).click();expect(body.locator('form')).to_be_visible()
     def close(page):page.keyboard.press('Escape');page.wait_for_timeout(450)

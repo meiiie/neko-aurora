@@ -206,7 +206,7 @@ func (s *Service) compact(bot string, msgs []ChatMsg) []ChatMsg {
 	if cp, ok := s.steward.get(key); ok {
 		return compactWith(msgs, &cp)
 	}
-	if s.AI != nil && s.AI.Configured() && s.steward.claim(key) {
+	if s.modelConfigured(bot) && s.steward.claim(key) {
 		go func() {
 			ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 			defer cancel()

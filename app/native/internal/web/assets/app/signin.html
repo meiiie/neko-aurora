@@ -1,7 +1,10 @@
-<!doctype html><html lang="vi"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><meta name="theme-color" content="#f2f2f4"><title>Đăng nhập · Neko Aurora</title><link rel="icon" href="/app/icon.svg"><link rel="apple-touch-icon" href="/app/icon-180.png"><link rel="stylesheet" href="/app/hosted.css"><script src="/app/i18n.js"></script></head><body><main>
+<!doctype html><html lang="vi"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><meta name="theme-color" content="#f2f2f4"><title>Đăng nhập · Neko Aurora</title><link rel="icon" href="/app/icon.svg"><link rel="apple-touch-icon" href="/app/icon-180.png"><link rel="stylesheet" href="/app/hosted.css"><script src="/app/aurora/vendor/i18next.min.js"></script>
+<script src="/app/aurora/locales.js"></script>
+<script src="/app/i18n.js"></script><link rel="stylesheet" href="/app/aurora/localization.css">
+<script src="/app/aurora/locale-page.js"></script></head><body><main>
 <div class="brand"><img src="/app/icon-180.png" alt=""><h1>Neko Aurora</h1><p class="sub">Đội bot AI làm việc cho bạn, mỗi bot có máy tính riêng</p></div>
 <section class="card" id="emailStep" aria-label="Đăng nhập bằng email">
- <label for="email">Email</label><input id="email" type="email" inputmode="email" autocomplete="email" autocapitalize="off" placeholder="ban@example.com" required>
+ <label for="email" data-i18n="common.emailAddress">Địa chỉ email</label><input id="email" type="email" inputmode="email" autocomplete="email" autocapitalize="off" placeholder="ban@example.com" required>
  <button class="btn primary" id="sendBtn">Gửi mã đăng nhập</button>
  <div id="oauth" class="hidden"><div class="or">hoặc</div>
   <a class="btn soft hidden" id="apple" href="/app/auth/apple/start"><svg viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M16.4 12.6c0-2.3 1.9-3.4 2-3.5-1.1-1.6-2.8-1.8-3.4-1.8-1.4-.1-2.8.9-3.5.9-.7 0-1.8-.8-3-.8-1.5 0-3 .9-3.8 2.3-1.6 2.8-.4 7 1.2 9.3.8 1.1 1.7 2.4 2.9 2.3 1.2 0 1.6-.7 3-.7s1.8.7 3 .7c1.3 0 2.1-1.1 2.8-2.3.9-1.3 1.3-2.6 1.3-2.6s-2.5-1-2.5-3.8zM14.1 5.8c.6-.8 1.1-1.9 1-3-.9 0-2.1.6-2.7 1.4-.6.7-1.1 1.8-1 2.9 1 .1 2.1-.5 2.7-1.3z"/></svg>Tiếp tục với Apple</a>

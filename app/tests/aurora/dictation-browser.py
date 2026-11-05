@@ -5,7 +5,7 @@ from urllib.parse import urlsplit
 from playwright.sync_api import expect,sync_playwright
 
 ROOT=Path(__file__).resolve().parents[3]
-OUT=ROOT/'.audit/2026-10-28-dictation';OUT.mkdir(exist_ok=True)
+OUT=Path(os.environ.get('AURORA_BROWSER_AUDIT_DIR', ROOT/'.audit/2026-10-28-dictation'));OUT.mkdir(exist_ok=True)
 PNG=__import__('base64').b64decode('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jH1cAAAAASUVORK5CYII=')
 class Server(http.server.ThreadingHTTPServer):request_queue_size=64
 class Handler(http.server.SimpleHTTPRequestHandler):

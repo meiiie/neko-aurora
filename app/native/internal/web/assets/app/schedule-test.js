@@ -58,11 +58,11 @@
       if (saved?.clientNonce !== attempted.clientNonce) return;
       record = {...attempted, state:"received", requestId:out.requestId};
       let persisted = true; try { store.put(record); } catch { persisted = false; }
-      if (current()) status.textContent = "Đã nhận lượt thử. Kết quả sẽ xuất hiện trong chat." + (persisted ? "" : " Chưa lưu được biên nhận trên thiết bị; kiểm tra lại sau khi tải trang.");
+      if (current()) { if(persisted)window.__I18N.uiText(status,"Đã nhận lượt thử. Kết quả sẽ xuất hiện trong chat.");else window.__I18N.bind(status,"schedule.receivedUnsaved"); }
     }
     function failure(error) {
       if (!current()) return;
-      status.textContent = error.status === 429 ? "Hết hạn mức hoặc gửi quá nhanh. Chưa nhận lượt thử mới; có thể kiểm tra biên nhận." : error.status === 409 ? "Lịch hoặc tài khoản đã thay đổi. Kiểm tra biên nhận và tải lại lịch trước khi tạo lượt mới." : error.status === 404 ? "Lịch đã bị xóa. Vẫn có thể kiểm tra biên nhận của lượt cũ." : "Chưa nhận được xác nhận. Kiểm tra biên nhận hoặc thử lại cùng lượt; không tự chạy thêm.";
+      window.__I18N.literal(status,"");status.removeAttribute("data-noi18n");status.textContent = error.status === 429 ? "Hết hạn mức hoặc gửi quá nhanh. Chưa nhận lượt thử mới; có thể kiểm tra biên nhận." : error.status === 409 ? "Lịch hoặc tài khoản đã thay đổi. Kiểm tra biên nhận và tải lại lịch trước khi tạo lượt mới." : error.status === 404 ? "Lịch đã bị xóa. Vẫn có thể kiểm tra biên nhận của lượt cũ." : "Chưa nhận được xác nhận. Kiểm tra biên nhận hoặc thử lại cùng lượt; không tự chạy thêm.";
     }
     check.onclick = async () => {
       if (busy || broken || !record || !current()) return;

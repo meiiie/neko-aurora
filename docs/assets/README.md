@@ -18,3 +18,14 @@ The two PNGs are unedited, previously recorded actual web UI from local Go servi
 |---|---|---|
 | `screenshots/report-desktop-2a74029.png` | 1440 × 900 | `b068acbf477960f90119689b4c09fec51e3a21789d111731a1b2f916fb71f1cb` |
 | `screenshots/report-mobile-2a74029.png` | 390 × 844 | `5c96899df1018277689ad2b7b279a646c69974f2023cf9f892dd59bef2d018b5` |
+
+
+## Workspace screenshots — 2026-10-30
+
+Unedited Chrome 156 fixture screenshots from application source `6f93ea26dbe7d99e60b0e63fc6df2fee1c5fc471` and manifest `80977f7bff121a0eb00d28d7934c402048a359a907135ee82a14cbb718dcf8f9`, recorded by `app/tests/aurora/workspace-browser.py`. Bot names, messages, schedules and workspace changes are synthetic. These show the actual web UI, not native WebView or physical-phone acceptance. Existing app fonts, icons and branding retain their existing notices; no OpenMausBot image or mascot is included. Historical screenshots above are unchanged.
+
+| File | Pixels | SHA256 |
+|---|---|---|
+| `screenshots/workspace-home-6f93ea2.png` | 1440 × 1000 | `6d9346a28216c6811adfbd0659225bc584c03eb9d378c58e8bd36baad7ee0260` |
+| `screenshots/workspace-context-6f93ea2.png` | 1440 × 1000 | `30e15c60931a7cded17f0c6469750c46066c0e7ae145ad4a33fc307d4da42e15` |
+| `screenshots/workspace-mobile-6f93ea2.png` | 390 × 844 | `d2c4b76266592d61d1fdc2e85eb6153d0229355a2c2cddefc23a6bc78a7885a3` |

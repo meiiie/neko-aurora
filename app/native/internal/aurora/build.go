@@ -174,7 +174,7 @@ func (s *Service) computerContext(bot string) string {
 var (
 	dlLinkRe = regexp.MustCompile(`\[([^\]\n]{1,200})\]\((/app/api/agents/([A-Za-z0-9_-]+)/computer/download\?path=([^)\s]+))\)`)
 	doneRe   = regexp.MustCompile(`(?i)(\bxong\s*[!.:]|đã (tạo|làm|dựng|render|ghép|xuất|hoàn thành)( \S+){0,3} xong|hoàn tất|đã hoàn thành|link tải|tải (về )?(tại|ở đây)|here is the (file|link)|download link)`)
-	fileWord = regexp.MustCompile(`(?i)(pptx|mp4|video|slide|file|tệp|link|\.csv|\.xlsx|\.pdf|\.png)`)
+	fileWord = regexp.MustCompile(`(?i)(pptx|mp4|video|slide|file|tệp|link|\.csv|\.xlsx|\.pdf|\.png|landing\s*page|trang\s*web|website|html)`)
 )
 
 // verifyClaims checks every download link against the bot's computer and

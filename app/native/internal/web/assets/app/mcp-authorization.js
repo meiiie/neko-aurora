@@ -3,8 +3,8 @@
   const el=(tag,text,cls)=>{const n=document.createElement(tag);if(text!=null)n.textContent=text;if(cls)n.className=cls;return n};
   const value=(tag,text)=>{const n=el(tag,text);n.dataset.noi18n="";return n};
   function create({server,workspaceId,api,oauth,active}) {
-    const root=el("section",null,"mcp-authorization"),open=el("button","Xem thông tin cấp quyền · "+server.name,"pill soft");
-    open.type="button";
+    const root=el("section",null,"mcp-authorization"),open=el("button",null,"pill soft");
+    window.__I18N.bind(open,"mcp.authorizationFor",{name:server.name});open.type="button";
     const status=el("p",null,"caption");status.setAttribute("role","status");status.setAttribute("aria-live","polite");
     const result=el("div"),management=el("div");root.append(open,status,result,management);let pending=false,authorization=null,account=null,busy=false;
     const alive=()=>root.isConnected&&active();
@@ -16,8 +16,8 @@
     function renderAccount(){
       controls.replaceChildren();if(!account)return;
       accountStatus.textContent=labels[account.phase];
-      if(account.scopes?.length)controls.append(value("p","Quyền của phiên: "+account.scopes.join(", ")));
-      if(account.expiresAt)controls.append(el("p","Hết hạn: "+new Date(account.expiresAt*1000).toLocaleString("vi-VN"),"caption"));
+      if(account.scopes?.length)controls.append(window.__I18N.bind(el("p"),"mcp.scopes",{scopes:account.scopes.join(", ")}));
+      if(account.expiresAt)controls.append(window.__I18N.bind(el("p",null,"caption"),"mcp.expires",()=>({time:window.__I18N.date(account.expiresAt*1000,{dateStyle:"medium",timeStyle:"short"})})));
       if(account.authorizationUrl){const link=el("a","Tiếp tục đăng nhập tại nhà cung cấp","pill");const u=new URL(account.authorizationUrl);if(u.protocol==="https:"&&!u.username&&!u.password){link.href=u.href;link.target="_blank";link.rel="noopener noreferrer";controls.append(link)}}
       const button=(text,action)=>{const b=el("button",text,"pill soft");b.type="button";b.onclick=action;controls.append(b)};
       if(account.canRefresh)button("Làm mới phiên đăng nhập",()=>operate("refresh",{nonce:crypto.randomUUID()}));

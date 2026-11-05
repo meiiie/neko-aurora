@@ -162,7 +162,10 @@ Trả lời: dòng đầu đúng một chữ OK nếu không cần sửa. Nếu 
 // note of what was fixed. It never blocks the write: on any doubt the
 // original content is kept.
 func (s *Service) reviewDeliverable(ctx context.Context, bot string, tc *toolCtx, path, content string) (string, string) {
-	if s.AI == nil || !s.AI.Configured() || !reviewExt.MatchString(path) || len(content) < 200 || len(content) > 60000 || viLetters(content) < 60 && unaccentedVi(content) == "" {
+	if hosted, _ := ctx.Value(coreTurnKey{}).(bool); hosted {
+		return content, ""
+	}
+	if !s.modelConfigured(bot) || !reviewExt.MatchString(path) || len(content) < 200 || len(content) > 60000 || viLetters(content) < 60 && unaccentedVi(content) == "" {
 		return content, ""
 	}
 	notes := s.researchNotes(bot, tc)

@@ -124,6 +124,12 @@ WITHOUT WARRANTY OF ANY KIND.
 - Used: design patterns only, re-implemented in Go/JS (non-blocking input queue that drains in order, abort-at-step-boundary steering, checkpointed continuation after interruption). No code copied. See docs/runtime-decision-2026-10-23.md.
 
 ## pstack (Lauren Tan / poteto) — MIT, © 2026 Lauren Tan
+- Runtime playbooks studied at commit `ae5650febf4320793844c12c4adaa937f417f8da`.
+  Aurora adaptations live in `app/native/internal/aurora/workskills/` and the
+  working agreement in `workstyle.go`. They use the existing skill mechanism;
+  no Cursor orchestration scripts, model settings or agent runner were copied.
+  The complete upstream license is retained in `workskills/pstack-LICENSE.txt`.
+  See [runtime adoption](docs/pstack-runtime.md) for behavior and limits.
 - Source: https://github.com/cursor/plugins/tree/main/pstack (commit 8b3326d)
 - Used: ideas "attack the premise" and "prove it works", re-implemented as Go gates
   in app/native/internal/aurora/pivot.go (failure fingerprints: premise nudge on the
@@ -145,3 +151,42 @@ WITHOUT WARRANTY OF ANY KIND.
 https://github.com/Fei2411/DeepSeek-Bot — Apache License 2.0, © 2026 Fei2411 and the DS Bot contributors.
 Neko Aurora ports design ideas only (post-turn memory review, a clock in the model context, restart-safe
 request handling); no source code was copied. See docs/deepseek-bot-study-2026-10-23.md.
+
+## OpenMausBot — Apache-2.0 reference
+
+Source: https://github.com/milind-soni/OpenMausBot at 88d54eb17a3655b968470cbbf3b5097de225a8b5.
+Studied provider/model selection, composer, conversation formatting, turn status,
+queue receipts and error handling. Aurora implements its own behavior in its
+existing stack; no source code or visual assets copied. See
+[provider and conversation study](docs/research/provider-flow-openmaus-2026-11-01.md).
+
+## i18next — MIT
+
+The local UI includes the unmodified i18next 26.6.0 UMD build from the npm registry.
+Source: https://github.com/i18next/i18next. The package tarball's SHA-512 integrity
+was verified before extraction. Its complete license and provenance are retained
+in `app/native/internal/web/assets/app/aurora/vendor/i18next-LICENSE.txt` and
+`i18next-PROVENANCE.md`. Translation catalogues are Aurora-authored. No remote
+translation service, analytics or CDN is used.
+
+## Source Sans 3 — SIL Open Font License 1.1
+
+Source: https://github.com/adobe-fonts/source-sans at
+`87b37a2daaed80fcb8e8ccb0085c4d72ddade12e`. Copyright 2010–2024 Adobe,
+with Reserved Font Name “Source”. The variable upright and italic WOFF2 files
+are distributed unmodified. The full license and file hashes are in
+`app/native/internal/web/assets/app/aurora/fonts/source-sans-3-OFL.txt` and
+`source-sans-3-provenance.json`. These fonts are served locally; no font CDN
+is contacted. Existing Be Vietnam Pro, Inter, Noto Serif Display and JetBrains
+Mono files and their licenses remain intact.
+
+## Noto Sans SC / TC — SIL Open Font License 1.1
+
+Google Inc. Fonts from https://github.com/notofonts/noto-cjk, distributed through
+`@fontsource-variable/noto-sans-sc` and `@fontsource-variable/noto-sans-tc` 5.3.1.
+Package tarballs were checked against their npm SHA-512 integrity values. All
+209 WOFF2 files are unmodified; the provided Unicode-range CSS only has its font
+URLs rewritten to local application paths. Complete licenses, metadata, package
+integrity and individual font SHA-256 hashes are retained under
+`app/native/internal/web/assets/app/aurora/fonts/noto-sans-sc/` and `noto-sans-tc/`.
+Font files load on demand by character range, with no remote font requests.

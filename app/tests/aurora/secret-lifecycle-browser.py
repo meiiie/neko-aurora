@@ -4,7 +4,7 @@ from pathlib import Path
 from urllib.parse import urlsplit
 from playwright.sync_api import expect,sync_playwright
 
-ROOT=Path(__file__).resolve().parents[3];OUT=ROOT/'.audit/2026-10-29-secret-lifecycle';OUT.mkdir(exist_ok=True)
+ROOT=Path(__file__).resolve().parents[3];OUT=Path(os.environ.get('AURORA_BROWSER_AUDIT_DIR', ROOT/'.audit/2026-10-29-secret-lifecycle'));OUT.mkdir(exist_ok=True)
 class Server(http.server.ThreadingHTTPServer):request_queue_size=64
 class Handler(http.server.SimpleHTTPRequestHandler):
     def log_message(self,*_):pass

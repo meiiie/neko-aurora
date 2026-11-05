@@ -5,7 +5,7 @@ from urllib.parse import urlsplit
 from playwright.sync_api import expect,sync_playwright
 
 ROOT=Path(__file__).resolve().parents[3]
-OUT=ROOT/'.audit/2026-10-28-table-scroll';OUT.mkdir(exist_ok=True)
+OUT=Path(os.environ.get('AURORA_BROWSER_AUDIT_DIR', ROOT/'.audit/2026-10-28-table-scroll'));OUT.mkdir(exist_ok=True)
 WIDE='| Cột A | Cột B | Cột C |\n|---|---|---|\n| Sao chép bảng | '+('nội dung tiếng Việt '*14)+' | 👩🏽‍💻 |'
 class Server(http.server.ThreadingHTTPServer):request_queue_size=64
 class Handler(http.server.SimpleHTTPRequestHandler):
@@ -48,7 +48,7 @@ try:
             assert wrap.evaluate('n=>n.scrollLeft')==end
             left.focus();page.keyboard.press('Enter')
             page.wait_for_function('(end)=>document.querySelector("[data-message-id=wide] .tbl").scrollLeft<end',arg=end)
-            expect(left).to_be_focused();assert page.locator('#messages').evaluate('n=>n.scrollTop')==scroll
+            expect(left).to_be_focused();assert page.locator('#messages').evaluate('n=>n.scrollTop')==scroll,(scroll,page.locator('#messages').evaluate('n=>n.scrollTop'),left.bounding_box(),right.bounding_box())
             check('edge controls stay focused, become no-ops at the boundary and scroll back by keyboard without moving the chat')
             page.locator('#input').focus();page.mouse.move(0,0);expect(right).to_have_css('opacity','0')
             right.focus();expect(right).to_have_css('opacity','1')

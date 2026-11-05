@@ -3,7 +3,7 @@ import functools,http.server,json,os,threading,time
 from pathlib import Path
 from urllib.parse import urlsplit
 from playwright.sync_api import expect,sync_playwright
-ROOT=Path(__file__).resolve().parents[3];OUT=ROOT/'.audit/2026-10-29-vault-payments';OUT.mkdir(exist_ok=True)
+ROOT=Path(__file__).resolve().parents[3];OUT=Path(os.environ.get('AURORA_BROWSER_AUDIT_DIR', ROOT/'.audit/2026-10-29-vault-payments'));OUT.mkdir(exist_ok=True)
 class Server(http.server.ThreadingHTTPServer):request_queue_size=64
 class Handler(http.server.SimpleHTTPRequestHandler):
     def log_message(self,*_):pass
@@ -35,7 +35,7 @@ try:
         ctx=browser.new_context(viewport={'width':390,'height':844},locale='vi-VN',service_workers='block',reduced_motion='reduce');ctx.add_init_script('window.EventSource=class{addEventListener(){}close(){}}')
         page=ctx.new_page();fx=Fixture();errors=[];page.on('pageerror',lambda e:errors.append(str(e)));page.route('**/app/api/**',fx.route);page.goto(f'http://127.0.0.1:{server.server_port}/app/',wait_until='networkidle')
         body=page.locator('#vaultBody');tabs=body.get_by_role('tab');payments=body.get_by_role('tab',name='Thanh toán',exact=True)
-        def open_vault():page.locator('#meBtn').click();page.locator('#openVault').click();expect(body.locator('.vault-row')).to_have_count(3)
+        def open_vault():page.locator('#meBtn:visible, [data-workspace-action="settings"]:visible').click();page.locator('#openVault').click();expect(body.locator('.vault-row')).to_have_count(3)
         def select_card(id):body.locator('.vault-it[data-id="'+id+'"] .vault-row').click();expect(body.locator('[data-vpayment]')).to_be_visible()
         def close():page.keyboard.press('Escape');page.wait_for_timeout(450)
         def held():
@@ -66,9 +66,9 @@ try:
         check('a response for a different workspace is not applied')
         close();fx.preferred='aabbccdd'
         with page.expect_navigation(wait_until='networkidle'):page.evaluate('window.__I18N.set("en")')
-        page.locator('#meBtn').click();page.locator('#openVault').click();body.get_by_role('tab',name='Payments',exact=True).click();expect(body.get_by_role('tab',name='All',exact=True)).to_be_visible();expect(body).to_contain_text('Your Vault');expect(body.locator('.vault-it[data-id="aabbccdd"]')).to_contain_text('Phiên bản của tôi');select_card('aabbccdd');expect(body.locator('[data-vpayment]')).to_have_text('Clear payment preference');page.set_viewport_size({'width':1280,'height':900});page.screenshot(path=str(OUT/'payments-desktop-en.png'))
+        page.locator('#meBtn:visible, [data-workspace-action="settings"]:visible').click();page.locator('#openVault').click();body.get_by_role('tab',name='Payments',exact=True).click();expect(body.get_by_role('tab',name='All',exact=True)).to_be_visible();expect(body).to_contain_text('Your Vault');expect(body.locator('.vault-it[data-id="aabbccdd"]')).to_contain_text('Phiên bản của tôi');select_card('aabbccdd');expect(body.locator('[data-vpayment]')).to_have_text('Clear payment preference');page.set_viewport_size({'width':1280,'height':900});page.screenshot(path=str(OUT/'payments-desktop-en.png'))
         check('English controls preserve literal owner card labels')
-        close();fx.empty=True;page.locator('#meBtn').click();page.locator('#openVault').click();body.get_by_role('tab',name='Payments',exact=True).click();expect(body.locator('.vault-row')).to_have_count(0);expect(body).to_contain_text('No payment cards yet');expect(body.locator('[data-vadd="card"]')).to_be_visible()
+        close();fx.empty=True;page.locator('#meBtn:visible, [data-workspace-action="settings"]:visible').click();page.locator('#openVault').click();body.get_by_role('tab',name='Payments',exact=True).click();expect(body.locator('.vault-row')).to_have_count(0);expect(body).to_contain_text('No payment cards yet');expect(body.locator('[data-vadd="card"]')).to_be_visible()
         check('empty Payments view offers adding a card and claims no default')
         assert not errors,errors
         (OUT/'payment-browser-result.json').write_bytes(json.dumps(dict(result='PASS',scenarios=len(checks),browser=browser.version,errors=errors)).encode())

@@ -1,0 +1,21 @@
+@import url("/app/aurora/typography.css");
+.locale-settings .card { padding: 4px 16px 16px; }
+.locale-field { display: grid; grid-template-columns: minmax(0, 1fr) minmax(140px, 46%); align-items: center; gap: 16px; padding: 16px 0 4px; }
+.locale-field label { font-weight: 550; overflow-wrap: anywhere; }
+.locale-field select { width: 100%; min-height: 44px; padding: 9px 30px 9px 12px; border: 1px solid var(--line); border-radius: 10px; background: var(--bg); color: var(--ink); font: inherit; }
+.locale-field select:focus-visible { outline: 2px solid var(--ink); outline-offset: 3px; }
+.locale-active, .locale-note, .locale-save-status { color: var(--mute); font-size: 13px; line-height: 1.6; }
+.locale-active { margin: 4px 0 12px; }
+.locale-note, .locale-save-status { margin: 10px 16px 0; }
+.locale-save-status:empty { display: none; }
+.locale-preview { display: flex; flex-direction: column; gap: 6px; margin-top: 16px; padding: 12px; background: var(--bg); border-radius: 10px; }
+.locale-preview span { color: var(--mute); font-size: 12px; }
+.locale-preview output { font-size: 14px; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+@media (max-width: 480px) {
+  .locale-field { grid-template-columns: 1fr; gap: 8px; }
+  .locale-field select { max-width: 100%; }
+}
+ .page-language{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin:0 0 24px;font-size:14px}
+ .page-language select{font:inherit;max-width:100%;padding:8px 10px;border:1px solid #8886;border-radius:8px;background:Canvas;color:CanvasText}
+ .page-language [role=status]{flex-basis:100%;font-size:12px}
+ html[lang^=zh] main{overflow-wrap:anywhere}

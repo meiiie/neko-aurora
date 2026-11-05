@@ -206,7 +206,7 @@ func threadOf(w ledger.Work) string {
 
 // groupHistory gives a bot the shared group thread: the owner's messages
 // once, its own replies as its turns, and the other bots' replies labelled.
-func (s *Service) groupHistory(v *view, b ledger.Bot, cur ledger.Work, msgs []ChatMsg) []ChatMsg {
+func (s *Service) groupHistory(v *view, b ledger.Bot, cur ledger.Work, msgs []ChatMsg, includeCurrent bool) []ChatMsg {
 	c := v.channels[cur.ConversationID]
 	names := []string{}
 	for _, id := range c.BotIDs {
@@ -223,6 +223,9 @@ func (s *Service) groupHistory(v *view, b ledger.Bot, cur ledger.Work, msgs []Ch
 		l = l[len(l)-60:]
 	}
 	for _, w := range l {
+		if !includeCurrent && groupBase(w.ClientNonce) == groupBase(cur.ClientNonce) {
+			continue
+		}
 		if base := groupBase(w.ClientNonce); !seen[base] {
 			seen[base] = true
 			input := w.Text
@@ -244,6 +247,9 @@ func (s *Service) groupHistory(v *view, b ledger.Bot, cur ledger.Work, msgs []Ch
 			o, _ := v.bot(w.BotID)
 			msgs = append(msgs, ChatMsg{"user", "[" + displayName(o) + " trong nhóm]: " + r})
 		}
+	}
+	if !includeCurrent {
+		return msgs
 	}
 	// the current turn's owner message must be last
 	currentInput := cur.Text

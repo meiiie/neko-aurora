@@ -1,5 +1,13 @@
 # Runtime decision: neko-core vs the Aurora Go harness (2026-10-23)
 
+> Historical decision, superseded for Core quick connections by the owner's
+> 2026-11-02 direction and [Core ↔ Aurora harness](core-aurora-harness.md).
+> Those connections now use the real Core agent/tool loop. The direct HTTP
+> compatibility path still uses the Go loop. The interrupt-and-discard behavior
+> described below is also historical: current input is admitted between steps,
+> and completed assistant segments are retained. Do not use this document as
+> implementation guidance for new work.
+
 **Decision: keep the Go harness as Aurora's runtime; port neko-core's handling patterns (re-implemented, attributed). neko-core stays available as the optional local fallback (`Hybrid`).**
 
 | Criterion | neko-core (github.com/meiiie/neko-core) | Aurora Go harness |

@@ -4,7 +4,7 @@ from pathlib import Path
 from urllib.parse import urlsplit
 from playwright.sync_api import expect,sync_playwright
 ROOT=Path(__file__).resolve().parents[3]
-OUT=ROOT/'.audit/2026-10-29-content-i18n';OUT.mkdir(exist_ok=True)
+OUT=Path(os.environ.get('AURORA_BROWSER_AUDIT_DIR', ROOT/'.audit/2026-10-29-content-i18n'));OUT.mkdir(exist_ok=True)
 class Server(http.server.ThreadingHTTPServer):request_queue_size=64
 class Handler(http.server.SimpleHTTPRequestHandler):
     def log_message(self,*_):pass
@@ -72,9 +72,9 @@ try:
         expect(page.locator('#literal-fixture button')).to_have_text('Nghiên cứu');expect(page.locator('#literal-fixture button')).to_have_attribute('title','Học tập');expect(page.locator('#literal-fixture button')).to_have_accessible_name('Công việc');page.locator('#literal-fixture').evaluate('n=>n.remove()')
         check('dynamically inserted descendants and changed attributes respect ancestor content boundaries')
         page.screenshot(path=str(OUT/'content-mobile-en.png'));page.set_viewport_size({'width':1280,'height':900});page.screenshot(path=str(OUT/'content-desktop-en.png'))
-        with page.expect_navigation(wait_until='networkidle'):page.evaluate('window.__I18N.set("vi")')
+        page.evaluate('window.__I18N.set("vi")')
         expect(row('plain').locator('.rowh b')).to_have_text('Phiên bản của tôi');expect(row('plain').locator('.pin')).to_have_text('Ghim');expect(pin).to_have_accessible_name('Cài đặt')
-        with page.expect_navigation(wait_until='networkidle'):page.evaluate('window.__I18N.set("en")')
+        page.evaluate('window.__I18N.set("en")')
         expect(row('plain').locator('.rowh b')).to_have_text('Phiên bản của tôi');expect(row('plain').locator('.pin')).to_have_text('Pin')
         check('language changes and reloads preserve user content and localize actions')
         assert all(method=='GET' for _,method in fx.calls),fx.calls;assert not errors,errors

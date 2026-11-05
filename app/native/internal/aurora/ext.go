@@ -63,10 +63,11 @@ type formField = ledger.DirectFormField
 type form = ledger.DirectForm
 
 type extData struct {
-	Providers []provider         `json:"providers"`
-	Bots      map[string]*botExt `json:"bots"`
-	Skills    []skill            `json:"skills"`
-	Vision    string             `json:"vision,omitempty"`
+	Providers    []provider         `json:"providers"`
+	Bots         map[string]*botExt `json:"bots"`
+	Skills       []skill            `json:"skills"`
+	Vision       string             `json:"vision,omitempty"`
+	DefaultModel string             `json:"defaultModel,omitempty"`
 
 	Thoughts map[string]string `json:"thoughts"`
 	Forms    map[string]*form  `json:"forms"`
@@ -206,7 +207,8 @@ func (e *extStore) side(task string) (string, *form) {
 func (e *extStore) skills() []skill {
 	e.mu.Lock()
 	defer e.mu.Unlock()
-	return append(append([]skill(nil), builtinSkills...), e.d.Skills...)
+	all := append(append([]skill(nil), builtinSkills...), workSkills...)
+	return append(all, e.d.Skills...)
 }
 
 // builtinSkills ship with the app; owners add their own on the profile page.
@@ -306,14 +308,26 @@ func (s *Service) streamExt(ctx context.Context, bot, kind string, msgs []ChatMs
 	if s.ext == nil {
 		return "", false, nil
 	}
-	be := s.ext.bot(bot)
+	choice, _ := ctx.Value(turnAIKey{}).(*turnAI)
+	if choice == nil || choice.bot != bot || kind != "chat" {
+		choice = s.selectTurnAI(bot)
+	}
+	be := choice.config
+	if strings.HasPrefix(be.Model, "core-") {
+		c := choice.core
+		if c == nil {
+			return "", true, ErrNoAI
+		}
+		out, err := c.Stream(ctx, msgs, on)
+		return out, true, err
+	}
 	think := be.Thinking && kind == "chat"
 	if be.Model == "" && !think {
 		return "", false, nil
 	}
-	cc, a, ok := s.callFor(be.Model)
+	cc, a, ok := choice.cfg, choice.ai, choice.ok
 	if !ok || a == nil {
-		return "", false, nil
+		return "", be.Model != "", ErrNoAI
 	}
 	if think {
 		cc.Thinking = true
@@ -496,13 +510,14 @@ func (s *Service) extNote(bot string) string {
 	if !be.Off["skills"] {
 		var sk []string
 		for _, x := range s.ext.skills() {
-			if len(be.Skills) == 0 || contains(be.Skills, x.ID) {
-				sk = append(sk, "- "+x.Name+": "+x.Desc)
+			if skillAllowed(be, x.ID) {
+				sk = append(sk, "- "+x.Name+": "+x.Desc+" (ID: "+x.ID+")")
 			}
 		}
 		if len(sk) > 0 {
 			b.WriteString("\nKỸ NĂNG (đọc hướng dẫn bằng TOOL {\"name\":\"skill_load\",\"q\":\"<tên kỹ năng>\"} trước khi làm việc khớp):\n" + strings.Join(sk, "\n"))
 		}
+		b.WriteString(workStyle(be))
 	}
 	if !be.Off["mcp"] {
 		b.WriteString(s.mcpNote(bot, be))

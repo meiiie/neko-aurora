@@ -85,7 +85,7 @@ try:
             def new():
                 page.locator('#newBtn').click();page.locator('#menuPage').click();expect(title).to_be_visible()
             def library():
-                page.locator('#meBtn').click();page.locator('#openPages').click();page.wait_for_timeout(450)
+                page.locator('#meBtn:visible, [data-workspace-action="settings"]:visible').click();page.locator('#openPages').click();page.wait_for_timeout(450)
             def back():dialog.get_by_role('button',name='Về thư viện',exact=True).click()
             def saved(revision):
                 expect(notice).to_contain_text('Đã lưu phiên bản '+str(revision)+'.');expect(save).to_be_enabled()

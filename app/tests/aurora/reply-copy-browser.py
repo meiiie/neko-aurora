@@ -10,7 +10,7 @@ from urllib.parse import urlsplit
 from playwright.sync_api import expect, sync_playwright
 
 ROOT=Path(__file__).resolve().parents[3]
-OUT=ROOT/'.audit/2026-10-29-reply-copy'
+OUT=Path(os.environ.get('AURORA_BROWSER_AUDIT_DIR', ROOT/'.audit/2026-10-29-reply-copy'))
 OUT.mkdir(parents=True,exist_ok=True)
 TEXT='# Kế hoạch **Aurora**\n\n- Giữ tiếng Việt 👩🏽‍💻\n- [Tài liệu](https://example.org/guide?q=1&lang=vi)\n\n3. Bước ba\n4. Bước bốn\n\n> Một trích dẫn\n\n```js\nconst safe = "<img onerror=alert(1)>";\n```\n\n| Tên | Giá |\n|---|---:|\n| A | 12 |\n\n<script>alert(1)</script>\n\n[Không chạy](javascript:alert(1))'
 

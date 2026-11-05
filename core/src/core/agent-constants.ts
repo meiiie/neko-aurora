@@ -219,6 +219,9 @@ export function estimateRequestTokens(messages: any[], schemas: any[] = []): num
 export type EventHook = (kind: string, data: any) => void;
 
 export interface AgentOptions {
+  /** Exclusive embedding host: admit durable follow-ups at step boundaries and verify its own
+   * remote artifacts. Does not grant local filesystem, process or delegation capabilities. */
+  turnHost?: import("./ports.ts").AgentTurnHost;
   provider: Provider;
   tools: ToolRegistry;
   maxSteps?: number;

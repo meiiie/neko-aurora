@@ -301,7 +301,12 @@ func TestComputerContextSummarizesFrames(t *testing.T) {
 	if !strings.Contains(c, "out/deck.pptx") || !strings.Contains(c, "frames/ (60 file") || strings.Contains(c, "f05.png") {
 		t.Fatal(c)
 	}
-	if n := svc.computerNote(bot); !strings.Contains(n, "append_data") || !strings.Contains(n, "pipefail") {
-		t.Fatal("video/strict-shell guidance missing")
+	n := svc.computerNote(bot)
+	if svc.PC.CanRun() == nil {
+		if !strings.Contains(n, "append_data") || !strings.Contains(n, "pipefail") {
+			t.Fatal("video/strict-shell guidance missing")
+		}
+	} else if strings.Contains(n, "append_data") || !strings.Contains(n, "KHÔNG gọi computer_run") {
+		t.Fatal("unavailable runner must explain file-only capabilities")
 	}
 }

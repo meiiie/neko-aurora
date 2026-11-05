@@ -26,6 +26,7 @@ const systemPrompt = `Bạn là "%s", một agent trong Neko Aurora làm việc 
 Quy tắc:
 - Xưng "mình", gọi Darren là "bạn" (không bao giờ "tôi", không gọi tên Darren hay kể về Darren ở ngôi thứ ba).
 - Trả lời bằng ngôn ngữ của tin nhắn mới nhất (mặc định tiếng Việt; người dùng viết tiếng Anh thì trả lời hoàn toàn bằng tiếng Anh), ngắn gọn, cụ thể, như một đồng nghiệp đáng tin. Chỉ dùng chữ Latin tiếng Việt: tuyệt đối không chèn chữ Hán/Nhật/Hàn. Markdown gọn (tiêu đề ngắn, gạch đầu dòng, bảng) chỉ khi giúp dễ đọc.
+- Với lời chào hoặc câu hỏi ngắn, đáp tự nhiên và vừa đủ, không tự tạo kế hoạch hay bảng biểu. Với yêu cầu dài, đưa kết quả chính trước rồi giải thích phần cần thiết. Mỗi đoạn nói một ý; giữ nguyên khối code và bảng khi chúng hữu ích. Chỉ hỏi khi thiếu thông tin quyết định cách làm, tận dụng điều người dùng đã nói và các mặc định hợp lý.
 - Bạn KHÔNG tự gửi, đăng, thanh toán hay liên hệ ai bên ngoài. Không bao giờ nói là đã gửi.
 - Cuối câu trả lời, bạn có thể thêm các dòng chỉ thị (mỗi loại tối đa một dòng, đúng JSON):
 PLAN: ["bước 1","bước 2"]   ← khi việc gồm nhiều phần (tra nhiều thứ, so sánh rồi viết báo cáo, lên lịch nhiều hạng mục): 3-6 bước ngắn, bước cuối là tổng hợp kết quả; khi đó phần trả lời chỉ cần 1 câu nêu cách làm, chưa tra cứu.
@@ -40,7 +41,8 @@ SCHEDULE: {"at":"HH:MM","timezone":"<múi giờ IANA nếu người dùng chỉ 
 MEMORY: {"text":"<một sở thích/bối cảnh lâu dài Darren vừa nói rõ hoặc xác nhận>"}   ← chỉ khi Darren nói rõ muốn bạn nhớ hoặc nêu sở thích lâu dài; thêm "scope":"team" nếu điều đó áp dụng cho mọi bot (tên, cách xưng hô, ngôn ngữ); không bao giờ ghi bí mật, mật khẩu.
 - Số liệu (giá, tỷ giá, ngày, phần trăm) chỉ được lấy từ KẾT QUẢ CÔNG CỤ, ghi nguồn dạng [1], [2]. Tuyệt đối không bịa hay ước đoán số; thiếu dữ liệu thì nói rõ thiếu. Khi đã có KẾT QUẢ CÔNG CỤ thì trả lời thẳng, không dùng PLAN.
 - Không bao giờ nhắc tên kỹ thuật của công cụ hay chỉ thị (web_search, web_fetch, gold_price, TOOL…) trong câu trả lời; nói bằng lời thường như "tìm trên web", "đọc trang".
-- Với email: kind là "email", dùng đúng địa chỉ Darren đưa; không lặp lại toàn văn thư ở phần trả lời.`
+- Tin nhắn bổ sung là yêu cầu mới trong ngữ cảnh hiện có: giữ nguyên các dữ kiện đã trả lời; không kể lại, viết lại hoặc đổi ví dụ đã hoàn tất trừ khi người dùng yêu cầu sửa.
+- Khi được nhờ SOẠN email, viết bản nháp ngay trong chat; thiếu người nhận/chủ đề thì dùng chỗ trống [Người nhận], [Chủ đề] và hỏi ngắn để hoàn thiện, không tự bịa. Chỉ tạo APPROVAL kind "email" khi người dùng yêu cầu GỬI và đã cung cấp địa chỉ; không lặp lại toàn văn thư bên ngoài thẻ duyệt.`
 
 var gluedDirective = regexp.MustCompile(`([^\s\n])[ \t]*((?:PLAN|CHOICES|QUESTIONS|APPROVAL|SECRET|TOOL|MEMORY|HANDOFF|SCHEDULE|FORM):\s*[\[{])`)
 
@@ -101,6 +103,9 @@ type toolReq struct {
 }
 
 func validTool(t toolReq) bool {
+	if isCoreStateTool(t.Name) {
+		return len(t.Args) > 0
+	}
 	if isCloudTool(t.Name) {
 		return true
 	}
@@ -417,6 +422,10 @@ func (s *Service) sweepLeases() {
 }
 
 func (s *Service) history(botID, current string) []ChatMsg {
+	return s.historyFor(botID, current, true)
+}
+
+func (s *Service) historyFor(botID, current string, includeCurrent bool) []ChatMsg {
 	v := newView(s.L.Snapshot())
 	b, _ := v.bot(botID)
 	base := fmt.Sprintf(systemPrompt, b.Name, v.desc(b)) + networkProvenancePrompt + networkToolsPrompt + clockNote(time.Now())
@@ -445,18 +454,57 @@ func (s *Service) history(botID, current string) []ChatMsg {
 	}
 	l := v.byBot[botID]
 	if cw, err := s.L.Get(current); err == nil && isGroupID(cw.ConversationID) {
-		return s.groupHistory(v, b, cw, msgs)
+		return s.groupHistory(v, b, cw, msgs, includeCurrent)
 	}
 	if len(l) > maxHistoryTurns {
 		l = l[len(l)-maxHistoryTurns:]
 	}
+	by := v.steeredBy()
+	works := map[string]ledger.Work{}
+	for _, w := range v.byBot[botID] {
+		works[w.RequestID] = w
+	}
 	for _, w := range l {
+		if w.RequestID == current && !includeCurrent {
+			break
+		}
+		if parent := by[w.RequestID]; parent != "" && parent != current {
+			continue
+		}
 		if w.Direct == nil || w.Direct.Kind == "" || w.Direct.Kind == "computer" {
 			input := w.Text
 			if s.networkPeerWork(w) {
 				input = s.networkPeerInput(w)
 			}
 			msgs = append(msgs, ChatMsg{"user", input})
+		}
+		if w.Direct != nil {
+			inputAt := 0
+			appendInputs := func(until string) {
+				end := len(w.Direct.Steered)
+				if until != "" {
+					end = inputAt
+					for i, id := range w.Direct.Steered {
+						if id == until {
+							end = i + 1
+							break
+						}
+					}
+				}
+				for inputAt < end {
+					if q, ok := works[w.Direct.Steered[inputAt]]; ok {
+						msgs = append(msgs, ChatMsg{Role: "user", Content: q.Text})
+					}
+					inputAt++
+				}
+			}
+			for _, segment := range w.Direct.Segments {
+				if segment.AfterInputID != "" {
+					appendInputs(segment.AfterInputID)
+				}
+				msgs = append(msgs, ChatMsg{Role: "assistant", Content: segment.Text})
+			}
+			appendInputs("")
 		}
 		if w.RequestID == current {
 			break
@@ -486,6 +534,9 @@ func (s *Service) history(botID, current string) []ChatMsg {
 			msgs = append(msgs, ChatMsg{"assistant", c})
 		}
 	}
+	if !includeCurrent {
+		return msgs
+	} // Core owns context compaction and any model calls it requires.
 	return s.compact(botID, msgs)
 }
 
@@ -536,15 +587,17 @@ func (s *Service) runWork(w ledger.Work) {
 	if s.PC != nil && !s.networkPeerWork(w) && wantsComputer.MatchString(stripRef(w.Text)) {
 		s.PC.Warm(w.BotID) // boot the bot's VM while the model plans (cold start ~10-30 s on Railway)
 	}
-	run := ledger.DirectRun{Runtime: s.AI.Runtime(), Model: s.AI.ModelName(), LeaseUntil: s.leaseUntil()}
+	choice := s.selectTurnAI(w.BotID)
+	runtime, model := choice.identity(s.AI)
+	run := ledger.DirectRun{Runtime: runtime, Model: model, LeaseUntil: s.leaseUntil()}
+	if choice.core != nil && choice.core.Quick {
+		run.Engine = "core"
+	}
 	if strings.HasPrefix(w.ClientNonce, "computer-") {
 		run.Kind = "computer" // hidden follow-up after an approved command
 	}
 	if strings.HasPrefix(w.ClientNonce, handoffPrefix) {
 		run.Kind = "handoff" // a member's message to another: no owner bubble
-	}
-	if !s.AI.Configured() {
-		run.Model = ""
 	}
 	w, err := s.L.DirectStart(w.RequestID, w.Epoch, run)
 	if err != nil {
@@ -564,6 +617,7 @@ func (s *Service) runWork(w ledger.Work) {
 	s.agui(AGUIEvent{Type: RUN_STARTED, ThreadID: w.BotID, RunID: w.RequestID})
 	ctx, cancel := context.WithTimeout(s.ctx, turnBudget+turnSlack)
 	defer cancel()
+	ctx = context.WithValue(ctx, turnAIKey{}, choice)
 	go s.watchCancel(ctx, cancel, w.RequestID)
 	go s.holdLease(ctx, w.RequestID)
 	appr, questions, err := s.runTurn(ctx, w)
@@ -651,6 +705,8 @@ func (s *Service) finishWork(w ledger.Work, appr *Approval, questions *questionS
 	}
 	if done, _ := s.L.Get(w.RequestID); done.Direct != nil && len(done.Direct.Plan) > 0 {
 		s.record(w.BotID, w.RequestID, "plan", name+" chạy kế hoạch "+itoa(len(done.Direct.Plan))+" bước")
+	} else if cur.Direct != nil && cur.Direct.Completion != nil && cur.Direct.Completion.Status != "ready" {
+		s.record(w.BotID, w.RequestID, "reply", name+" đã phản hồi; công việc còn cần xử lý")
 	} else {
 		s.record(w.BotID, w.RequestID, "reply", name+" đã xong")
 	}
@@ -664,6 +720,8 @@ func (s *Service) finishWork(w ledger.Work, appr *Approval, questions *questionS
 		s.notify(name+" cần bạn điền thông tin", questions.Form.Title, "/app/#"+threadOf(w))
 	case questions != nil:
 		s.notify(name+" cần bạn chọn", "Chọn một phương án để tiếp tục", "/app/#"+threadOf(w))
+	case cur.Direct != nil && cur.Direct.Completion != nil && cur.Direct.Completion.Status != "ready":
+		s.notify(name, "Công việc chưa hoàn tất. Xem phần còn thiếu trong hội thoại.", "/app/#"+threadOf(w))
 	default:
 		s.notify(name, "Đã xong việc bạn giao.", "/app/#"+threadOf(w))
 	}
@@ -763,6 +821,16 @@ func promiseOnly(d directives) bool {
 }
 
 func (s *Service) runTurn(ctx context.Context, w ledger.Work) (*Approval, *questionSet, error) {
+	if w.Direct != nil && w.Direct.Engine == "core" {
+		if s.absorbed(w.RequestID) {
+			return nil, nil, nil
+		}
+		choice, _ := ctx.Value(turnAIKey{}).(*turnAI)
+		if choice == nil || choice.core == nil {
+			return nil, nil, errors.New("core_configuration_invalid")
+		}
+		return s.runCoreTurn(ctx, w, choice.core)
+	}
 	start := time.Now()
 	tc := &toolCtx{}
 	if !s.networkPeerWork(w) {
@@ -887,17 +955,6 @@ func (s *Service) runTurn(ctx context.Context, w ledger.Work) (*Approval, *quest
 		s.publish("draft_end", map[string]string{"id": w.RequestID, "agentId": threadOf(w)})
 		msgs := append(tc.inject(s.history(w.BotID, w.RequestID)), ChatMsg{Role: "system", Content: finalNudge})
 		d, err = s.call(ctx, w, msgs)
-	}
-	if err == nil && len(d.Plan) == 0 && s.steer(w, tc) {
-		// The owner changed course while this answer was being written:
-		// discard the draft and answer once more with the new instruction.
-		s.publish("draft_end", map[string]string{"id": w.RequestID, "agentId": threadOf(w)})
-		d, err = s.call(ctx, w, tc.inject(s.history(w.BotID, w.RequestID)))
-		if err == nil && len(d.Tools) > 0 && (s.Tools != nil || hasNetworkTool(d.Tools)) {
-			s.publish("draft_end", map[string]string{"id": w.RequestID, "agentId": threadOf(w)})
-			s.runTools(ctx, w, tc, callsOf(d.Tools))
-			d, err = s.call(ctx, w, append(tc.inject(s.history(w.BotID, w.RequestID)), ChatMsg{Role: "system", Content: finalNudge}))
-		}
 	}
 	if err != nil {
 		return nil, nil, err
@@ -1041,7 +1098,8 @@ func (s *Service) verifyFinal(ctx context.Context, w ledger.Work, tc *toolCtx, d
 // in text (never a bare TOOL line).
 func (s *Service) stepCall(ctx context.Context, w ledger.Work, tc *toolCtx, prompt string) (directives, error) {
 	mk := func(extra ...ChatMsg) []ChatMsg {
-		return append(append(tc.inject(s.history(w.BotID, w.RequestID)), ChatMsg{Role: "user", Content: prompt}), extra...)
+		msgs := append(s.history(w.BotID, w.RequestID), ChatMsg{Role: "system", Content: prompt})
+		return append(tc.inject(msgs), extra...)
 	}
 	d, err := s.ask(ctx, w, tc, func() []ChatMsg { return mk() })
 	for r := 0; err == nil && len(d.Tools) > 0 && r < 4 && (s.Tools != nil || hasNetworkTool(d.Tools)); r++ {
@@ -1250,7 +1308,7 @@ func callsOf(ts []toolReq) []toolCall {
 			out = append(out, toolCall{t.Name, computerArg(t)})
 			continue
 		}
-		if isNetworkTool(t.Name) || isCloudTool(t.Name) || extArg(t.Name) || strings.HasPrefix(t.Name, "vault_") {
+		if isCoreStateTool(t.Name) || isNetworkTool(t.Name) || isCloudTool(t.Name) || extArg(t.Name) || strings.HasPrefix(t.Name, "vault_") {
 			b, _ := json.Marshal(t)
 			out = append(out, toolCall{t.Name, string(b)})
 			continue
@@ -1302,7 +1360,7 @@ func isEnglish(t string) bool {
 }
 
 // wantsComputer: the owner asked for something run or computed on files.
-var wantsComputer = regexp.MustCompile(`(?i)máy tính|chạy|lệnh|script|python|csv|file|tệp|\brun\b|command|terminal|shell`)
+var wantsComputer = regexp.MustCompile(`(?i)máy tính|chạy|lệnh|script|python|csv|file|tệp|\brun\b|command|terminal|shell|landing\s*page|trang\s*web|website|\bhtml\b|\bcss\b|lập trình|网页|網站|网站|编程|程式`)
 
 // requeueDelay is the pause before a run that lost the model is retried.
 var requeueDelay = 15 * time.Second

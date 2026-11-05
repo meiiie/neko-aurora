@@ -119,7 +119,7 @@
       save.disabled = v.busy || pending || invalid || !!v.conflicting;
       check.hidden = retry.hidden = !pending; check.disabled = retry.disabled = v.busy;
       history.disabled = !d.id || v.busy;
-      v.count.textContent = size(d.text).toLocaleString() + " / 65,536 bytes";
+      v.count.textContent = window.__I18N.message("page.bytes", { count: size(d.text), limit: 65536 });
       v.count.classList.toggle("pages-error", size(d.text) > MAX);
     };
     const changed = () => { d.title = title.value; d.text = text.value; d.archived = archive.checked; const saved = remember(v); status(v, saved ? "Bản nháp đã lưu trên thiết bị này." : "Không lưu được bản nháp trên thiết bị. Hãy tải bản nháp trước khi đóng hoặc tải lại."); v.controls(); previewText(); };

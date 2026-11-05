@@ -5,6 +5,10 @@
 ## Bắt đầu
 
 - [Setup/build Windows, Tauri, Core và xử lý lỗi thường gặp](getting-started.md).
+- [Chọn AI: GLM, ChatGPT và danh sách model theo kết nối](ai-setup.md).
+- [Nghiên cứu luồng model và hội thoại OpenMausBot, 2026-11-01](research/provider-flow-openmaus-2026-11-01.md).
+- [Workspace mới: điều hướng, tìm nhanh và ngữ cảnh bot](workspace.md).
+- [Nghiên cứu giao diện và chức năng OpenMausBot](research/openmaus-interface-2026-10-30.md).
 - [Thư viện trang: bản nháp, phiên bản và phục hồi lần lưu](pages.md).
 - [Pages: kiểm thử local và các phần còn thiếu](research/grokbot-pages-2026-10-29.md).
 - [Lịch theo khoảng thời gian: cách dùng và giới hạn](routines.md).

@@ -1,11 +1,10 @@
 package ledger
 
-// Direct runs: a Work item executed in-process by the owner's own control
-// plane (the mobile/Aurora runner) through Neko Core's one-shot CLI
-// (`neko run --profile zai --no-tools`) or, when Core is not installed, the
-// same provider over HTTP. A direct run never grants tools, never binds an
-// executor lease and never sets Work.Core, so it cannot be confused with the
-// attested host/executor pipeline: those events stay exactly as before.
+// Direct runs are owned by Aurora's control plane. Engine=core projects the
+// hosted Core agent loop; an empty engine retains the legacy controller. Tool
+// effects require Aurora's existing capability checks. A direct run never
+// creates grants, binds an executor lease or sets Work.Core; the separate
+// attested host/executor pipeline retains its own events and authority.
 //
 // Every state change is a journaled, replay-validated event on the existing
 // Work record, so the desktop and the mobile UI read the same task, reply,
@@ -14,6 +13,7 @@ package ledger
 import (
 	"reflect"
 	"regexp"
+	"slices"
 	"strings"
 	"time"
 	"unicode/utf8"
@@ -23,6 +23,14 @@ type DirectStep struct {
 	Title  string `json:"title"`
 	Status string `json:"status"`         // pending|running|done|waiting|failed|cancelled
 	Note   string `json:"note,omitempty"` // short milestone update once the step is done
+}
+
+// DirectPartial keeps visible answer text superseded by an owner interjection.
+// It is conversation history, never a completed result or an executable directive.
+type DirectPartial struct {
+	Text            string `json:"text"`
+	At              string `json:"at"`
+	BeforeRequestID string `json:"beforeRequestId"`
 }
 
 type DirectDelivery struct {
@@ -50,32 +58,50 @@ type DirectApproval struct {
 }
 
 type DirectRun struct {
-	Version    int              `json:"version"`
-	Runtime    string           `json:"runtime"` // neko-core-cli|direct-http|imported
-	Model      string           `json:"model,omitempty"`
-	Kind       string           `json:"kind,omitempty"` // ""|brief|note|computer
-	StartedAt  string           `json:"startedAt"`
-	FinishedAt string           `json:"finishedAt,omitempty"`
-	ImportedAt string           `json:"importedAt,omitempty"`
-	PlanIntro  string           `json:"planIntro,omitempty"`
-	Ack        string           `json:"ack,omitempty"` // short acknowledgement shown before the result
-	Plan       []DirectStep     `json:"plan,omitempty"`
-	Choices    []string         `json:"choices,omitempty"`
-	Questions  []DirectQuestion `json:"questions,omitempty"`
-	Form       *DirectForm      `json:"form,omitempty"`
-	Items      []string         `json:"items,omitempty"`
-	Approval   *DirectApproval  `json:"approval,omitempty"`
-	Secret     *DirectSecret    `json:"secret,omitempty"`
-	Tools      []DirectTool     `json:"tools,omitempty"`
-	Sources    []DirectSource   `json:"sources,omitempty"`
+	Engine     string            `json:"engine,omitempty"` // "" (legacy controller) | core
+	Segments   []DirectSegment   `json:"segments,omitempty"`
+	Completion *DirectCompletion `json:"completion,omitempty"`
+	Version    int               `json:"version"`
+	Runtime    string            `json:"runtime"` // neko-core-cli|direct-http|imported
+	Model      string            `json:"model,omitempty"`
+	Kind       string            `json:"kind,omitempty"` // ""|brief|note|computer
+	StartedAt  string            `json:"startedAt"`
+	FinishedAt string            `json:"finishedAt,omitempty"`
+	ImportedAt string            `json:"importedAt,omitempty"`
+	PlanIntro  string            `json:"planIntro,omitempty"`
+	Ack        string            `json:"ack,omitempty"` // short acknowledgement shown before the result
+	Plan       []DirectStep      `json:"plan,omitempty"`
+	Choices    []string          `json:"choices,omitempty"`
+	Questions  []DirectQuestion  `json:"questions,omitempty"`
+	Form       *DirectForm       `json:"form,omitempty"`
+	Items      []string          `json:"items,omitempty"`
+	Approval   *DirectApproval   `json:"approval,omitempty"`
+	Secret     *DirectSecret     `json:"secret,omitempty"`
+	Tools      []DirectTool      `json:"tools,omitempty"`
+	Sources    []DirectSource    `json:"sources,omitempty"`
 	// LeaseUntil is the heartbeat deadline of the process running this turn
 	// (lease pattern from CopilotKit/openmuse worker.ts, MIT).
 	LeaseUntil string `json:"leaseUntil,omitempty"`
 	// Steered lists queued owner messages folded into this run mid-turn.
-	Steered []string `json:"steered,omitempty"`
+	Steered  []string        `json:"steered,omitempty"`
+	Partials []DirectPartial `json:"partials,omitempty"`
 }
 
-// DirectTool is one read-only data tool call made during the turn.
+type DirectSegment struct {
+	ID           string `json:"id"`
+	Text         string `json:"text"`
+	At           string `json:"at"`
+	AfterInputID string `json:"afterInputId,omitempty"`
+}
+
+type DirectCompletion struct {
+	Status   string   `json:"status"` // ready|waiting|incomplete, independent of a completed chat turn
+	Revision string   `json:"revision"`
+	Summary  string   `json:"summary"`
+	Evidence []string `json:"evidence"`
+}
+
+// DirectTool is the presentation record of an Aurora tool call during the turn.
 type DirectTool struct {
 	Name    string `json:"name"`
 	Arg     string `json:"arg,omitempty"`
@@ -94,9 +120,14 @@ type DirectSource struct {
 var directToolStatus = map[string]bool{"running": true, "done": true, "failed": true}
 
 const MaxDirectTools = 10
+const MaxCoreTools = 64
 
 func validDirectTools(d *DirectRun) bool {
-	if len(d.Tools) > MaxDirectTools || len(d.Sources) > 16 {
+	limit := MaxDirectTools
+	if d.Engine == "core" {
+		limit = MaxCoreTools
+	}
+	if len(d.Tools) > limit || len(d.Sources) > 16 {
 		return false
 	}
 	for _, t := range d.Tools {
@@ -131,6 +162,13 @@ func validDirectSecret(x *DirectSecret) bool {
 }
 
 func copyDirectRun(d DirectRun) DirectRun {
+	d.Segments = append([]DirectSegment(nil), d.Segments...)
+	if d.Completion != nil {
+		c := *d.Completion
+		c.Evidence = append([]string(nil), c.Evidence...)
+		d.Completion = &c
+	}
+	d.Partials = append([]DirectPartial(nil), d.Partials...)
 	d.Plan = append([]DirectStep(nil), d.Plan...)
 	d.Choices = append([]string(nil), d.Choices...)
 	d.Questions = CopyDirectQuestions(d.Questions)
@@ -173,6 +211,9 @@ func validDirectApproval(a *DirectApproval) bool {
 }
 
 func validDirectRun(d *DirectRun) bool {
+	if d != nil && !validCorePresentation(d) {
+		return false
+	}
 	if d != nil && !ValidDirectForm(d.Form) {
 		return false
 	}
@@ -184,6 +225,17 @@ func validDirectRun(d *DirectRun) bool {
 	}
 	if !directText(d.Model, 128) || d.StartedAt == "" || !directText(d.PlanIntro, 2000) || !directText(d.Ack, 600) || len(d.Plan) > 8 || len(d.Steered) > MaxSteered || len(d.Choices) > 4 || len(d.Items) > 8 {
 		return false
+	}
+	if len(d.Partials) > MaxSteered {
+		return false
+	}
+	for _, p := range d.Partials {
+		if strings.TrimSpace(p.Text) == "" || !directText(p.Text, 60000) || p.BeforeRequestID == "" || !directText(p.BeforeRequestID, 128) {
+			return false
+		}
+		if _, err := time.Parse(time.RFC3339Nano, p.At); err != nil {
+			return false
+		}
 	}
 	for _, st := range d.Plan {
 		if !directStepStatus[st.Status] || !directText(st.Title, 480) || !directText(st.Note, 1600) {
@@ -199,7 +251,47 @@ func validDirectRun(d *DirectRun) bool {
 }
 
 func sameDirectIdentity(a, b *DirectRun) bool {
-	return a != nil && b != nil && a.Version == b.Version && a.Runtime == b.Runtime && a.Model == b.Model && a.Kind == b.Kind && a.StartedAt == b.StartedAt && a.ImportedAt == b.ImportedAt
+	return a != nil && b != nil && a.Engine == b.Engine && a.Version == b.Version && a.Runtime == b.Runtime && a.Model == b.Model && a.Kind == b.Kind && a.StartedAt == b.StartedAt && a.ImportedAt == b.ImportedAt
+}
+
+func validCorePresentation(d *DirectRun) bool {
+	if d.Engine == "core" && d.Runtime != "neko-core-cli" || d.Engine == "" && (len(d.Segments) > 0 || d.Completion != nil) {
+		return false
+	}
+	if d.Engine != "" && d.Engine != "core" || len(d.Segments) > 128 {
+		return false
+	}
+	ids, total := map[string]bool{}, 0
+	for _, segment := range d.Segments {
+		if segment.AfterInputID != "" && !slices.Contains(d.Steered, segment.AfterInputID) {
+			return false
+		}
+		if segment.ID == "" || ids[segment.ID] || !directText(segment.ID, 128) || !directText(segment.Text, 60000) {
+			return false
+		}
+		if _, err := time.Parse(time.RFC3339Nano, segment.At); err != nil {
+			return false
+		}
+		ids[segment.ID] = true
+		total += len(segment.Text)
+	}
+	if total > 240000 {
+		return false
+	}
+	if c := d.Completion; c != nil {
+		if c.Status != "ready" && c.Status != "waiting" && c.Status != "incomplete" {
+			return false
+		}
+		if c.Revision == "" || !directText(c.Revision, 128) || !directText(c.Summary, 32000) || len(c.Evidence) > 64 {
+			return false
+		}
+		for _, evidence := range c.Evidence {
+			if !directText(evidence, 4000) {
+				return false
+			}
+		}
+	}
+	return true
 }
 
 // validDirectDecision allows only owner-driven approval transitions.
@@ -316,8 +408,13 @@ func (s *Store) DirectStart(id string, epoch uint64, run DirectRun) (Work, error
 
 // DirectUpdate changes plan/choices/approval presentation of a running direct turn.
 func (s *Store) DirectUpdate(id string, epoch uint64, change func(*DirectRun)) (Work, error) {
+	return s.DirectUpdateAttempt(id, epoch, "", change)
+}
+
+// An embedded child must not update a replacement attempt with the same epoch.
+func (s *Store) DirectUpdateAttempt(id string, epoch uint64, attempt string, change func(*DirectRun)) (Work, error) {
 	return s.update(id, epoch, "work.direct_updated", func(w *Work) error {
-		if w.Status != "running" || w.Direct == nil {
+		if w.Status != "running" || w.Direct == nil || attempt != "" && (w.AttemptID != attempt || w.DesiredState != "running") {
 			return ErrConflict
 		}
 		d := copyDirectRun(*w.Direct)

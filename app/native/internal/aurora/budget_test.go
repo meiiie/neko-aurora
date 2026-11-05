@@ -50,6 +50,9 @@ func TestPySyntaxErrorGoesBackBeforeApproval(t *testing.T) {
 		tool(map[string]any{"name": "computer_edit_file", "path": "deck/build.py", "old": "print('khong phai 'co the'')", "new": `print("khong phai 'co the'")`}),
 		tool(map[string]any{"name": "computer_run", "cmd": "mkdir -p out && python3 deck/build.py" + outMark}),
 		"Xong.")
+	if err := svc.PC.CanRun(); err != nil {
+		t.Skipf("sandbox unavailable on this host: %v", err)
+	}
 	cardFlow(svc, bot) // card flow
 	post(t, u+"/app/api/agents/"+bot+"/messages", `{"text":"viết script python rồi chạy trên máy tính"}`)
 	waitTask(t, svc, bot)
@@ -223,6 +226,9 @@ func TestSandboxCommandsRunWithoutCard(t *testing.T) {
 	svc, u, bot := liveSvc(t,
 		tool(map[string]any{"name": "computer_run", "cmd": "mkdir -p out && echo 42 > out/a.txt && python3 -c 'print(6*7)'"}),
 		"Xong: out/a.txt")
+	if err := svc.PC.CanRun(); err != nil {
+		t.Skipf("sandbox unavailable on this host: %v", err)
+	}
 	post(t, u+"/app/api/agents/"+bot+"/messages", `{"text":"chạy lệnh trên máy tính"}`)
 	waitTask(t, svc, bot)
 	if len(svc.view().pending()) != 0 {

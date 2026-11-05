@@ -30,6 +30,19 @@ func (s *Service) modelMenu() []modelOpt {
 		def = a.Model
 	}
 	out := []modelOpt{}
+	if s.quick != nil {
+		for _, p := range s.quickProviders() {
+			for _, m := range p.Models {
+				label := m
+				for _, opt := range p.ModelOptions {
+					if opt.ID == m {
+						label = opt.Label
+					}
+				}
+				out = append(out, modelOpt{"core-" + p.ID + ":" + m, label, p.Label})
+			}
+		}
+	}
 	for _, m := range defaultModels(def) {
 		out = append(out, modelOpt{"glm:" + m, m, "GLM (mặc định)"})
 	}
@@ -66,11 +79,12 @@ func (s *Service) providersView() []map[string]any {
 }
 
 func (s *Service) extRoutes() {
+	s.quickSetupRoutes()
 	s.mcpAuthorizationRoutes()
 	s.mcpOAuthRoutes()
 	m := s.mux
 	m.HandleFunc("GET /app/api/models", func(w http.ResponseWriter, r *http.Request) {
-		writeJSON(w, 200, map[string]any{"models": s.modelMenu(), "providers": s.providersView(), "vision": s.visionModel(), "browser": browserBin() != ""})
+		writeJSON(w, 200, map[string]any{"models": s.modelMenu(), "providers": s.providersView(), "defaultConfigured": s.modelConfigured(""), "vision": s.visionModel(), "browser": browserBin() != ""})
 	})
 	m.HandleFunc("POST /app/api/providers", func(w http.ResponseWriter, r *http.Request) {
 		var in struct {
@@ -80,7 +94,7 @@ func (s *Service) extRoutes() {
 			Models []string `json:"models"`
 			Key    string   `json:"key"` // write-only: goes to the vault, never returned
 		}
-		if decodeStrict(r, &in) != nil || !providerID.MatchString(in.ID) || in.ID == "glm" {
+		if decodeStrict(r, &in) != nil || !providerID.MatchString(in.ID) || in.ID == "glm" || strings.HasPrefix(in.ID, "core-") {
 			fail(w, ErrInvalid)
 			return
 		}
@@ -629,7 +643,7 @@ func (s *Service) uploadRoutes() {
 	})
 }
 
-var imgRef = regexp.MustCompile(`\[Ảnh: (uploads/[^\]\s]{1,90})\]`)
+var imgRef = regexp.MustCompile(`\[(?:Ảnh: |Image: |图片：|圖片：)(uploads/[^\]\s]{1,90})\]`)
 
 // imageAuto describes images the owner attached to this message.
 func imageAuto(text string) []toolCall {
