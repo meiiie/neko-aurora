@@ -1,4 +1,4 @@
-import { expect, test } from "bun:test";
+import { expect, setDefaultTimeout, test } from "bun:test";
 import { spawn } from "node:child_process";
 import { createInterface } from "node:readline";
 import { fileURLToPath } from "node:url";
@@ -7,6 +7,10 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { McpOAuthCallback } from "../src/adapters/mcp-oauth-callback.ts";
 import { NekoOAuthProvider } from "../src/adapters/mcp-oauth.ts";
+
+// Windows credential fixtures use real ACL subprocesses and durable writes.
+// Let cleanup finish before the next fixture changes the process-wide home.
+if (process.platform === "win32") setDefaultTimeout(30_000);
 
 const resource = "https://mcp.example.test/mcp", issuer = "https://auth.example.test";
 function provider() {
@@ -67,4 +71,4 @@ test("two actual processes with the same cached refresh token admit only one cla
       expect(workers.map(w => w.output[1]).sort()).toEqual(["claimed", "refused"]);expect(provider().tokens()).toBeUndefined();
     } finally { workers.forEach(w => w.child.kill());await Promise.all(workers.map(w => w.exit)); }
   }
-}), 15000);
+}), process.platform === "win32" ? 60_000 : 15_000);

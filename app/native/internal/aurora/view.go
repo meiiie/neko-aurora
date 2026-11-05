@@ -78,34 +78,37 @@ type Plan struct {
 type Approval = ledger.DirectApproval
 
 type Message struct {
-	Quote           *ledger.MessageQuote    `json:"quote,omitempty"`
-	AnswerFor       string                  `json:"answerFor,omitempty"`
-	FormFor         string                  `json:"formFor,omitempty"`
-	FormValues      []string                `json:"formValues,omitempty"`
-	ID              string                  `json:"id"`
-	TaskID          string                  `json:"taskId"`
-	AgentID         string                  `json:"agentId"`
-	Role            string                  `json:"role"` // user|agent|system
-	Text            string                  `json:"text"`
-	Recovery        string                  `json:"recovery,omitempty"`
-	Interrupted     bool                    `json:"interrupted,omitempty"`
-	BeforeRequestID string                  `json:"beforeRequestId,omitempty"`
-	Approval        *Approval               `json:"approval,omitempty"`
-	Plan            *Plan                   `json:"plan,omitempty"`
-	Choices         []string                `json:"choices,omitempty"`
-	Questions       []ledger.DirectQuestion `json:"questions,omitempty"`
-	Secret          *ledger.DirectSecret    `json:"secret,omitempty"`
-	Tools           []ledger.DirectTool     `json:"tools,omitempty"`
-	Sources         []ledger.DirectSource   `json:"sources,omitempty"`
-	Queued          bool                    `json:"queued,omitempty"`
-	Ref             string                  `json:"ref,omitempty"`  // name of a chat attached as context
-	From            string                  `json:"from,omitempty"` // speaking bot, in group threads
-	Origin          string                  `json:"origin,omitempty"`
-	FromName        string                  `json:"fromName,omitempty"`
-	PeerMessageID   string                  `json:"peerMessageId,omitempty"`
-	Thinking        string                  `json:"thinking,omitempty"` // folded model reasoning (thinking toggle)
-	Form            *form                   `json:"form,omitempty"`     // interactive form card
-	Created         time.Time               `json:"t"`
+	Quote           *ledger.MessageQuote     `json:"quote,omitempty"`
+	AnswerFor       string                   `json:"answerFor,omitempty"`
+	FormFor         string                   `json:"formFor,omitempty"`
+	FormValues      []string                 `json:"formValues,omitempty"`
+	ID              string                   `json:"id"`
+	TaskID          string                   `json:"taskId"`
+	AgentID         string                   `json:"agentId"`
+	Role            string                   `json:"role"` // user|agent|system
+	Text            string                   `json:"text"`
+	Recovery        string                   `json:"recovery,omitempty"`
+	Interrupted     bool                     `json:"interrupted,omitempty"`
+	Segment         bool                     `json:"segment,omitempty"`
+	Completion      *ledger.DirectCompletion `json:"completion,omitempty"`
+	BeforeRequestID string                   `json:"beforeRequestId,omitempty"`
+	AfterInputID    string                   `json:"-"`
+	Approval        *Approval                `json:"approval,omitempty"`
+	Plan            *Plan                    `json:"plan,omitempty"`
+	Choices         []string                 `json:"choices,omitempty"`
+	Questions       []ledger.DirectQuestion  `json:"questions,omitempty"`
+	Secret          *ledger.DirectSecret     `json:"secret,omitempty"`
+	Tools           []ledger.DirectTool      `json:"tools,omitempty"`
+	Sources         []ledger.DirectSource    `json:"sources,omitempty"`
+	Queued          bool                     `json:"queued,omitempty"`
+	Ref             string                   `json:"ref,omitempty"`  // name of a chat attached as context
+	From            string                   `json:"from,omitempty"` // speaking bot, in group threads
+	Origin          string                   `json:"origin,omitempty"`
+	FromName        string                   `json:"fromName,omitempty"`
+	PeerMessageID   string                   `json:"peerMessageId,omitempty"`
+	Thinking        string                   `json:"thinking,omitempty"` // folded model reasoning (thinking toggle)
+	Form            *form                    `json:"form,omitempty"`     // interactive form card
+	Created         time.Time                `json:"t"`
 }
 
 type Brief struct {
@@ -203,6 +206,8 @@ func taskStatus(w ledger.Work) TaskStatus {
 		return TaskQueued
 	case w.Status == "running" || w.Status == "starting" || w.Status == "cancelling":
 		return TaskRunning
+	case w.Status == "completed" && w.Direct != nil && w.Direct.Completion != nil && w.Direct.Completion.Status == "incomplete":
+		return TaskIncomplete
 	case w.Status == "completed":
 		return TaskSucceeded
 	case w.Status == "cancelled":
@@ -267,6 +272,9 @@ func (v *view) agent(b ledger.Bot, prefs botPrefs) *Agent {
 		return a
 	}
 	switch taskStatus(last) {
+	case TaskIncomplete:
+		a.Status, a.Snip = "waiting", "Còn phần chưa hoàn tất"
+		a.SnipKey, a.SnipArgs = "chat.completion.incomplete", nil
 	case TaskWaitingInput:
 		a.Status, a.Snip = "waiting", "Cần bạn chọn để tiếp tục"
 		a.SnipKey, a.SnipArgs = "agent.choice", nil
@@ -313,6 +321,10 @@ func firstLine(s string) string {
 
 func failureText(code string) string {
 	switch {
+	case code == "core_effect_unknown":
+		return "Aurora bị ngắt sau khi gửi một thao tác và chưa nhận được kết quả đã lưu. Thao tác không được tự chạy lại. Hãy kiểm tra kết quả trên máy tính của bot trước khi tiếp tục."
+	case code == "core_workspace_changed":
+		return "Thư mục làm việc đã thay đổi trong lúc bot đang chạy. Aurora đã dừng lượt này để tránh thao tác nhầm thư mục."
 	case code == "ai_not_configured":
 		return "Tin nhắn đã được lưu nhưng chưa được xử lý vì chưa có kết nối AI. Hãy thiết lập AI, rồi gửi lại tin nhắn khi bạn muốn tiếp tục."
 	case code == "core_configuration_invalid":
@@ -367,7 +379,42 @@ func (v *view) messages(botID string, limit int) []*Message {
 		if by[w.RequestID] != "" && len(ms) > 0 && ms[0].Role == "user" {
 			ms = ms[1:]
 		}
-		if w.Direct != nil && len(w.Direct.Steered) > 0 {
+		if w.Direct != nil && w.Direct.Engine == "core" && len(w.Direct.Steered) > 0 {
+			ordered := []*Message{}
+			next := 0
+			insertThrough := func(id string) {
+				if id == "" {
+					return
+				}
+				for next < len(w.Direct.Steered) {
+					q := w.Direct.Steered[next]
+					next++
+					if qw, ok := text[q]; ok {
+						ordered = append(ordered, &Message{ID: q + ":u", TaskID: q, AgentID: qw.BotID, Role: "user", Text: qw.Text, Created: ts(qw.CreatedAt), AnswerFor: questionAnswered(qw.ClientNonce), FormFor: formAnswered(qw.ClientNonce)})
+					}
+					if q == id {
+						break
+					}
+				}
+			}
+			for _, m := range ms {
+				if m.Segment && m.AfterInputID != "" {
+					// Already inserted anchors must not consume later queued inputs.
+					for _, q := range w.Direct.Steered[next:] {
+						if q == m.AfterInputID {
+							insertThrough(q)
+							break
+						}
+					}
+				}
+				if m.ID == w.RequestID {
+					insertThrough(w.Direct.Steered[len(w.Direct.Steered)-1])
+				}
+				ordered = append(ordered, m)
+			}
+			insertThrough(w.Direct.Steered[len(w.Direct.Steered)-1])
+			ms = ordered
+		} else if w.Direct != nil && len(w.Direct.Steered) > 0 {
 			var ins []*Message
 			for _, q := range w.Direct.Steered {
 				if qw, ok := text[q]; ok {
@@ -453,6 +500,9 @@ func workMessages(w ledger.Work, botRunning bool) []*Message {
 		out = append(out, &Message{ID: fmt.Sprintf("%s:partial%d", w.RequestID, i+1), TaskID: w.RequestID, AgentID: w.BotID, Role: "agent", Text: p.Text, Interrupted: true, BeforeRequestID: p.BeforeRequestID, Sources: append([]ledger.DirectSource(nil), d.Sources...), Created: ts(p.At)})
 	}
 	reply := visibleText(w.Reply)
+	for _, segment := range d.Segments {
+		out = append(out, &Message{ID: w.RequestID + ":segment:" + segment.ID, TaskID: w.RequestID, AgentID: w.BotID, Role: "agent", Text: segment.Text, Segment: true, AfterInputID: segment.AfterInputID, Sources: append([]ledger.DirectSource(nil), d.Sources...), Created: ts(segment.At)})
+	}
 	if reply != "" || d.Approval != nil || len(d.Choices) > 0 || len(d.Questions) > 0 || d.Secret != nil || len(d.Tools) > 0 {
 		m := &Message{ID: w.RequestID, TaskID: w.RequestID, AgentID: w.BotID, Role: "agent", Text: reply, Choices: append([]string(nil), d.Choices...), Questions: ledger.CopyDirectQuestions(d.Questions), Created: at}
 		if d.Approval != nil {
@@ -473,6 +523,10 @@ func workMessages(w ledger.Work, botRunning bool) []*Message {
 			m.Secret = &x
 		}
 		m.Tools = append([]ledger.DirectTool(nil), d.Tools...)
+		m.Completion = d.Completion
+		if m.Completion != nil && m.Completion.Status == "waiting" && d.Approval != nil && d.Approval.State != "pending" {
+			m.Completion = nil
+		}
 		m.Sources = append([]ledger.DirectSource(nil), d.Sources...)
 		out = append(out, m)
 	}
@@ -483,7 +537,7 @@ func workMessages(w ledger.Work, botRunning bool) []*Message {
 		m := &Message{ID: w.RequestID + ":end", TaskID: w.RequestID, AgentID: w.BotID, Role: "system", Text: failureText(w.Failure), Created: at}
 		if w.Failure == "ai_not_configured" {
 			m.Recovery = "configure_ai"
-		} else if strings.HasPrefix(w.Failure, "core_") {
+		} else if strings.HasPrefix(w.Failure, "core_") && w.Failure != "core_effect_unknown" && w.Failure != "core_workspace_changed" {
 			m.Recovery = "check_ai"
 		}
 		out = append(out, m)

@@ -115,6 +115,23 @@ export interface Provider {
   dispose?(): void | Promise<void>;
 }
 
+/** Embedding hosts own their inbox and remote workspace evidence; the Agent owns continuation.
+ * These values come from the host transport, never from a model-authored tool observation. */
+export interface AgentHostInput { id: string; text: string; }
+export interface AgentHostCompletion {
+  status: "ready" | "waiting" | "incomplete";
+  /** Fingerprint of relevant artifact/check state. Reading an unchanged result must not change it. */
+  revision: string;
+  summary: string;
+  evidence: string[];
+}
+export interface AgentTurnHost {
+  inputs(signal?: AbortSignal): Promise<AgentHostInput[]>;
+  assessCompletion(answer: string, signal?: AbortSignal): Promise<AgentHostCompletion>;
+  /** A host tool can park a turn for approval. This is not inferred from observation text. */
+  waiting?(): AgentHostCompletion | undefined;
+}
+
 /** Port for an external tool source (MCP servers). `McpHub` satisfies it structurally. */
 export interface McpTools {
   toolSchemas(): any[];

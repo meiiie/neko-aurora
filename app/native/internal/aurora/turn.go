@@ -103,6 +103,9 @@ type toolReq struct {
 }
 
 func validTool(t toolReq) bool {
+	if isCoreStateTool(t.Name) {
+		return len(t.Args) > 0
+	}
 	if isCloudTool(t.Name) {
 		return true
 	}
@@ -419,6 +422,10 @@ func (s *Service) sweepLeases() {
 }
 
 func (s *Service) history(botID, current string) []ChatMsg {
+	return s.historyFor(botID, current, true)
+}
+
+func (s *Service) historyFor(botID, current string, includeCurrent bool) []ChatMsg {
 	v := newView(s.L.Snapshot())
 	b, _ := v.bot(botID)
 	base := fmt.Sprintf(systemPrompt, b.Name, v.desc(b)) + networkProvenancePrompt + networkToolsPrompt + clockNote(time.Now())
@@ -447,7 +454,7 @@ func (s *Service) history(botID, current string) []ChatMsg {
 	}
 	l := v.byBot[botID]
 	if cw, err := s.L.Get(current); err == nil && isGroupID(cw.ConversationID) {
-		return s.groupHistory(v, b, cw, msgs)
+		return s.groupHistory(v, b, cw, msgs, includeCurrent)
 	}
 	if len(l) > maxHistoryTurns {
 		l = l[len(l)-maxHistoryTurns:]
@@ -458,6 +465,9 @@ func (s *Service) history(botID, current string) []ChatMsg {
 		works[w.RequestID] = w
 	}
 	for _, w := range l {
+		if w.RequestID == current && !includeCurrent {
+			break
+		}
 		if parent := by[w.RequestID]; parent != "" && parent != current {
 			continue
 		}
@@ -469,11 +479,32 @@ func (s *Service) history(botID, current string) []ChatMsg {
 			msgs = append(msgs, ChatMsg{"user", input})
 		}
 		if w.Direct != nil {
-			for _, id := range w.Direct.Steered {
-				if q, ok := works[id]; ok {
-					msgs = append(msgs, ChatMsg{Role: "user", Content: q.Text})
+			inputAt := 0
+			appendInputs := func(until string) {
+				end := len(w.Direct.Steered)
+				if until != "" {
+					end = inputAt
+					for i, id := range w.Direct.Steered {
+						if id == until {
+							end = i + 1
+							break
+						}
+					}
+				}
+				for inputAt < end {
+					if q, ok := works[w.Direct.Steered[inputAt]]; ok {
+						msgs = append(msgs, ChatMsg{Role: "user", Content: q.Text})
+					}
+					inputAt++
 				}
 			}
+			for _, segment := range w.Direct.Segments {
+				if segment.AfterInputID != "" {
+					appendInputs(segment.AfterInputID)
+				}
+				msgs = append(msgs, ChatMsg{Role: "assistant", Content: segment.Text})
+			}
+			appendInputs("")
 		}
 		if w.RequestID == current {
 			break
@@ -503,6 +534,9 @@ func (s *Service) history(botID, current string) []ChatMsg {
 			msgs = append(msgs, ChatMsg{"assistant", c})
 		}
 	}
+	if !includeCurrent {
+		return msgs
+	} // Core owns context compaction and any model calls it requires.
 	return s.compact(botID, msgs)
 }
 
@@ -556,6 +590,9 @@ func (s *Service) runWork(w ledger.Work) {
 	choice := s.selectTurnAI(w.BotID)
 	runtime, model := choice.identity(s.AI)
 	run := ledger.DirectRun{Runtime: runtime, Model: model, LeaseUntil: s.leaseUntil()}
+	if choice.core != nil && choice.core.Quick {
+		run.Engine = "core"
+	}
 	if strings.HasPrefix(w.ClientNonce, "computer-") {
 		run.Kind = "computer" // hidden follow-up after an approved command
 	}
@@ -668,6 +705,8 @@ func (s *Service) finishWork(w ledger.Work, appr *Approval, questions *questionS
 	}
 	if done, _ := s.L.Get(w.RequestID); done.Direct != nil && len(done.Direct.Plan) > 0 {
 		s.record(w.BotID, w.RequestID, "plan", name+" chạy kế hoạch "+itoa(len(done.Direct.Plan))+" bước")
+	} else if cur.Direct != nil && cur.Direct.Completion != nil && cur.Direct.Completion.Status != "ready" {
+		s.record(w.BotID, w.RequestID, "reply", name+" đã phản hồi; công việc còn cần xử lý")
 	} else {
 		s.record(w.BotID, w.RequestID, "reply", name+" đã xong")
 	}
@@ -681,6 +720,8 @@ func (s *Service) finishWork(w ledger.Work, appr *Approval, questions *questionS
 		s.notify(name+" cần bạn điền thông tin", questions.Form.Title, "/app/#"+threadOf(w))
 	case questions != nil:
 		s.notify(name+" cần bạn chọn", "Chọn một phương án để tiếp tục", "/app/#"+threadOf(w))
+	case cur.Direct != nil && cur.Direct.Completion != nil && cur.Direct.Completion.Status != "ready":
+		s.notify(name, "Công việc chưa hoàn tất. Xem phần còn thiếu trong hội thoại.", "/app/#"+threadOf(w))
 	default:
 		s.notify(name, "Đã xong việc bạn giao.", "/app/#"+threadOf(w))
 	}
@@ -780,6 +821,16 @@ func promiseOnly(d directives) bool {
 }
 
 func (s *Service) runTurn(ctx context.Context, w ledger.Work) (*Approval, *questionSet, error) {
+	if w.Direct != nil && w.Direct.Engine == "core" {
+		if s.absorbed(w.RequestID) {
+			return nil, nil, nil
+		}
+		choice, _ := ctx.Value(turnAIKey{}).(*turnAI)
+		if choice == nil || choice.core == nil {
+			return nil, nil, errors.New("core_configuration_invalid")
+		}
+		return s.runCoreTurn(ctx, w, choice.core)
+	}
 	start := time.Now()
 	tc := &toolCtx{}
 	if !s.networkPeerWork(w) {
@@ -1047,7 +1098,8 @@ func (s *Service) verifyFinal(ctx context.Context, w ledger.Work, tc *toolCtx, d
 // in text (never a bare TOOL line).
 func (s *Service) stepCall(ctx context.Context, w ledger.Work, tc *toolCtx, prompt string) (directives, error) {
 	mk := func(extra ...ChatMsg) []ChatMsg {
-		return append(append(tc.inject(s.history(w.BotID, w.RequestID)), ChatMsg{Role: "user", Content: prompt}), extra...)
+		msgs := append(s.history(w.BotID, w.RequestID), ChatMsg{Role: "system", Content: prompt})
+		return append(tc.inject(msgs), extra...)
 	}
 	d, err := s.ask(ctx, w, tc, func() []ChatMsg { return mk() })
 	for r := 0; err == nil && len(d.Tools) > 0 && r < 4 && (s.Tools != nil || hasNetworkTool(d.Tools)); r++ {
@@ -1256,7 +1308,7 @@ func callsOf(ts []toolReq) []toolCall {
 			out = append(out, toolCall{t.Name, computerArg(t)})
 			continue
 		}
-		if isNetworkTool(t.Name) || isCloudTool(t.Name) || extArg(t.Name) || strings.HasPrefix(t.Name, "vault_") {
+		if isCoreStateTool(t.Name) || isNetworkTool(t.Name) || isCloudTool(t.Name) || extArg(t.Name) || strings.HasPrefix(t.Name, "vault_") {
 			b, _ := json.Marshal(t)
 			out = append(out, toolCall{t.Name, string(b)})
 			continue
@@ -1308,7 +1360,7 @@ func isEnglish(t string) bool {
 }
 
 // wantsComputer: the owner asked for something run or computed on files.
-var wantsComputer = regexp.MustCompile(`(?i)máy tính|chạy|lệnh|script|python|csv|file|tệp|\brun\b|command|terminal|shell`)
+var wantsComputer = regexp.MustCompile(`(?i)máy tính|chạy|lệnh|script|python|csv|file|tệp|\brun\b|command|terminal|shell|landing\s*page|trang\s*web|website|\bhtml\b|\bcss\b|lập trình|网页|網站|网站|编程|程式`)
 
 // requeueDelay is the pause before a run that lost the model is retried.
 var requeueDelay = 15 * time.Second

@@ -17,7 +17,7 @@ func TestCoreActualCLIChatGPTWithoutProfileBridge(t *testing.T) {
 	if bun == "" {
 		t.Skip("Bun unavailable; real Core CLI integration not exercised")
 	}
-	entry, err := filepath.Abs("../../../../core/bin/neko.ts")
+	entry, err := filepath.Abs("../../../../core/bin/aurora-completion.ts")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -34,14 +34,18 @@ func TestCoreActualCLIChatGPTWithoutProfileBridge(t *testing.T) {
 	entryJSON, _ := json.Marshal(entry)
 	setupJSON, _ := json.Marshal(filepath.Join(filepath.Dir(entry), "aurora-setup.ts"))
 	bootstrap := `import { pathToFileURL } from "node:url";
-import { writeFileSync } from "node:fs";
+import { writeFileSync, readFileSync, existsSync } from "node:fs";
 import { join } from "node:path";
 globalThis.fetch = async (input, init) => {
   const url = String(input);
-  if (url.startsWith("https://chatgpt.com/backend-api/codex/models")) return Response.json({models: [{slug:"gpt-5.5",display_name:"Fixture direct model",visibility:"list"}]});
+  if (url.startsWith("https://chatgpt.com/backend-api/codex/models")) {
+    const path=join(process.env.HOME,"catalog-count"); writeFileSync(path,String((existsSync(path)?Number(readFileSync(path,"utf8")):0)+1));
+    return Response.json({models: [{slug:"gpt-5.5",display_name:"Fixture direct model",visibility:"list"}]});
+  }
   if (url !== "https://chatgpt.com/backend-api/codex/responses") throw new Error("Unexpected fixture network destination");
   const body = JSON.parse(String(init?.body));
   if (body.model !== "gpt-5.5" || (body.tools?.length ?? 0) !== 0 || new Headers(init?.headers).get("authorization") !== "Bearer fixture-chatgpt-access") throw new Error("Wrong fixture route or credentials");
+  if (!body.instructions.includes("AURORA-AUTHORITY") || body.input.at(-1).content[0].text !== "Tiếng Việt 中文".repeat(5000) || body.input[0].role !== "assistant") throw new Error("System authority, history or long input lost");
   writeFileSync(join(process.env.HOME, "request-reached.json"), JSON.stringify({model: body.model, tools: body.tools?.length ?? 0}));
   const events = [{type: "response.output_text.delta", delta: "Aurora CLI fixture reply."}, {type: "response.completed", response: {output: [], usage: {input_tokens: 4, output_tokens: 5}}}];
   return new Response(events.map(x => "data: " + JSON.stringify(x) + "\n\n").join("") + "data: [DONE]\n\n", {headers: {"content-type": "text/event-stream"}});
@@ -51,7 +55,8 @@ await import(pathToFileURL(` + string(entryJSON) + `).href);
 	fixtureEntry := filepath.Join(bin, "neko-fixture.ts")
 	for name, data := range map[string][]byte{
 		fixtureEntry: []byte(bootstrap), filepath.Join(root, "bunfig.neko.toml"): {},
-		filepath.Join(bin, "aurora-setup.ts"): []byte(strings.Replace(bootstrap, string(entryJSON), string(setupJSON), 1)),
+		filepath.Join(bin, "aurora-completion.ts"): []byte(bootstrap),
+		filepath.Join(bin, "aurora-setup.ts"):      []byte(strings.Replace(bootstrap, string(entryJSON), string(setupJSON), 1)),
 	} {
 		if err := os.WriteFile(name, data, 0600); err != nil {
 			t.Fatal(err)
@@ -64,16 +69,23 @@ await import(pathToFileURL(` + string(entryJSON) + `).href);
 	// Ambient bridge/auth controls must not enter the ordinary CLI subprocess.
 	t.Setenv("NEKO_CREDENTIAL_HOME", "ambient-fixture-home")
 	t.Setenv("OPENAI_API_KEY", "ambient-fixture-api-key")
-	c := &Core{Bun: bun, Entry: fixtureEntry, Home: home, Model: "gpt-5.5", Profile: "chatgpt", Quick: true, SignedIn: true}
+	c := &Core{Bun: bun, Entry: fixtureEntry, Home: home, Model: "gpt-5.5", Profile: "chatgpt", Quick: true, SignedIn: true, validation: &coreValidation{}}
 	ctx, cancel := context.WithTimeout(context.Background(), 45*time.Second)
 	defer cancel()
 	var streamed strings.Builder
-	reply, err := c.Stream(ctx, []ChatMsg{{Role: "user", Content: "Fixture request only."}}, func(s string) { streamed.WriteString(s) })
+	reply, err := c.Stream(ctx, []ChatMsg{{Role: "assistant", Content: "Earlier reply"}, {Role: "user", Content: strings.Repeat("Tiếng Việt 中文", 5000)}, {Role: "system", Content: "AURORA-AUTHORITY"}}, func(s string) { streamed.WriteString(s) })
 	if err != nil || strings.TrimSpace(reply) != "Aurora CLI fixture reply." || reply != streamed.String() {
 		t.Fatalf("real CLI reply=%q streamed=%q error=%v", reply, streamed.String(), err)
 	}
 	if _, err := os.Stat(filepath.Join(home, "request-reached.json")); err != nil {
 		t.Fatal("real Core provider was not reached", err)
+	}
+	if err := c.validateSelection(ctx); err != nil {
+		t.Fatal(err)
+	}
+	count, err := os.ReadFile(filepath.Join(home, "catalog-count"))
+	if err != nil || string(count) != "1" {
+		t.Fatal("same-turn tool step repeated model discovery")
 	}
 	c.Model = "retired-fixture"
 	_, err = c.Stream(ctx, []ChatMsg{{Role: "user", Content: "Must not reach completion."}}, func(string) { t.Fatal("unavailable model emitted output") })

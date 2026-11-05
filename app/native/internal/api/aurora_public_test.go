@@ -9,6 +9,24 @@ import (
 	"nekoaurora.local/native/internal/ledger"
 )
 
+func TestAuroraLocalPreviewFramePolicy(t *testing.T) {
+	store, err := ledger.Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	s, err := New(store, "127.0.0.1:8123")
+	if err != nil {
+		t.Fatal(err)
+	}
+	w := httptest.NewRecorder()
+	s.ServeHTTP(w, httptest.NewRequest(http.MethodGet, "http://127.0.0.1:8123/app/", nil))
+	policy := w.Header().Get("Content-Security-Policy")
+	if w.Code != 200 || !strings.Contains(policy, "frame-src 'self';") || !strings.Contains(policy, "frame-ancestors 'none';") || strings.Contains(policy, "unsafe-inline") {
+		t.Fatalf("local preview parent policy: status=%d policy=%q", w.Code, policy)
+	}
+}
+
 func TestAuroraPublicHost(t *testing.T) {
 	store, err := ledger.Open(t.TempDir())
 	if err != nil {
@@ -34,7 +52,7 @@ func TestAuroraPublicHost(t *testing.T) {
 		s.ServeHTTP(w, r)
 		return w
 	}
-	if w := do("GET", "/app/", "", "", ""); w.Code != 200 || strings.Contains(w.Header().Get("Set-Cookie"), "neko_local") {
+	if w := do("GET", "/app/", "", "", ""); w.Code != 200 || strings.Contains(w.Header().Get("Set-Cookie"), "neko_local") || !strings.Contains(w.Header().Get("Content-Security-Policy"), "frame-src 'self'") {
 		t.Fatalf("asset %d %q", w.Code, w.Header().Get("Set-Cookie"))
 	}
 	if w := do("GET", "/v1/session", "", "", ""); w.Code != 404 {

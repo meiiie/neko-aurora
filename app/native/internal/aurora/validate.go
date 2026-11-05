@@ -472,7 +472,9 @@ func (s *Service) validateNew(ctx context.Context, bot string, since time.Time) 
 		}
 		rep := validatePPTX(f, size, target)
 		f.Close()
-		rep.Fails = append(rep.Fails, s.factCheck(ctx, bot, rep)...)
+		if hosted, _ := ctx.Value(coreTurnKey{}).(bool); !hosted {
+			rep.Fails = append(rep.Fails, s.factCheck(ctx, bot, rep)...)
+		}
 		fmt.Fprintf(&b, "\nKIỂM TRA TỰ ĐỘNG %s: %s", e.Path, rep)
 		if !rep.ok() {
 			b.WriteString("\n→ Sửa script tạo file theo các điểm CHƯA ĐẠT rồi chạy lại; chưa đạt thì chưa được báo xong.")

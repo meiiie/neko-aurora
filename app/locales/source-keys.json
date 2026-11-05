@@ -417,5 +417,7 @@
   "Thiếu số thẻ.": "other.card_number_missing",
   "Trợ lý": "common.assistant",
   "Xác thực hai lớp": "common.twoFactor",
-  "Lỗi": "common.error"
+  "Lỗi": "common.error",
+  "Aurora bị ngắt sau khi gửi một thao tác và chưa nhận được kết quả đã lưu. Thao tác không được tự chạy lại. Hãy kiểm tra kết quả trên máy tính của bot trước khi tiếp tục.": "chat.effectUnknown",
+  "Thư mục làm việc đã thay đổi trong lúc bot đang chạy. Aurora đã dừng lượt này để tránh thao tác nhầm thư mục.": "chat.workspaceChanged"
 }

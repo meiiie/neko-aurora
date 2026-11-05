@@ -207,7 +207,8 @@ func (e *extStore) side(task string) (string, *form) {
 func (e *extStore) skills() []skill {
 	e.mu.Lock()
 	defer e.mu.Unlock()
-	return append(append([]skill(nil), builtinSkills...), e.d.Skills...)
+	all := append(append([]skill(nil), builtinSkills...), workSkills...)
+	return append(all, e.d.Skills...)
 }
 
 // builtinSkills ship with the app; owners add their own on the profile page.
@@ -509,13 +510,14 @@ func (s *Service) extNote(bot string) string {
 	if !be.Off["skills"] {
 		var sk []string
 		for _, x := range s.ext.skills() {
-			if len(be.Skills) == 0 || contains(be.Skills, x.ID) {
-				sk = append(sk, "- "+x.Name+": "+x.Desc)
+			if skillAllowed(be, x.ID) {
+				sk = append(sk, "- "+x.Name+": "+x.Desc+" (ID: "+x.ID+")")
 			}
 		}
 		if len(sk) > 0 {
 			b.WriteString("\nKỸ NĂNG (đọc hướng dẫn bằng TOOL {\"name\":\"skill_load\",\"q\":\"<tên kỹ năng>\"} trước khi làm việc khớp):\n" + strings.Join(sk, "\n"))
 		}
+		b.WriteString(workStyle(be))
 	}
 	if !be.Off["mcp"] {
 		b.WriteString(s.mcpNote(bot, be))

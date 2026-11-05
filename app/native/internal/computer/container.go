@@ -3,6 +3,7 @@ package computer
 import (
 	"context"
 	"fmt"
+	"runtime"
 )
 
 // Container is the production backend for hosts without unprivileged user
@@ -38,16 +39,29 @@ func (c *Container) Available() error {
 func (c *Container) Exec(context.Context, Spec) (Result, error) { return Result{}, c.Available() }
 
 // FromEnv picks the backend:
-// AURORA_COMPUTER=off|bwrap|railway|container:<runtime>.
+// AURORA_COMPUTER=off|files|docker|bwrap|railway|container:<runtime>.
+// Windows defaults to files; other hosts default to bwrap.
 func FromEnv(v string) Sandbox {
 	switch {
 	case v == "off":
 		return nil
 	case v == "railway":
 		return NewRailwayFromEnv()
+	case v == "files" || v == "" && runtime.GOOS == "windows":
+		return &FilesOnly{}
+	case v == "docker":
+		return NewDocker()
 	case len(v) > 10 && v[:10] == "container:":
 		return &Container{Runtime: v[10:]}
 	default:
 		return NewBwrap()
 	}
 }
+
+type FilesOnly struct{}
+
+func (*FilesOnly) Name() string { return "files" }
+func (*FilesOnly) Available() error {
+	return fmt.Errorf("%w: execution_not_configured", ErrUnavailable)
+}
+func (f *FilesOnly) Exec(context.Context, Spec) (Result, error) { return Result{}, f.Available() }

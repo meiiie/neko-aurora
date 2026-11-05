@@ -264,6 +264,7 @@ test("prior conversation is injected as Codex-valid response items with an expli
       { role: "assistant", content: "On it.", tool_calls: [{ id: "call-1", function: { name: "read_file", arguments: "{}" } }] },
       { role: "tool", tool_call_id: "call-1", content: "plan.md contents" },
       { role: "user", content: "Continue on 5.6." },
+      { role: "user", content: "Also keep the prior requirement." },
     ],
     [],
     undefined,
@@ -284,6 +285,21 @@ test("prior conversation is injected as Codex-valid response items with an expli
   // The live turn is the last message and is sent via turn/start, not injected.
   expect(requests.find((request) => request.method === "turn/start")?.params.input).toEqual([
     { type: "text", text: "Continue on 5.6.", text_elements: [] },
+    { type: "text", text: "Also keep the prior requirement.", text_elements: [] },
+  ]);
+  expect(JSON.stringify(items)).not.toContain("Continue on 5.6.");
+  expect(JSON.stringify(items)).not.toContain("Also keep the prior requirement.");
+  await provider.complete([
+    { role: "system", content: "Be precise." },
+    { role: "user", content: "Continue on 5.6." },
+    { role: "assistant", content: "ok" },
+    { role: "user", content: "First queued change." },
+    { role: "user", content: "Second queued change." },
+  ]);
+  expect(requests.filter(request => request.method === "thread/start")).toHaveLength(1);
+  expect(requests.filter(request => request.method === "turn/start").at(-1)?.params.input).toEqual([
+    { type: "text", text: "First queued change.", text_elements: [] },
+    { type: "text", text: "Second queued change.", text_elements: [] },
   ]);
   provider.dispose();
 });

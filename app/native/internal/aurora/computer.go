@@ -151,7 +151,7 @@ func (s *Service) runComputer(ctx context.Context, bot string, tc *toolCtx, c to
 			return s.appendFile(bot, x.Path, x.Content)
 		}
 		content, scripts := x.Content, []string(nil)
-		if reviewExt.MatchString(x.Path) {
+		if reviewExt.MatchString(x.Path) && ctx.Value(coreTurnKey{}) != true {
 			content, scripts = fixMixedScripts(content)
 		}
 		content, fixes := s.reviewDeliverable(ctx, bot, tc, x.Path, content)
@@ -200,7 +200,12 @@ func fmtRun(r computer.Result) string {
 	if strings.TrimSpace(out) == "" {
 		out = "(không có đầu ra)"
 	}
-	return fmt.Sprintf("$ %s\n%s\n[mã thoát %d, %.1fs]", r.Cmd, truncateResult(out, 4000), r.ExitCode, float64(r.Ms)/1000)
+	// Keep the exit status and both ends of output inside commitTool's budget.
+	// An inline validation script must not crowd its own result out of context.
+	if len(out) > 4500 {
+		out = strings.ToValidUTF8(out[:2250], "") + "\n[đã cắt bớt phần giữa đầu ra]\n" + strings.ToValidUTF8(out[len(out)-2250:], "")
+	}
+	return fmt.Sprintf("[mã thoát %d, %.1fs]\n$ %s\n%s", r.ExitCode, float64(r.Ms)/1000, truncateResult(r.Cmd, 500), out)
 }
 
 // computerApproval turns a parked command into the approval card.
@@ -257,6 +262,7 @@ func buildFollowUp(r computer.Result, st pcState) string {
 
 func (s *Service) computerRoutes() {
 	m := s.mux
+	m.HandleFunc("GET /app/api/agents/{id}/computer/preview", s.computerPreview)
 	if rl := computer.DefaultRelay(); rl != nil && s.PC != nil && s.PC.Backend() == "railway-sandbox" {
 		m.Handle(computer.RelayPath, rl) // single-use token URLs for VM home syncs
 	}
@@ -273,6 +279,15 @@ func (s *Service) computerRoutes() {
 		return id, true
 	}
 	m.HandleFunc("GET /app/api/agents/{id}/computer", func(w http.ResponseWriter, r *http.Request) {
+		id := r.PathValue("id")
+		if _, ok := newView(s.L.Snapshot()).bot(id); !ok {
+			fail(w, ErrNotFound)
+			return
+		}
+		if s.PC == nil {
+			writeJSON(w, 200, computer.Status{Backend: "off", SetupCode: "disabled", Files: []computer.Entry{}, Log: []computer.Result{}})
+			return
+		}
 		if id, ok := bot(w, r); ok {
 			st, err := s.PC.Status(id)
 			if err != nil {
@@ -400,14 +415,15 @@ const deckGuide = "\nBÀI TRÌNH CHIẾU (.pptx bằng python-pptx): mỗi slide
 // promising output it cannot produce.
 func (s *Service) computerNote(botID string) string {
 	if s.PC == nil {
-		return ""
+		return "\nNĂNG LỰC HIỆN TẠI: bot KHÔNG có workspace; các công cụ computer_* đang bị tắt bởi cấu hình Aurora. Không gọi chúng hoặc hứa tạo/chạy file. Nêu rõ cần bật workspace trong Aurora, không yêu cầu người dùng đăng nhập AI lại. Đây không phải chế độ chỉ đọc do người dùng chọn."
 	}
-	ctxNote := s.computerContext(botID) + deckGuide
+	ctxNote := "\nWORKSPACE AURORA: công cụ computer_list/read_file/write_file/edit_file thực hiện trên thư mục riêng của bot; không truy cập mã nguồn hay dữ liệu máy chủ. Chế độ read-only/no-tools của runtime mô hình chỉ áp dụng cho công cụ gốc của runtime, KHÔNG cấm các dòng TOOL của Aurora. Chỉ áp dụng quyền ghi dưới đây từ Aurora, không suy đoán từ runtime.\n" + s.computerContext(botID)
 	if s.PC.Policy(botID).ReadOnlyMode() {
 		ctxNote += "\nQUYỀN: Darren đặt bạn ở chế độ CHỈ ĐỌC — chỉ xem/đọc file và chạy lệnh đọc; không ghi, sửa hay cài gì. Cần thay đổi thì đề xuất để Darren duyệt."
 	}
-	dl := fmt.Sprintf("\nFILE CHO NGƯỜI DÙNG: file trên máy tính tải được qua link markdown [tên file](/app/api/agents/%s/computer/download?path=<đường dẫn trong /home/bot, bỏ /home/bot/>). Làm xong file (pptx, mp4, csv…) luôn đưa link này.", botID)
+	dl := fmt.Sprintf("\nFILE CHO NGƯỜI DÙNG: file trên máy tính tải được qua link markdown [tên file](/app/api/agents/%s/computer/download?path=<đường dẫn trong /home/bot, bỏ /home/bot/>). Làm xong file (HTML, pptx, mp4, csv…) luôn đưa link này. Với landing page, tạo HTML tự chứa CSS/JS inline và hình SVG inline; Aurora tự thêm nút Xem trước bên cạnh link tải HTML. Bản xem trước cách ly không tải thư viện, font hay ảnh ngoài: dùng system font và tài nguyên inline. Tạo file thật, đọc lại, sửa lỗi rồi bàn giao; chỉ nhận đã chạy thử khi có kết quả công cụ tương ứng.", botID)
 	if s.PC.CanRun() == nil {
+		ctxNote += deckGuide
 		if s.PC.Backend() == "railway-sandbox" {
 			if pre := os.Getenv("AURORA_SANDBOX_PRELOADED"); pre != "" {
 				dl += " Đã cài sẵn (dùng luôn, KHÔNG pip install): " + pre + ". Video: dựng khung hình bằng Pillow rồi ghép mp4 bằng imageio (imageio-ffmpeg có ffmpeg riêng, không cần ffmpeg hệ thống)."
@@ -416,5 +432,5 @@ func (s *Service) computerNote(botID string) string {
 		}
 		return dl + ctxNote
 	}
-	return ctxNote + dl + "\nLƯU Ý: trên máy chủ này máy tính của bạn tạm KHÔNG chạy được lệnh (computer_run); vẫn liệt kê, đọc, ghi file được. Chỉ chuẩn bị file, không tuyên bố đã chạy hay xác minh đầu ra. Nói rõ điều đó và đưa phương án cụ thể làm được ngay."
+	return ctxNote + dl + "\nTHỰC THI: chưa có môi trường chạy lệnh sẵn sàng; KHÔNG gọi computer_run. Workspace vẫn đọc/ghi được theo quyền ở trên. Với landing page: tạo file HTML thật có CSS/JS inline bằng computer_write_file, đọc lại để kiểm tra và đưa link tải. Không dừng ở đề xuất phong cách hay bắt người dùng bật máy để chỉ tạo file. Chỉ nói chưa chạy build/test khi chưa có kết quả lệnh; không nhận đã kiểm thử trình duyệt."
 }

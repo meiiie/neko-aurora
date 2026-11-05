@@ -82,6 +82,7 @@ const (
 	TaskScheduled       TaskStatus = "scheduled"
 	TaskPaused          TaskStatus = "paused"
 	TaskSucceeded       TaskStatus = "succeeded"
+	TaskIncomplete      TaskStatus = "incomplete"
 	TaskFailed          TaskStatus = "failed"
 	TaskCancelled       TaskStatus = "cancelled"
 )

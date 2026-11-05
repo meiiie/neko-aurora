@@ -94,6 +94,10 @@ export class ChatGptAppServerProvider implements Provider {
     if (!needsCodexTransport(this.cfg.model, modelInfo)) throw new Error(`Codex App Server route is not required for ${this.cfg.model}`);
     const minimumVersion = chatGptMinimumCodexVersion(this.cfg.model, modelInfo);
     if (tools.length && !opts.executeTool) throw new Error("Codex App Server tools need Neko's safe execution callback");
+    // A host can admit multiple owner messages at the same boundary. Send the
+    // whole trailing user batch; taking only the last silently drops earlier input.
+    let inputStart = Math.max(0, messages.length - 1);
+    while (inputStart > 0 && messages[inputStart]?.role === "user" && messages[inputStart - 1]?.role === "user") inputStart--;
     await this.prepareSupport?.({ home: this.cfg.resolvedHome, minimumVersion, signal,
       notify: (message) => onDelta?.(message + "\n", "reasoning") });
     if (signal?.aborted) throw new DOMException("Aborted by user", "AbortError");
@@ -160,7 +164,7 @@ export class ChatGptAppServerProvider implements Provider {
 
       // Preserve a conversation that began on GPT-5.5 or another provider. The app-server thread is
       // new, so inject only the prior structured items; the final user message starts the live turn.
-      const previous = toInjectItems(toResponsesInput(messages.slice(0, -1)).input);
+      const previous = toInjectItems(toResponsesInput(messages.slice(0, inputStart)).input);
       if (previous.length) await client.request("thread/inject_items", { threadId: id, items: previous });
     }
     } catch (error) {
@@ -207,7 +211,7 @@ export class ChatGptAppServerProvider implements Provider {
     };
     active.heartbeat = heartbeat;
     try {
-      const input = toUserInput(messages.at(-1)?.content);
+      const input = messages.slice(inputStart).flatMap(message => toUserInput(message.content));
       const params: any = { threadId, input, model: this.cfg.model };
       const effort = requestEffort(this.cfg.effort, opts.reasoningEffort);
       if (effort) params.effort = effort;

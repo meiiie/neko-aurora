@@ -151,6 +151,7 @@ func (s *Service) quickModel(selection string) *Core {
 		return nil
 	}
 	c := *s.quick.Core
+	c.validation = &coreValidation{}
 	c.Profile, c.Model, c.KeyEnv, c.Quick = p.ID, model, p.KeyEnv, true
 	c.key, c.SignedIn = "", p.Auth == "chatgpt_oauth"
 	if !c.SignedIn {

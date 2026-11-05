@@ -145,6 +145,7 @@ func TestQuickAIStatusSeparatesBotAndAuroraDefault(t *testing.T) {
 func quickFixture(t *testing.T) (*Service, *httptest.Server) {
 	t.Helper()
 	t.Setenv("AURORA_RUNTIME", "http")
+	t.Setenv("ZAI_API_KEY", "")
 	s, _ := newSvc(t)
 	exe, _ := os.Executable()
 	s.quick = &quickSetup{Core: &Core{Bun: exe, Entry: "aurora-quick-fixture", Home: t.TempDir()}, Providers: []quickProvider{

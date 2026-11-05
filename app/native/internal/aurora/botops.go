@@ -74,10 +74,14 @@ func (s *Service) runExt(ctx context.Context, w ledger.Work, tc *toolCtx, c tool
 		return s.recall(w, t.Q), nil
 	case "skill_load":
 		sk, ok := s.ext.skill(t.Q)
-		if !ok {
+		if !ok || !skillAllowed(s.ext.bot(w.BotID), sk.ID) {
 			return tools.Result{}, errors.New("không có kỹ năng này")
 		}
-		return tools.Result{Summary: "Đọc kỹ năng " + sk.Name, Text: "KỸ NĂNG " + sk.Name + ":\n" + sk.Body}, nil
+		summary := "Đọc kỹ năng " + sk.Name
+		if _, bundled := bundledWorkSkill(sk.ID); bundled {
+			summary = "Đọc kỹ năng"
+		}
+		return tools.Result{Summary: summary, Text: "KỸ NĂNG " + sk.Name + ":\n" + sk.Body}, nil
 	case "image_describe":
 		p := t.Path
 		if f := s.ext.bot(w.BotID).Folder; f != "" && !strings.HasPrefix(p, "/home/bot") && !strings.HasPrefix(p, f+"/") {

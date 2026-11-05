@@ -124,6 +124,12 @@ WITHOUT WARRANTY OF ANY KIND.
 - Used: design patterns only, re-implemented in Go/JS (non-blocking input queue that drains in order, abort-at-step-boundary steering, checkpointed continuation after interruption). No code copied. See docs/runtime-decision-2026-10-23.md.
 
 ## pstack (Lauren Tan / poteto) — MIT, © 2026 Lauren Tan
+- Runtime playbooks studied at commit `ae5650febf4320793844c12c4adaa937f417f8da`.
+  Aurora adaptations live in `app/native/internal/aurora/workskills/` and the
+  working agreement in `workstyle.go`. They use the existing skill mechanism;
+  no Cursor orchestration scripts, model settings or agent runner were copied.
+  The complete upstream license is retained in `workskills/pstack-LICENSE.txt`.
+  See [runtime adoption](docs/pstack-runtime.md) for behavior and limits.
 - Source: https://github.com/cursor/plugins/tree/main/pstack (commit 8b3326d)
 - Used: ideas "attack the premise" and "prove it works", re-implemented as Go gates
   in app/native/internal/aurora/pivot.go (failure fingerprints: premise nudge on the

@@ -29,14 +29,18 @@ func TestMain(m *testing.M) {
 		fmt.Printf(`{"models":[{"id":%q,"label":"Fixture","available":true,"transport":"responses"}],"checkedAt":"2026-11-01T00:00:00Z"}`, model)
 		os.Exit(0)
 	}
-	if len(os.Args) > 4 && os.Args[1] == "--no-env-file" && os.Args[4] == "aurora-quick-fixture" {
-		if len(os.Args) != 10 || os.Args[2] != "--no-install" || !strings.HasPrefix(os.Args[3], "--config=") || os.Args[5] != "--profile" || os.Args[7] != "--no-tools" || os.Args[8] != "run" || os.Getenv("HOME") != os.Getenv("USERPROFILE") || os.Getenv("NEKO_CREDENTIAL_HOME") != "" {
+	if len(os.Args) > 4 && os.Args[1] == "--no-env-file" && filepath.Base(os.Args[4]) == "aurora-completion.ts" {
+		if len(os.Args) != 6 || os.Args[2] != "--no-install" || !strings.HasPrefix(os.Args[3], "--config=") || os.Getenv("HOME") != os.Getenv("USERPROFILE") || os.Getenv("NEKO_CREDENTIAL_HOME") != "" {
 			os.Exit(2)
 		}
-		if os.Args[6] == "chatgpt" && (os.Getenv("ZAI_API_KEY") != "" || os.Getenv("OPENAI_API_KEY") != "") {
+		var messages []ChatMsg
+		if json.NewDecoder(os.Stdin).Decode(&messages) != nil || len(messages) == 0 {
+			os.Exit(4)
+		}
+		if os.Args[5] == "chatgpt" && (os.Getenv("ZAI_API_KEY") != "" || os.Getenv("OPENAI_API_KEY") != "") {
 			os.Exit(3)
 		}
-		fmt.Print("Core fixture " + os.Args[6])
+		fmt.Print("Core fixture " + os.Args[5])
 		os.Exit(0)
 	}
 	if len(os.Args) > 1 && strings.HasPrefix(os.Args[1], "aurora-core-fixture-") {

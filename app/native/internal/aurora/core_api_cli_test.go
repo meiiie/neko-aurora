@@ -17,7 +17,7 @@ func TestCoreActualCLIAPIProviderRoutes(t *testing.T) {
 	if bun == "" {
 		t.Skip("Bun unavailable; real Core API CLI not exercised")
 	}
-	entry, err := filepath.Abs("../../../../core/bin/neko.ts")
+	entry, err := filepath.Abs("../../../../core/bin/aurora-completion.ts")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -74,7 +74,7 @@ globalThis.fetch=async(input,init)=>{
 await import(pathToFileURL(` + string(entryJSON) + `).href);
 `
 			fixtureEntry := filepath.Join(bin, "neko-fixture.ts")
-			for name, data := range map[string][]byte{fixtureEntry: []byte(bootstrap), filepath.Join(root, "bunfig.neko.toml"): {}, filepath.Join(bin, "aurora-setup.ts"): []byte(strings.Replace(bootstrap, string(entryJSON), string(setupJSON), 1))} {
+			for name, data := range map[string][]byte{fixtureEntry: []byte(bootstrap), filepath.Join(bin, "aurora-completion.ts"): []byte(bootstrap), filepath.Join(root, "bunfig.neko.toml"): {}, filepath.Join(bin, "aurora-setup.ts"): []byte(strings.Replace(bootstrap, string(entryJSON), string(setupJSON), 1))} {
 				if err := os.WriteFile(name, data, 0600); err != nil {
 					t.Fatal(err)
 				}

@@ -510,15 +510,18 @@ func isImage(p string) bool {
 func IsDeliverable(p string) bool { return deliverableExt[strings.ToLower(path.Ext(p))] }
 
 type Status struct {
-	Recovery  *RecoveryStatus `json:"recovery,omitempty"`
-	Backend   string          `json:"backend"`
-	Available bool            `json:"available"`
-	Error     string          `json:"error,omitempty"`
-	Policy    Policy          `json:"policy"`
-	UsedBytes int64           `json:"usedBytes"`
-	Quota     int64           `json:"quotaBytes"`
-	Files     []Entry         `json:"files"`
-	Log       []Result        `json:"log"`
+	FileAccess bool            `json:"fileAccess"`
+	CanWrite   bool            `json:"canWrite"`
+	SetupCode  string          `json:"setupCode,omitempty"`
+	Recovery   *RecoveryStatus `json:"recovery,omitempty"`
+	Backend    string          `json:"backend"`
+	Available  bool            `json:"available"`
+	Error      string          `json:"error,omitempty"`
+	Policy     Policy          `json:"policy"`
+	UsedBytes  int64           `json:"usedBytes"`
+	Quota      int64           `json:"quotaBytes"`
+	Files      []Entry         `json:"files"`
+	Log        []Result        `json:"log"`
 }
 
 func (m *Manager) Status(bot string) (Status, error) {
@@ -527,21 +530,33 @@ func (m *Manager) Status(bot string) (Status, error) {
 		return Status{}, err
 	}
 	x := m.load(bot)
-	st := Status{Backend: m.sb.Name(), Available: true, Policy: x.Policy, Quota: m.Limits.HomeBytes, Log: x.Log}
+	st := Status{Backend: m.sb.Name(), Available: true, FileAccess: true, CanWrite: !x.Policy.ReadOnlyMode(), Policy: x.Policy, Quota: m.Limits.HomeBytes, Log: x.Log}
 	if st.Log == nil {
 		st.Log = []Result{}
 	}
 	if err := m.sb.Available(); err != nil {
 		st.Available, st.Error = false, err.Error()
+		st.SetupCode = "execution_unavailable"
+		if m.Backend() == "files" {
+			st.SetupCode = "files_only"
+		}
+		var setup *SetupError
+		if errors.As(err, &setup) {
+			st.SetupCode = setup.Code
+		}
 	}
 	if backend, ok := m.sb.(interface{ RecoveryStatus(string) *RecoveryStatus }); ok {
 		st.Recovery = backend.RecoveryStatus(h)
 		if st.Recovery != nil {
 			st.Available, st.Error = false, st.Recovery.Message
+			st.CanWrite = false
 		}
 	}
 	st.UsedBytes, _ = dirSize(h)
 	st.Files, _ = m.List(bot, "")
+	if st.Files == nil {
+		st.Files = []Entry{}
+	}
 	return st, nil
 }
 

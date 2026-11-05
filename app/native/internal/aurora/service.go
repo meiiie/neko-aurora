@@ -50,6 +50,7 @@ type Service struct {
 	PC            *computer.Manager    // per-bot sandboxed computers (nil = off)
 	Cloud         *cloudbrowser.Client // isolated persistent cloud browser; nil fails closed
 	cloudStateDir string
+	coreStateDir  string
 	mux           *http.ServeMux
 	pcb           pcBook // bot computer build state (build.go)
 	mu            sync.Mutex
@@ -150,6 +151,7 @@ func New(ctx context.Context, store *ledger.Store, stateDir string, opt Options)
 	s.utilityAdmission = opt.UtilityAdmission
 	s.routineAdmission = opt.RoutineAdmission
 	s.cloudStateDir = stateDir
+	s.coreStateDir = stateDir
 	if !store.ReadOnly() && !opt.DisableCloud {
 		s.Cloud = openCloudBrowser(stateDir)
 	}

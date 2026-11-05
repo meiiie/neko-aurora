@@ -2,10 +2,12 @@ package aurora
 
 import (
 	"context"
+	"crypto/sha256"
 	"encoding/json"
 	"errors"
 	"io"
 	"regexp"
+	"sync"
 	"time"
 
 	"nekoaurora.local/native/internal/privatefs"
@@ -25,6 +27,36 @@ type quickModelCatalog struct {
 }
 
 var coreModelID = regexp.MustCompile(`^[a-zA-Z0-9][a-zA-Z0-9._:/-]{0,119}$`)
+
+// Owned by one turnAI snapshot, never shared with another account or turn.
+// A tool loop should not depend on catalog discovery succeeding at every step.
+type coreValidation struct {
+	mu       sync.Mutex
+	identity [32]byte
+	checked  time.Time
+}
+
+func (c *Core) validateSelection(ctx context.Context) error {
+	identity := sha256.Sum256([]byte(c.Home + "\x00" + c.Profile + "\x00" + c.Model + "\x00" + c.key))
+	if c.validation != nil {
+		c.validation.mu.Lock()
+		defer c.validation.mu.Unlock()
+		if c.validation.identity == identity && time.Since(c.validation.checked) < 5*time.Minute {
+			return ctx.Err()
+		}
+	}
+	catalog, err := c.providerModels(ctx, c.Profile, c.KeyEnv, c.key)
+	if err != nil {
+		return err
+	}
+	if issue := chatGPTSelectionIssue(catalog, c.Model); issue != "" {
+		return errors.New(issue)
+	}
+	if c.validation != nil {
+		c.validation.identity, c.validation.checked = identity, time.Now()
+	}
+	return nil
+}
 
 func (c *Core) chatGPTModels(ctx context.Context) (quickModelCatalog, error) {
 	return c.providerModels(ctx, "chatgpt", "", "")

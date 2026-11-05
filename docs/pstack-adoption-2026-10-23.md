@@ -3,6 +3,9 @@
 Source: https://github.com/cursor/plugins/tree/main/pstack, commit 8b3326d (2026-10-23 10:15 UTC+7). Local copy: /workspace/pstack-ref/pstack.
 Status: research only. Nothing implemented or deployed.
 
+Historical study: the statement above describes 2026-10-23. Current runtime
+adoption is documented in [pstack in Aurora](pstack-runtime.md).
+
 ## 1. What pstack is
 
 pstack is a Cursor/Claude Code plugin by Lauren Tan (poteto). It has 57 skills, 23 playbooks and 2 agents (poteto-agent, comment-sicko). It is **prose for a coding agent, not a runtime**: Markdown SKILL.md files, plus a few Bun/Node helper scripts (orch, watch-pr, check-plan, statechart/TLA+).
