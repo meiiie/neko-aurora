@@ -124,7 +124,7 @@ if (import.meta.main) {
         const mergeBase = execFileSync("git", ["merge-base", base, "HEAD"], { cwd: root, encoding: "utf8" }).trim();
         changed = git("diff", "--name-only", "--no-renames", "-z", mergeBase, "HEAD");
       }
-      if (!changed.some(file => file.startsWith(".github/workflows/") || file.startsWith("tools/ci/"))) {
+      if (!changed.some(file => file.startsWith(".github/workflows/") || file.startsWith("tools/ci/") || file.startsWith("migration/disabled-workflows/core/"))) {
         try {
           const { graph, unsafe } = importGraph(files);
           selection = selectTests(files, changed.filter(file => file.startsWith("core/")).map(file => file.slice(5)), graph, unsafe);

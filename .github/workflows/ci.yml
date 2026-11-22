@@ -26,6 +26,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
+      - run: python -m unittest discover -s tools/ci -p 'test_*.py'
       - id: filter
         env:
           EVENT: ${{ github.event_name }}
@@ -39,11 +40,13 @@ jobs:
               ['git', 'diff', '--name-only', '--no-renames', '-z', os.environ['BASE'] + '...HEAD']
           ).decode().split('\0')
           full |= any(p.startswith(('.github/workflows/', 'tools/ci/')) for p in files)
+          def host_input(p):
+              return p.startswith(('app/host/', 'app/contracts/', 'app/scripts/')) or p in ('rust-toolchain.toml', 'app/native/internal/protocol/core-runtimes-v1.json')
           filters = {
-              'native': lambda p: p.startswith('app/native/'),
-              'host': lambda p: p.startswith('app/host/') or p == 'rust-toolchain.toml',
-              'desktop': lambda p: p.startswith(('app/desktop/', 'app/host/')) or p == 'rust-toolchain.toml',
-              'core': lambda p: p.startswith('core/'),
+              'native': lambda p: p.startswith(('app/native/', 'app/contracts/', 'app/scripts/', 'app/cloud-browser/')),
+              'host': host_input,
+              'desktop': lambda p: p.startswith('app/desktop/') or host_input(p),
+              'core': lambda p: p.startswith(('core/', 'migration/disabled-workflows/core/')),
               'docs': lambda p: p.startswith(('docs/', '.github/ISSUE_TEMPLATE/')) or p == 'tools/check_docs.py' or (len(PurePosixPath(p).parts) == 1 and p.endswith('.md')),
           }
           with open(os.environ['GITHUB_OUTPUT'], 'a') as output:
