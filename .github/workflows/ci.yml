@@ -1,0 +1,220 @@
+name: ci
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  changes:
+    runs-on: ubuntu-latest
+    outputs:
+      native: ${{ steps.filter.outputs.native }}
+      host: ${{ steps.filter.outputs.host }}
+      desktop: ${{ steps.filter.outputs.desktop }}
+      core: ${{ steps.filter.outputs.core }}
+      docs: ${{ steps.filter.outputs.docs }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - id: filter
+        env:
+          EVENT: ${{ github.event_name }}
+          BASE: ${{ github.event.pull_request.base.sha }}
+        run: |
+          python - <<'PY'
+          import os, subprocess
+          from pathlib import PurePosixPath
+          full = os.environ['EVENT'] != 'pull_request'
+          files = [] if full else subprocess.check_output(
+              ['git', 'diff', '--name-only', '--no-renames', '-z', os.environ['BASE'] + '...HEAD']
+          ).decode().split('\0')
+          full |= any(p.startswith(('.github/workflows/', 'tools/ci/')) for p in files)
+          filters = {
+              'native': lambda p: p.startswith('app/native/'),
+              'host': lambda p: p.startswith('app/host/') or p == 'rust-toolchain.toml',
+              'desktop': lambda p: p.startswith(('app/desktop/', 'app/host/')) or p == 'rust-toolchain.toml',
+              'core': lambda p: p.startswith('core/'),
+              'docs': lambda p: p.startswith(('docs/', '.github/ISSUE_TEMPLATE/')) or p == 'tools/check_docs.py' or (len(PurePosixPath(p).parts) == 1 and p.endswith('.md')),
+          }
+          with open(os.environ['GITHUB_OUTPUT'], 'a') as output:
+              for name, match in filters.items():
+                  output.write(f'{name}={str(full or any(map(match, files))).lower()}\n')
+          PY
+
+  go-vet:
+    needs: changes
+    if: needs.changes.outputs.native == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: app/native/go.mod
+          cache-dependency-path: app/native/go.mod
+      - run: go vet ./...
+        working-directory: app/native
+
+  go-build:
+    needs: changes
+    if: needs.changes.outputs.native == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: app/native/go.mod
+          cache-dependency-path: app/native/go.mod
+      - run: go build ./cmd/neko-aurora
+        working-directory: app/native
+
+  go-test:
+    needs: changes
+    if: needs.changes.outputs.native == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: app/native/go.mod
+          cache-dependency-path: app/native/go.mod
+      - run: tools/ci/linux-sandbox.sh prepare
+      - run: go test -count=1 ./...
+        working-directory: app/native
+      - if: always()
+        run: tools/ci/linux-sandbox.sh restore
+
+  rust-host:
+    needs: changes
+    if: needs.changes.outputs.host == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: rustup show active-toolchain
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: app/host -> ../.build/host-target
+      - run: cargo test --locked --manifest-path app/host/Cargo.toml --target-dir app/.build/host-target
+
+  desktop:
+    needs: changes
+    if: needs.changes.outputs.desktop == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: rustup show active-toolchain
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: app/desktop -> ../.build/desktop-target
+      - run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends libgtk-3-dev libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev patchelf
+      - run: cargo check --locked --manifest-path app/desktop/Cargo.toml --target-dir app/.build/desktop-target
+
+  core-typecheck:
+    needs: changes
+    if: needs.changes.outputs.core == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.4.0
+      - run: bun install --frozen-lockfile
+        working-directory: core
+      - run: bun run typecheck
+        working-directory: core
+
+  core-lint:
+    needs: changes
+    if: needs.changes.outputs.core == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.4.0
+      - run: bun install --frozen-lockfile
+        working-directory: core
+      - run: bun run lint
+        working-directory: core
+
+  core-build:
+    needs: changes
+    if: needs.changes.outputs.core == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.4.0
+      - run: bun install --frozen-lockfile
+        working-directory: core
+      - run: bun run build
+        working-directory: core
+
+  core-test:
+    needs: changes
+    if: needs.changes.outputs.core == 'true'
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2, 3, 4]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.4.0
+      - run: bun install --frozen-lockfile
+        working-directory: core
+      - run: bun test tools/ci/core-tests.test.ts
+      - run: tools/ci/linux-sandbox.sh prepare
+      - name: Affected or full timed shard
+        env:
+          CI_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          CI_EVENT: ${{ github.event_name }}
+          SHARD: ${{ matrix.shard }}
+          NEKO_REQUIRE_SANDBOX_TESTS: '1'
+        run: |
+          if [ "$CI_EVENT" = pull_request ]; then
+            bun tools/ci/core-tests.ts --run --shard "$SHARD"
+          else
+            bun tools/ci/core-tests.ts --full --run --shard "$SHARD"
+          fi
+      - if: always()
+        run: tools/ci/linux-sandbox.sh restore
+
+  docs:
+    needs: changes
+    if: needs.changes.outputs.docs == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: python tools/check_docs.py
+
+  ci-ok:
+    needs: [changes, go-vet, go-build, go-test, rust-host, desktop, core-typecheck, core-lint, core-build, core-test, docs]
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - env:
+          RESULTS: ${{ toJSON(needs) }}
+        run: |
+          python - <<'PY'
+          import json, os, sys
+          results = {name: job['result'] for name, job in json.loads(os.environ['RESULTS']).items()}
+          print(json.dumps(results, indent=2))
+          sys.exit(any(result not in ('success', 'skipped') for result in results.values()))
+          PY

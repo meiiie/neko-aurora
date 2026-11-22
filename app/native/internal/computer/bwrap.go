@@ -97,7 +97,7 @@ func (b *Bwrap) args(s Spec) []string {
 		k, v, _ := bytesCut(e)
 		a = append(a, "--setenv", k, v)
 	}
-	return append(a, "/bin/sh", "-c", strictShell+s.Cmd)
+	return append(a, "/bin/bash", "-c", strictShell+s.Cmd)
 }
 
 func bytesCut(e string) (string, string, bool) {

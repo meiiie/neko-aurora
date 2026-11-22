@@ -25,7 +25,11 @@ Fork repo và tạo nhánh từ `main`. Các nhánh `wip/*` và `archive/*` dùn
 - Frontend: `node --check app/native/internal/web/assets/app.js` và `node --check app/native/internal/web/assets/connections.js` chỉ kiểm cú pháp. Cần thêm kiểm tra interaction/focus/viewport phù hợp khi đổi hành vi; cú pháp PASS không chứng minh UI hoạt động.
 - Core: dùng Bun/lockfile và gate trong [Core testing](core/docs/process/TESTING.md). Không thay các kiểm thử runtime bằng fixture ở component khác.
 
-Repo này chưa có CI tự động ở root. Ghi bằng chứng manual trong PR: exact commit, command, tool/OS, PASS/FAIL/BLOCKED và scope. Không gọi fixture là model evaluation, viewport là physical-phone acceptance hoặc local replica là cloud sync. Nếu một gate chưa chạy, nói rõ lý do. Giữ nguyên failure có ý nghĩa; không nới assertion chỉ để có PASS.
+Ghi bằng chứng manual trong PR: exact commit, command, tool/OS, PASS/FAIL/BLOCKED và scope. Không gọi fixture là model evaluation, viewport là physical-phone acceptance hoặc local replica là cloud sync. Nếu một gate chưa chạy, nói rõ lý do. Giữ nguyên failure có ý nghĩa; không nới assertion chỉ để có PASS.
+
+## CI cho pull request
+
+CI lọc đường dẫn và chạy song song Go vet/build/test, Rust host test, Linux desktop check, Core typecheck/lint/build/test và docs check; `ci-ok` là check tổng hợp cho branch protection. Main/manual chạy đầy đủ; thay workflow hoặc `tools/ci/` bật mọi lane. Core PR chọn test theo đồ thị import TypeScript (kể cả alias trong tsconfig), fallback toàn bộ khi đổi config/helper/asset, xóa file hoặc không phân giải được dependency. Bốn shard được chia greedy theo thời gian đã đo cộng 0,1 giây/file; file mới mặc định 1 giây. Xem kế hoạch bằng `bun tools/ci/core-tests.ts --base origin/main` hoặc `--full`; thêm `--run --shard 1` để chạy một shard. Để cập nhật timing, chạy `(cd core && bun test) > "$HOME/core-test-timings.log" 2>&1`, rồi `bun tools/ci/core-tests.ts --refresh "$HOME/core-test-timings.log"` và review JSON trước commit. Bun 1.4.0 chưa có `bun check`, nên typecheck vẫn dùng TypeScript; Linux check không chứng minh desktop/DPAPI chạy được trên Windows.
 
 ## Quyền, dữ liệu và provenance
 

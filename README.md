@@ -114,7 +114,7 @@ Windows local là luồng development có bằng chứng được ghi; macOS/Lin
 - [SECURITY](SECURITY.md): quy tắc xử lý lỗ hổng và dữ liệu nhạy cảm; không đăng secrets vào issue công khai.
 - [Roadmap chi tiết](docs/ROADMAP.md): thứ tự phụ thuộc và gate hoàn thành; chưa có lịch/SLA được hứa.
 
-Repo hiện không có CI tự động ở root. Badge ở đầu trang là nhãn trạng thái/kiến trúc tĩnh, không phải kết quả CI.
+Workflow CI tại root kiểm tra PR theo đường dẫn; xem [hướng dẫn CI](CONTRIBUTING.md#ci-cho-pull-request). Badge ở đầu trang vẫn là nhãn trạng thái/kiến trúc tĩnh, không phải kết quả CI hay bằng chứng release.
 
 ## Các nhánh
 

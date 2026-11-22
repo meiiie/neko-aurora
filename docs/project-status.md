@@ -20,6 +20,6 @@ PASS chỉ áp dụng cho exact commit, command, môi trường và scope đư�
 
 ## CI và release
 
-Repo hiện không có CI tự động tại root; workflow Core gốc được giữ trong `migration/disabled-workflows/` để đối chiếu. Badge chỉ là nhãn tĩnh. Chưa có installer stable, release signature, support window hay SLA được cam kết. Không tự bật workflow có provider/cloud/host side effect chỉ để có badge xanh.
+Workflow CI tại root kiểm tra PR theo đường dẫn với check tổng hợp `ci-ok`; xem [hướng dẫn CI](../CONTRIBUTING.md#ci-cho-pull-request). Workflow Core gốc được giữ trong `migration/disabled-workflows/` để đối chiếu. Việc có workflow không chứng minh lần chạy GitHub đã PASS; badge chỉ là nhãn tĩnh. Chưa có installer stable, release signature, support window hay SLA được cam kết. Không tự bật workflow có provider/cloud/host side effect chỉ để có badge xanh.
 
 Tài liệu repo có thể được hoàn thiện trước khi sản phẩm hoàn tất. Xem [hỗ trợ](../SUPPORT.md) để báo vấn đề với fixture không nhạy cảm.

@@ -38,8 +38,15 @@ func TestComputerRunNeedsApproval(t *testing.T) {
 	post(t, srv.URL+"/app/api/agents/"+bot+"/messages", `{"text":"viết script python tính 6*7 rồi chạy"}`)
 	waitTask(t, svc, bot)
 	st, _ := svc.PC.Status(bot)
-	if len(st.Files) != 1 || len(st.Log) != 0 {
+	if len(st.Files) != 2 || len(st.Log) != 0 {
 		t.Fatalf("file written / nothing run yet: %+v", st)
+	}
+	paths := map[string]bool{}
+	for _, file := range st.Files {
+		paths[file.Path] = true
+	}
+	if !paths["a.py"] || !paths["verify.txt"] {
+		t.Fatalf("script and automatic checklist required: %+v", st.Files)
 	}
 	p := svc.view().pending()
 	if len(p) != 1 || p[0].Approval.Kind != "computer" || p[0].Approval.Body != "python3 a.py # mail" {
@@ -87,7 +94,8 @@ func TestComputerRunNeedsApproval(t *testing.T) {
 	if !strings.Contains(string(b), "print(6*7") {
 		t.Fatal(string(b))
 	}
-	if r := post(t, srv.URL+"/app/api/agents/"+bot+"/computer/reset", `{}`); r.StatusCode != 200 {
+	resetBody, _ := json.Marshal(map[string]string{"workspaceId": svc.workspaceID})
+	if r := post(t, srv.URL+"/app/api/agents/"+bot+"/computer/reset", string(resetBody)); r.StatusCode != 200 {
 		t.Fatal(r.StatusCode)
 	}
 	if st, _ := svc.PC.Status(bot); len(st.Files)+len(st.Log) != 0 {
