@@ -81,7 +81,10 @@ for name, expected in {
         errors.append(name + ": fixture image bytes changed; review provenance/version before replacing")
 
 if (ROOT / ".github/workflows").exists():
-    errors.append("Root workflows were added; review real execution and update CI statements before continuing")
+    for name in ["README.md", "CONTRIBUTING.md", "docs/project-status.md"]:
+        text = (ROOT / name).read_text(encoding="utf-8")
+        if re.search(r"(?:chưa|không) có CI tự động", text):
+            errors.append(name + ": stale no-CI claim with root workflows present")
 
 for error in errors:
     print(error)
