@@ -82,10 +82,18 @@ jobs:
 
   go-test:
     needs: changes
-    if: needs.changes.outputs.native == 'true'
+    if: needs.changes.outputs.native == 'true' || needs.changes.outputs.core == 'true'
     runs-on: ubuntu-latest
+    env:
+      NEKO_CORE_DIR: ${{ github.workspace }}/core
     steps:
       - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.4.0
+      - run: bun install --frozen-lockfile
+        working-directory: core
+      - run: echo "NEKO_BUN_PATH=$(command -v bun)" >> "$GITHUB_ENV"
       - uses: actions/setup-go@v5
         with:
           go-version-file: app/native/go.mod

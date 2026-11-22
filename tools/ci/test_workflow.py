@@ -48,6 +48,15 @@ class PathFilters(unittest.TestCase):
         self.assertEqual(self.selected(['core/src/core/agent.ts']), {'core'})
         self.assertEqual(self.selected(['README.md']), {'docs'})
 
+    def test_native_bridge_has_core_runtime_and_core_trigger(self):
+        job = WORKFLOW.split('  go-test:\n', 1)[1].split('  rust-host:\n', 1)[0]
+        self.assertIn("if: needs.changes.outputs.native == 'true' || needs.changes.outputs.core == 'true'", job)
+        self.assertIn('uses: oven-sh/setup-bun@v2', job)
+        self.assertIn('bun-version: 1.4.0', job)
+        self.assertIn('bun install --frozen-lockfile\n        working-directory: core', job)
+        self.assertIn('NEKO_CORE_DIR: ${{ github.workspace }}/core', job)
+        self.assertIn('NEKO_BUN_PATH=$(command -v bun)', job)
+
 
 if __name__ == '__main__':
     unittest.main()
